@@ -38,12 +38,6 @@ struct ContentView: View {
     
     // MARK: - File Action UI States
     
-    @State private var renamingNode: FileNode?
-    @State private var newName: String = ""
-    @State private var creatingFolderInPath: String?
-    @State private var newFolderName: String = ""
-    @State private var nodesToDelete: [FileNode]? = nil
-    
     /// Target file URL bound to the native macOS Quick Look panel.
     @State private var quickLookURL: URL? = nil
 
@@ -195,15 +189,6 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(settings)
         }
-        .modifier(FileOperationAlerts(
-            syncManager: syncManager,
-            refreshAction: refreshAction,
-            renamingNode: $renamingNode,
-            newName: $newName,
-            creatingFolderInPath: $creatingFolderInPath,
-            newFolderName: $newFolderName,
-            nodesToDelete: $nodesToDelete
-        ))
         .alert("Error", isPresented: Binding(
             get: { syncManager.currentError != nil },
             set: { _ in syncManager.currentError = nil }
@@ -337,17 +322,30 @@ struct ContentView: View {
     // MARK: - File Operations Helpers
     
     private func beginRename(_ node: FileNode) {
-        newName = node.name
-        renamingNode = node
+        if let newName = NativeAlerts.promptForRename(currentName: node.name) {
+            Task {
+                await syncManager.renameItem(at: node.id, to: newName)
+                refreshAction()
+            }
+        }
     }
     
     private func beginCreateFolder(in path: String) {
-        newFolderName = ""
-        creatingFolderInPath = path
+        if let folderName = NativeAlerts.promptForNewFolder() {
+            Task {
+                await syncManager.createFolder(named: folderName, in: path)
+                refreshAction()
+            }
+        }
     }
     
     private func confirmDelete(_ nodes: [FileNode]) {
-        nodesToDelete = nodes
+        if NativeAlerts.confirmDelete(for: nodes) {
+            Task {
+                await syncManager.deleteItems(at: nodes.map { $0.id })
+                refreshAction()
+            }
+        }
     }
     
     /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
