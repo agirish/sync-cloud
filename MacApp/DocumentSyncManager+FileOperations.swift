@@ -149,7 +149,9 @@ extension DocumentSyncManager {
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: targetPath)
                 
-                if fm.fileExists(atPath: targetURL.path) {
+                if sourceURL == targetURL {
+                    targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                } else if fm.fileExists(atPath: targetURL.path) {
                     let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
                     switch resolution {
                     case .replace: break
@@ -196,7 +198,9 @@ extension DocumentSyncManager {
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
-                if fm.fileExists(atPath: targetURL.path) {
+                if sourceURL == targetURL {
+                    targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                } else if fm.fileExists(atPath: targetURL.path) {
                     let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
                     switch resolution {
                     case .replace: break
@@ -243,7 +247,9 @@ extension DocumentSyncManager {
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
-                if fm.fileExists(atPath: targetURL.path) {
+                if sourceURL == targetURL {
+                    continue
+                } else if fm.fileExists(atPath: targetURL.path) {
                     let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: true) }
                     switch resolution {
                     case .replace: break
@@ -284,6 +290,13 @@ extension DocumentSyncManager {
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         
+        if FileManager.default.fileExists(atPath: newURL.path) {
+            let msg = "Error renaming item: An item named \"\(newName)\" already exists."
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+            return
+        }
+        
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?) in
             let fm = FileManager.default
             do {
@@ -313,7 +326,10 @@ extension DocumentSyncManager {
         let error = await enqueueFileOperation { () -> Error? in
             let fm = FileManager.default
             do {
-                try fm.createDirectory(at: createdURL, withIntermediateDirectories: true)
+                if fm.fileExists(atPath: createdURL.path) {
+                    throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSLocalizedDescriptionKey : "An item named \"\(name)\" already exists."])
+                }
+                try fm.createDirectory(at: createdURL, withIntermediateDirectories: false)
                 return nil
             } catch {
                 return error
@@ -525,7 +541,7 @@ extension DocumentSyncManager {
                     for (idx, targetURL) in urls.enumerated() {
                         if let trashedURL = trashedItems[idx] {
                             try? FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            try? FileManager.default.moveItem(at: trashedURL, to: targetURL)
+                            try? Self.safeMoveItem(at: trashedURL, to: targetURL)
                         }
                     }
                 }

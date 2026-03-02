@@ -322,7 +322,7 @@ struct ContentView: View {
     // MARK: - File Operations Helpers
     
     private func beginRename(_ node: FileNode) {
-        if let newName = NativeAlerts.promptForRename(currentName: node.name) {
+        if let newName = NativeAlerts.promptForRename(currentName: node.name), newName != node.name {
             Task {
                 await syncManager.renameItem(at: node.id, to: newName)
                 refreshAction()
