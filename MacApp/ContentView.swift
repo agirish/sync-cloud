@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 /// The main application layout for SyncCloud.
 /// Contains a two-pane `NavigationSplitView` managing source and destination `FileTreeView`s.
@@ -39,6 +40,9 @@ struct ContentView: View {
     @State private var creatingFolderInPath: String?
     @State private var newFolderName: String = ""
     @State private var nodesToDelete: [FileNode]? = nil
+    
+    /// Target file URL bound to the native macOS Quick Look panel.
+    @State private var quickLookURL: URL? = nil
 
     var body: some View {
         NavigationSplitView {
@@ -201,6 +205,19 @@ struct ContentView: View {
                 Text(errorMsg)
             }
         }
+        .quickLookPreview($quickLookURL)
+        .background(
+            Button(action: {
+                // Quick look the first selected item in either the source or destination pane
+                if let targetPath = selectedSourcePaths.first ?? selectedDestinationPaths.first {
+                    quickLookURL = URL(fileURLWithPath: targetPath)
+                }
+            }) {
+                EmptyView()
+            }
+            .keyboardShortcut(.space, modifiers: [])
+            .opacity(0)
+        )
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation {
                 isScanning = scanning

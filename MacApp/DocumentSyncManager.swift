@@ -30,6 +30,9 @@ class DocumentSyncManager: ObservableObject {
         }
     }
     
+    /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)
+    @Published var showHiddenFiles: Bool = false
+    
     /// Internal representation of the loaded file structure for the source provider.
     @Published var sourceTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the destination provider.
@@ -63,7 +66,7 @@ class DocumentSyncManager: ObservableObject {
         isLoadingSourceTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
-        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption)
+        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
         sourceTree = tree
         sourceItemCount = countItems(in: tree)
         isLoadingSourceTree = false
@@ -73,13 +76,13 @@ class DocumentSyncManager: ObservableObject {
         isLoadingDestinationTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
-        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption)
+        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
         destinationTree = tree
         destinationItemCount = countItems(in: tree)
         isLoadingDestinationTree = false
     }
     
-    nonisolated private static func buildTree(url: URL, sortOption: SortOption) async -> [FileNode] {
+    nonisolated private static func buildTree(url: URL, sortOption: SortOption, showHiddenFiles: Bool) async -> [FileNode] {
         await Task.detached(priority: .userInitiated) {
             func buildNode(at fullURL: URL) -> FileNode? {
                 var isDirectory: ObjCBool = false
@@ -104,7 +107,7 @@ class DocumentSyncManager: ObservableObject {
                     let contents = (try? fm.contentsOfDirectory(atPath: fullURL.path)) ?? []
                     var children: [FileNode] = []
                     for item in contents {
-                        if item.hasPrefix(".") { continue }
+                        if !showHiddenFiles && item.hasPrefix(".") { continue }
                         let childURL = fullURL.appendingPathComponent(item)
                         if let childNode = buildNode(at: childURL) {
                             children.append(childNode)
@@ -121,7 +124,7 @@ class DocumentSyncManager: ObservableObject {
             let contents = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
             var rootChildren: [FileNode] = []
             for item in contents {
-                if item.hasPrefix(".") { continue }
+                if !showHiddenFiles && item.hasPrefix(".") { continue }
                 let childURL = url.appendingPathComponent(item)
                 if let childNode = buildNode(at: childURL) {
                     rootChildren.append(childNode)

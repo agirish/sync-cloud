@@ -49,6 +49,14 @@ struct NavigationToolbar: View {
                     .foregroundColor(.secondary)
                 Spacer()
             }
+            
+            Toggle(isOn: $syncManager.showHiddenFiles) {
+                Label("Hidden", systemImage: "eye")
+            }
+            .toggleStyle(.button)
+            .onChange(of: syncManager.showHiddenFiles) { _ in
+                refreshAction()
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
