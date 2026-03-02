@@ -4,6 +4,14 @@ import UniformTypeIdentifiers
 /// Core business logic manager governing the synchronization engine
 /// Manages the in-memory tree structures (FileNode) for both source and destination cloud providers.
 /// Responsible for scanning directories, computing FileDifferences, and tracking relative navigation paths.
+enum SortOption: String, CaseIterable, Equatable {
+    case name = "Name"
+    case kind = "Kind"
+    case dateModified = "Date Modified"
+    case size = "Size"
+    case tags = "Tags"
+}
+
 @MainActor
 class DocumentSyncManager: ObservableObject {
     /// Array of differences calculated between the source and destination directories.
@@ -12,6 +20,15 @@ class DocumentSyncManager: ObservableObject {
     @Published var isScanning = false
     /// Indicates whether at least one successful scan has occurred.
     @Published var hasScanned = false
+    
+    /// Global sorting preference for the file trees.
+    @Published var sortOption: SortOption = .name {
+        didSet {
+            // Re-sort trees globally when option changes
+            sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
+            destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
+        }
+    }
     
     /// Internal representation of the loaded file structure for the source provider.
     @Published var sourceTree: [FileNode] = []
@@ -46,7 +63,7 @@ class DocumentSyncManager: ObservableObject {
         isLoadingSourceTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
-        let tree = await Self.buildTree(url: focusURL)
+        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption)
         sourceTree = tree
         sourceItemCount = countItems(in: tree)
         isLoadingSourceTree = false
@@ -56,13 +73,13 @@ class DocumentSyncManager: ObservableObject {
         isLoadingDestinationTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
-        let tree = await Self.buildTree(url: focusURL)
+        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption)
         destinationTree = tree
         destinationItemCount = countItems(in: tree)
         isLoadingDestinationTree = false
     }
     
-    nonisolated private static func buildTree(url: URL) async -> [FileNode] {
+    nonisolated private static func buildTree(url: URL, sortOption: SortOption) async -> [FileNode] {
         await Task.detached(priority: .userInitiated) {
             func buildNode(at fullURL: URL) -> FileNode? {
                 var isDirectory: ObjCBool = false
@@ -70,6 +87,18 @@ class DocumentSyncManager: ObservableObject {
                 guard fm.fileExists(atPath: fullURL.path, isDirectory: &isDirectory) else { return nil }
                 
                 let name = fullURL.lastPathComponent
+                
+                var modDate: Date?
+                var size: Int?
+                var tags: [String]?
+                var kind: String?
+                
+                if let rv = try? fullURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
+                    modDate = rv.contentModificationDate
+                    size = rv.fileSize
+                    tags = rv.tagNames
+                    kind = rv.typeIdentifier
+                }
                 
                 if isDirectory.boolValue {
                     let contents = (try? fm.contentsOfDirectory(atPath: fullURL.path)) ?? []
@@ -81,15 +110,10 @@ class DocumentSyncManager: ObservableObject {
                             children.append(childNode)
                         }
                     }
-                    children.sort { (a, b) in
-                        if a.isDirectory == b.isDirectory {
-                            return a.name.localizedStandardCompare(b.name) == .orderedAscending
-                        }
-                        return a.isDirectory
-                    }
-                    return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children)
+                    children = sort(nodes: children, by: sortOption)
+                    return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
                 } else {
-                    return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil)
+                    return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
                 }
             }
             
@@ -103,14 +127,41 @@ class DocumentSyncManager: ObservableObject {
                     rootChildren.append(childNode)
                 }
             }
-            rootChildren.sort { (a, b) in
-                if a.isDirectory == b.isDirectory {
-                    return a.name.localizedStandardCompare(b.name) == .orderedAscending
-                }
-                return a.isDirectory
-            }
+            rootChildren = sort(nodes: rootChildren, by: sortOption)
             return rootChildren
         }.value
+    }
+    
+    nonisolated private static func sort(nodes: [FileNode], by option: SortOption) -> [FileNode] {
+        var sorted = nodes
+        sorted.sort { a, b in
+            // Typically preserve folder precedence
+            if a.isDirectory != b.isDirectory { return a.isDirectory }
+            
+            switch option {
+            case .name:
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            case .kind:
+                let kA = a.kind ?? ""
+                let kB = b.kind ?? ""
+                if kA == kB { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
+                return kA.localizedStandardCompare(kB) == .orderedAscending
+            case .dateModified:
+                let dA = a.modificationDate ?? Date.distantPast
+                let dB = b.modificationDate ?? Date.distantPast
+                return dA > dB
+            case .size:
+                let sA = a.fileSize ?? 0
+                let sB = b.fileSize ?? 0
+                return sA > sB
+            case .tags:
+                let tA = a.tags?.joined() ?? ""
+                let tB = b.tags?.joined() ?? ""
+                if tA == tB { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
+                return tA.localizedStandardCompare(tB) == .orderedAscending
+            }
+        }
+        return sorted
     }
     
     // MARK: - Navigation Methods
@@ -380,6 +431,10 @@ struct FileNode: Identifiable, Hashable, Codable {
     let name: String
     let isDirectory: Bool
     var children: [FileNode]?
+    var modificationDate: Date?
+    var fileSize: Int?
+    var tags: [String]?
+    var kind: String?
 }
 
 extension FileNode: Transferable {

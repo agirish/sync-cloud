@@ -21,6 +21,8 @@ struct FileTreeView: View {
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
     let onRename: (FileNode) -> Void
     let onCreateFolder: (String) -> Void
+    let onGetInfo: (String) -> Void
+    let onSort: (SortOption) -> Void
     
     var body: some View {
         ZStack {
@@ -55,7 +57,9 @@ struct FileTreeView: View {
                             onPaste: onPaste,
                             onPasteExplicit: onPasteExplicit,
                             onRename: onRename,
-                            onCreateFolder: onCreateFolder
+                            onCreateFolder: onCreateFolder,
+                            onGetInfo: onGetInfo,
+                            onSort: onSort
                         )
                     }
                 }
@@ -75,15 +79,16 @@ struct FileTreeView: View {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
         Divider()
-        Menu("Sort By") {
-            Button("Name") {}
-            Button("Kind") {}
-            Button("Date Modified") {}
-            Button("Size") {}
-            Button("Tags") {}
+        Button(action: { onGetInfo(currentPath) }) {
+            Label("Get Info", systemImage: "info.circle")
         }
-        Button(action: { }) {
-            Label("Show View Options", systemImage: "gearshape")
+        Divider()
+        Menu("Sort By") {
+            Button("Name") { onSort(.name) }
+            Button("Kind") { onSort(.kind) }
+            Button("Date Modified") { onSort(.dateModified) }
+            Button("Size") { onSort(.size) }
+            Button("Tags") { onSort(.tags) }
         }
     }
 }
@@ -104,6 +109,8 @@ struct FileContextMenu: View {
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
     let onRename: (FileNode) -> Void
     let onCreateFolder: (String) -> Void
+    let onGetInfo: (String) -> Void
+    let onSort: (SortOption) -> Void
     
     var body: some View {
         let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : selection)
@@ -111,6 +118,10 @@ struct FileContextMenu: View {
         
         Group {
             if count == 1, let singleNode = selectedNodes.first {
+                Button(action: { onGetInfo(singleNode.id) }) {
+                    Label("Get Info", systemImage: "info.circle")
+                }
+                Divider()
                 Button(action: { onRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
@@ -204,6 +215,8 @@ struct RecursiveFileNodeView: View {
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
     let onRename: (FileNode) -> Void
     let onCreateFolder: (String) -> Void
+    let onGetInfo: (String) -> Void
+    let onSort: (SortOption) -> Void
     
     var isExpanded: Binding<Bool> {
         Binding(
@@ -232,7 +245,9 @@ struct RecursiveFileNodeView: View {
             onPaste: onPaste,
             onPasteExplicit: onPasteExplicit,
             onRename: onRename,
-            onCreateFolder: onCreateFolder
+            onCreateFolder: onCreateFolder,
+            onGetInfo: onGetInfo,
+            onSort: onSort
         )
     }
     
@@ -254,7 +269,9 @@ struct RecursiveFileNodeView: View {
                         onPaste: onPaste,
                         onPasteExplicit: onPasteExplicit,
                         onRename: onRename,
-                        onCreateFolder: onCreateFolder
+                        onCreateFolder: onCreateFolder,
+                        onGetInfo: onGetInfo,
+                        onSort: onSort
                     )
                 }
             } label: {

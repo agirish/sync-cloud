@@ -92,7 +92,9 @@ struct ContentView: View {
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
                             onRename: { node in beginRename(node) },
-                            onCreateFolder: { path in beginCreateFolder(in: path) }
+                            onCreateFolder: { path in beginCreateFolder(in: path) },
+                            onGetInfo: { path in openGetInfo(for: path) },
+                            onSort: { option in syncManager.sortOption = option }
                         )
                     }
                     .frame(minWidth: 250)
@@ -122,7 +124,9 @@ struct ContentView: View {
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
                             onRename: { node in beginRename(node) },
-                            onCreateFolder: { path in beginCreateFolder(in: path) }
+                            onCreateFolder: { path in beginCreateFolder(in: path) },
+                            onGetInfo: { path in openGetInfo(for: path) },
+                            onSort: { option in syncManager.sortOption = option }
                         )
                     }
                     .frame(minWidth: 250)
@@ -234,6 +238,19 @@ struct ContentView: View {
         let root = settings.path(for: destinationProviderId)
         if syncManager.destRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
+    }
+    // MARK: - Actions
+    
+    /// Triggers native macOS 'Get Info' window using AppleScript.
+    private func openGetInfo(for path: String) {
+        let script = "tell application \"Finder\" to open information window of (POSIX file \"\(path)\")"
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+            if let err = error {
+                Logger.shared.error("Failed to open Get Info: \(err)", showAlert: false)
+            }
+        }
     }
     
     /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
