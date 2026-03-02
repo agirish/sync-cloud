@@ -6,6 +6,7 @@ struct FileTreeView: View {
     let isLoading: Bool
     let currentPath: String
     @Binding var selection: Set<String>
+    @Binding var expandedPaths: Set<String>
     let otherSelection: Set<String>
     let onFocus: (FileNode) -> Void
     let onCopy: ([FileNode]) -> Void
@@ -33,34 +34,30 @@ struct FileTreeView: View {
                         .foregroundColor(.secondary)
                 }
             } else {
-                List(tree, children: \.children, selection: $selection) { node in
-                    FileRowView(node: node)
-                        .tag(node.id)
-                        .contextMenu {
-                            FileContextMenu(
-                                node: node,
-                                selection: selection,
-                                tree: tree,
-                                otherTree: otherTree,
-                                otherSelection: otherSelection,
-                                onFocus: onFocus,
-                                onCopy: onCopy,
-                                onDelete: onDelete,
-                                onCopyToClipboard: onCopyToClipboard,
-                                onPaste: onPaste,
-                                onPasteExplicit: onPasteExplicit,
-                                onRename: onRename,
-                                onCreateFolder: onCreateFolder
-                            )
-                        }
+                List(selection: $selection) {
+                    ForEach(tree) { node in
+                        RecursiveFileNodeView(
+                            node: node,
+                            selection: $selection,
+                            expandedPaths: $expandedPaths,
+                            tree: tree,
+                            otherTree: otherTree,
+                            otherSelection: otherSelection,
+                            onFocus: onFocus,
+                            onCopy: onCopy,
+                            onDelete: onDelete,
+                            onCopyToClipboard: onCopyToClipboard,
+                            onPaste: onPaste,
+                            onPasteExplicit: onPasteExplicit,
+                            onRename: onRename,
+                            onCreateFolder: onCreateFolder
+                        )
+                    }
                 }
                 .listStyle(SidebarListStyle())
                 .contextMenu { emptyAreaContextMenu }
                 .onDrop(of: [.data], isTargeted: nil) { providers in
                     // This is for dropping ONTO THE ENTIRE LIST (root of the pane)
-                    // But we want to drop onto individual folders. 
-                    // SwiftUI List doesn't make it super easy to drop "onto" a row without complications.
-                    // For now, let's stick to the row-level drop.
                     return false
                 }
             }
@@ -171,5 +168,85 @@ struct FileRowView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+struct RecursiveFileNodeView: View {
+    let node: FileNode
+    @Binding var selection: Set<String>
+    @Binding var expandedPaths: Set<String>
+    let tree: [FileNode]
+    let otherTree: [FileNode]
+    let otherSelection: Set<String>
+    let onFocus: (FileNode) -> Void
+    let onCopy: ([FileNode]) -> Void
+    let onDelete: ([FileNode]) -> Void
+    let onCopyToClipboard: ([FileNode], Bool) -> Void
+    let onPaste: (FileNode) -> Void
+    let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    let onRename: (FileNode) -> Void
+    let onCreateFolder: (String) -> Void
+    
+    var isExpanded: Binding<Bool> {
+        Binding(
+            get: { expandedPaths.contains(node.id) },
+            set: { isExpanding in
+                if isExpanding {
+                    expandedPaths.insert(node.id)
+                } else {
+                    expandedPaths.remove(node.id)
+                }
+            }
+        )
+    }
+    
+    var nodeContextMenu: some View {
+        FileContextMenu(
+            node: node,
+            selection: selection,
+            tree: tree,
+            otherTree: otherTree,
+            otherSelection: otherSelection,
+            onFocus: onFocus,
+            onCopy: onCopy,
+            onDelete: onDelete,
+            onCopyToClipboard: onCopyToClipboard,
+            onPaste: onPaste,
+            onPasteExplicit: onPasteExplicit,
+            onRename: onRename,
+            onCreateFolder: onCreateFolder
+        )
+    }
+    
+    var body: some View {
+        if let children = node.children, !children.isEmpty {
+            DisclosureGroup(isExpanded: isExpanded) {
+                ForEach(children) { child in
+                    RecursiveFileNodeView(
+                        node: child,
+                        selection: $selection,
+                        expandedPaths: $expandedPaths,
+                        tree: tree,
+                        otherTree: otherTree,
+                        otherSelection: otherSelection,
+                        onFocus: onFocus,
+                        onCopy: onCopy,
+                        onDelete: onDelete,
+                        onCopyToClipboard: onCopyToClipboard,
+                        onPaste: onPaste,
+                        onPasteExplicit: onPasteExplicit,
+                        onRename: onRename,
+                        onCreateFolder: onCreateFolder
+                    )
+                }
+            } label: {
+                FileRowView(node: node).tag(node.id)
+            }
+            .contextMenu { nodeContextMenu }
+        } else {
+            // Leaf node or empty directory
+            FileRowView(node: node).tag(node.id)
+                .contextMenu { nodeContextMenu }
+        }
     }
 }

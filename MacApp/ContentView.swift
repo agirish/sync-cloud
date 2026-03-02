@@ -9,6 +9,8 @@ struct ContentView: View {
     
     @State private var selectedSourcePaths: Set<String> = []
     @State private var selectedDestinationPaths: Set<String> = []
+    @State private var sourceExpandedPaths: Set<String> = []
+    @State private var destExpandedPaths: Set<String> = []
     
     @State private var showingSettings = false
     
@@ -102,6 +104,7 @@ struct ContentView: View {
                             isLoading: syncManager.isLoadingSourceTree, 
                             currentPath: currentSourcePath,
                             selection: $selectedSourcePaths,
+                            expandedPaths: $sourceExpandedPaths,
                             otherSelection: selectedDestinationPaths,
                             onFocus: { node in focusFolder(node, isSource: true) },
                             onCopy: { nodes in copyItems(nodes, fromSource: true) },
@@ -131,6 +134,7 @@ struct ContentView: View {
                             isLoading: syncManager.isLoadingDestinationTree, 
                             currentPath: currentDestinationPath,
                             selection: $selectedDestinationPaths,
+                            expandedPaths: $destExpandedPaths,
                             otherSelection: selectedSourcePaths,
                             onFocus: { node in focusFolder(node, isSource: false) },
                             onCopy: { nodes in copyItems(nodes, fromSource: false) },
