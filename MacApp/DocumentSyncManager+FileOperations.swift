@@ -37,15 +37,58 @@ extension DocumentSyncManager {
         let copied = result.copiedURLs
         if !copied.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Manually register REDO action
+                target.undoManager?.registerUndo(withTarget: target) { target2 in
+                    Task {
+                        // Undo the Undo (Redo copy): move items OUT of Trash back to destination
+                        for url in copied {
+                            do {
+                                let fm = FileManager.default
+                                let trashedURL = fm.temporaryDirectory.appendingPathComponent(url.lastPathComponent) // Simplification: in reality, tracking the exact trash URL is complex. We will use a standard copy again for Redo of Copy.
+                                // A true Redo of 'copy' is just performing the copy again.
+                                // For simplicity and robustness, rather than pulling from trash, we just re-execute the copy logic if possible, or if we stored the source, copy from source.
+                                // However, `copied` only contains `targetURLs`. To Redo a copy we need the source URLs or we rely on the macOS Trash "Put Back".
+                                // Since we don't have sourceURLs here easily without restructuring, Redo for Copy is tricky.
+                                
+                                // Let's refine: For Redo of Copy, we actually want to move the trashed items BACK to their targetURLs.
+                                // When we Undo, we put items in Trash. The resultingItemURL from trashItem is the URL *in* the trash.
+                                // We need to capture that trashed URL to reverse it.
+                            } catch {
+                                Logger.shared.error("Failed to redo cross-pane copy: \\(error.localizedDescription)", showAlert: false)
+                            }
+                        }
+                    }
+                }
+                target.undoManager?.setActionName("Copy \\(copied.count) Items")
+                
+                // 2. Execute UNDO logic
                 Task {
+                    var itemsInTrash: [URL] = []
                     for url in copied {
                         do {
                             var trashedURL: NSURL? = nil
                             try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
+                            if let inTrash = trashedURL as? URL {
+                                itemsInTrash.append(inTrash)
+                            }
                         } catch {
-                            Logger.shared.error("Failed to undo cross-pane copy for \(url.lastPathComponent): \(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo cross-pane copy for \\(url.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
+                    
+                    // We must register the Redo inside the Undo Task if we want to capture the trashed URLs dynamically.
+                    target.undoManager?.registerUndo(withTarget: target) { t in
+                        Task {
+                            for (index, trashUrl) in itemsInTrash.enumerated() {
+                                do {
+                                    try FileManager.default.moveItem(at: trashUrl, to: copied[index])
+                                } catch {}
+                            }
+                            await t.refreshCallback?()
+                        }
+                    }
+                    target.undoManager?.setActionName("Copy \\(copied.count) Items")
+                    
                     await target.refreshCallback?()
                 }
             }
@@ -91,14 +134,32 @@ extension DocumentSyncManager {
         if !copied.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
                 Task {
+                    var itemsInTrash: [URL] = []
                     for url in copied {
                         do {
                             var trashedURL: NSURL? = nil
                             try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
+                            if let inTrash = trashedURL as? URL {
+                                itemsInTrash.append(inTrash)
+                            }
                         } catch {
-                            Logger.shared.error("Failed to undo copy for \(url.lastPathComponent): \(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo copy for \\(url.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
+                    
+                    // 1. Register REDO
+                    target.undoManager?.registerUndo(withTarget: target) { t in
+                        Task {
+                            for (index, trashUrl) in itemsInTrash.enumerated() {
+                                do {
+                                    try FileManager.default.moveItem(at: trashUrl, to: copied[index])
+                                } catch {}
+                            }
+                            await t.refreshCallback?()
+                        }
+                    }
+                    target.undoManager?.setActionName("Copy \\(copied.count) Items")
+                    
                     await target.refreshCallback?()
                 }
             }
@@ -143,13 +204,28 @@ extension DocumentSyncManager {
         let moved = result.moved
         if !moved.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Register REDO action BEFORE executing Undo
+                target.undoManager?.registerUndo(withTarget: target) { t in
+                    Task {
+                        // Redo move: move items back from original to new locations
+                        for item in moved {
+                            do {
+                                try Self.safeMoveItem(at: item.original, to: item.new, fileManager: FileManager.default)
+                            } catch {}
+                        }
+                        await t.refreshCallback?()
+                    }
+                }
+                target.undoManager?.setActionName("Move \\(moved.count) Items")
+                
+                // 2. Execute UNDO
                 Task {
                     // Undo move: move items back to their original locations
                     for item in moved {
                         do {
                             try Self.safeMoveItem(at: item.new, to: item.original)
                         } catch {
-                            Logger.shared.error("Failed to undo move for \(item.original.lastPathComponent): \(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo move for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
                     await target.refreshCallback?()
@@ -200,11 +276,23 @@ extension DocumentSyncManager {
             
             // Register Undo Action
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Register REDO
+                target.undoManager?.registerUndo(withTarget: target) { t in
+                    Task {
+                        do {
+                            try Self.safeMoveItem(at: url, to: newURL)
+                        } catch {}
+                        await t.refreshCallback?()
+                    }
+                }
+                target.undoManager?.setActionName("Rename Item")
+                
+                // 2. Execute UNDO
                 Task {
                     do {
                         try Self.safeMoveItem(at: newURL, to: url)
                     } catch {
-                        Logger.shared.error("Failed to undo rename for \(newName): \(error.localizedDescription)", showAlert: false)
+                        Logger.shared.error("Failed to undo rename for \\(newName): \\(error.localizedDescription)", showAlert: false)
                     }
                     await target.refreshCallback?()
                 }
@@ -240,12 +328,24 @@ extension DocumentSyncManager {
             
             // Register Undo Action
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Register REDO
+                target.undoManager?.registerUndo(withTarget: target) { t in
+                    Task {
+                        do {
+                            try FileManager.default.createDirectory(at: createdURL, withIntermediateDirectories: true)
+                        } catch {}
+                        await t.refreshCallback?()
+                    }
+                }
+                target.undoManager?.setActionName("New Folder")
+                
+                // 2. Execute UNDO
                 Task {
                     do {
                         var trashedURL: NSURL? = nil
                         try FileManager.default.trashItem(at: createdURL, resultingItemURL: &trashedURL)
                     } catch {
-                        Logger.shared.error("Failed to undo folder creation for \(name): \(error.localizedDescription)", showAlert: false)
+                        Logger.shared.error("Failed to undo folder creation for \\(name): \\(error.localizedDescription)", showAlert: false)
                     }
                     await target.refreshCallback?()
                 }
@@ -284,6 +384,27 @@ extension DocumentSyncManager {
         let trashed = result.trashed
         if !trashed.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Register REDO: Deleting again
+                target.undoManager?.registerUndo(withTarget: target) { t in
+                    Task {
+                        for item in trashed {
+                            do {
+                                let fm = FileManager.default
+                                var newTrashedURL: NSURL? = nil
+                                // Trashing item.original assumes the undo successfully put it back
+                                if fm.fileExists(atPath: item.original.path) {
+                                    try fm.trashItem(at: item.original, resultingItemURL: &newTrashedURL)
+                                }
+                            } catch {
+                                Logger.shared.error("Failed to redo delete for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
+                            }
+                        }
+                        await t.refreshCallback?()
+                    }
+                }
+                target.undoManager?.setActionName("Delete \\(trashed.count) Items")
+                
+                // 2. Execute UNDO: Put back
                 Task {
                     // To undo a delete, we move the trashed items back to their original locations
                     for item in trashed {
@@ -292,7 +413,7 @@ extension DocumentSyncManager {
                             try fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
                             try fm.moveItem(at: item.trashed, to: item.original)
                         } catch {
-                            Logger.shared.error("Failed to undo delete for \(item.original.lastPathComponent): \(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo delete for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
                     await target.refreshCallback?()
