@@ -12,18 +12,30 @@ class DocumentSyncManager: ObservableObject {
     @Published var isLoadingSourceTree = false
     @Published var isLoadingDestinationTree = false
     
+    // Navigation State (Relative paths from provider roots)
+    @Published var sourceRelativePath: String = ""
+    @Published var destRelativePath: String = ""
+    
+    private var history: [(source: String, dest: String)] = [("", "")]
+    private var historyIndex: Int = 0
+    
+    @Published var canGoBack: Bool = false
+    @Published var canGoForward: Bool = false
+    
     func loadSourceTree(path: String) async {
         isLoadingSourceTree = true
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let tree = await Self.buildTree(url: url)
+        let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
+        let tree = await Self.buildTree(url: focusURL)
         sourceTree = tree
         isLoadingSourceTree = false
     }
     
     func loadDestinationTree(path: String) async {
         isLoadingDestinationTree = true
-        let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let tree = await Self.buildTree(url: url)
+        let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
+        let tree = await Self.buildTree(url: focusURL)
         destinationTree = tree
         isLoadingDestinationTree = false
     }
@@ -77,6 +89,56 @@ class DocumentSyncManager: ObservableObject {
             }
             return rootChildren
         }.value
+    }
+    
+    // MARK: - Navigation Methods
+    
+    func focusOn(relativePath: String, isSource: Bool, otherProviderPath: String) {
+        let newSource = isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
+        let newDest = !isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
+        
+        // Trim history if we're not at the end
+        if historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+        
+        history.append((newSource, newDest))
+        historyIndex = history.count - 1
+        updateStateFromHistory()
+    }
+    
+    func goBack() {
+        guard historyIndex > 0 else { return }
+        historyIndex -= 1
+        updateStateFromHistory()
+    }
+    
+    func goForward() {
+        guard historyIndex < history.count - 1 else { return }
+        historyIndex += 1
+        updateStateFromHistory()
+    }
+    
+    func resetNavigation() {
+        focusOn(relativePath: "", isSource: true, otherProviderPath: "")
+    }
+    
+    private func updateStateFromHistory() {
+        let state = history[historyIndex]
+        sourceRelativePath = state.source
+        destRelativePath = state.dest
+        canGoBack = historyIndex > 0
+        canGoForward = historyIndex < history.count - 1
+    }
+    
+    private func findMatchingPath(_ relativePath: String, in rootPath: String) -> String {
+        if relativePath.isEmpty { return "" }
+        let fullPath = (rootPath as NSString).expandingTildeInPath + "/" + relativePath
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
+            return relativePath
+        }
+        return "" // Return root if no match
     }
     
     func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {

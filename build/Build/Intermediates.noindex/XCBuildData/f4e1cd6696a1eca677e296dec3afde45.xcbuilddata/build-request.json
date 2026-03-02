@@ -49,7 +49,7 @@
         "table" : {
           "ACTION" : "build",
           "COLOR_DIAGNOSTICS" : "YES",
-          "diagnostic_message_length" : "53",
+          "diagnostic_message_length" : "231",
           "ENABLE_PREVIEWS" : "NO",
           "ENABLE_XOJIT_PREVIEWS" : "YES",
           "ONLY_ACTIVE_ARCH" : "YES"

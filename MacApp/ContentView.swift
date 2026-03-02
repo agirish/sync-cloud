@@ -66,6 +66,11 @@ struct ContentView: View {
         } detail: {
             // Main Content Area
             VStack(spacing: 0) {
+                // Focus Navigation Toolbar
+                NavigationToolbar(syncManager: syncManager, loadTrees: loadTrees)
+                
+                Divider()
+                
                 // Dashboard Header
                 DashboardHeader(
                     sourceTree: syncManager.sourceTree,
@@ -82,9 +87,14 @@ struct ContentView: View {
                         PaneHeader(
                             title: "Source", 
                             provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), 
-                            path: settings.path(for: sourceProviderId)
+                            path: currentSourcePath
                         )
-                        FileTreeView(tree: syncManager.sourceTree, isLoading: syncManager.isLoadingSourceTree, selection: $selectedSourcePath)
+                        FileTreeView(
+                            tree: syncManager.sourceTree, 
+                            isLoading: syncManager.isLoadingSourceTree, 
+                            selection: $selectedSourcePath,
+                            onFocus: { node in focusFolder(node, isSource: true) }
+                        )
                     }
                     .frame(minWidth: 250)
                     
@@ -93,9 +103,14 @@ struct ContentView: View {
                         PaneHeader(
                             title: "Destination", 
                             provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), 
-                            path: settings.path(for: destinationProviderId)
+                            path: currentDestinationPath
                         )
-                        FileTreeView(tree: syncManager.destinationTree, isLoading: syncManager.isLoadingDestinationTree, selection: $selectedDestinationPath)
+                        FileTreeView(
+                            tree: syncManager.destinationTree, 
+                            isLoading: syncManager.isLoadingDestinationTree, 
+                            selection: $selectedDestinationPath,
+                            onFocus: { node in focusFolder(node, isSource: false) }
+                        )
                     }
                     .frame(minWidth: 250)
                 }
@@ -114,7 +129,7 @@ struct ContentView: View {
                             .padding(.bottom, 8)
                         Text("Everything is in sync")
                             .font(.headline)
-                        Text("No differences found between Source and Destination.")
+                        Text("No differences found between focused directories.")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -155,27 +170,53 @@ struct ContentView: View {
         }
         .onChange(of: sourceProviderId) { _ in
             selectedSourcePath = nil
-            Task { await syncManager.loadSourceTree(path: settings.path(for: sourceProviderId)) }
+            syncManager.resetNavigation()
+            loadTrees()
         }
         .onChange(of: destinationProviderId) { _ in
             selectedDestinationPath = nil
-            Task { await syncManager.loadDestinationTree(path: settings.path(for: destinationProviderId)) }
+            syncManager.resetNavigation()
+            loadTrees()
         }
         .onChange(of: settings.availableProviders) { _ in
             loadTrees()
         }
     }
     
+    private var currentSourcePath: String {
+        let root = settings.path(for: sourceProviderId)
+        if syncManager.sourceRelativePath.isEmpty { return root }
+        return (root as NSString).appendingPathComponent(syncManager.sourceRelativePath)
+    }
+    
+    private var currentDestinationPath: String {
+        let root = settings.path(for: destinationProviderId)
+        if syncManager.destRelativePath.isEmpty { return root }
+        return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
+    }
+    
+    private func focusFolder(_ node: FileNode, isSource: Bool) {
+        let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destinationProviderId)
+        let otherRootPath = isSource ? settings.path(for: destinationProviderId) : settings.path(for: sourceProviderId)
+        
+        let expandedRoot = (rootPath as NSString).expandingTildeInPath
+        let nodePath = node.id // This is already absolute
+        
+        var relPath = nodePath.replacingOccurrences(of: expandedRoot, with: "")
+        if relPath.hasPrefix("/") { relPath.removeFirst() }
+        
+        syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
+        loadTrees()
+    }
+    
     private func scanAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }
               
-        let sourceToScan = selectedSourcePath ?? settings.path(for: sourceProvider.id)
-        let destToScan = selectedDestinationPath ?? settings.path(for: destProvider.id)
         Task {
             await syncManager.scanDirectories(
-                source: sourceProvider, sourcePath: sourceToScan,
-                destination: destProvider, destinationPath: destToScan
+                source: sourceProvider, sourcePath: currentSourcePath,
+                destination: destProvider, destinationPath: currentDestinationPath
             )
         }
     }
@@ -187,6 +228,7 @@ struct ContentView: View {
         }
     }
 }
+
 
 // MARK: - Subviews
 
@@ -280,10 +322,65 @@ struct PaneHeader: View {
     }
 }
 
+struct NavigationToolbar: View {
+    @ObservedObject var syncManager: DocumentSyncManager
+    let loadTrees: () -> Void
+    
+    var body: some View {
+        HStack {
+            HStack(spacing: 8) {
+                Button(action: { syncManager.goBack(); loadTrees() }) {
+                    Image(systemName: "chevron.left")
+                }
+                .disabled(!syncManager.canGoBack)
+                
+                Button(action: { syncManager.goForward(); loadTrees() }) {
+                    Image(systemName: "chevron.right")
+                }
+                .disabled(!syncManager.canGoForward)
+            }
+            .buttonStyle(.bordered)
+            
+            Divider().frame(height: 20).padding(.horizontal, 8)
+            
+            if !syncManager.sourceRelativePath.isEmpty || !syncManager.destRelativePath.isEmpty {
+                HStack {
+                    Image(systemName: "scope")
+                        .foregroundColor(.accentColor)
+                    Text("Focusing on:")
+                        .fontWeight(.medium)
+                    Text(syncManager.sourceRelativePath.isEmpty ? syncManager.destRelativePath : syncManager.sourceRelativePath)
+                        .italic()
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .font(.subheadline)
+                
+                Spacer()
+                
+                Button(action: { syncManager.resetNavigation(); loadTrees() }) {
+                    Label("Restore Root", systemImage: "house")
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Text("Viewing All Files (Root)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+}
+
 struct FileTreeView: View {
     let tree: [FileNode]
     let isLoading: Bool
     @Binding var selection: String?
+    let onFocus: (FileNode) -> Void
     
     var body: some View {
         ZStack {
@@ -307,6 +404,13 @@ struct FileTreeView: View {
                             .foregroundColor(node.isDirectory ? .blue : .secondary)
                         Text(node.name)
                             .font(.system(.body, design: .rounded))
+                    }
+                    .contextMenu {
+                        if node.isDirectory {
+                            Button(action: { onFocus(node) }) {
+                                Label("Sync only this folder", systemImage: "scope")
+                            }
+                        }
                     }
                 }
                 .listStyle(SidebarListStyle())
