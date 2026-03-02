@@ -1,6 +1,10 @@
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/CloudProvider.swift
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/ContentView.swift
+/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/DashboardViews.swift
+/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/DifferencesView.swift
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/DocumentSyncManager.swift
+/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/FileTreeView.swift
+/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/NavigationToolbar.swift
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SettingsManager.swift
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SettingsView.swift
 /Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SyncCloudApp.swift

@@ -319,10 +319,7 @@ class DocumentSyncManager: ObservableObject {
         }
     }
     
-    func copyItem(node: FileNode, fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
-        await copyItems(nodes: [node], fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destinationRoot)
-    }
-    
+
     func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
@@ -346,10 +343,7 @@ class DocumentSyncManager: ObservableObject {
         }.value
     }
     
-    func copyItem(node: FileNode, toPath destinationPath: String) async {
-        await copyItems(nodes: [node], toPath: destinationPath)
-    }
-    
+
     func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
         await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
@@ -370,10 +364,7 @@ class DocumentSyncManager: ObservableObject {
         }.value
     }
     
-    func deleteItem(at path: String) async {
-        await deleteItems(at: [path])
-    }
-    
+
     func deleteItems(at paths: [String]) async {
         await Task.detached(priority: .userInitiated) {
             let fm = FileManager.default
