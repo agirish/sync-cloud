@@ -29,6 +29,8 @@ A53C37098EC64D3C9BB5EAE6 /* DocumentSyncManager+FileOperations.swift in Sources 
 		E1EFB2228BD5A9A0E980E90F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA20C7534E8CB2827535095 /* SettingsView.swift */; };
 		EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */; };
 		F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 8B4FBF21F132A600B398B3F7 /* googledrive.png */; };
+		A836B0A143754285B4B76D39 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1085905D2F4CCC8AEE7881 /* Logger.swift */; };
+		6668A861C2D8495C97B2341D /* LogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAABC445C984548A7944217 /* LogViewer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -55,6 +57,8 @@ C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */ = {isa =
 		E021F192338BC544ED67982D /* dropbox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dropbox.png; sourceTree = "<group>"; };
 		F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 		FFDF14945A1DB2BCC28113DE /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
+		0A1085905D2F4CCC8AEE7881 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
+		AFAABC445C984548A7944217 /* LogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -69,6 +73,8 @@ C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */ = {isa =
 		AE23DCEADCE07A4AE1CD6CA6 /* MacApp */ = {
 			isa = PBXGroup;
 			children = (
+				0A1085905D2F4CCC8AEE7881 /* Logger.swift */,
+				AFAABC445C984548A7944217 /* LogViewer.swift */,
 				1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */,
 				899C15BD59008DFA754F043F /* CloudProvider.swift */,
 				5BD04B885A6E5B2F79FBC29F /* ContentView.swift */,
@@ -186,6 +192,8 @@ C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */ = {isa =
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A836B0A143754285B4B76D39 /* Logger.swift in Sources */,
+				6668A861C2D8495C97B2341D /* LogViewer.swift in Sources */,
 				28A9BD820AFFC45125599BFF /* CloudProvider.swift in Sources */,
 				10646B98D1D159C076429036 /* ContentView.swift in Sources */,
 				5B608BD5E0617DEC894F56BB /* DashboardViews.swift in Sources */,

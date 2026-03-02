@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var destExpandedPaths: Set<String> = []
     
     @State private var showingSettings = false
+    @State private var showingLogs = false
     
     // File Action States
     @State private var renamingNode: FileNode?
@@ -143,11 +144,20 @@ struct ContentView: View {
                     .disabled(isScanning)
                 }
                 ToolbarItem(placement: .automatic) {
+                    Button(action: { showingLogs.toggle() }) {
+                        Label("Logs", systemImage: "list.bullet.rectangle")
+                    }
+                }
+                ToolbarItem(placement: .automatic) {
                     Button(action: { showingSettings = true }) {
                         Label("Settings", systemImage: "gear")
                     }
                 }
             }
+        }
+        .inspector(isPresented: $showingLogs) {
+            LogViewer()
+                .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()

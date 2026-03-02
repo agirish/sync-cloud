@@ -310,10 +310,13 @@ class DocumentSyncManager: ObservableObject {
         }.value
         
         if let error = resultError {
-            self.currentError = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
+            let msg = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
         }
         
         if resultError == nil {
+            Logger.shared.info("Synced file: \(difference.relativePath)")
             // Remove from differences list
             differences.removeAll { $0.id == difference.id }
         } else {

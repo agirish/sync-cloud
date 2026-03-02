@@ -25,7 +25,11 @@ extension DocumentSyncManager {
         }.value
         
         if let firstError = errors.first {
-            self.currentError = "Error copying items: \(firstError.localizedDescription)"
+            let msg = "Error copying items: \(firstError.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else if !nodes.isEmpty {
+            Logger.shared.info("Copied \(nodes.count) items between panes")
         }
     }
     
@@ -48,7 +52,11 @@ extension DocumentSyncManager {
         }.value
         
         if let firstError = errors.first {
-            self.currentError = "Error copying items: \(firstError.localizedDescription)"
+            let msg = "Error copying items: \(firstError.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else if !nodes.isEmpty {
+            Logger.shared.info("Copied \(nodes.count) items to \(destinationPath)")
         }
     }
     
@@ -70,7 +78,11 @@ extension DocumentSyncManager {
         }.value
         
         if let firstError = errors.first {
-            self.currentError = "Error moving items: \(firstError.localizedDescription)"
+            let msg = "Error moving items: \(firstError.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else if !nodes.isEmpty {
+            Logger.shared.info("Moved \(nodes.count) items to \(destinationPath)")
         }
     }
     
@@ -91,7 +103,11 @@ extension DocumentSyncManager {
         }.value
         
         if let err = error {
-            self.currentError = "Error renaming item: \(err.localizedDescription)"
+            let msg = "Error renaming item: \(err.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else {
+            Logger.shared.info("Renamed item to \(newName)")
         }
     }
     
@@ -109,7 +125,11 @@ extension DocumentSyncManager {
         }.value
         
         if let err = error {
-            self.currentError = "Error creating folder: \(err.localizedDescription)"
+            let msg = "Error creating folder: \(err.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else {
+            Logger.shared.info("Created folder \(name) at \(path)")
         }
     }
 
@@ -130,7 +150,11 @@ extension DocumentSyncManager {
         }.value
         
         if let firstError = errors.first {
-            self.currentError = "Error deleting items: \(firstError.localizedDescription)"
+            let msg = "Error deleting items: \(firstError.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else if !paths.isEmpty {
+            Logger.shared.info("Deleted \(paths.count) items")
         }
     }
     
