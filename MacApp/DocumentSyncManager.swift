@@ -16,6 +16,7 @@ class DocumentSyncManager: ObservableObject {
     @Published var destinationItemCount = 0
     
     @Published var clipboardNodes: [FileNode] = []
+    @Published var clipboardIsCut: Bool = false
     
     // Navigation State (Relative paths from provider roots)
     @Published var sourceRelativePath: String = ""
@@ -359,6 +360,26 @@ class DocumentSyncManager: ObservableObject {
                     try fm.copyItem(atPath: node.id, toPath: targetPath)
                 } catch {
                     print("Error copying item \(node.name): \(error)")
+                }
+            }
+        }.value
+    }
+    
+    func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            for node in nodes {
+                let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                let targetPath = targetURL.path
+                
+                do {
+                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if fm.fileExists(atPath: targetPath) {
+                        try fm.removeItem(atPath: targetPath)
+                    }
+                    try fm.moveItem(atPath: node.id, toPath: targetPath)
+                } catch {
+                    print("Error moving item \(node.name): \(error)")
                 }
             }
         }.value

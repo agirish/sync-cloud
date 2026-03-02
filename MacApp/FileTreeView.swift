@@ -10,7 +10,7 @@ struct FileTreeView: View {
     let onFocus: (FileNode) -> Void
     let onCopy: ([FileNode]) -> Void
     let onDelete: ([FileNode]) -> Void
-    let onCopyToClipboard: ([FileNode]) -> Void
+    let onCopyToClipboard: ([FileNode], Bool) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
     let onRename: (FileNode) -> Void
@@ -94,7 +94,7 @@ struct FileContextMenu: View {
     let onFocus: (FileNode) -> Void
     let onCopy: ([FileNode]) -> Void
     let onDelete: ([FileNode]) -> Void
-    let onCopyToClipboard: ([FileNode]) -> Void
+    let onCopyToClipboard: ([FileNode], Bool) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
     let onRename: (FileNode) -> Void
@@ -128,7 +128,11 @@ struct FileContextMenu: View {
             
             Divider()
             
-            Button(action: { onCopyToClipboard(selectedNodes) }) {
+            Button(action: { onCopyToClipboard(selectedNodes, true) }) {
+                Label(count > 1 ? "Cut \(count) items" : "Cut", systemImage: "scissors")
+            }
+            
+            Button(action: { onCopyToClipboard(selectedNodes, false) }) {
                 Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
             }
             

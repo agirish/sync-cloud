@@ -106,7 +106,10 @@ struct ContentView: View {
                             onFocus: { node in focusFolder(node, isSource: true) },
                             onCopy: { nodes in copyItems(nodes, fromSource: true) },
                             onDelete: { nodes in confirmDelete(nodes) },
-                            onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
+                            onCopyToClipboard: { nodes, isCut in 
+                                syncManager.clipboardNodes = nodes
+                                syncManager.clipboardIsCut = isCut
+                            },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
                             onRename: { node in beginRename(node) },
@@ -132,7 +135,10 @@ struct ContentView: View {
                             onFocus: { node in focusFolder(node, isSource: false) },
                             onCopy: { nodes in copyItems(nodes, fromSource: false) },
                             onDelete: { nodes in confirmDelete(nodes) },
-                            onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
+                            onCopyToClipboard: { nodes, isCut in 
+                                syncManager.clipboardNodes = nodes
+                                syncManager.clipboardIsCut = isCut
+                            },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
                             onRename: { node in beginRename(node) },
@@ -306,12 +312,17 @@ struct ContentView: View {
         let nodesToPaste = syncManager.clipboardNodes
         guard !nodesToPaste.isEmpty else { return }
         pasteItems(nodesToPaste, to: targetFolder)
-        syncManager.clipboardNodes = [] // Clear clipboard after paste
     }
     
     private func pasteItems(_ nodes: [FileNode], to targetFolder: FileNode) {
         Task {
-            await syncManager.copyItems(nodes: nodes, toPath: targetFolder.id)
+            if syncManager.clipboardIsCut {
+                await syncManager.moveItems(nodes: nodes, toPath: targetFolder.id)
+            } else {
+                await syncManager.copyItems(nodes: nodes, toPath: targetFolder.id)
+            }
+            syncManager.clipboardNodes = []
+            syncManager.clipboardIsCut = false
             refreshAction()
         }
     }
