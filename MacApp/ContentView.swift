@@ -7,8 +7,8 @@ struct ContentView: View {
     @State private var destinationProviderId: String = "iCloud"
     @State private var isScanning = false
     
-    @State private var selectedSourcePath: String?
-    @State private var selectedDestinationPath: String?
+    @State private var selectedSourcePaths: Set<String> = []
+    @State private var selectedDestinationPaths: Set<String> = []
     
     @State private var showingSettings = false
 
@@ -91,9 +91,16 @@ struct ContentView: View {
                         )
                         FileTreeView(
                             tree: syncManager.sourceTree, 
+                            otherTree: syncManager.destinationTree,
                             isLoading: syncManager.isLoadingSourceTree, 
-                            selection: $selectedSourcePath,
-                            onFocus: { node in focusFolder(node, isSource: true) }
+                            selection: $selectedSourcePaths,
+                            otherSelection: selectedDestinationPaths,
+                            onFocus: { node in focusFolder(node, isSource: true) },
+                            onCopy: { nodes in copyItems(nodes, fromSource: true) },
+                            onDelete: { nodes in deleteItems(nodes) },
+                            onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
+                            onPaste: { targetDir in pasteItems(to: targetDir) },
+                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) }
                         )
                     }
                     .frame(minWidth: 250)
@@ -107,9 +114,16 @@ struct ContentView: View {
                         )
                         FileTreeView(
                             tree: syncManager.destinationTree, 
+                            otherTree: syncManager.sourceTree,
                             isLoading: syncManager.isLoadingDestinationTree, 
-                            selection: $selectedDestinationPath,
-                            onFocus: { node in focusFolder(node, isSource: false) }
+                            selection: $selectedDestinationPaths,
+                            otherSelection: selectedSourcePaths,
+                            onFocus: { node in focusFolder(node, isSource: false) },
+                            onCopy: { nodes in copyItems(nodes, fromSource: false) },
+                            onDelete: { nodes in deleteItems(nodes) },
+                            onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
+                            onPaste: { targetDir in pasteItems(to: targetDir) },
+                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) }
                         )
                     }
                     .frame(minWidth: 250)
@@ -169,12 +183,12 @@ struct ContentView: View {
             refreshAction()
         }
         .onChange(of: sourceProviderId) { _ in
-            selectedSourcePath = nil
+            selectedSourcePaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
         .onChange(of: destinationProviderId) { _ in
-            selectedDestinationPath = nil
+            selectedDestinationPaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
@@ -207,6 +221,37 @@ struct ContentView: View {
         
         syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
         refreshAction()
+    }
+    
+    private func copyItems(_ nodes: [FileNode], fromSource: Bool) {
+        let sourceRoot = settings.path(for: sourceProviderId)
+        let destRoot = settings.path(for: destinationProviderId)
+        
+        Task {
+            await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+            refreshAction()
+        }
+    }
+    
+    private func deleteItems(_ nodes: [FileNode]) {
+        Task {
+            await syncManager.deleteItems(at: nodes.map { $0.id })
+            refreshAction()
+        }
+    }
+    
+    private func pasteItems(to targetFolder: FileNode) {
+        let nodesToPaste = syncManager.clipboardNodes
+        guard !nodesToPaste.isEmpty else { return }
+        pasteItems(nodesToPaste, to: targetFolder)
+        syncManager.clipboardNodes = [] // Clear clipboard after paste
+    }
+    
+    private func pasteItems(_ nodes: [FileNode], to targetFolder: FileNode) {
+        Task {
+            await syncManager.copyItems(nodes: nodes, toPath: targetFolder.id)
+            refreshAction()
+        }
     }
     
     private func refreshAction() {
@@ -357,9 +402,16 @@ struct NavigationToolbar: View {
 
 struct FileTreeView: View {
     let tree: [FileNode]
+    let otherTree: [FileNode]
     let isLoading: Bool
-    @Binding var selection: String?
+    @Binding var selection: Set<String>
+    let otherSelection: Set<String>
     let onFocus: (FileNode) -> Void
+    let onCopy: ([FileNode]) -> Void
+    let onDelete: ([FileNode]) -> Void
+    let onCopyToClipboard: ([FileNode]) -> Void
+    let onPaste: (FileNode) -> Void
+    let onPasteExplicit: (FileNode, [FileNode]) -> Void
     
     var body: some View {
         ZStack {
@@ -378,21 +430,32 @@ struct FileTreeView: View {
                 }
             } else {
                 List(tree, children: \.children, selection: $selection) { node in
-                    HStack {
-                        Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
-                            .foregroundColor(node.isDirectory ? .blue : .secondary)
-                        Text(node.name)
-                            .font(.system(.body, design: .rounded))
-                    }
-                    .contextMenu {
-                        if node.isDirectory {
-                            Button(action: { onFocus(node) }) {
-                                Label("Sync only this folder", systemImage: "scope")
-                            }
+                    FileRowView(node: node)
+                        .tag(node.id)
+                        .contextMenu {
+                            FileContextMenu(
+                                node: node,
+                                selection: selection,
+                                tree: tree,
+                                otherTree: otherTree,
+                                otherSelection: otherSelection,
+                                onFocus: onFocus,
+                                onCopy: onCopy,
+                                onDelete: onDelete,
+                                onCopyToClipboard: onCopyToClipboard,
+                                onPaste: onPaste,
+                                onPasteExplicit: onPasteExplicit
+                            )
                         }
-                    }
                 }
                 .listStyle(SidebarListStyle())
+                .onDrop(of: [.data], isTargeted: nil) { providers in
+                    // This is for dropping ONTO THE ENTIRE LIST (root of the pane)
+                    // But we want to drop onto individual folders. 
+                    // SwiftUI List doesn't make it super easy to drop "onto" a row without complications.
+                    // For now, let's stick to the row-level drop.
+                    return false
+                }
             }
         }
     }
@@ -519,4 +582,78 @@ struct DifferenceRow: View {
 
 #Preview {
     ContentView()
-} 
+}
+
+
+struct FileContextMenu: View {
+    let node: FileNode
+    let selection: Set<String>
+    let tree: [FileNode]
+    let otherTree: [FileNode]
+    let otherSelection: Set<String>
+    let onFocus: (FileNode) -> Void
+    let onCopy: ([FileNode]) -> Void
+    let onDelete: ([FileNode]) -> Void
+    let onCopyToClipboard: ([FileNode]) -> Void
+    let onPaste: (FileNode) -> Void
+    let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    
+    var body: some View {
+        let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : selection)
+        let count = selectedNodes.count
+        
+        Group {
+            if count == 1, let singleNode = selectedNodes.first, singleNode.isDirectory {
+                Button(action: { onFocus(singleNode) }) {
+                    Label("Sync only this folder", systemImage: "scope")
+                }
+                Divider()
+            }
+            
+            Button(action: { onCopy(selectedNodes) }) {
+                Label(count > 1 ? "Copy \(count) items to other provider" : "Copy to other provider", systemImage: "square.and.arrow.trailing")
+            }
+            
+            Divider()
+            
+            Button(action: { onCopyToClipboard(selectedNodes) }) {
+                Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
+            }
+            
+            if node.isDirectory {
+                Button(action: { onPaste(node) }) {
+                    Label("Paste here", systemImage: "doc.on.clipboard")
+                }
+                
+                if !otherSelection.isEmpty {
+                    let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
+                    Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
+                        Label(otherSelectedNodes.count > 1 ? "Copy \(otherSelectedNodes.count) items from other pane" : "Copy '\(otherSelectedNodes.first?.name ?? "")' from other pane", systemImage: "arrow.right.to.line.compact")
+                    }
+                }
+            }
+            
+            Divider()
+            
+            Button(role: .destructive, action: { onDelete(selectedNodes) }) {
+                Label(count > 1 ? "Delete \(count) items" : "Delete", systemImage: "trash")
+            }
+        }
+    }
+}
+
+struct FileRowView: View {
+    let node: FileNode
+    
+    var body: some View {
+        HStack {
+            Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
+                .foregroundColor(node.isDirectory ? .blue : .secondary)
+            Text(node.name)
+                .font(.system(.body, design: .rounded))
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}

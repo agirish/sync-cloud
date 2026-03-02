@@ -1,5 +1,5 @@
-import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 class DocumentSyncManager: ObservableObject {
@@ -14,6 +14,8 @@ class DocumentSyncManager: ObservableObject {
     
     @Published var sourceItemCount = 0
     @Published var destinationItemCount = 0
+    
+    @Published var clipboardNodes: [FileNode] = []
     
     // Navigation State (Relative paths from provider roots)
     @Published var sourceRelativePath: String = ""
@@ -143,7 +145,9 @@ class DocumentSyncManager: ObservableObject {
         if FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
             return relativePath
         }
-        return "" // Return root if no match
+        // If exact match not found, don't reset to root if we were already elsewhere
+        // This helps persistence during rapid file operations
+        return relativePath 
     }
     
     private func countItems(in tree: [FileNode]) -> Int {
@@ -315,6 +319,76 @@ class DocumentSyncManager: ObservableObject {
         }
     }
     
+    func copyItem(node: FileNode, fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
+        await copyItems(nodes: [node], fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destinationRoot)
+    }
+    
+    func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
+        let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+        let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+        
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            for node in nodes {
+                let relativePath = node.id.replacingOccurrences(of: fromRoot, with: "")
+                let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
+                
+                do {
+                    try fm.createDirectory(at: URL(fileURLWithPath: targetPath).deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if fm.fileExists(atPath: targetPath) {
+                        try fm.removeItem(atPath: targetPath)
+                    }
+                    try fm.copyItem(atPath: node.id, toPath: targetPath)
+                } catch {
+                    print("Error copying item \(node.name): \(error)")
+                }
+            }
+        }.value
+    }
+    
+    func copyItem(node: FileNode, toPath destinationPath: String) async {
+        await copyItems(nodes: [node], toPath: destinationPath)
+    }
+    
+    func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            for node in nodes {
+                let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                let targetPath = targetURL.path
+                
+                do {
+                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    if fm.fileExists(atPath: targetPath) {
+                        try fm.removeItem(atPath: targetPath)
+                    }
+                    try fm.copyItem(atPath: node.id, toPath: targetPath)
+                } catch {
+                    print("Error copying item \(node.name) to specific path: \(error)")
+                }
+            }
+        }.value
+    }
+    
+    func deleteItem(at path: String) async {
+        await deleteItems(at: [path])
+    }
+    
+    func deleteItems(at paths: [String]) async {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            for path in paths {
+                do {
+                    if fm.fileExists(atPath: path) {
+                        try fm.removeItem(atPath: path)
+                    }
+                } catch {
+                    print("Error deleting item at \(path): \(error)")
+                }
+            }
+        }.value
+    }
+    
     // Returns a dictionary mapping relative paths to file URLs
     nonisolated private static func getFilesInDirectory(_ url: URL) throws -> [String: URL] {
         let fileManager = FileManager.default
@@ -349,11 +423,17 @@ class DocumentSyncManager: ObservableObject {
     }
 }
 
-struct FileNode: Identifiable, Hashable {
+struct FileNode: Identifiable, Hashable, Codable {
     let id: String // Absolute path
     let name: String
     let isDirectory: Bool
     var children: [FileNode]?
+}
+
+extension FileNode: Transferable {
+    static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .data)
+    }
 }
 
 struct FileDifference: Identifiable {
@@ -376,4 +456,30 @@ struct FileDifference: Identifiable {
         case copyToDestination
         case copyToSource
     }
-} 
+}
+
+extension Array where Element == FileNode {
+    func findNode(at path: String?) -> FileNode? {
+        guard let path = path else { return nil }
+        for node in self {
+            if node.id == path { return node }
+            if let children = node.children, let found = children.findNode(at: path) {
+                return found
+            }
+        }
+        return nil
+    }
+    
+    func findNodes(at paths: Set<String>) -> [FileNode] {
+        var found: [FileNode] = []
+        for node in self {
+            if paths.contains(node.id) {
+                found.append(node)
+            }
+            if let children = node.children {
+                found.append(contentsOf: children.findNodes(at: paths))
+            }
+        }
+        return found
+    }
+}
