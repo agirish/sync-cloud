@@ -268,7 +268,8 @@ class DocumentSyncManager: ObservableObject {
                 return diffs.sorted { $0.relativePath < $1.relativePath }
                 
             } catch {
-                print("Error scanning directories: \(error)")
+                let msg = "Error scanning directories: \(error)"
+                Task { @MainActor in Logger.shared.error(msg, showAlert: false) }
                 return []
             }
         }.value
@@ -356,7 +357,8 @@ class DocumentSyncManager: ObservableObject {
                     }
                 }
             } catch {
-                print("Error reading resource values for \(fileURL): \(error)")
+                let msg = "Error reading resource values for \(fileURL): \(error)"
+                Task { @MainActor in Logger.shared.error(msg, showAlert: false) }
             }
         }
         
