@@ -243,7 +243,12 @@ struct ContentView: View {
     
     /// Triggers native macOS 'Get Info' window using AppleScript.
     private func openGetInfo(for path: String) {
-        let script = "tell application \"Finder\" to open information window of (POSIX file \"\(path)\")"
+        let script = """
+        tell application "Finder"
+            activate
+            open information window of (POSIX file "\(path)" as alias)
+        end tell
+        """
         if let appleScript = NSAppleScript(source: script) {
             var error: NSDictionary?
             appleScript.executeAndReturnError(&error)
