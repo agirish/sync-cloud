@@ -1,13 +1,18 @@
 import SwiftUI
 
+/// A recursive tree view that displays an interactive file hierarchy
+/// Supports drag-and-drop, context menus, and selection bindings.
 struct FileTreeView: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let isLoading: Bool
     let currentPath: String
+    
     @Binding var selection: Set<String>
     @Binding var expandedPaths: Set<String>
     let otherSelection: Set<String>
+    
+    // Callbacks for file operations
     let onFocus: (FileNode) -> Void
     let onCopy: ([FileNode]) -> Void
     let onDelete: ([FileNode]) -> Void
@@ -57,7 +62,7 @@ struct FileTreeView: View {
                 .listStyle(SidebarListStyle())
                 .contextMenu { emptyAreaContextMenu }
                 .onDrop(of: [.data], isTargeted: nil) { providers in
-                    // This is for dropping ONTO THE ENTIRE LIST (root of the pane)
+                    // Dropping onto the root of the pane is unsupported right now
                     return false
                 }
             }
@@ -82,6 +87,7 @@ struct FileTreeView: View {
     }
 }
 
+/// Dynamically generated context menu for file operations bounding the selected node and the overarching selection
 struct FileContextMenu: View {
     let node: FileNode
     let selection: Set<String>
@@ -113,7 +119,8 @@ struct FileContextMenu: View {
                     }
                     Divider()
                     Button(action: { onFocus(singleNode) }) {
-                        Label("Sync only this folder", systemImage: "scope")
+                        // Better clarifies the function which isolates a specific folder mapping
+                        Label("Compare only this folder", systemImage: "scope")
                     }
                 }
                 Divider()
@@ -140,8 +147,14 @@ struct FileContextMenu: View {
                 
                 if !otherSelection.isEmpty {
                     let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
-                    Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
-                        Label(otherSelectedNodes.count > 1 ? "Copy \(otherSelectedNodes.count) items from other pane" : "Copy '\(otherSelectedNodes.first?.name ?? "")' from other pane", systemImage: "arrow.right.to.line.compact")
+                    if !otherSelectedNodes.isEmpty {
+                        Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
+                            if otherSelectedNodes.count > 1 {
+                                Label("Copy \(otherSelectedNodes.count) items from other pane", systemImage: "arrow.right.to.line.compact")
+                            } else if let first = otherSelectedNodes.first {
+                                Label("Copy '\(first.name)' from other pane", systemImage: "arrow.right.to.line.compact")
+                            }
+                        }
                     }
                 }
             }
@@ -155,6 +168,7 @@ struct FileContextMenu: View {
     }
 }
 
+/// Renders a single row representing a file or directory node
 struct FileRowView: View {
     let node: FileNode
     
@@ -171,6 +185,7 @@ struct FileRowView: View {
     }
 }
 
+/// Recursively evaluates and creates DisclosureGroups for deep directory views
 struct RecursiveFileNodeView: View {
     let node: FileNode
     @Binding var selection: Set<String>

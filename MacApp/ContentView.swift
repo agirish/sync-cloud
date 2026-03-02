@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// The main application layout for SyncCloud
+/// Contains a two-pane NavigationSplitView managing source and destination FileTreeViews
+/// Handles top-level file operation alert bindings through the FileOperationAlerts modifier
 struct ContentView: View {
     @StateObject private var syncManager = DocumentSyncManager()
     @StateObject private var settings = SettingsManager()
@@ -24,54 +27,11 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             // Sidebar Navigation
-            List {
-                Section("Source Provider") {
-                    ForEach(settings.availableProviders) { provider in
-                        Button(action: { sourceProviderId = provider.id }) {
-                            HStack {
-                                Image(provider.imageName)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 20)
-                                Text(provider.displayName)
-                                Spacer()
-                                if sourceProviderId == provider.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 4)
-                    }
-                }
-                
-                Section("Destination Provider") {
-                    ForEach(settings.availableProviders) { provider in
-                        Button(action: { destinationProviderId = provider.id }) {
-                            HStack {
-                                Image(provider.imageName)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 20)
-                                Text(provider.displayName)
-                                Spacer()
-                                if destinationProviderId == provider.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundColor(.accentColor)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-            .navigationTitle("Providers")
-            .frame(minWidth: 200)
-            
+            ProviderSidebarView(
+                settings: settings,
+                sourceProviderId: $sourceProviderId,
+                destinationProviderId: $destinationProviderId
+            )
         } detail: {
             // Main Content Area
             VStack(spacing: 0) {
@@ -193,55 +153,15 @@ struct ContentView: View {
             SettingsView()
                 .environmentObject(settings)
         }
-        .alert("Rename Item", isPresented: Binding(
-            get: { renamingNode != nil },
-            set: { if !$0 { renamingNode = nil } }
-        )) {
-            TextField("New name", text: $newName)
-            Button("Cancel", role: .cancel) { }
-            Button("Rename") {
-                if let node = renamingNode, !newName.isEmpty {
-                    Task {
-                        await syncManager.renameItem(at: node.id, to: newName)
-                        refreshAction()
-                    }
-                }
-            }
-        }
-        .alert("New Folder", isPresented: Binding(
-            get: { creatingFolderInPath != nil },
-            set: { if !$0 { creatingFolderInPath = nil } }
-        )) {
-            TextField("Folder name", text: $newFolderName)
-            Button("Cancel", role: .cancel) { }
-            Button("Create") {
-                if let path = creatingFolderInPath, !newFolderName.isEmpty {
-                    Task {
-                        await syncManager.createFolder(named: newFolderName, in: path)
-                        refreshAction()
-                    }
-                }
-            }
-        }
-        .alert("Confirm Deletion", isPresented: Binding(
-            get: { nodesToDelete != nil },
-            set: { if !$0 { nodesToDelete = nil } }
-        )) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                if let nodes = nodesToDelete {
-                    deleteItems(nodes)
-                }
-            }
-        } message: {
-            if let nodes = nodesToDelete {
-                if nodes.count == 1, let first = nodes.first {
-                    Text("Are you sure you want to delete '\(first.name)'?")
-                } else {
-                    Text("Are you sure you want to delete \(nodes.count) items?")
-                }
-            }
-        }
+        .modifier(FileOperationAlerts(
+            syncManager: syncManager,
+            refreshAction: refreshAction,
+            renamingNode: $renamingNode,
+            newName: $newName,
+            creatingFolderInPath: $creatingFolderInPath,
+            newFolderName: $newFolderName,
+            nodesToDelete: $nodesToDelete
+        ))
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation {
                 isScanning = scanning
@@ -301,13 +221,6 @@ struct ContentView: View {
         
         Task {
             await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-            refreshAction()
-        }
-    }
-    
-    private func deleteItems(_ nodes: [FileNode]) {
-        Task {
-            await syncManager.deleteItems(at: nodes.map { $0.id })
             refreshAction()
         }
     }

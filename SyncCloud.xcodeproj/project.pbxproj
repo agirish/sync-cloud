@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+A53C37098EC64D3C9BB5EAE6 /* DocumentSyncManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */; };
+5C61A012301141A79FE3BE53 /* FileOperationAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84F39BB72EEA4049841485D0 /* FileOperationAlerts.swift */; };
+6FFAAE86E1524973B6629C34 /* ProviderSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */; };
 		10646B98D1D159C076429036 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD04B885A6E5B2F79FBC29F /* ContentView.swift */; };
 		1339472D59A37891FF82903A /* onedrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 633A97B1D60E30053D74E73C /* onedrive.png */; };
 		28A9BD820AFFC45125599BFF /* CloudProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899C15BD59008DFA754F043F /* CloudProvider.swift */; };
@@ -29,6 +32,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DocumentSyncManager+FileOperations.swift"; sourceTree = "<group>"; };
+84F39BB72EEA4049841485D0 /* FileOperationAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOperationAlerts.swift; sourceTree = "<group>"; };
+087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSidebarView.swift; sourceTree = "<group>"; };
 		1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
 		42DE2CE85CCAD891BFE5BD20 /* NavigationToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationToolbar.swift; sourceTree = "<group>"; };
@@ -75,6 +81,9 @@
 				AEA20C7534E8CB2827535095 /* SettingsView.swift */,
 				8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */,
 				F1A882B42A0FB20D7C03266E /* Resources */,
+							087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */,
+							84F39BB72EEA4049841485D0 /* FileOperationAlerts.swift */,
+							C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */,
 			);
 			path = MacApp;
 			sourceTree = "<group>";
@@ -187,6 +196,9 @@
 				457072DC543C001A3234779E /* SettingsManager.swift in Sources */,
 				E1EFB2228BD5A9A0E980E90F /* SettingsView.swift in Sources */,
 				65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */,
+							6FFAAE86E1524973B6629C34 /* ProviderSidebarView.swift in Sources */,
+							5C61A012301141A79FE3BE53 /* FileOperationAlerts.swift in Sources */,
+							A53C37098EC64D3C9BB5EAE6 /* DocumentSyncManager+FileOperations.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
