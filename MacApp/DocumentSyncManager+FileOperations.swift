@@ -107,36 +107,7 @@ extension DocumentSyncManager {
         // Register Undo Action
         let copied = result.copied
         if !copied.isEmpty {
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        let fm = FileManager.default
-                        for item in copied {
-                            do {
-                                try fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                                try Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
-                            } catch {}
-                        }
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("Copy \\(copied.count) Items")
-                
-                // 2. Execute UNDO
-                Task {
-                    for item in copied {
-                        do {
-                            var trashedURL: NSURL? = nil
-                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: &trashedURL)
-                        } catch {
-                            Logger.shared.error("Failed to undo copy for \\(item.destination.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
-                        }
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("Copy \\(copied.count) Items")
+            self.registerCopyUndo(items: copied, actionName: "Copy \\(copied.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -176,35 +147,8 @@ extension DocumentSyncManager {
         // Register Undo Action
         let moved = result.moved
         if !moved.isEmpty {
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO action BEFORE executing Undo
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        // Redo move: move items back from original to new locations
-                        for item in moved {
-                            do {
-                                try Self.safeMoveItem(at: item.original, to: item.new, fileManager: FileManager.default)
-                            } catch {}
-                        }
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("Move \\(moved.count) Items")
-                
-                // 2. Execute UNDO
-                Task {
-                    // Undo move: move items back to their original locations
-                    for item in moved {
-                        do {
-                            try Self.safeMoveItem(at: item.new, to: item.original)
-                        } catch {
-                            Logger.shared.error("Failed to undo move for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
-                        }
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("Move \(moved.count) Items")
+            let mapping = moved.map { (from: $0.new, to: $0.original) }
+            self.registerReversibleMove(items: mapping, actionName: "Move \\(moved.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -248,29 +192,7 @@ extension DocumentSyncManager {
             Logger.shared.info("Renamed item to \(newName)")
             
             // Register Undo Action
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        do {
-                            try Self.safeMoveItem(at: url, to: newURL)
-                        } catch {}
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("Rename Item")
-                
-                // 2. Execute UNDO
-                Task {
-                    do {
-                        try Self.safeMoveItem(at: newURL, to: url)
-                    } catch {
-                        Logger.shared.error("Failed to undo rename for \\(newName): \\(error.localizedDescription)", showAlert: false)
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("Rename Item")
+            self.registerReversibleMove(items: [(from: newURL, to: url)], actionName: "Rename Item")
         }
     }
     
@@ -300,30 +222,7 @@ extension DocumentSyncManager {
             Logger.shared.info("Created folder \(name) at \(path)")
             
             // Register Undo Action
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        do {
-                            try FileManager.default.createDirectory(at: createdURL, withIntermediateDirectories: true)
-                        } catch {}
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("New Folder")
-                
-                // 2. Execute UNDO
-                Task {
-                    do {
-                        var trashedURL: NSURL? = nil
-                        try FileManager.default.trashItem(at: createdURL, resultingItemURL: &trashedURL)
-                    } catch {
-                        Logger.shared.error("Failed to undo folder creation for \\(name): \\(error.localizedDescription)", showAlert: false)
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("New Folder")
+            self.registerCreateFolderUndo(url: createdURL)
         }
     }
 
@@ -356,43 +255,8 @@ extension DocumentSyncManager {
         // Register Undo Action
         let trashed = result.trashed
         if !trashed.isEmpty {
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO: Deleting again
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        for item in trashed {
-                            do {
-                                let fm = FileManager.default
-                                var newTrashedURL: NSURL? = nil
-                                // Trashing item.original assumes the undo successfully put it back
-                                if fm.fileExists(atPath: item.original.path) {
-                                    try fm.trashItem(at: item.original, resultingItemURL: &newTrashedURL)
-                                }
-                            } catch {
-                                Logger.shared.error("Failed to redo delete for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
-                            }
-                        }
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("Delete \\(trashed.count) Items")
-                
-                // 2. Execute UNDO: Put back
-                Task {
-                    // To undo a delete, we move the trashed items back to their original locations
-                    for item in trashed {
-                        do {
-                            let fm = FileManager.default
-                            try fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            try fm.moveItem(at: item.trashed, to: item.original)
-                        } catch {
-                            Logger.shared.error("Failed to undo delete for \\(item.original.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
-                        }
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("Delete \(trashed.count) Items")
+            let box = TrashedItemsBox(items: trashed)
+            self.registerDeleteUndo(box: box, actionName: "Delete \\(trashed.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -429,5 +293,105 @@ extension DocumentSyncManager {
         } else {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
         }
+    }
+    
+    // MARK: - Undo/Redo Registration Helpers
+    
+    private func registerCopyUndo(items: [(source: URL, destination: URL)], actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerCopyRedo(items: items, actionName: actionName)
+            Task {
+                for item in items {
+                    try? FileManager.default.trashItem(at: item.destination, resultingItemURL: nil)
+                }
+                await target.refreshCallback?()
+            }
+        }
+        undoManager?.setActionName(actionName)
+    }
+    
+    private func registerCopyRedo(items: [(source: URL, destination: URL)], actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerCopyUndo(items: items, actionName: actionName)
+            Task {
+                let fm = FileManager.default
+                for item in items {
+                    try? fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
+                }
+                await target.refreshCallback?()
+            }
+        }
+        undoManager?.setActionName(actionName)
+    }
+    
+    private func registerReversibleMove(items: [(from: URL, to: URL)], actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            let inverseItems = items.map { (from: $0.to, to: $0.from) }
+            target.registerReversibleMove(items: inverseItems, actionName: actionName)
+            Task {
+                for item in items {
+                    do { try Self.safeMoveItem(at: item.from, to: item.to) } catch {}
+                }
+                await target.refreshCallback?()
+            }
+        }
+        undoManager?.setActionName(actionName)
+    }
+    
+    private func registerCreateFolderUndo(url: URL) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerCreateFolderRedo(url: url)
+            Task { try? FileManager.default.trashItem(at: url, resultingItemURL: nil); await target.refreshCallback?() }
+        }
+        undoManager?.setActionName("New Folder")
+    }
+    
+    private func registerCreateFolderRedo(url: URL) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.registerCreateFolderUndo(url: url)
+            Task { try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true); await target.refreshCallback?() }
+        }
+        undoManager?.setActionName("New Folder")
+    }
+    
+    private class TrashedItemsBox {
+        var items: [(original: URL, trashed: URL)] = []
+        init(items: [(original: URL, trashed: URL)] = []) {
+            self.items = items
+        }
+    }
+    
+    private func registerDeleteUndo(box: TrashedItemsBox, actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            let originalURLs = box.items.map { $0.original }
+            target.registerDeleteRedo(originalURLs: originalURLs, actionName: actionName)
+            Task {
+                for item in box.items {
+                    try? FileManager.default.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? FileManager.default.moveItem(at: item.trashed, to: item.original)
+                }
+                await target.refreshCallback?()
+            }
+        }
+        undoManager?.setActionName(actionName)
+    }
+    
+    private func registerDeleteRedo(originalURLs: [URL], actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            let nextBox = TrashedItemsBox()
+            target.registerDeleteUndo(box: nextBox, actionName: actionName)
+            Task {
+                let fm = FileManager.default
+                for url in originalURLs {
+                    var trashed: NSURL?
+                    if (try? fm.trashItem(at: url, resultingItemURL: &trashed)) != nil, let t = trashed as? URL {
+                        nextBox.items.append((original: url, trashed: t))
+                    }
+                }
+                await target.refreshCallback?()
+            }
+        }
+        undoManager?.setActionName(actionName)
     }
 }
