@@ -12,6 +12,9 @@ class DocumentSyncManager: ObservableObject {
     @Published var isLoadingSourceTree = false
     @Published var isLoadingDestinationTree = false
     
+    @Published var sourceItemCount = 0
+    @Published var destinationItemCount = 0
+    
     // Navigation State (Relative paths from provider roots)
     @Published var sourceRelativePath: String = ""
     @Published var destRelativePath: String = ""
@@ -28,6 +31,7 @@ class DocumentSyncManager: ObservableObject {
         let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
         let tree = await Self.buildTree(url: focusURL)
         sourceTree = tree
+        sourceItemCount = countItems(in: tree)
         isLoadingSourceTree = false
     }
     
@@ -37,6 +41,7 @@ class DocumentSyncManager: ObservableObject {
         let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
         let tree = await Self.buildTree(url: focusURL)
         destinationTree = tree
+        destinationItemCount = countItems(in: tree)
         isLoadingDestinationTree = false
     }
     
@@ -139,6 +144,35 @@ class DocumentSyncManager: ObservableObject {
             return relativePath
         }
         return "" // Return root if no match
+    }
+    
+    private func countItems(in tree: [FileNode]) -> Int {
+        var count = 0
+        for node in tree {
+            count += 1
+            if let children = node.children {
+                count += countItems(in: children)
+            }
+        }
+        return count
+    }
+    
+    func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
+        let sourceRoot = (source.path as NSString).expandingTildeInPath
+        let destRoot = (destination.path as NSString).expandingTildeInPath
+        
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.loadSourceTree(path: sourceRoot) }
+            group.addTask { await self.loadDestinationTree(path: destRoot) }
+        }
+        
+        let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
+        let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)
+        
+        await scanDirectories(
+            source: source, sourcePath: currentSourceFull,
+            destination: destination, destinationPath: currentDestFull
+        )
     }
     
     func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {

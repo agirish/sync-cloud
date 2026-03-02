@@ -67,14 +67,14 @@ struct ContentView: View {
             // Main Content Area
             VStack(spacing: 0) {
                 // Focus Navigation Toolbar
-                NavigationToolbar(syncManager: syncManager, loadTrees: loadTrees)
+                NavigationToolbar(syncManager: syncManager, refreshAction: refreshAction)
                 
                 Divider()
                 
                 // Dashboard Header
                 DashboardHeader(
-                    sourceTree: syncManager.sourceTree,
-                    destinationTree: syncManager.destinationTree,
+                    sourceCount: syncManager.sourceItemCount,
+                    destinationCount: syncManager.destinationItemCount,
                     differences: syncManager.differences
                 )
                 
@@ -118,7 +118,7 @@ struct ContentView: View {
                 // Differences Results Area
                 if !syncManager.differences.isEmpty {
                     Divider()
-                    DifferencesView(syncManager: syncManager, loadTrees: loadTrees)
+                    DifferencesView(syncManager: syncManager, refreshAction: refreshAction)
                         .frame(maxHeight: 300)
                 } else if syncManager.hasScanned {
                     Divider()
@@ -140,7 +140,7 @@ struct ContentView: View {
             .background(Color(NSColor.windowBackgroundColor))
             .toolbar {
                 ToolbarItem(placement: .automatic) {
-                    Button(action: scanAction) {
+                    Button(action: refreshAction) {
                         Label("Scan", systemImage: isScanning ? "hourglass" : "magnifyingglass")
                     }
                     .disabled(isScanning)
@@ -166,20 +166,20 @@ struct ContentView: View {
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
             }
-            loadTrees()
+            refreshAction()
         }
         .onChange(of: sourceProviderId) { _ in
             selectedSourcePath = nil
             syncManager.resetNavigation()
-            loadTrees()
+            refreshAction()
         }
         .onChange(of: destinationProviderId) { _ in
             selectedDestinationPath = nil
             syncManager.resetNavigation()
-            loadTrees()
+            refreshAction()
         }
         .onChange(of: settings.availableProviders) { _ in
-            loadTrees()
+            refreshAction()
         }
     }
     
@@ -206,25 +206,15 @@ struct ContentView: View {
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
         syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
-        loadTrees()
+        refreshAction()
     }
     
-    private func scanAction() {
+    private func refreshAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }
               
         Task {
-            await syncManager.scanDirectories(
-                source: sourceProvider, sourcePath: currentSourcePath,
-                destination: destProvider, destinationPath: currentDestinationPath
-            )
-        }
-    }
-    
-    private func loadTrees() {
-        Task {
-            await syncManager.loadSourceTree(path: settings.path(for: sourceProviderId))
-            await syncManager.loadDestinationTree(path: settings.path(for: destinationProviderId))
+            await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
         }
     }
 }
@@ -233,31 +223,20 @@ struct ContentView: View {
 // MARK: - Subviews
 
 struct DashboardHeader: View {
-    let sourceTree: [FileNode]
-    let destinationTree: [FileNode]
+    let sourceCount: Int
+    let destinationCount: Int
     let differences: [FileDifference]
     
     var body: some View {
         HStack {
-            DashboardMetric(title: "Source Items", value: "\(countItems(in: sourceTree))", icon: "doc.on.doc", color: .blue)
+            DashboardMetric(title: "Source Items", value: "\(sourceCount)", icon: "doc.on.doc", color: .blue)
             Divider().frame(height: 30)
-            DashboardMetric(title: "Destination Items", value: "\(countItems(in: destinationTree))", icon: "arrow.down.doc", color: .purple)
+            DashboardMetric(title: "Destination Items", value: "\(destinationCount)", icon: "arrow.down.doc", color: .purple)
             Divider().frame(height: 30)
             DashboardMetric(title: "Differences", value: "\(differences.count)", icon: "exclamationmark.triangle", color: differences.isEmpty ? .green : .orange)
         }
         .padding()
         .background(.ultraThinMaterial)
-    }
-    
-    private func countItems(in tree: [FileNode]) -> Int {
-        var count = 0
-        for node in tree {
-            count += 1
-            if let children = node.children {
-                count += countItems(in: children)
-            }
-        }
-        return count
     }
 }
 
@@ -324,17 +303,17 @@ struct PaneHeader: View {
 
 struct NavigationToolbar: View {
     @ObservedObject var syncManager: DocumentSyncManager
-    let loadTrees: () -> Void
+    let refreshAction: () -> Void
     
     var body: some View {
         HStack {
             HStack(spacing: 8) {
-                Button(action: { syncManager.goBack(); loadTrees() }) {
+                Button(action: { syncManager.goBack(); refreshAction() }) {
                     Image(systemName: "chevron.left")
                 }
                 .disabled(!syncManager.canGoBack)
                 
-                Button(action: { syncManager.goForward(); loadTrees() }) {
+                Button(action: { syncManager.goForward(); refreshAction() }) {
                     Image(systemName: "chevron.right")
                 }
                 .disabled(!syncManager.canGoForward)
@@ -359,7 +338,7 @@ struct NavigationToolbar: View {
                 
                 Spacer()
                 
-                Button(action: { syncManager.resetNavigation(); loadTrees() }) {
+                Button(action: { syncManager.resetNavigation(); refreshAction() }) {
                     Label("Restore Root", systemImage: "house")
                 }
                 .buttonStyle(.bordered)
@@ -421,7 +400,7 @@ struct FileTreeView: View {
 
 struct DifferencesView: View {
     @ObservedObject var syncManager: DocumentSyncManager
-    let loadTrees: () -> Void
+    let refreshAction: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -443,7 +422,7 @@ struct DifferencesView: View {
                         DifferenceRow(difference: difference) {
                             Task {
                                 await syncManager.syncFile(difference)
-                                loadTrees()
+                                refreshAction()
                             }
                         }
                         .transition(.slide)
