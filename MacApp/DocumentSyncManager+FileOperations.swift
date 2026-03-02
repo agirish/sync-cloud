@@ -12,9 +12,9 @@ extension DocumentSyncManager {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copiedURLs: [URL]) in
+        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copied: [(source: URL, destination: URL)]) in
             var taskErrors: [Error] = []
-            var targetURLs: [URL] = []
+            var targetItems: [(source: URL, destination: URL)] = []
             let fm = FileManager.default
             
             for node in nodes {
@@ -22,77 +22,51 @@ extension DocumentSyncManager {
                 let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
                 
                 do {
+                    let sourceURL = URL(fileURLWithPath: node.id)
                     let targetURL = URL(fileURLWithPath: targetPath)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
-                    targetURLs.append(targetURL)
+                    try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
+                    targetItems.append((source: sourceURL, destination: targetURL))
                 } catch {
                     taskErrors.append(error)
                 }
             }
-            return (taskErrors, targetURLs)
+            return (taskErrors, targetItems)
         }.value
         
         // Register Undo Action
-        let copied = result.copiedURLs
+        let copied = result.copied
         if !copied.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Manually register REDO action
-                target.undoManager?.registerUndo(withTarget: target) { target2 in
+                // 1. Register REDO
+                target.undoManager?.registerUndo(withTarget: target) { t in
                     Task {
-                        // Undo the Undo (Redo copy): move items OUT of Trash back to destination
-                        for url in copied {
+                        let fm = FileManager.default
+                        for item in copied {
                             do {
-                                let fm = FileManager.default
-                                let trashedURL = fm.temporaryDirectory.appendingPathComponent(url.lastPathComponent) // Simplification: in reality, tracking the exact trash URL is complex. We will use a standard copy again for Redo of Copy.
-                                // A true Redo of 'copy' is just performing the copy again.
-                                // For simplicity and robustness, rather than pulling from trash, we just re-execute the copy logic if possible, or if we stored the source, copy from source.
-                                // However, `copied` only contains `targetURLs`. To Redo a copy we need the source URLs or we rely on the macOS Trash "Put Back".
-                                // Since we don't have sourceURLs here easily without restructuring, Redo for Copy is tricky.
-                                
-                                // Let's refine: For Redo of Copy, we actually want to move the trashed items BACK to their targetURLs.
-                                // When we Undo, we put items in Trash. The resultingItemURL from trashItem is the URL *in* the trash.
-                                // We need to capture that trashed URL to reverse it.
-                            } catch {
-                                Logger.shared.error("Failed to redo cross-pane copy: \\(error.localizedDescription)", showAlert: false)
-                            }
+                                try fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                                try Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
+                            } catch {}
                         }
+                        await t.refreshCallback?()
                     }
                 }
                 target.undoManager?.setActionName("Copy \\(copied.count) Items")
                 
                 // 2. Execute UNDO logic
                 Task {
-                    var itemsInTrash: [URL] = []
-                    for url in copied {
+                    for item in copied {
                         do {
                             var trashedURL: NSURL? = nil
-                            try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
-                            if let inTrash = trashedURL as? URL {
-                                itemsInTrash.append(inTrash)
-                            }
+                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: &trashedURL)
                         } catch {
-                            Logger.shared.error("Failed to undo cross-pane copy for \\(url.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo cross-pane copy for \\(item.destination.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
-                    
-                    // We must register the Redo inside the Undo Task if we want to capture the trashed URLs dynamically.
-                    target.undoManager?.registerUndo(withTarget: target) { t in
-                        Task {
-                            for (index, trashUrl) in itemsInTrash.enumerated() {
-                                do {
-                                    try FileManager.default.moveItem(at: trashUrl, to: copied[index])
-                                } catch {}
-                            }
-                            await t.refreshCallback?()
-                        }
-                    }
-                    target.undoManager?.setActionName("Copy \\(copied.count) Items")
-                    
                     await target.refreshCallback?()
                 }
             }
-            undoManager?.setActionName("Copy \(copied.count) Items")
+            undoManager?.setActionName("Copy \\(copied.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -110,60 +84,59 @@ extension DocumentSyncManager {
     ///   - nodes: The array of `FileNode` items to copy.
     ///   - destinationPath: The absolute string path to the target directory.
     func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copiedURLs: [URL]) in
+        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copied: [(source: URL, destination: URL)]) in
             var taskErrors: [Error] = []
-            var targetURLs: [URL] = []
+            var targetItems: [(source: URL, destination: URL)] = []
             let fm = FileManager.default
             
             for node in nodes {
+                let sourceURL = URL(fileURLWithPath: node.id)
                 let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
-                    targetURLs.append(targetURL)
+                    try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
+                    targetItems.append((source: sourceURL, destination: targetURL))
                 } catch {
                     taskErrors.append(error)
                 }
             }
-            return (taskErrors, targetURLs)
+            return (taskErrors, targetItems)
         }.value
         
         // Register Undo Action
-        let copied = result.copiedURLs
+        let copied = result.copied
         if !copied.isEmpty {
             undoManager?.registerUndo(withTarget: self) { target in
+                // 1. Register REDO
+                target.undoManager?.registerUndo(withTarget: target) { t in
+                    Task {
+                        let fm = FileManager.default
+                        for item in copied {
+                            do {
+                                try fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                                try Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
+                            } catch {}
+                        }
+                        await t.refreshCallback?()
+                    }
+                }
+                target.undoManager?.setActionName("Copy \\(copied.count) Items")
+                
+                // 2. Execute UNDO
                 Task {
-                    var itemsInTrash: [URL] = []
-                    for url in copied {
+                    for item in copied {
                         do {
                             var trashedURL: NSURL? = nil
-                            try FileManager.default.trashItem(at: url, resultingItemURL: &trashedURL)
-                            if let inTrash = trashedURL as? URL {
-                                itemsInTrash.append(inTrash)
-                            }
+                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: &trashedURL)
                         } catch {
-                            Logger.shared.error("Failed to undo copy for \\(url.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
+                            Logger.shared.error("Failed to undo copy for \\(item.destination.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
                         }
                     }
-                    
-                    // 1. Register REDO
-                    target.undoManager?.registerUndo(withTarget: target) { t in
-                        Task {
-                            for (index, trashUrl) in itemsInTrash.enumerated() {
-                                do {
-                                    try FileManager.default.moveItem(at: trashUrl, to: copied[index])
-                                } catch {}
-                            }
-                            await t.refreshCallback?()
-                        }
-                    }
-                    target.undoManager?.setActionName("Copy \\(copied.count) Items")
-                    
                     await target.refreshCallback?()
                 }
             }
-            undoManager?.setActionName("Copy \(copied.count) Items")
+            undoManager?.setActionName("Copy \\(copied.count) Items")
         }
         
         if let firstError = result.errors.first {
