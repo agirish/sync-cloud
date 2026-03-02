@@ -21,7 +21,7 @@ class SettingsManager: ObservableObject {
         providers.append(CloudProvider(
             id: "iCloud",
             displayName: "iCloud",
-            imageName: "icloud_logo",
+            imageName: "icloud",
             path: iCloudOverride ?? iCloudDefaultPath,
             type: .iCloud
         ))
@@ -40,19 +40,19 @@ class SettingsManager: ObservableObject {
                     providers.append(CloudProvider(
                         id: id,
                         displayName: "OneDrive (\(suffix))",
-                        imageName: "onedrive_logo",
-                        path: override ?? fileURL.path,
+                        imageName: "onedrive",
+                        path: override ?? fileURL.appendingPathComponent("Documents").path,
                         type: .oneDrive
                     ))
                 } else if folderName.hasPrefix("GoogleDrive-") {
                     let suffix = folderName.dropFirst("GoogleDrive-".count)
                     let id = folderName
                     let override = userDefaults.string(forKey: "\(overrideKeyPrefix)\(id)")
-                    let defaultPath = fileURL.appendingPathComponent("My Drive").path
+                    let defaultPath = fileURL.appendingPathComponent("My Drive").appendingPathComponent("Documents").path
                     providers.append(CloudProvider(
                         id: id,
                         displayName: "Google Drive (\(suffix))",
-                        imageName: "googledrive_logo",
+                        imageName: "googledrive",
                         path: override ?? defaultPath,
                         type: .googleDrive
                     ))
@@ -62,8 +62,8 @@ class SettingsManager: ObservableObject {
                     providers.append(CloudProvider(
                         id: id,
                         displayName: "Dropbox",
-                        imageName: "dropbox_logo",
-                        path: override ?? fileURL.path,
+                        imageName: "dropbox",
+                        path: override ?? fileURL.appendingPathComponent("Documents").path,
                         type: .dropBox
                     ))
                 }

@@ -1,0 +1,79 @@
+{
+  "" : {
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloud-primary.dia",
+    "emit-module-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloud-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloud-primary-emit-module.dia",
+    "pch" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloud-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloud-primary.swiftdeps"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/CloudProvider.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/CloudProvider~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/ContentView.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/ContentView~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/DocumentSyncManager.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/DocumentSyncManager~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SettingsManager.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsManager~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SettingsView.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SettingsView~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/SyncCloudApp.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/SyncCloudApp~partial.swiftmodule"
+  },
+  "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/DerivedSources/GeneratedAssetSymbols.swift" : {
+    "const-values" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftconstvalues",
+    "dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.d",
+    "diagnostics" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.dia",
+    "index-unit-output-path" : "/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "llvm-bc" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.bc",
+    "object" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.o",
+    "swift-dependencies" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols.swiftdeps",
+    "swiftmodule" : "/Users/abhishek/Projects/vibe-code/SyncCloud/build/Build/Intermediates.noindex/SyncCloud.build/Debug/SyncCloud.build/Objects-normal/arm64/GeneratedAssetSymbols~partial.swiftmodule"
+  }
+}

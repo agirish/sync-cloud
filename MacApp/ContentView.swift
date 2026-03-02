@@ -10,142 +10,141 @@ struct ContentView: View {
     @State private var selectedSourcePath: String?
     @State private var selectedDestinationPath: String?
     
+    @State private var showingSettings = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Image(systemName: "cloud.fill")
-                    .font(.title)
-                    .foregroundColor(.blue)
-                Text("SyncCloud")
-                    .font(.title)
-                    .fontWeight(.bold)
-                Spacer()
-                Button(action: { showingSettings = true }) {
-                    Image(systemName: "gear")
-                        .font(.title2)
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            .background(Color(NSColor.windowBackgroundColor))
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
-                    .environmentObject(settings)
-            }
-            
-            // Panes
-            HSplitView {
-                // Left Pane
-                VStack(spacing: 0) {
-                    providerPicker(selection: $sourceProviderId, label: "Source")
-                    if let provider = settings.availableProviders.first(where: { $0.id == sourceProviderId }) {
-                        let path = settings.path(for: provider.id)
-                        Text(path)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.bottom, 4)
-                    }
-                    FileTreeView(tree: syncManager.sourceTree, isLoading: syncManager.isLoadingSourceTree, selection: $selectedSourcePath)
-                }
-                .frame(minWidth: 250)
-                
-                // Right Pane
-                VStack(spacing: 0) {
-                    providerPicker(selection: $destinationProviderId, label: "Destination")
-                    if let provider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) {
-                        let path = settings.path(for: provider.id)
-                        Text(path)
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                            .padding(.bottom, 4)
-                    }
-                    FileTreeView(tree: syncManager.destinationTree, isLoading: syncManager.isLoadingDestinationTree, selection: $selectedDestinationPath)
-                }
-                .frame(minWidth: 250)
-            }
-            
-            Divider()
-            
-            // Bottom Action Area
-            VStack(spacing: 15) {
-                Button(action: {
-                    guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
-                          let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }
-                          
-                    let sourceToScan = selectedSourcePath ?? settings.path(for: sourceProvider.id)
-                    let destToScan = selectedDestinationPath ?? settings.path(for: destProvider.id)
-                    Task {
-                        await syncManager.scanDirectories(
-                            source: sourceProvider, sourcePath: sourceToScan,
-                            destination: destProvider, destinationPath: destToScan
-                        )
-                    }
-                }) {
-                    HStack {
-                        if isScanning {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(isScanning ? "Scanning..." : "Scan for Differences")
-                                .fontWeight(.bold)
-                            if selectedSourcePath != nil || selectedDestinationPath != nil {
-                                Text("Selected sub-directories")
-                                    .font(.caption)
-                                    .opacity(0.8)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(isScanning)
-                
-                // Results Area
-                if !syncManager.differences.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Differences Found:")
-                                .font(.headline)
-                            Spacer()
-                            Text("\(syncManager.differences.count) files")
-                                .foregroundColor(.secondary)
-                        }
-                        
-                        ScrollView {
-                            LazyVStack(spacing: 8) {
-                                ForEach(syncManager.differences, id: \.id) { difference in
-                                    DifferenceRow(difference: difference) {
-                                        Task {
-                                            await syncManager.syncFile(difference)
-                                            loadTrees()
-                                        }
-                                    }
+        NavigationSplitView {
+            // Sidebar Navigation
+            List {
+                Section("Source Provider") {
+                    ForEach(settings.availableProviders) { provider in
+                        Button(action: { sourceProviderId = provider.id }) {
+                            HStack {
+                                Image(provider.imageName)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20)
+                                Text(provider.displayName)
+                                Spacer()
+                                if sourceProviderId == provider.id {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
                                 }
                             }
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxHeight: 200)
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
                     }
-                } else if syncManager.hasScanned {
-                    HStack {
-                        Image(systemName: "checkmark.circle")
-                            .foregroundColor(.green)
-                        Text("Directories are in sync!")
-                            .foregroundColor(.secondary)
+                }
+                
+                Section("Destination Provider") {
+                    ForEach(settings.availableProviders) { provider in
+                        Button(action: { destinationProviderId = provider.id }) {
+                            HStack {
+                                Image(provider.imageName)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 20)
+                                Text(provider.displayName)
+                                Spacer()
+                                if destinationProviderId == provider.id {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.top, 5)
                 }
             }
-            .padding()
+            .navigationTitle("Providers")
+            .frame(minWidth: 200)
+            
+        } detail: {
+            // Main Content Area
+            VStack(spacing: 0) {
+                // Dashboard Header
+                DashboardHeader(
+                    sourceTree: syncManager.sourceTree,
+                    destinationTree: syncManager.destinationTree,
+                    differences: syncManager.differences
+                )
+                
+                Divider()
+                
+                // File Trees Split View
+                HSplitView {
+                    // Left Pane (Source)
+                    VStack(spacing: 0) {
+                        PaneHeader(
+                            title: "Source", 
+                            provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), 
+                            path: settings.path(for: sourceProviderId)
+                        )
+                        FileTreeView(tree: syncManager.sourceTree, isLoading: syncManager.isLoadingSourceTree, selection: $selectedSourcePath)
+                    }
+                    .frame(minWidth: 250)
+                    
+                    // Right Pane (Destination)
+                    VStack(spacing: 0) {
+                        PaneHeader(
+                            title: "Destination", 
+                            provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), 
+                            path: settings.path(for: destinationProviderId)
+                        )
+                        FileTreeView(tree: syncManager.destinationTree, isLoading: syncManager.isLoadingDestinationTree, selection: $selectedDestinationPath)
+                    }
+                    .frame(minWidth: 250)
+                }
+                
+                // Differences Results Area
+                if !syncManager.differences.isEmpty {
+                    Divider()
+                    DifferencesView(syncManager: syncManager, loadTrees: loadTrees)
+                        .frame(maxHeight: 300)
+                } else if syncManager.hasScanned {
+                    Divider()
+                    VStack {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.green)
+                            .padding(.bottom, 8)
+                        Text("Everything is in sync")
+                            .font(.headline)
+                        Text("No differences found between Source and Destination.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: 200)
+                    .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+                }
+            }
             .background(Color(NSColor.windowBackgroundColor))
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button(action: scanAction) {
+                        Label("Scan", systemImage: isScanning ? "hourglass" : "magnifyingglass")
+                    }
+                    .disabled(isScanning)
+                }
+                ToolbarItem(placement: .automatic) {
+                    Button(action: { showingSettings = true }) {
+                        Label("Settings", systemImage: "gear")
+                    }
+                }
+            }
         }
-        .frame(minWidth: 800, minHeight: 600)
+        .sheet(isPresented: $showingSettings) {
+            SettingsView()
+                .environmentObject(settings)
+        }
         .onReceive(syncManager.$isScanning) { scanning in
-            isScanning = scanning
+            withAnimation {
+                isScanning = scanning
+            }
         }
         .onAppear {
             if let first = settings.availableProviders.first?.id {
@@ -162,13 +161,24 @@ struct ContentView: View {
             selectedDestinationPath = nil
             Task { await syncManager.loadDestinationTree(path: settings.path(for: destinationProviderId)) }
         }
-        .onReceive(settings.objectWillChange) { _ in
-            // Reload trees if settings change
+        .onChange(of: settings.availableProviders) { _ in
             loadTrees()
         }
     }
     
-    @State private var showingSettings = false
+    private func scanAction() {
+        guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
+              let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }
+              
+        let sourceToScan = selectedSourcePath ?? settings.path(for: sourceProvider.id)
+        let destToScan = selectedDestinationPath ?? settings.path(for: destProvider.id)
+        Task {
+            await syncManager.scanDirectories(
+                source: sourceProvider, sourcePath: sourceToScan,
+                destination: destProvider, destinationPath: destToScan
+            )
+        }
+    }
     
     private func loadTrees() {
         Task {
@@ -176,15 +186,76 @@ struct ContentView: View {
             await syncManager.loadDestinationTree(path: settings.path(for: destinationProviderId))
         }
     }
+}
+
+// MARK: - Subviews
+
+struct DashboardHeader: View {
+    let sourceTree: [FileNode]
+    let destinationTree: [FileNode]
+    let differences: [FileDifference]
     
-    private func providerPicker(selection: Binding<String>, label: String) -> some View {
+    var body: some View {
         HStack {
-            Text("\(label):")
-                .font(.headline)
-                .foregroundColor(.secondary)
+            DashboardMetric(title: "Source Items", value: "\(countItems(in: sourceTree))", icon: "doc.on.doc", color: .blue)
+            Divider().frame(height: 30)
+            DashboardMetric(title: "Destination Items", value: "\(countItems(in: destinationTree))", icon: "arrow.down.doc", color: .purple)
+            Divider().frame(height: 30)
+            DashboardMetric(title: "Differences", value: "\(differences.count)", icon: "exclamationmark.triangle", color: differences.isEmpty ? .green : .orange)
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+    }
+    
+    private func countItems(in tree: [FileNode]) -> Int {
+        var count = 0
+        for node in tree {
+            count += 1
+            if let children = node.children {
+                count += countItems(in: children)
+            }
+        }
+        return count
+    }
+}
+
+struct DashboardMetric: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(color)
             
-            Picker("", selection: selection) {
-                ForEach(settings.availableProviders) { provider in
+            VStack(alignment: .leading) {
+                Text(value)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                Text(title)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct PaneHeader: View {
+    let title: String
+    let provider: CloudProvider?
+    let path: String
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                if let provider = provider {
                     HStack {
                         Image(provider.imageName)
                             .resizable()
@@ -192,14 +263,19 @@ struct ContentView: View {
                             .frame(width: 16, height: 16)
                         Text(provider.displayName)
                     }
-                    .tag(provider.id)
+                    .font(.subheadline)
                 }
             }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            Spacer()
+            HStack {
+                Text(path)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
         }
-        .padding([.horizontal, .top])
+        .padding(10)
         .background(Color(NSColor.controlBackgroundColor))
     }
 }
@@ -210,26 +286,69 @@ struct FileTreeView: View {
     @Binding var selection: String?
     
     var body: some View {
-        VStack {
+        ZStack {
+            Color(NSColor.textBackgroundColor)
+            
             if isLoading {
-                ProgressView("Loading directory...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ProgressView("Loading...")
+                    .padding()
             } else if tree.isEmpty {
-                Text("Directory is empty or invalid")
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 8) {
+                    Image(systemName: "folder.badge.questionmark")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("Directory is empty or invalid")
+                        .foregroundColor(.secondary)
+                }
             } else {
                 List(tree, children: \.children, selection: $selection) { node in
                     HStack {
-                        Image(systemName: node.isDirectory ? "folder.fill" : "doc.text")
-                            .foregroundColor(node.isDirectory ? .blue : .primary)
+                        Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
+                            .foregroundColor(node.isDirectory ? .blue : .secondary)
                         Text(node.name)
+                            .font(.system(.body, design: .rounded))
                     }
                 }
                 .listStyle(SidebarListStyle())
             }
         }
-        .background(Color(NSColor.textBackgroundColor))
+    }
+}
+
+struct DifferencesView: View {
+    @ObservedObject var syncManager: DocumentSyncManager
+    let loadTrees: () -> Void
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Differences Found")
+                    .font(.headline)
+                Spacer()
+                Text("\(syncManager.differences.count) files")
+                    .foregroundColor(.secondary)
+            }
+            .padding()
+            .background(Color(NSColor.controlBackgroundColor))
+            
+            Divider()
+            
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    ForEach(syncManager.differences, id: \.id) { difference in
+                        DifferenceRow(difference: difference) {
+                            Task {
+                                await syncManager.syncFile(difference)
+                                loadTrees()
+                            }
+                        }
+                        .transition(.slide)
+                    }
+                }
+                .padding()
+            }
+            .background(.ultraThinMaterial)
+        }
     }
 }
 
@@ -238,44 +357,72 @@ struct DifferenceRow: View {
     let onSync: () -> Void
     
     var body: some View {
-        HStack {
+        HStack(spacing: 16) {
+            // Icon
+            iconForDifference(difference)
+                .font(.system(size: 24))
+                .foregroundColor(colorForDifference(difference))
+                .frame(width: 32)
+            
+            // File Info
             VStack(alignment: .leading, spacing: 4) {
-                Text(difference.relativePath)
+                let parts = difference.relativePath.split(separator: "/")
+                if parts.count > 1 {
+                    Text(parts.dropLast().joined(separator: " / "))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                
+                Text(parts.last ?? "")
                     .fontWeight(.medium)
+                
                 Text(difference.description)
                     .font(.caption)
-                    .foregroundColor(colorForDescription(difference))
+                    .foregroundColor(colorForDifference(difference))
             }
             
             Spacer()
             
-            Button {
-                onSync()
-            } label: {
+            // Sync Action
+            Button(action: onSync) {
                 HStack {
-                    switch difference.action {
-                    case .copyToDestination:
-                        Text("Copy →")
-                    case .copyToSource:
-                        Text("← Copy")
+                    if difference.isSyncing {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .frame(width: 16, height: 16)
+                    } else {
+                        switch difference.action {
+                        case .copyToDestination:
+                            Label("Copy to Dest", systemImage: "arrow.right.circle.fill")
+                        case .copyToSource:
+                            Label("Copy to Source", systemImage: "arrow.left.circle.fill")
+                        }
                     }
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.borderedProminent)
             .tint(difference.action == .copyToDestination ? .blue : .purple)
             .disabled(difference.isSyncing)
-            
-            if difference.isSyncing {
-                ProgressView()
-                    .scaleEffect(0.5)
-            }
         }
         .padding()
-        .background(Color(NSColor.windowBackgroundColor))
-        .cornerRadius(8)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(10)
+        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
     }
     
-    private func colorForDescription(_ diff: FileDifference) -> Color {
+    @ViewBuilder
+    private func iconForDifference(_ diff: FileDifference) -> some View {
+        switch diff.type {
+        case .missingInDestination:
+            Image(systemName: "plus.circle.fill")
+        case .missingInSource:
+            Image(systemName: "plus.circle.fill")
+        case .differentDates:
+            Image(systemName: "arrow.triangle.2.circlepath")
+        }
+    }
+    
+    private func colorForDifference(_ diff: FileDifference) -> Color {
         switch diff.type {
         case .missingInDestination:
             return .blue

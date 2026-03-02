@@ -8,22 +8,38 @@
 
 /* Begin PBXBuildFile section */
 		10646B98D1D159C076429036 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD04B885A6E5B2F79FBC29F /* ContentView.swift */; };
+		1339472D59A37891FF82903A /* onedrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 633A97B1D60E30053D74E73C /* onedrive.png */; };
 		28A9BD820AFFC45125599BFF /* CloudProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899C15BD59008DFA754F043F /* CloudProvider.swift */; };
 		291F1BD90D2A131D76B71624 /* DocumentSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683CB28F57323BBFCDEB6526 /* DocumentSyncManager.swift */; };
+		33FEC1D169D0F0ACD5E6F8CD /* dropbox.png in Resources */ = {isa = PBXBuildFile; fileRef = E021F192338BC544ED67982D /* dropbox.png */; };
+		43221448698BA07DA56F0A5C /* icloud.svg in Resources */ = {isa = PBXBuildFile; fileRef = BC6AC2B57D1463873507DBFB /* icloud.svg */; };
 		457072DC543C001A3234779E /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */; };
+		4736C2EFF05E02F7BC25E2ED /* onedrive.svg in Resources */ = {isa = PBXBuildFile; fileRef = 617FAC2D93B622D15FEAE7ED /* onedrive.svg */; };
+		5BF320EC613B3387652030E2 /* dropbox.svg in Resources */ = {isa = PBXBuildFile; fileRef = 256A8AE43BF68EC1733BA4BB /* dropbox.svg */; };
 		65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */; };
+		753B46093EB7AF800D2C9DC0 /* googledrive.svg in Resources */ = {isa = PBXBuildFile; fileRef = B3CD1A89AA66A7B25222F96D /* googledrive.svg */; };
+		DF84BA277D29FBD3391EC1B2 /* icloud.png in Resources */ = {isa = PBXBuildFile; fileRef = 9031D932BC75D0093BEBFB25 /* icloud.png */; };
 		E1EFB2228BD5A9A0E980E90F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA20C7534E8CB2827535095 /* SettingsView.swift */; };
 		EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */; };
+		F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 8B4FBF21F132A600B398B3F7 /* googledrive.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
 		5BD04B885A6E5B2F79FBC29F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		617FAC2D93B622D15FEAE7ED /* onedrive.svg */ = {isa = PBXFileReference; path = onedrive.svg; sourceTree = "<group>"; };
+		633A97B1D60E30053D74E73C /* onedrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = onedrive.png; sourceTree = "<group>"; };
 		683CB28F57323BBFCDEB6526 /* DocumentSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentSyncManager.swift; sourceTree = "<group>"; };
 		899C15BD59008DFA754F043F /* CloudProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProvider.swift; sourceTree = "<group>"; };
+		8B4FBF21F132A600B398B3F7 /* googledrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = googledrive.png; sourceTree = "<group>"; };
 		8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCloudApp.swift; sourceTree = "<group>"; };
+		9031D932BC75D0093BEBFB25 /* icloud.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icloud.png; sourceTree = "<group>"; };
 		92A469F7D5E028F9E340043E /* SyncCloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SyncCloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AEA20C7534E8CB2827535095 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B3CD1A89AA66A7B25222F96D /* googledrive.svg */ = {isa = PBXFileReference; path = googledrive.svg; sourceTree = "<group>"; };
+		BC6AC2B57D1463873507DBFB /* icloud.svg */ = {isa = PBXFileReference; path = icloud.svg; sourceTree = "<group>"; };
+		E021F192338BC544ED67982D /* dropbox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dropbox.png; sourceTree = "<group>"; };
 		F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -46,8 +62,24 @@
 				F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */,
 				AEA20C7534E8CB2827535095 /* SettingsView.swift */,
 				8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */,
+				F1A882B42A0FB20D7C03266E /* Resources */,
 			);
 			path = MacApp;
+			sourceTree = "<group>";
+		};
+		F1A882B42A0FB20D7C03266E /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				E021F192338BC544ED67982D /* dropbox.png */,
+				256A8AE43BF68EC1733BA4BB /* dropbox.svg */,
+				8B4FBF21F132A600B398B3F7 /* googledrive.png */,
+				B3CD1A89AA66A7B25222F96D /* googledrive.svg */,
+				9031D932BC75D0093BEBFB25 /* icloud.png */,
+				BC6AC2B57D1463873507DBFB /* icloud.svg */,
+				633A97B1D60E30053D74E73C /* onedrive.png */,
+				617FAC2D93B622D15FEAE7ED /* onedrive.svg */,
+			);
+			path = Resources;
 			sourceTree = "<group>";
 		};
 		FB6628FEB50DBD7D836C433A = {
@@ -115,6 +147,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */,
+				33FEC1D169D0F0ACD5E6F8CD /* dropbox.png in Resources */,
+				5BF320EC613B3387652030E2 /* dropbox.svg in Resources */,
+				F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */,
+				753B46093EB7AF800D2C9DC0 /* googledrive.svg in Resources */,
+				DF84BA277D29FBD3391EC1B2 /* icloud.png in Resources */,
+				43221448698BA07DA56F0A5C /* icloud.svg in Resources */,
+				1339472D59A37891FF82903A /* onedrive.png in Resources */,
+				4736C2EFF05E02F7BC25E2ED /* onedrive.svg in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

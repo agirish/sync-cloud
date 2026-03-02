@@ -5,7 +5,48 @@
 	<key>colors</key>
 	<array/>
 	<key>images</key>
-	<array/>
+	<array>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameDropbox</string>
+			<key>relativePath</key>
+			<string>./dropbox.imageset</string>
+			<key>swiftSymbol</key>
+			<string>dropbox</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameGoogledrive</string>
+			<key>relativePath</key>
+			<string>./googledrive.imageset</string>
+			<key>swiftSymbol</key>
+			<string>googledrive</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameIcloud</string>
+			<key>relativePath</key>
+			<string>./icloud.imageset</string>
+			<key>swiftSymbol</key>
+			<string>icloud</string>
+		</dict>
+		<dict>
+			<key>catalogPath</key>
+			<string>/Users/abhishek/Projects/vibe-code/SyncCloud/MacApp/Assets.xcassets</string>
+			<key>objcSymbol</key>
+			<string>ACImageNameOnedrive</string>
+			<key>relativePath</key>
+			<string>./onedrive.imageset</string>
+			<key>swiftSymbol</key>
+			<string>onedrive</string>
+		</dict>
+	</array>
 	<key>symbols</key>
 	<array/>
 </dict>
