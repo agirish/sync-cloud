@@ -59,6 +59,26 @@ class DocumentSyncManager: ObservableObject {
     /// Global closure to trigger a UI refresh of trees from anywhere
     var refreshCallback: (() -> Void)?
     
+    /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
+    private var fileOperationTask: Task<Void, Swift.Error> = Task {}
+    
+    /// Enqueues a file operation to be executed sequentially after all previous file operations have completed.
+    /// This is strictly required to ensure that rapid Undo/Redo operations do not race with each other asynchronously.
+    @discardableResult
+    func enqueueFileOperation<T: Sendable>(
+        _ operation: @escaping @Sendable () async -> T
+    ) async -> T {
+        let previousTask = fileOperationTask
+        let newTask = Task.detached(priority: .userInitiated) {
+            _ = await previousTask.result
+            let res = await operation()
+            await MainActor.run { [weak self] in self?.refreshCallback?() }
+            return res
+        }
+        fileOperationTask = Task { _ = await newTask.value }
+        return await newTask.value
+    }
+    
     /// Tracks the navigational history across both panes.
     private var history: [(source: String, dest: String)] = [("", "")]
     private var historyIndex: Int = 0

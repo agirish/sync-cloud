@@ -2,19 +2,17 @@ import Foundation
 
 extension DocumentSyncManager {
     
+    // MARK: - File Operations
+    
     /// Copies multiple files or folders between the Source and Destination panes.
-    /// - Parameters:
-    ///   - nodes: The array of `FileNode` items to copy.
-    ///   - fromSource: A boolean indicating if the copy originates from the source provider (true) or destination provider (false).
-    ///   - sourceRoot: The expanded root URL path of the source provider.
-    ///   - destinationRoot: The expanded root URL path of the destination provider.
     func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copied: [(source: URL, destination: URL)]) in
+        // Use enqueueFileOperation to guarantee ordering
+        let result = await enqueueFileOperation { () -> (errors: [Error], copiedURLs: [URL]) in
             var taskErrors: [Error] = []
-            var targetItems: [(source: URL, destination: URL)] = []
+            var targetURLs: [URL] = []
             let fm = FileManager.default
             
             for node in nodes {
@@ -26,47 +24,18 @@ extension DocumentSyncManager {
                     let targetURL = URL(fileURLWithPath: targetPath)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((source: sourceURL, destination: targetURL))
+                    targetURLs.append(targetURL)
                 } catch {
                     taskErrors.append(error)
                 }
             }
-            return (taskErrors, targetItems)
-        }.value
+            return (taskErrors, targetURLs)
+        }
         
-        // Register Undo Action
-        let copied = result.copied
+        let copied = result.copiedURLs
         if !copied.isEmpty {
-            undoManager?.registerUndo(withTarget: self) { target in
-                // 1. Register REDO
-                target.undoManager?.registerUndo(withTarget: target) { t in
-                    Task {
-                        let fm = FileManager.default
-                        for item in copied {
-                            do {
-                                try fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                                try Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
-                            } catch {}
-                        }
-                        await t.refreshCallback?()
-                    }
-                }
-                target.undoManager?.setActionName("Copy \\(copied.count) Items")
-                
-                // 2. Execute UNDO logic
-                Task {
-                    for item in copied {
-                        do {
-                            var trashedURL: NSURL? = nil
-                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: &trashedURL)
-                        } catch {
-                            Logger.shared.error("Failed to undo cross-pane copy for \\(item.destination.lastPathComponent): \\(error.localizedDescription)", showAlert: false)
-                        }
-                    }
-                    await target.refreshCallback?()
-                }
-            }
-            undoManager?.setActionName("Copy \\(copied.count) Items")
+            // An item Appearing needs an Undo that Trashes it.
+            self.registerTrashItems(urls: copied, actionName: "Copy \(copied.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -78,15 +47,11 @@ extension DocumentSyncManager {
         }
     }
     
-
     /// Copies multiple files to a specific absolute destination directory path.
-    /// - Parameters:
-    ///   - nodes: The array of `FileNode` items to copy.
-    ///   - destinationPath: The absolute string path to the target directory.
     func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], copied: [(source: URL, destination: URL)]) in
+        let result = await enqueueFileOperation { () -> (errors: [Error], copiedURLs: [URL]) in
             var taskErrors: [Error] = []
-            var targetItems: [(source: URL, destination: URL)] = []
+            var targetURLs: [URL] = []
             let fm = FileManager.default
             
             for node in nodes {
@@ -96,18 +61,17 @@ extension DocumentSyncManager {
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((source: sourceURL, destination: targetURL))
+                    targetURLs.append(targetURL)
                 } catch {
                     taskErrors.append(error)
                 }
             }
-            return (taskErrors, targetItems)
-        }.value
+            return (taskErrors, targetURLs)
+        }
         
-        // Register Undo Action
-        let copied = result.copied
+        let copied = result.copiedURLs
         if !copied.isEmpty {
-            self.registerCopyUndo(items: copied, actionName: "Copy \\(copied.count) Items")
+            self.registerTrashItems(urls: copied, actionName: "Copy \(copied.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -120,11 +84,8 @@ extension DocumentSyncManager {
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    /// - Parameters:
-    ///   - nodes: The array of `FileNode` items to move.
-    ///   - destinationPath: The absolute string path to the target directory.
     func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], moved: [(original: URL, new: URL)]) in
+        let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(original: URL, new: URL)]) in
             var taskErrors: [Error] = []
             var movedItems: [(original: URL, new: URL)] = []
             let fm = FileManager.default
@@ -142,13 +103,12 @@ extension DocumentSyncManager {
                 }
             }
             return (taskErrors, movedItems)
-        }.value
+        }
         
-        // Register Undo Action
         let moved = result.moved
         if !moved.isEmpty {
             let mapping = moved.map { (from: $0.new, to: $0.original) }
-            self.registerReversibleMove(items: mapping, actionName: "Move \\(moved.count) Items")
+            self.registerReversibleMove(items: mapping, actionName: "Move \(moved.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -160,29 +120,20 @@ extension DocumentSyncManager {
         }
     }
     
-    // MARK: - File Operations
-
     /// Renames a specific file or folder on disk.
-    /// - Parameters:
-    ///   - path: The absolute path of the item to rename.
-    ///   - newName: The new local filename (not a full path).
     func renameItem(at path: String, to newName: String) async {
-        let error = await Task.detached(priority: .userInitiated) { () -> Error? in
+        let url = URL(fileURLWithPath: path)
+        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
+        
+        let error = await enqueueFileOperation { () -> Error? in
             let fm = FileManager.default
-            let url = URL(fileURLWithPath: path)
-            let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
-            
             do {
                 try Self.safeMoveItem(at: url, to: newURL, fileManager: fm)
                 return nil
             } catch {
                 return error
             }
-        }.value
-        
-        let url = URL(fileURLWithPath: path)
-        let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
-        let originalName = url.lastPathComponent
+        }
         
         if let err = error {
             let msg = "Error renaming item: \(err.localizedDescription)"
@@ -190,48 +141,39 @@ extension DocumentSyncManager {
             Logger.shared.error(msg, showAlert: false)
         } else {
             Logger.shared.info("Renamed item to \(newName)")
-            
-            // Register Undo Action
             self.registerReversibleMove(items: [(from: newURL, to: url)], actionName: "Rename Item")
         }
     }
     
     /// Creates a new empty directory on disk.
-    /// - Parameters:
-    ///   - name: The local name of the new folder.
-    ///   - path: The absolute path of the parent directory where the folder should be created.
     func createFolder(named name: String, in path: String) async {
-        let error = await Task.detached(priority: .userInitiated) { () -> Error? in
+        let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
+        
+        let error = await enqueueFileOperation { () -> Error? in
             let fm = FileManager.default
-            let url = URL(fileURLWithPath: path).appendingPathComponent(name)
-            
             do {
-                try fm.createDirectory(at: url, withIntermediateDirectories: true)
+                try fm.createDirectory(at: createdURL, withIntermediateDirectories: true)
                 return nil
             } catch {
                 return error
             }
-        }.value
+        }
         
-        let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
         if let err = error {
             let msg = "Error creating folder: \(err.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else {
             Logger.shared.info("Created folder \(name) at \(path)")
-            
-            // Register Undo Action
-            self.registerCreateFolderUndo(url: createdURL)
+            self.registerTrashItems(urls: [createdURL], actionName: "New Folder")
         }
     }
 
     /// Permanently deletes files or directories from disk.
-    /// - Parameter paths: An array of absolute string paths to remove from the filesystem.
     func deleteItems(at paths: [String]) async {
-        let result = await Task.detached(priority: .userInitiated) { () -> (errors: [Error], trashed: [(original: URL, trashed: URL)]) in
+        let result = await enqueueFileOperation { () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
             var taskErrors: [Error] = []
-            var trashedItems: [(original: URL, trashed: URL)] = []
+            var trashedItems: [(original: URL, trashed: URL?)] = []
             let fm = FileManager.default
             
             for path in paths {
@@ -239,24 +181,28 @@ extension DocumentSyncManager {
                     if fm.fileExists(atPath: path) {
                         let url = URL(fileURLWithPath: path)
                         var trashedURL: NSURL? = nil
-                        try fm.trashItem(at: url, resultingItemURL: &trashedURL)
-                        
-                        if let trashed = trashedURL as? URL {
-                            trashedItems.append((original: url, trashed: trashed))
+                        do {
+                            try fm.trashItem(at: url, resultingItemURL: &trashedURL)
+                            trashedItems.append((original: url, trashed: trashedURL as? URL))
+                        } catch {
+                            trashedItems.append((original: url, trashed: nil)) // Mark as failed trash so we align
+                            taskErrors.append(error)
                         }
                     }
-                } catch {
-                    taskErrors.append(error)
                 }
             }
             return (taskErrors, trashedItems)
-        }.value
+        }
         
-        // Register Undo Action
-        let trashed = result.trashed
-        if !trashed.isEmpty {
-            let box = TrashedItemsBox(items: trashed)
-            self.registerDeleteUndo(box: box, actionName: "Delete \\(trashed.count) Items")
+        let items = result.items
+        let successfullyTrashed = items.compactMap { $0.trashed != nil ? $0 : nil }
+        if !successfullyTrashed.isEmpty {
+            let urls = successfullyTrashed.map { $0.original }
+            let initialResolver = AsyncTrashResolver()
+            // We immediately resolve it because we know the sync result of the initial operation
+            Task { await initialResolver.resolve(successfullyTrashed.map { $0.trashed }) }
+            
+            self.registerRestoreItems(urls: urls, trashResolver: initialResolver, actionName: "Delete \(successfullyTrashed.count) Items")
         }
         
         if let firstError = result.errors.first {
@@ -295,103 +241,98 @@ extension DocumentSyncManager {
         }
     }
     
-    // MARK: - Undo/Redo Registration Helpers
+    // MARK: - Undo/Redo Native Registration Stack
     
-    private func registerCopyUndo(items: [(source: URL, destination: URL)], actionName: String) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCopyRedo(items: items, actionName: actionName)
-            Task {
-                for item in items {
-                    try? FileManager.default.trashItem(at: item.destination, resultingItemURL: nil)
-                }
-                await target.refreshCallback?()
-            }
-        }
-        undoManager?.setActionName(actionName)
-    }
-    
-    private func registerCopyRedo(items: [(source: URL, destination: URL)], actionName: String) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCopyUndo(items: items, actionName: actionName)
-            Task {
-                let fm = FileManager.default
-                for item in items {
-                    try? fm.createDirectory(at: item.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try? Self.safeCopyItem(at: item.source, to: item.destination, fileManager: fm)
-                }
-                await target.refreshCallback?()
-            }
-        }
-        undoManager?.setActionName(actionName)
-    }
-    
+    /// Symmetrical Undo/Redo registration for Move/Rename operations
     private func registerReversibleMove(items: [(from: URL, to: URL)], actionName: String) {
         undoManager?.registerUndo(withTarget: self) { target in
+            // Registration for the NEXT inverse action (Redo if this is Undo, Undo if this is Redo)
             let inverseItems = items.map { (from: $0.to, to: $0.from) }
             target.registerReversibleMove(items: inverseItems, actionName: actionName)
+            
+            // Execute the operation sequentially guarantees safe execution against rapid Cmd+Z
             Task {
-                for item in items {
-                    do { try Self.safeMoveItem(at: item.from, to: item.to) } catch {}
-                }
-                await target.refreshCallback?()
-            }
-        }
-        undoManager?.setActionName(actionName)
-    }
-    
-    private func registerCreateFolderUndo(url: URL) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCreateFolderRedo(url: url)
-            Task { try? FileManager.default.trashItem(at: url, resultingItemURL: nil); await target.refreshCallback?() }
-        }
-        undoManager?.setActionName("New Folder")
-    }
-    
-    private func registerCreateFolderRedo(url: URL) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCreateFolderUndo(url: url)
-            Task { try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true); await target.refreshCallback?() }
-        }
-        undoManager?.setActionName("New Folder")
-    }
-    
-    private class TrashedItemsBox {
-        var items: [(original: URL, trashed: URL)] = []
-        init(items: [(original: URL, trashed: URL)] = []) {
-            self.items = items
-        }
-    }
-    
-    private func registerDeleteUndo(box: TrashedItemsBox, actionName: String) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            let originalURLs = box.items.map { $0.original }
-            target.registerDeleteRedo(originalURLs: originalURLs, actionName: actionName)
-            Task {
-                for item in box.items {
-                    try? FileManager.default.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try? FileManager.default.moveItem(at: item.trashed, to: item.original)
-                }
-                await target.refreshCallback?()
-            }
-        }
-        undoManager?.setActionName(actionName)
-    }
-    
-    private func registerDeleteRedo(originalURLs: [URL], actionName: String) {
-        undoManager?.registerUndo(withTarget: self) { target in
-            let nextBox = TrashedItemsBox()
-            target.registerDeleteUndo(box: nextBox, actionName: actionName)
-            Task {
-                let fm = FileManager.default
-                for url in originalURLs {
-                    var trashed: NSURL?
-                    if (try? fm.trashItem(at: url, resultingItemURL: &trashed)) != nil, let t = trashed as? URL {
-                        nextBox.items.append((original: url, trashed: t))
+                await target.enqueueFileOperation {
+                    for item in items {
+                        do { try Self.safeMoveItem(at: item.from, to: item.to) } catch {}
                     }
                 }
-                await target.refreshCallback?()
+            }
+        }
+        // Native UndoManager correctly maps this to either Undo or Redo Action Name based on isUndoing/isRedoing state internally
+        undoManager?.setActionName(actionName)
+    }
+    
+    /// Registers an action on the Undo stack that will Trash the specified items.
+    /// Used as the Undo mechanism for Create/Copy, and the Redo mechanism for Delete.
+    private func registerTrashItems(urls: [URL], actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            let nextResolver = AsyncTrashResolver()
+            // The inverse of Trashing is Restoring. Synchronously build the next callback!
+            target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName)
+            
+            Task {
+                await target.enqueueFileOperation {
+                    let fm = FileManager.default
+                    var trashedItems: [URL?] = []
+                    for url in urls {
+                        var t: NSURL?
+                        if fm.fileExists(atPath: url.path), (try? fm.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
+                            trashedItems.append(trashed)
+                        } else {
+                            trashedItems.append(nil)
+                        }
+                    }
+                    // Asynchronously resolve the box that the NEXT chained Undo block will consume!
+                    await nextResolver.resolve(trashedItems)
+                }
             }
         }
         undoManager?.setActionName(actionName)
+    }
+
+    /// Registers an action on the Undo stack that will Restore items from the Trash back to their original locations.
+    /// Used as the Undo mechanism for Delete, and the Redo mechanism for Create/Copy.
+    private func registerRestoreItems(urls: [URL], trashResolver: AsyncTrashResolver, actionName: String) {
+        undoManager?.registerUndo(withTarget: self) { target in
+            // The inverse of Restoring is Trashing
+            target.registerTrashItems(urls: urls, actionName: actionName)
+            
+            Task {
+                await target.enqueueFileOperation {
+                    // Safely await the dynamic trash paths resolved by the PREVIOUS async task block!
+                    let trashedItems = await trashResolver.get()
+                    for (idx, targetURL) in urls.enumerated() {
+                        if let trashedURL = trashedItems[idx] {
+                            try? FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            try? FileManager.default.moveItem(at: trashedURL, to: targetURL)
+                        }
+                    }
+                }
+            }
+        }
+        undoManager?.setActionName(actionName)
+    }
+}
+
+/// A highly robust Async resolution actor that allows an asynchronous detached task 
+/// to compute the dynamic result of moving an item to the macOS Trash, 
+/// and allowing subsequent synchronous Undo/Redo blocks to safely enqueue wait commands for those dynamically generated Trash URLs.
+actor AsyncTrashResolver {
+    private var result: [URL?]?
+    private var continuations: [CheckedContinuation<[URL?], Never>] = []
+    
+    func resolve(_ value: [URL?]) {
+        if result != nil { return }
+        result = value
+        for cont in continuations { cont.resume(returning: value) }
+        continuations.removeAll()
+    }
+    
+    func get() async -> [URL?] {
+        if let value = result { return value }
+        return await withCheckedContinuation { cont in
+            continuations.append(cont)
+        }
     }
 }
