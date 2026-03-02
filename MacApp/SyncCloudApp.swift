@@ -11,5 +11,11 @@ struct SyncCloudApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
+        
+        Window("Activity Log", id: "activity-log") {
+            LogViewer()
+                .environmentObject(Logger.shared)
+        }
+        .windowResizability(.contentMinSize)
     }
 } 

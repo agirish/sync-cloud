@@ -28,6 +28,8 @@ struct ContentView: View {
     /// The paths inside the right tree which have been toggled open (expanded disclosure groups).
     @State private var destExpandedPaths: Set<String> = []
     
+    @Environment(\.openWindow) private var openWindow
+    
     /// Controls the presentation of the User Preferences sheet.
     @State private var showingSettings = false
     /// Controls the presentation of the Logger Activity inspector pane.
@@ -177,7 +179,7 @@ struct ContentView: View {
                     .disabled(isScanning)
                 }
                 ToolbarItem(placement: .automatic) {
-                    Button(action: { showingLogs.toggle() }) {
+                    Button(action: { openWindow(id: "activity-log") }) {
                         Label("Logs", systemImage: "list.bullet.rectangle")
                     }
                 }
@@ -187,10 +189,6 @@ struct ContentView: View {
                     }
                 }
             }
-        }
-        .inspector(isPresented: $showingLogs) {
-            LogViewer()
-                .inspectorColumnWidth(min: 300, ideal: 400, max: 600)
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
