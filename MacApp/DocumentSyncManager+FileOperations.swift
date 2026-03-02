@@ -6,7 +6,8 @@ extension DocumentSyncManager {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
-        await Task.detached(priority: .userInitiated) {
+        let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
+            var taskErrors: [Error] = []
             let fm = FileManager.default
             for node in nodes {
                 let relativePath = node.id.replacingOccurrences(of: fromRoot, with: "")
@@ -17,78 +18,104 @@ extension DocumentSyncManager {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
-                    print("Error copying item \(node.name): \(error)")
+                    taskErrors.append(error)
                 }
             }
+            return taskErrors
         }.value
+        
+        if let firstError = errors.first {
+            self.currentError = "Error copying items: \(firstError.localizedDescription)"
+        }
     }
     
 
     func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
-        await Task.detached(priority: .userInitiated) {
+        let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
+            var taskErrors: [Error] = []
             let fm = FileManager.default
             for node in nodes {
                 let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
-                let targetPath = targetURL.path
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
-                    print("Error copying item \(node.name): \(error)")
+                    taskErrors.append(error)
                 }
             }
+            return taskErrors
         }.value
+        
+        if let firstError = errors.first {
+            self.currentError = "Error copying items: \(firstError.localizedDescription)"
+        }
     }
     
     func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
-        await Task.detached(priority: .userInitiated) {
+        let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
+            var taskErrors: [Error] = []
             let fm = FileManager.default
             for node in nodes {
                 let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
-                let targetPath = targetURL.path
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try Self.safeMoveItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
-                    print("Error moving item \(node.name): \(error)")
+                    taskErrors.append(error)
                 }
             }
+            return taskErrors
         }.value
+        
+        if let firstError = errors.first {
+            self.currentError = "Error moving items: \(firstError.localizedDescription)"
+        }
     }
     
     // MARK: - File Operations
 
     func renameItem(at path: String, to newName: String) async {
-        await Task.detached(priority: .userInitiated) {
+        let error = await Task.detached(priority: .userInitiated) { () -> Error? in
             let fm = FileManager.default
             let url = URL(fileURLWithPath: path)
             let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
             
             do {
                 try Self.safeMoveItem(at: url, to: newURL, fileManager: fm)
+                return nil
             } catch {
-                print("Error renaming item \(path): \(error)")
+                return error
             }
         }.value
+        
+        if let err = error {
+            self.currentError = "Error renaming item: \(err.localizedDescription)"
+        }
     }
     
     func createFolder(named name: String, in path: String) async {
-        await Task.detached(priority: .userInitiated) {
+        let error = await Task.detached(priority: .userInitiated) { () -> Error? in
             let fm = FileManager.default
             let url = URL(fileURLWithPath: path).appendingPathComponent(name)
             
             do {
                 try fm.createDirectory(at: url, withIntermediateDirectories: true)
+                return nil
             } catch {
-                print("Error creating folder \(name) at \(path): \(error)")
+                return error
             }
         }.value
+        
+        if let err = error {
+            self.currentError = "Error creating folder: \(err.localizedDescription)"
+        }
     }
 
     func deleteItems(at paths: [String]) async {
-        await Task.detached(priority: .userInitiated) {
+        let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
+            var taskErrors: [Error] = []
             let fm = FileManager.default
             for path in paths {
                 do {
@@ -96,10 +123,15 @@ extension DocumentSyncManager {
                         try fm.removeItem(atPath: path)
                     }
                 } catch {
-                    print("Error deleting item at \(path): \(error)")
+                    taskErrors.append(error)
                 }
             }
+            return taskErrors
         }.value
+        
+        if let firstError = errors.first {
+            self.currentError = "Error deleting items: \(firstError.localizedDescription)"
+        }
     }
     
     // MARK: - Safe Atomic Replacements

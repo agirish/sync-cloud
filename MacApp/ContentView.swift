@@ -162,6 +162,16 @@ struct ContentView: View {
             newFolderName: $newFolderName,
             nodesToDelete: $nodesToDelete
         ))
+        .alert("Error", isPresented: Binding(
+            get: { syncManager.currentError != nil },
+            set: { _ in syncManager.currentError = nil }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            if let errorMsg = syncManager.currentError {
+                Text(errorMsg)
+            }
+        }
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation {
                 isScanning = scanning

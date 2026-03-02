@@ -21,6 +21,9 @@ class DocumentSyncManager: ObservableObject {
     @Published var clipboardNodes: [FileNode] = []
     @Published var clipboardIsCut: Bool = false
     
+    // Globabl Error state
+    @Published var currentError: String? = nil
+    
     // Navigation State (Relative paths from provider roots)
     @Published var sourceRelativePath: String = ""
     @Published var destRelativePath: String = ""
@@ -281,7 +284,7 @@ class DocumentSyncManager: ObservableObject {
             differences[index].isSyncing = true
         }
         
-        let success = await Task.detached(priority: .userInitiated) { () -> Bool in
+        let resultError = await Task.detached(priority: .userInitiated) { () -> Error? in
             do {
                 let fromURL: URL
                 let toURL: URL
@@ -299,15 +302,18 @@ class DocumentSyncManager: ObservableObject {
                 
                 // Atomically copy the file to prevent file loss/corruption during sync
                 try Self.safeCopyItem(at: fromURL, to: toURL)
-                return true
+                return nil
                 
             } catch {
-                print("Error syncing file \(difference.relativePath): \(error)")
-                return false
+                return error
             }
         }.value
         
-        if success {
+        if let error = resultError {
+            self.currentError = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
+        }
+        
+        if resultError == nil {
             // Remove from differences list
             differences.removeAll { $0.id == difference.id }
         } else {
