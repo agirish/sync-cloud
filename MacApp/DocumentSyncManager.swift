@@ -297,13 +297,8 @@ class DocumentSyncManager: ObservableObject {
                 // Ensure destination directory exists
                 try FileManager.default.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 
-                // Remove existing file if replacing
-                if FileManager.default.fileExists(atPath: toURL.path) {
-                    try FileManager.default.removeItem(at: toURL)
-                }
-                
-                // Copy the file
-                try FileManager.default.copyItem(at: fromURL, to: toURL)
+                // Atomically copy the file to prevent file loss/corruption during sync
+                try Self.safeCopyItem(at: fromURL, to: toURL)
                 return true
                 
             } catch {

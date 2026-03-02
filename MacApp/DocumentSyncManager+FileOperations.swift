@@ -13,11 +13,9 @@ extension DocumentSyncManager {
                 let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
                 
                 do {
-                    try fm.createDirectory(at: URL(fileURLWithPath: targetPath).deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if fm.fileExists(atPath: targetPath) {
-                        try fm.removeItem(atPath: targetPath)
-                    }
-                    try fm.copyItem(atPath: node.id, toPath: targetPath)
+                    let targetURL = URL(fileURLWithPath: targetPath)
+                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
                     print("Error copying item \(node.name): \(error)")
                 }
@@ -35,10 +33,7 @@ extension DocumentSyncManager {
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if fm.fileExists(atPath: targetPath) {
-                        try fm.removeItem(atPath: targetPath)
-                    }
-                    try fm.copyItem(atPath: node.id, toPath: targetPath)
+                    try Self.safeCopyItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
                     print("Error copying item \(node.name): \(error)")
                 }
@@ -55,10 +50,7 @@ extension DocumentSyncManager {
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    if fm.fileExists(atPath: targetPath) {
-                        try fm.removeItem(atPath: targetPath)
-                    }
-                    try fm.moveItem(atPath: node.id, toPath: targetPath)
+                    try Self.safeMoveItem(at: URL(fileURLWithPath: node.id), to: targetURL, fileManager: fm)
                 } catch {
                     print("Error moving item \(node.name): \(error)")
                 }
@@ -75,7 +67,7 @@ extension DocumentSyncManager {
             let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
             
             do {
-                try fm.moveItem(at: url, to: newURL)
+                try Self.safeMoveItem(at: url, to: newURL, fileManager: fm)
             } catch {
                 print("Error renaming item \(path): \(error)")
             }
@@ -108,5 +100,28 @@ extension DocumentSyncManager {
                 }
             }
         }.value
+    }
+    
+    // MARK: - Safe Atomic Replacements
+    
+    /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
+    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws {
+        let tempURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fileManager.copyItem(at: sourceURL, to: tempURL)
+        
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: tempURL)
+        } else {
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+        }
+    }
+    
+    /// Safely moves a file, atomically replacing the destination if it exists.
+    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws {
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            _ = try fileManager.replaceItemAt(destinationURL, withItemAt: sourceURL)
+        } else {
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        }
     }
 }
