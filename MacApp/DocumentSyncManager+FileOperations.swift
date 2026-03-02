@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 extension DocumentSyncManager {
     
@@ -29,6 +30,59 @@ extension DocumentSyncManager {
         if dst.hasPrefix(src + "/") {
             throw FileOperationError.nestingViolation
         }
+    }
+    
+    // MARK: - Collision Resolution
+    
+    enum CollisionResolution {
+        case replace
+        case keepBoth
+        case skip
+    }
+    
+    @MainActor
+    private static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
+        let alert = NSAlert()
+        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
+        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        
+        // Buttons added right to left.
+        alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
+        alert.addButton(withTitle: "Skip")      // Second added (Middle)
+        alert.addButton(withTitle: "Replace")   // Third added (Leftmost)
+        
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            return .keepBoth
+        case .alertSecondButtonReturn:
+            return .skip
+        case .alertThirdButtonReturn:
+            return .replace
+        default:
+            return .skip
+        }
+    }
+    
+    private nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManager = .default) -> URL {
+        let directory = url.deletingLastPathComponent()
+        let filename = url.deletingPathExtension().lastPathComponent
+        let extensionStr = url.pathExtension
+        
+        var counter = 2
+        var newURL = url
+        
+        while fileManager.fileExists(atPath: newURL.path) {
+            let newFilename = "\(filename) \(counter)"
+            if extensionStr.isEmpty {
+                newURL = directory.appendingPathComponent(newFilename)
+            } else {
+                newURL = directory.appendingPathComponent(newFilename).appendingPathExtension(extensionStr)
+            }
+            counter += 1
+        }
+        
+        return newURL
     }
     
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
@@ -92,9 +146,19 @@ extension DocumentSyncManager {
                 let relativePath = node.id.replacingOccurrences(of: fromRoot, with: "")
                 let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
                 
+                let sourceURL = URL(fileURLWithPath: node.id)
+                var targetURL = URL(fileURLWithPath: targetPath)
+                
+                if fm.fileExists(atPath: targetURL.path) {
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
+                    switch resolution {
+                    case .replace: break
+                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                    case .skip: continue
+                    }
+                }
+                
                 do {
-                    let sourceURL = URL(fileURLWithPath: node.id)
-                    let targetURL = URL(fileURLWithPath: targetPath)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
@@ -130,7 +194,16 @@ extension DocumentSyncManager {
             
             for node in nodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
-                let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                
+                if fm.fileExists(atPath: targetURL.path) {
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
+                    switch resolution {
+                    case .replace: break
+                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                    case .skip: continue
+                    }
+                }
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -168,7 +241,16 @@ extension DocumentSyncManager {
             
             for node in nodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
-                let targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
+                
+                if fm.fileExists(atPath: targetURL.path) {
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: true) }
+                    switch resolution {
+                    case .replace: break
+                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                    case .skip: continue
+                    }
+                }
                 
                 do {
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
