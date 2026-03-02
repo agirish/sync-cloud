@@ -1,12 +1,16 @@
+import Events
 import Foundation
 import SwiftUI
+import Sync
 
 /// An overlay window allowing users to customize CloudProvider synchronization paths.
-struct SettingsView: View {
+public struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: SettingsManager
     
-    var body: some View {
+    public init() {}
+    
+    public var body: some View {
         VStack(spacing: 0) {
             header
             

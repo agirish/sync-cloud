@@ -2,23 +2,23 @@ import AppKit
 import Foundation
 
 @MainActor
-struct NativeAlerts {
+public struct NativeAlerts {
     
     /// Presents a native macOS Finder-style delete confirmation prompt.
     /// - Parameters:
-    ///   - items: The list of files or folders selected for deletion.
+    ///   - itemNames: The list of file or folder names selected for deletion.
     /// - Returns: True if the user confirmed the deletion.
-    static func confirmDelete(for items: [FileNode]) -> Bool {
-        guard !items.isEmpty else { return false }
+    public static func confirmDelete(for itemNames: [String]) -> Bool {
+        guard !itemNames.isEmpty else { return false }
         
         let alert = NSAlert()
         alert.alertStyle = .warning
         
-        if items.count == 1, let first = items.first {
-            alert.messageText = "Are you sure you want to delete \"\(first.name)\"?"
+        if itemNames.count == 1, let first = itemNames.first {
+            alert.messageText = "Are you sure you want to delete \"\(first)\"?"
             alert.informativeText = "This item will be moved to the Trash."
         } else {
-            alert.messageText = "Are you sure you want to delete \(items.count) items?"
+            alert.messageText = "Are you sure you want to delete \(itemNames.count) items?"
             alert.informativeText = "These items will be moved to the Trash."
         }
         
@@ -38,7 +38,7 @@ struct NativeAlerts {
     /// - Parameters:
     ///   - currentName: The current name of the file/folder.
     /// - Returns: The new user-provided name, or nil if cancelled.
-    static func promptForRename(currentName: String) -> String? {
+    public static func promptForRename(currentName: String) -> String? {
         let alert = NSAlert()
         alert.messageText = "Rename Item"
         alert.informativeText = "Enter a new name for this item:"
@@ -63,7 +63,7 @@ struct NativeAlerts {
     
     /// Presents a native macOS prompt requesting a name for a new folder.
     /// - Returns: The new user-provided folder name, or nil if cancelled.
-    static func promptForNewFolder() -> String? {
+    public static func promptForNewFolder() -> String? {
         let alert = NSAlert()
         alert.messageText = "New Folder"
         alert.informativeText = "Enter a name for the new folder:"
@@ -92,7 +92,7 @@ struct NativeAlerts {
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
     /// - Parameter fileName: The name of the file
     /// - Returns: True if confirmed for immediate permanent deletion.
-    static func confirmPermanentDelete(fileName: String) -> Bool {
+    public static func confirmPermanentDelete(fileName: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Are you sure you want to permanently delete \"\(fileName)\"?"

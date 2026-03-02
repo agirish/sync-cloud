@@ -1,4 +1,6 @@
 import SwiftUI
+import Sync
+import Events
 
 @main
 /// The main entry point for the SyncCloud macOS application.

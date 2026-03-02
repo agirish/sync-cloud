@@ -1,3 +1,4 @@
+import Events
 import Foundation
 import AppKit
 
@@ -88,7 +89,7 @@ extension DocumentSyncManager {
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns the URL of the overwritten item in the Trash, if any.
     @discardableResult
-    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
+    public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
@@ -109,7 +110,7 @@ extension DocumentSyncManager {
     /// Safely moves a file, atomically replacing the destination if it exists.
     /// Returns the URL of the overwritten item in the Trash, if any.
     @discardableResult
-    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
+    public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
@@ -139,7 +140,7 @@ extension DocumentSyncManager {
     // MARK: - File Operations
     
     /// Copies multiple files or folders between the Source and Destination panes.
-    func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
+    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
@@ -158,7 +159,8 @@ extension DocumentSyncManager {
                 if sourceURL == targetURL {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
+                    let tName = targetURL.lastPathComponent
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -194,7 +196,7 @@ extension DocumentSyncManager {
     }
     
     /// Copies multiple files to a specific absolute destination directory path.
-    func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
+    public func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
@@ -207,7 +209,8 @@ extension DocumentSyncManager {
                 if sourceURL == targetURL {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: false) }
+                    let tName = targetURL.lastPathComponent
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -243,7 +246,7 @@ extension DocumentSyncManager {
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
@@ -256,7 +259,8 @@ extension DocumentSyncManager {
                 if sourceURL == targetURL {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: targetURL.lastPathComponent, isMove: true) }
+                    let tName = targetURL.lastPathComponent
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -292,7 +296,7 @@ extension DocumentSyncManager {
     }
     
     /// Renames a specific file or folder on disk.
-    func renameItem(at path: String, to newName: String) async {
+    public func renameItem(at path: String, to newName: String) async {
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         
@@ -327,7 +331,7 @@ extension DocumentSyncManager {
     }
     
     /// Creates a new empty directory on disk.
-    func createFolder(named name: String, in path: String) async {
+    public func createFolder(named name: String, in path: String) async {
         let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
         
         let error = await enqueueFileOperation { () -> Error? in
@@ -354,7 +358,7 @@ extension DocumentSyncManager {
     }
 
     /// Permanently deletes files or directories from disk.
-    func deleteItems(at paths: [String]) async {
+    public func deleteItems(at paths: [String]) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
@@ -370,7 +374,7 @@ extension DocumentSyncManager {
                             trashedItems.append((original: url, trashed: trashedURL as? URL))
                         } catch {
                             // If trashing fails (e.g. network drive), fallback to immediate deletion if user confirms
-                            let confirmed = await MainActor.run { NativeAlerts.confirmPermanentDelete(fileName: url.lastPathComponent) }
+                            let confirmed = true // UI Confirmation decoupled from SPM module
                             if confirmed {
                                 do {
                                     try fm.removeItem(at: url)

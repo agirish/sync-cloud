@@ -1,8 +1,10 @@
 import SwiftUI
 
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
-struct LogViewer: View {
-    @EnvironmentObject var logger: Logger
+public struct LogViewer: View {
+    @ObservedObject public var logger = Logger.shared
+    
+    public init() {}
     
     @State private var selectedLevel: LogLevel? = nil // nil means show all
     @State private var searchText: String = ""
@@ -22,7 +24,7 @@ struct LogViewer: View {
         return result.reversed() // Show newest at the top
     }
     
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {

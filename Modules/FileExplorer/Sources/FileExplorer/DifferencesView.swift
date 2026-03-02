@@ -1,11 +1,18 @@
+import Events
 import SwiftUI
+import Sync
 
 /// A scrollable dashboard list displaying all files that require manual synchronization actions.
-struct DifferencesView: View {
-    @ObservedObject var syncManager: DocumentSyncManager
-    let refreshAction: () -> Void
+public struct DifferencesView: View {
+    @ObservedObject public var syncManager: DocumentSyncManager
+    public let refreshAction: () -> Void
     
-    var body: some View {
+    public init(syncManager: DocumentSyncManager, refreshAction: @escaping () -> Void) {
+        self.syncManager = syncManager
+        self.refreshAction = refreshAction
+    }
+    
+    public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Differences Found")

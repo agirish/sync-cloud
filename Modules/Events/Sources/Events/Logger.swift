@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Defines the severity level of an application log entry.
-enum LogLevel: String, CaseIterable, Identifiable, Codable {
+public enum LogLevel: String, CaseIterable, Identifiable, Codable {
     /// Informational telemetry or standard operational success events.
     case info = "INFO"
     /// A non-critical issue that did not halt execution but requires attention.
@@ -10,9 +10,9 @@ enum LogLevel: String, CaseIterable, Identifiable, Codable {
     /// A critical failure or severe application error.
     case error = "ERROR"
     
-    var id: String { self.rawValue }
+    public var id: String { self.rawValue }
     
-    var color: Color {
+    public var color: Color {
         switch self {
         case .info: return .blue
         case .warning: return .orange
@@ -20,7 +20,7 @@ enum LogLevel: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    var icon: String {
+    public var icon: String {
         switch self {
         case .info: return "info.circle.fill"
         case .warning: return "exclamationmark.triangle.fill"
@@ -30,17 +30,17 @@ enum LogLevel: String, CaseIterable, Identifiable, Codable {
 }
 
 /// Represents a single recorded event in the application's lifecycle.
-struct LogEntry: Identifiable, Codable {
+public struct LogEntry: Identifiable, Codable {
     /// A unique identifier for the entry.
-    let id: UUID
+    public let id: UUID
     /// The exact timestamp when the event occurred.
-    let timestamp: Date
+    public let timestamp: Date
     /// The severity classification of the event.
-    let level: LogLevel
+    public let level: LogLevel
     /// A detailed human-readable description of the event.
-    let message: String
+    public let message: String
     
-    init(id: UUID = UUID(), timestamp: Date = Date(), level: LogLevel, message: String) {
+    public init(id: UUID = UUID(), timestamp: Date = Date(), level: LogLevel, message: String) {
         self.id = id
         self.timestamp = timestamp
         self.level = level
@@ -57,12 +57,12 @@ struct LogEntry: Identifiable, Codable {
 /// A thread-safe, globally accessible logging service for the SyncCloud application.
 /// Manages writing event traces to disk (`~/sync-cloud.log`) and maintaining an observable history for the LogViewer UI.
 @MainActor
-class Logger: ObservableObject {
+public class Logger: ObservableObject {
     /// The shared singleton instance used across the application to trace events.
-    static let shared = Logger()
+    public static let shared = Logger()
     
     /// The active memory cache of recent log entries presented in the UI.
-    @Published private(set) var entries: [LogEntry] = []
+    @Published public var entries: [LogEntry] = []
     
     /// A volatile string holding the latest severe error. Bound to `.alert()` modifiers to display OS-level popups.
     @Published var currentAlertError: String? = nil
@@ -85,13 +85,13 @@ class Logger: ObservableObject {
     
     /// Records an informational trace event to memory and disk.
     /// - Parameter message: The string description to log.
-    func info(_ message: String) {
+    public func info(_ message: String) {
         log(level: .info, message: message)
     }
     
     /// Records a warning trace event to memory and disk.
     /// - Parameter message: The string description of the warning.
-    func warning(_ message: String) {
+    public func warning(_ message: String) {
         log(level: .warning, message: message)
     }
     
@@ -99,7 +99,7 @@ class Logger: ObservableObject {
     /// - Parameters:
     ///   - message: The string description of the failure.
     ///   - showAlert: If true, assigns the message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
-    func error(_ message: String, showAlert: Bool = true) {
+    public func error(_ message: String, showAlert: Bool = true) {
         log(level: .error, message: message)
         if showAlert {
             currentAlertError = message
@@ -133,8 +133,8 @@ class Logger: ObservableObject {
         }
     }
     
-    /// Empties the internal memory array and overwrites the local disk file with an empty sequence.
-    func clearLogs() {
+    /// Empties the public memory array and overwrites the local disk file with an empty sequence.
+    public func clearLogs() {
         entries.removeAll()
         fileQueue.async { [url = self.logFileURL] in
             try? "".write(to: url, atomically: true, encoding: .utf8)
@@ -142,7 +142,7 @@ class Logger: ObservableObject {
     }
     
     /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
-    func openLogFile() {
+    public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)
     }
 }

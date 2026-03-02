@@ -1,4 +1,9 @@
 import SwiftUI
+import Sync
+import Events
+import Settings
+import FileExplorer
+import Dashboard
 import QuickLook
 
 /// The main application layout for SyncCloud.
@@ -340,7 +345,7 @@ struct ContentView: View {
     }
     
     private func confirmDelete(_ nodes: [FileNode]) {
-        if NativeAlerts.confirmDelete(for: nodes) {
+        if NativeAlerts.confirmDelete(for: nodes.map { $0.name }) {
             Task {
                 await syncManager.deleteItems(at: nodes.map { $0.id })
                 refreshAction()

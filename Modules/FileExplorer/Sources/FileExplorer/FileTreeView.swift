@@ -1,30 +1,52 @@
+import Events
 import SwiftUI
+import Sync
 
 /// A recursive tree view that displays an interactive file hierarchy for a single CloudProvider pane.
 /// Supports intra/inter-pane drag-and-drop, context menus, and hierarchical selection bindings.
-struct FileTreeView: View {
-    let tree: [FileNode]
-    let otherTree: [FileNode]
-    let isLoading: Bool
-    let currentPath: String
+public struct FileTreeView: View {
+    public let tree: [FileNode]
+    public let otherTree: [FileNode]
+    public let isLoading: Bool
+    public let currentPath: String
     
-    @Binding var selection: Set<String>
-    @Binding var expandedPaths: Set<String>
-    let otherSelection: Set<String>
+    @Binding public var selection: Set<String>
+    @Binding public var expandedPaths: Set<String>
+    public let otherSelection: Set<String>
     
     // Callbacks for file operations
-    let onFocus: (FileNode) -> Void
-    let onCopy: ([FileNode]) -> Void
-    let onDelete: ([FileNode]) -> Void
-    let onCopyToClipboard: ([FileNode], Bool) -> Void
-    let onPaste: (FileNode) -> Void
-    let onPasteExplicit: (FileNode, [FileNode]) -> Void
-    let onRename: (FileNode) -> Void
-    let onCreateFolder: (String) -> Void
-    let onGetInfo: (String) -> Void
-    let onSort: (SortOption) -> Void
+    public let onFocus: (FileNode) -> Void
+    public let onCopy: ([FileNode]) -> Void
+    public let onDelete: ([FileNode]) -> Void
+    public let onCopyToClipboard: ([FileNode], Bool) -> Void
+    public let onPaste: (FileNode) -> Void
+    public let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    public let onRename: (FileNode) -> Void
+    public let onCreateFolder: (String) -> Void
+    public let onGetInfo: (String) -> Void
+    public let onSort: (SortOption) -> Void
     
-    var body: some View {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, onFocus: @escaping (FileNode) -> Void, onCopy: @escaping ([FileNode]) -> Void, onDelete: @escaping ([FileNode]) -> Void, onCopyToClipboard: @escaping ([FileNode], Bool) -> Void, onPaste: @escaping (FileNode) -> Void, onPasteExplicit: @escaping (FileNode, [FileNode]) -> Void, onRename: @escaping (FileNode) -> Void, onCreateFolder: @escaping (String) -> Void, onGetInfo: @escaping (String) -> Void, onSort: @escaping (SortOption) -> Void) {
+        self.tree = tree
+        self.otherTree = otherTree
+        self.isLoading = isLoading
+        self.currentPath = currentPath
+        self._selection = selection
+        self._expandedPaths = expandedPaths
+        self.otherSelection = otherSelection
+        self.onFocus = onFocus
+        self.onCopy = onCopy
+        self.onDelete = onDelete
+        self.onCopyToClipboard = onCopyToClipboard
+        self.onPaste = onPaste
+        self.onPasteExplicit = onPasteExplicit
+        self.onRename = onRename
+        self.onCreateFolder = onCreateFolder
+        self.onGetInfo = onGetInfo
+        self.onSort = onSort
+    }
+    
+    public var body: some View {
         ZStack {
             Color(NSColor.textBackgroundColor)
                 .contextMenu { emptyAreaContextMenu }

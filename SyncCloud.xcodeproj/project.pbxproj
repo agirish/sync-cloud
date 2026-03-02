@@ -7,59 +7,61 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-A53C37098EC64D3C9BB5EAE6 /* DocumentSyncManager+FileOperations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */; };
-6FFAAE86E1524973B6629C34 /* ProviderSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */; };
+		0D8B2D2C2DE9AF39E8817975 /* Sync in Frameworks */ = {isa = PBXBuildFile; productRef = 39D41E0AC7D2218F445DB841 /* Sync */; };
 		10646B98D1D159C076429036 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD04B885A6E5B2F79FBC29F /* ContentView.swift */; };
 		1339472D59A37891FF82903A /* onedrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 633A97B1D60E30053D74E73C /* onedrive.png */; };
-		28A9BD820AFFC45125599BFF /* CloudProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899C15BD59008DFA754F043F /* CloudProvider.swift */; };
-		291F1BD90D2A131D76B71624 /* DocumentSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 683CB28F57323BBFCDEB6526 /* DocumentSyncManager.swift */; };
+		29BD2F097CD16F4898EA2B41 /* Entitlements.plist in Resources */ = {isa = PBXBuildFile; fileRef = A87C284D34C60D71BA0ADC83 /* Entitlements.plist */; };
+		33AEB539C615F6FC9B55A269 /* Dashboard in Frameworks */ = {isa = PBXBuildFile; productRef = 75B049F5AD04670F39EECE66 /* Dashboard */; };
 		33FEC1D169D0F0ACD5E6F8CD /* dropbox.png in Resources */ = {isa = PBXBuildFile; fileRef = E021F192338BC544ED67982D /* dropbox.png */; };
+		380C611FB88C7647E8CAE2CF /* Events in Frameworks */ = {isa = PBXBuildFile; productRef = 683359F37E9FCD86C6F0CB9B /* Events */; };
 		43221448698BA07DA56F0A5C /* icloud.svg in Resources */ = {isa = PBXBuildFile; fileRef = BC6AC2B57D1463873507DBFB /* icloud.svg */; };
-		457072DC543C001A3234779E /* SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */; };
 		4736C2EFF05E02F7BC25E2ED /* onedrive.svg in Resources */ = {isa = PBXBuildFile; fileRef = 617FAC2D93B622D15FEAE7ED /* onedrive.svg */; };
-		5A76776788609B5563BFF7F1 /* FileTreeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 830D7774A66C4776446530F2 /* FileTreeView.swift */; };
-		5B608BD5E0617DEC894F56BB /* DashboardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFDF14945A1DB2BCC28113DE /* DashboardViews.swift */; };
+		4E2E97CED41A0BF88239162B /* FileExplorer in Frameworks */ = {isa = PBXBuildFile; productRef = 440A6708317E81A73C7E8E9C /* FileExplorer */; };
 		5BF320EC613B3387652030E2 /* dropbox.svg in Resources */ = {isa = PBXBuildFile; fileRef = 256A8AE43BF68EC1733BA4BB /* dropbox.svg */; };
 		65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */; };
 		753B46093EB7AF800D2C9DC0 /* googledrive.svg in Resources */ = {isa = PBXBuildFile; fileRef = B3CD1A89AA66A7B25222F96D /* googledrive.svg */; };
-		80024F1A98C83855594D6CCF /* NavigationToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42DE2CE85CCAD891BFE5BD20 /* NavigationToolbar.swift */; };
-		AC633C09B5067E79F0D5E514 /* DifferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916DCE1D58443D4BCB55F82B /* DifferencesView.swift */; };
 		DF84BA277D29FBD3391EC1B2 /* icloud.png in Resources */ = {isa = PBXBuildFile; fileRef = 9031D932BC75D0093BEBFB25 /* icloud.png */; };
-		E1EFB2228BD5A9A0E980E90F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AEA20C7534E8CB2827535095 /* SettingsView.swift */; };
+		E2F577C62FBA38918A5C6FCD /* Settings in Frameworks */ = {isa = PBXBuildFile; productRef = 22A2504123F7462DA6649376 /* Settings */; };
 		EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */; };
 		F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 8B4FBF21F132A600B398B3F7 /* googledrive.png */; };
-		A836B0A143754285B4B76D39 /* Logger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1085905D2F4CCC8AEE7881 /* Logger.swift */; };
-		6668A861C2D8495C97B2341D /* LogViewer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFAABC445C984548A7944217 /* LogViewer.swift */; };
-NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = NATIVEALRT00000000000001 /* NativeAlerts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DocumentSyncManager+FileOperations.swift"; sourceTree = "<group>"; };
-087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderSidebarView.swift; sourceTree = "<group>"; };
+		170F1B4A0B84D2D5970A04A4 /* Dashboard */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Dashboard; path = Modules/Dashboard; sourceTree = SOURCE_ROOT; };
 		1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		249BB03C6B915A11D8A07DC2 /* FileExplorer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FileExplorer; path = Modules/FileExplorer; sourceTree = SOURCE_ROOT; };
 		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
-		42DE2CE85CCAD891BFE5BD20 /* NavigationToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationToolbar.swift; sourceTree = "<group>"; };
 		5BD04B885A6E5B2F79FBC29F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		617FAC2D93B622D15FEAE7ED /* onedrive.svg */ = {isa = PBXFileReference; path = onedrive.svg; sourceTree = "<group>"; };
 		633A97B1D60E30053D74E73C /* onedrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = onedrive.png; sourceTree = "<group>"; };
-		683CB28F57323BBFCDEB6526 /* DocumentSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentSyncManager.swift; sourceTree = "<group>"; };
-		830D7774A66C4776446530F2 /* FileTreeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileTreeView.swift; sourceTree = "<group>"; };
-		899C15BD59008DFA754F043F /* CloudProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudProvider.swift; sourceTree = "<group>"; };
 		8B4FBF21F132A600B398B3F7 /* googledrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = googledrive.png; sourceTree = "<group>"; };
 		8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCloudApp.swift; sourceTree = "<group>"; };
 		9031D932BC75D0093BEBFB25 /* icloud.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icloud.png; sourceTree = "<group>"; };
-		916DCE1D58443D4BCB55F82B /* DifferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DifferencesView.swift; sourceTree = "<group>"; };
 		92A469F7D5E028F9E340043E /* SyncCloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SyncCloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AEA20C7534E8CB2827535095 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		A87C284D34C60D71BA0ADC83 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Entitlements.plist; sourceTree = "<group>"; };
+		A936CE0A6225955E746D2CE8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		B3CD1A89AA66A7B25222F96D /* googledrive.svg */ = {isa = PBXFileReference; path = googledrive.svg; sourceTree = "<group>"; };
 		BC6AC2B57D1463873507DBFB /* icloud.svg */ = {isa = PBXFileReference; path = icloud.svg; sourceTree = "<group>"; };
+		C5488F34D4662728825C883A /* Settings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Settings; path = Modules/Settings; sourceTree = SOURCE_ROOT; };
+		D9EC3A871C96FBADC3E1B909 /* Events */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Events; path = Modules/Events; sourceTree = SOURCE_ROOT; };
 		E021F192338BC544ED67982D /* dropbox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dropbox.png; sourceTree = "<group>"; };
-		F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsManager.swift; sourceTree = "<group>"; };
-		FFDF14945A1DB2BCC28113DE /* DashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViews.swift; sourceTree = "<group>"; };
-		0A1085905D2F4CCC8AEE7881 /* Logger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logger.swift; sourceTree = "<group>"; };
-		AFAABC445C984548A7944217 /* LogViewer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogViewer.swift; sourceTree = "<group>"; };
-NATIVEALRT00000000000001 /* NativeAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAlerts.swift; sourceTree = "<group>"; };
+		E1ACD55C5C5C4606EAEACDA2 /* Sync */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Sync; path = Modules/Sync; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		BFCA4FF204EF89CF08A08935 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0D8B2D2C2DE9AF39E8817975 /* Sync in Frameworks */,
+				380C611FB88C7647E8CAE2CF /* Events in Frameworks */,
+				E2F577C62FBA38918A5C6FCD /* Settings in Frameworks */,
+				4E2E97CED41A0BF88239162B /* FileExplorer in Frameworks */,
+				33AEB539C615F6FC9B55A269 /* Dashboard in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		4D656DC3CF8A777043EE869F /* Products */ = {
@@ -70,26 +72,27 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */ = {isa = PBXFileReference; las
 			name = Products;
 			sourceTree = "<group>";
 		};
+		7837C1442A1D14BD86F65B6D /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				170F1B4A0B84D2D5970A04A4 /* Dashboard */,
+				D9EC3A871C96FBADC3E1B909 /* Events */,
+				249BB03C6B915A11D8A07DC2 /* FileExplorer */,
+				C5488F34D4662728825C883A /* Settings */,
+				E1ACD55C5C5C4606EAEACDA2 /* Sync */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
 		AE23DCEADCE07A4AE1CD6CA6 /* MacApp */ = {
 			isa = PBXGroup;
 			children = (
-NATIVEALRT00000000000001 /* NativeAlerts.swift */,
-				0A1085905D2F4CCC8AEE7881 /* Logger.swift */,
-				AFAABC445C984548A7944217 /* LogViewer.swift */,
 				1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */,
-				899C15BD59008DFA754F043F /* CloudProvider.swift */,
 				5BD04B885A6E5B2F79FBC29F /* ContentView.swift */,
-				FFDF14945A1DB2BCC28113DE /* DashboardViews.swift */,
-				916DCE1D58443D4BCB55F82B /* DifferencesView.swift */,
-				683CB28F57323BBFCDEB6526 /* DocumentSyncManager.swift */,
-				830D7774A66C4776446530F2 /* FileTreeView.swift */,
-				42DE2CE85CCAD891BFE5BD20 /* NavigationToolbar.swift */,
-				F4B771607DA32314EC2CBFB5 /* SettingsManager.swift */,
-				AEA20C7534E8CB2827535095 /* SettingsView.swift */,
+				A87C284D34C60D71BA0ADC83 /* Entitlements.plist */,
+				A936CE0A6225955E746D2CE8 /* Info.plist */,
 				8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */,
 				F1A882B42A0FB20D7C03266E /* Resources */,
-							087D8FACD0BD42A991C86712 /* ProviderSidebarView.swift */,
-							C5BF1C2B2C7E49E391D21B4B /* DocumentSyncManager+FileOperations.swift */,
 			);
 			path = MacApp;
 			sourceTree = "<group>";
@@ -113,6 +116,7 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			isa = PBXGroup;
 			children = (
 				AE23DCEADCE07A4AE1CD6CA6 /* MacApp */,
+				7837C1442A1D14BD86F65B6D /* Packages */,
 				4D656DC3CF8A777043EE869F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -126,6 +130,7 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			buildPhases = (
 				BEDE03EC165E04CF66C58B10 /* Sources */,
 				65C2EB0254F324CA033DC05F /* Resources */,
+				BFCA4FF204EF89CF08A08935 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -133,6 +138,11 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			);
 			name = SyncCloud;
 			packageProductDependencies = (
+				39D41E0AC7D2218F445DB841 /* Sync */,
+				683359F37E9FCD86C6F0CB9B /* Events */,
+				22A2504123F7462DA6649376 /* Settings */,
+				440A6708317E81A73C7E8E9C /* FileExplorer */,
+				75B049F5AD04670F39EECE66 /* Dashboard */,
 			);
 			productName = SyncCloud;
 			productReference = 92A469F7D5E028F9E340043E /* SyncCloud.app */;
@@ -159,6 +169,13 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			);
 			mainGroup = FB6628FEB50DBD7D836C433A;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				2CD19BF029870CFD3D4BF104 /* XCLocalSwiftPackageReference "Modules/Dashboard" */,
+				7ECD0AA3B0C193CF6DF58432 /* XCLocalSwiftPackageReference "Modules/Events" */,
+				AEEC40863BF905104595698B /* XCLocalSwiftPackageReference "Modules/FileExplorer" */,
+				EA0FECB5527A76FAA3BDABD5 /* XCLocalSwiftPackageReference "Modules/Settings" */,
+				856C0C7A3341F538C7868FDC /* XCLocalSwiftPackageReference "Modules/Sync" */,
+			);
 			preferredProjectObjectVersion = 54;
 			projectDirPath = "";
 			projectRoot = "";
@@ -174,6 +191,7 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			buildActionMask = 2147483647;
 			files = (
 				EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */,
+				29BD2F097CD16F4898EA2B41 /* Entitlements.plist in Resources */,
 				33FEC1D169D0F0ACD5E6F8CD /* dropbox.png in Resources */,
 				5BF320EC613B3387652030E2 /* dropbox.svg in Resources */,
 				F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */,
@@ -192,21 +210,8 @@ NATIVEALRT00000000000001 /* NativeAlerts.swift */,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
-				A836B0A143754285B4B76D39 /* Logger.swift in Sources */,
-				6668A861C2D8495C97B2341D /* LogViewer.swift in Sources */,
-				28A9BD820AFFC45125599BFF /* CloudProvider.swift in Sources */,
 				10646B98D1D159C076429036 /* ContentView.swift in Sources */,
-				5B608BD5E0617DEC894F56BB /* DashboardViews.swift in Sources */,
-				AC633C09B5067E79F0D5E514 /* DifferencesView.swift in Sources */,
-				291F1BD90D2A131D76B71624 /* DocumentSyncManager.swift in Sources */,
-				5A76776788609B5563BFF7F1 /* FileTreeView.swift in Sources */,
-				80024F1A98C83855594D6CCF /* NavigationToolbar.swift in Sources */,
-				457072DC543C001A3234779E /* SettingsManager.swift in Sources */,
-				E1EFB2228BD5A9A0E980E90F /* SettingsView.swift in Sources */,
 				65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */,
-							6FFAAE86E1524973B6629C34 /* ProviderSidebarView.swift in Sources */,
-							A53C37098EC64D3C9BB5EAE6 /* DocumentSyncManager+FileOperations.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,10 +277,7 @@ NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MacApp/Entitlements.plist;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -284,7 +286,6 @@ NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.SyncCloud;
 				SDKROOT = macosx;
-				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
 		};
@@ -292,10 +293,7 @@ NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MacApp/Entitlements.plist;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = MacApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -304,7 +302,6 @@ NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.SyncCloud;
 				SDKROOT = macosx;
-				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
 		};
@@ -392,6 +389,52 @@ NATIVEALRT00000000000002 /* NativeAlerts.swift in Sources */,
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		2CD19BF029870CFD3D4BF104 /* XCLocalSwiftPackageReference "Modules/Dashboard" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/Dashboard;
+		};
+		7ECD0AA3B0C193CF6DF58432 /* XCLocalSwiftPackageReference "Modules/Events" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/Events;
+		};
+		856C0C7A3341F538C7868FDC /* XCLocalSwiftPackageReference "Modules/Sync" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/Sync;
+		};
+		AEEC40863BF905104595698B /* XCLocalSwiftPackageReference "Modules/FileExplorer" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/FileExplorer;
+		};
+		EA0FECB5527A76FAA3BDABD5 /* XCLocalSwiftPackageReference "Modules/Settings" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/Settings;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		22A2504123F7462DA6649376 /* Settings */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Settings;
+		};
+		39D41E0AC7D2218F445DB841 /* Sync */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Sync;
+		};
+		440A6708317E81A73C7E8E9C /* FileExplorer */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = FileExplorer;
+		};
+		683359F37E9FCD86C6F0CB9B /* Events */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Events;
+		};
+		75B049F5AD04670F39EECE66 /* Dashboard */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Dashboard;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8F51E2A0E5D519A22B215402 /* Project object */;
 }

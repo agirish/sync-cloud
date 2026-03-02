@@ -1,10 +1,11 @@
+import Events
 import SwiftUI
 import UniformTypeIdentifiers
 
 /// Core business logic manager governing the synchronization engine
 /// Manages the in-memory tree structures (FileNode) for both source and destination cloud providers.
 /// Responsible for scanning directories, computing FileDifferences, and tracking relative navigation paths.
-enum SortOption: String, CaseIterable, Equatable {
+public enum SortOption: String, CaseIterable, Equatable {
     case name = "Name"
     case kind = "Kind"
     case dateModified = "Date Modified"
@@ -13,16 +14,17 @@ enum SortOption: String, CaseIterable, Equatable {
 }
 
 @MainActor
-class DocumentSyncManager: ObservableObject {
+public class DocumentSyncManager: ObservableObject {
+    public init() {}
     /// Array of differences calculated between the source and destination directories.
-    @Published var differences: [FileDifference] = []
+    @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
-    @Published var isScanning = false
+    @Published public var isScanning = false
     /// Indicates whether at least one successful scan has occurred.
-    @Published var hasScanned = false
+    @Published public var hasScanned = false
     
     /// Global sorting preference for the file trees.
-    @Published var sortOption: SortOption = .name {
+    @Published public var sortOption: SortOption = .name {
         didSet {
             // Re-sort trees globally when option changes
             sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
@@ -31,33 +33,33 @@ class DocumentSyncManager: ObservableObject {
     }
     
     /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)
-    @Published var showHiddenFiles: Bool = false
+    @Published public var showHiddenFiles: Bool = false
     
     /// Internal representation of the loaded file structure for the source provider.
-    @Published var sourceTree: [FileNode] = []
+    @Published public var sourceTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the destination provider.
-    @Published var destinationTree: [FileNode] = []
-    @Published var isLoadingSourceTree = false
-    @Published var isLoadingDestinationTree = false
+    @Published public var destinationTree: [FileNode] = []
+    @Published public var isLoadingSourceTree = false
+    @Published public var isLoadingDestinationTree = false
     
-    @Published var sourceItemCount = 0
-    @Published var destinationItemCount = 0
+    @Published public var sourceItemCount = 0
+    @Published public var destinationItemCount = 0
     
-    @Published var clipboardNodes: [FileNode] = []
-    @Published var clipboardIsCut: Bool = false
+    @Published public var clipboardNodes: [FileNode] = []
+    @Published public var clipboardIsCut: Bool = false
     
     /// Global UndoManager injected from SwiftUI environment
-    var undoManager: UndoManager?
+    public var undoManager: UndoManager?
     
     // Global Error state
-    @Published var currentError: String? = nil
+    @Published public var currentError: String? = nil
     
     // Navigation State (Relative paths from provider roots)
-    @Published var sourceRelativePath: String = ""
-    @Published var destRelativePath: String = ""
+    @Published public var sourceRelativePath: String = ""
+    @Published public var destRelativePath: String = ""
     
     /// Global closure to trigger a UI refresh of trees from anywhere
-    var refreshCallback: (() -> Void)?
+    public var refreshCallback: (() -> Void)?
     
     /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
@@ -65,7 +67,7 @@ class DocumentSyncManager: ObservableObject {
     /// Enqueues a file operation to be executed sequentially after all previous file operations have completed.
     /// This is strictly required to ensure that rapid Undo/Redo operations do not race with each other asynchronously.
     @discardableResult
-    func enqueueFileOperation<T: Sendable>(
+    public func enqueueFileOperation<T: Sendable>(
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
         let previousTask = fileOperationTask
@@ -83,12 +85,12 @@ class DocumentSyncManager: ObservableObject {
     private var history: [(source: String, dest: String)] = [("", "")]
     private var historyIndex: Int = 0
     
-    @Published var canGoBack: Bool = false
-    @Published var canGoForward: Bool = false
+    @Published public var canGoBack: Bool = false
+    @Published public var canGoForward: Bool = false
     
     /// Instructs the manager to read the filesystem and construct an in-memory tree for the source pane.
     /// - Parameter path: The absolute, expanded root URL string of the provider.
-    func loadSourceTree(path: String) async {
+    public func loadSourceTree(path: String) async {
         isLoadingSourceTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
@@ -98,7 +100,7 @@ class DocumentSyncManager: ObservableObject {
         isLoadingSourceTree = false
     }
     
-    func loadDestinationTree(path: String) async {
+    public func loadDestinationTree(path: String) async {
         isLoadingDestinationTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
@@ -195,7 +197,7 @@ class DocumentSyncManager: ObservableObject {
     
     // MARK: - Navigation Methods
     
-    func focusOn(relativePath: String, isSource: Bool, otherProviderPath: String) {
+    public func focusOn(relativePath: String, isSource: Bool, otherProviderPath: String) {
         let newSource = isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
         let newDest = !isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
         
@@ -209,19 +211,19 @@ class DocumentSyncManager: ObservableObject {
         updateStateFromHistory()
     }
     
-    func goBack() {
+    public func goBack() {
         guard historyIndex > 0 else { return }
         historyIndex -= 1
         updateStateFromHistory()
     }
     
-    func goForward() {
+    public func goForward() {
         guard historyIndex < history.count - 1 else { return }
         historyIndex += 1
         updateStateFromHistory()
     }
     
-    func resetNavigation() {
+    public func resetNavigation() {
         focusOn(relativePath: "", isSource: true, otherProviderPath: "")
     }
     
@@ -256,7 +258,7 @@ class DocumentSyncManager: ObservableObject {
         return count
     }
     
-    func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
+    public func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
         let sourceRoot = (source.path as NSString).expandingTildeInPath
         let destRoot = (destination.path as NSString).expandingTildeInPath
         
@@ -274,7 +276,7 @@ class DocumentSyncManager: ObservableObject {
         )
     }
     
-    func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
+    public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
         isScanning = true
         differences = []
         
@@ -367,7 +369,7 @@ class DocumentSyncManager: ObservableObject {
         isScanning = false
     }
     
-    func syncFile(_ difference: FileDifference) async {
+    public func syncFile(_ difference: FileDifference) async {
         // Find the difference in our array and mark it as syncing
         if let index = differences.firstIndex(where: { $0.id == difference.id }) {
             differences[index].isSyncing = true
@@ -455,41 +457,41 @@ class DocumentSyncManager: ObservableObject {
 }
 
 /// An in-memory representation of a file or directory mapped from a local or cloud path
-struct FileNode: Identifiable, Hashable, Codable {
-    let id: String // Absolute path
-    let name: String
-    let isDirectory: Bool
-    var children: [FileNode]?
-    var modificationDate: Date?
-    var fileSize: Int?
+public struct FileNode: Identifiable, Hashable, Codable {
+    public let id: String // Absolute path
+    public let name: String
+    public let isDirectory: Bool
+    public var children: [FileNode]?
+    public var modificationDate: Date?
+    public var fileSize: Int?
     var tags: [String]?
     var kind: String?
 }
 
 extension FileNode: Transferable {
-    static var transferRepresentation: some TransferRepresentation {
+    public static var transferRepresentation: some TransferRepresentation {
         CodableRepresentation(contentType: .data)
     }
 }
 
 /// Represents a computed discrepancy between the Source and Destination providers for a single file paths
-struct FileDifference: Identifiable {
-    let id = UUID()
-    let relativePath: String
-    let sourceItemPath: String
-    let destinationItemPath: String
-    let type: DifferenceType
-    let action: SyncAction
-    let description: String
-    var isSyncing: Bool = false
+public struct FileDifference: Identifiable {
+    public let id = UUID()
+    public let relativePath: String
+    public let sourceItemPath: String
+    public let destinationItemPath: String
+    public let type: DifferenceType
+    public let action: SyncAction
+    public let description: String
+    public var isSyncing: Bool = false
     
-    enum DifferenceType {
+    public enum DifferenceType {
         case missingInDestination
         case missingInSource
         case differentDates
     }
     
-    enum SyncAction {
+    public enum SyncAction {
         case copyToDestination
         case copyToSource
     }
@@ -507,7 +509,7 @@ extension Array where Element == FileNode {
         return nil
     }
     
-    func findNodes(at paths: Set<String>) -> [FileNode] {
+    public func findNodes(at paths: Set<String>) -> [FileNode] {
         var found: [FileNode] = []
         for node in self {
             if paths.contains(node.id) {

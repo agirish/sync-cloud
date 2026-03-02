@@ -1,12 +1,22 @@
+import Settings
+import FileExplorer
+import Events
 import SwiftUI
+import Sync
 
 /// A top-level status bar displaying aggregated metrics across both source and destination trees.
-struct DashboardHeader: View {
-    let sourceCount: Int
-    let destinationCount: Int
-    let differences: [FileDifference]
+public struct DashboardHeader: View {
+    public let sourceCount: Int
+    public let destinationCount: Int
+    public let differences: [FileDifference]
     
-    var body: some View {
+    public init(sourceCount: Int, destinationCount: Int, differences: [FileDifference]) {
+        self.sourceCount = sourceCount
+        self.destinationCount = destinationCount
+        self.differences = differences
+    }
+    
+    public var body: some View {
         HStack {
             DashboardMetric(title: "Source Items", value: "\(sourceCount)", icon: "doc.on.doc", color: .blue)
             Divider().frame(height: 30)
@@ -46,12 +56,18 @@ struct DashboardMetric: View {
 }
 
 /// A visual header sitting atop a file pane, indicating the targeted provider and the current absolute path on disk.
-struct PaneHeader: View {
-    let title: String
-    let provider: CloudProvider?
-    let path: String
+public struct PaneHeader: View {
+    public let title: String
+    public let provider: CloudProvider?
+    public let path: String
     
-    var body: some View {
+    public init(title: String, provider: CloudProvider?, path: String) {
+        self.title = title
+        self.provider = provider
+        self.path = path
+    }
+    
+    public var body: some View {
         VStack(spacing: 4) {
             HStack {
                 Text(title)

@@ -8,13 +8,27 @@ targets:
     deploymentTarget: "14.0"
     sources:
       - path: MacApp
-        excludes:
-          - "Info.plist"
-          - "Entitlements.plist"
-    settings:
-      CODE_SIGN_ENTITLEMENTS: MacApp/Entitlements.plist
-      INFOPLIST_FILE: MacApp/Info.plist
-      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-      ENABLE_PREVIEWS: YES
-      SWIFT_VERSION: 5.0
+    dependencies:
+      - package: Sync
+      - package: Events
+      - package: Settings
+      - package: FileExplorer
+      - package: Dashboard
+    info:
+      path: MacApp/Info.plist
+      properties:
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        NSHumanReadableCopyright: "Copyright © 2024. All rights reserved."
+
+packages:
+  Sync:
+    path: Modules/Sync
+  Events:
+    path: Modules/Events
+  Settings:
+    path: Modules/Settings
+  FileExplorer:
+    path: Modules/FileExplorer
+  Dashboard:
+    path: Modules/Dashboard
