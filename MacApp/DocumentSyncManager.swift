@@ -46,12 +46,18 @@ class DocumentSyncManager: ObservableObject {
     @Published var clipboardNodes: [FileNode] = []
     @Published var clipboardIsCut: Bool = false
     
+    /// Global UndoManager injected from SwiftUI environment
+    var undoManager: UndoManager?
+    
     // Global Error state
     @Published var currentError: String? = nil
     
     // Navigation State (Relative paths from provider roots)
     @Published var sourceRelativePath: String = ""
     @Published var destRelativePath: String = ""
+    
+    /// Global closure to trigger a UI refresh of trees from anywhere
+    var refreshCallback: (() -> Void)?
     
     /// Tracks the navigational history across both panes.
     private var history: [(source: String, dest: String)] = [("", "")]

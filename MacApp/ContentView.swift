@@ -28,6 +28,7 @@ struct ContentView: View {
     /// The paths inside the right tree which have been toggled open (expanded disclosure groups).
     @State private var destExpandedPaths: Set<String> = []
     
+    @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
     
     /// Controls the presentation of the User Preferences sheet.
@@ -219,6 +220,12 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            syncManager.undoManager = undoManager
+            syncManager.refreshCallback = {
+                DispatchQueue.main.async {
+                    refreshAction()
+                }
+            }
             if let first = settings.availableProviders.first?.id {
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
