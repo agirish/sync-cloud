@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var newName: String = ""
     @State private var creatingFolderInPath: String?
     @State private var newFolderName: String = ""
+    @State private var nodesToDelete: [FileNode]? = nil
 
     var body: some View {
         NavigationSplitView {
@@ -104,7 +105,7 @@ struct ContentView: View {
                             otherSelection: selectedDestinationPaths,
                             onFocus: { node in focusFolder(node, isSource: true) },
                             onCopy: { nodes in copyItems(nodes, fromSource: true) },
-                            onDelete: { nodes in deleteItems(nodes) },
+                            onDelete: { nodes in confirmDelete(nodes) },
                             onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
@@ -130,7 +131,7 @@ struct ContentView: View {
                             otherSelection: selectedSourcePaths,
                             onFocus: { node in focusFolder(node, isSource: false) },
                             onCopy: { nodes in copyItems(nodes, fromSource: false) },
-                            onDelete: { nodes in deleteItems(nodes) },
+                            onDelete: { nodes in confirmDelete(nodes) },
                             onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
                             onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
@@ -209,6 +210,25 @@ struct ContentView: View {
                         await syncManager.createFolder(named: newFolderName, in: path)
                         refreshAction()
                     }
+                }
+            }
+        }
+        .alert("Confirm Deletion", isPresented: Binding(
+            get: { nodesToDelete != nil },
+            set: { if !$0 { nodesToDelete = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                if let nodes = nodesToDelete {
+                    deleteItems(nodes)
+                }
+            }
+        } message: {
+            if let nodes = nodesToDelete {
+                if nodes.count == 1, let first = nodes.first {
+                    Text("Are you sure you want to delete '\(first.name)'?")
+                } else {
+                    Text("Are you sure you want to delete \(nodes.count) items?")
                 }
             }
         }
@@ -306,6 +326,10 @@ struct ContentView: View {
     private func beginCreateFolder(in path: String) {
         newFolderName = ""
         creatingFolderInPath = path
+    }
+    
+    private func confirmDelete(_ nodes: [FileNode]) {
+        nodesToDelete = nodes
     }
     
     private func refreshAction() {
