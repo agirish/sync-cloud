@@ -4,6 +4,7 @@ struct FileTreeView: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let isLoading: Bool
+    let currentPath: String
     @Binding var selection: Set<String>
     let otherSelection: Set<String>
     let onFocus: (FileNode) -> Void
@@ -12,10 +13,13 @@ struct FileTreeView: View {
     let onCopyToClipboard: ([FileNode]) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    let onRename: (FileNode) -> Void
+    let onCreateFolder: (String) -> Void
     
     var body: some View {
         ZStack {
             Color(NSColor.textBackgroundColor)
+                .contextMenu { emptyAreaContextMenu }
             
             if isLoading {
                 ProgressView("Loading...")
@@ -44,11 +48,14 @@ struct FileTreeView: View {
                                 onDelete: onDelete,
                                 onCopyToClipboard: onCopyToClipboard,
                                 onPaste: onPaste,
-                                onPasteExplicit: onPasteExplicit
+                                onPasteExplicit: onPasteExplicit,
+                                onRename: onRename,
+                                onCreateFolder: onCreateFolder
                             )
                         }
                 }
                 .listStyle(SidebarListStyle())
+                .contextMenu { emptyAreaContextMenu }
                 .onDrop(of: [.data], isTargeted: nil) { providers in
                     // This is for dropping ONTO THE ENTIRE LIST (root of the pane)
                     // But we want to drop onto individual folders. 
@@ -57,6 +64,23 @@ struct FileTreeView: View {
                     return false
                 }
             }
+        }
+    }
+    
+    @ViewBuilder
+    private var emptyAreaContextMenu: some View {
+        Button(action: { onCreateFolder(currentPath) }) {
+            Label("New Folder", systemImage: "folder.badge.plus")
+        }
+        Divider()
+        Button(action: { }) {
+            Label("View options...", systemImage: "gearshape")
+        }
+        Menu("Group By") {
+            Button("Name") {}
+            Button("Date Modified") {}
+            Button("Size") {}
+            Button("Kind") {}
         }
     }
 }
@@ -73,15 +97,27 @@ struct FileContextMenu: View {
     let onCopyToClipboard: ([FileNode]) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    let onRename: (FileNode) -> Void
+    let onCreateFolder: (String) -> Void
     
     var body: some View {
         let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : selection)
         let count = selectedNodes.count
         
         Group {
-            if count == 1, let singleNode = selectedNodes.first, singleNode.isDirectory {
-                Button(action: { onFocus(singleNode) }) {
-                    Label("Sync only this folder", systemImage: "scope")
+            if count == 1, let singleNode = selectedNodes.first {
+                Button(action: { onRename(singleNode) }) {
+                    Label("Rename", systemImage: "pencil")
+                }
+                
+                if singleNode.isDirectory {
+                    Button(action: { onCreateFolder(singleNode.id) }) {
+                        Label("New Folder", systemImage: "folder.badge.plus")
+                    }
+                    Divider()
+                    Button(action: { onFocus(singleNode) }) {
+                        Label("Sync only this folder", systemImage: "scope")
+                    }
                 }
                 Divider()
             }

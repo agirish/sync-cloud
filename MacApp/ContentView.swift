@@ -11,6 +11,12 @@ struct ContentView: View {
     @State private var selectedDestinationPaths: Set<String> = []
     
     @State private var showingSettings = false
+    
+    // File Action States
+    @State private var renamingNode: FileNode?
+    @State private var newName: String = ""
+    @State private var creatingFolderInPath: String?
+    @State private var newFolderName: String = ""
 
     var body: some View {
         NavigationSplitView {
@@ -93,6 +99,7 @@ struct ContentView: View {
                             tree: syncManager.sourceTree, 
                             otherTree: syncManager.destinationTree,
                             isLoading: syncManager.isLoadingSourceTree, 
+                            currentPath: currentSourcePath,
                             selection: $selectedSourcePaths,
                             otherSelection: selectedDestinationPaths,
                             onFocus: { node in focusFolder(node, isSource: true) },
@@ -100,7 +107,9 @@ struct ContentView: View {
                             onDelete: { nodes in deleteItems(nodes) },
                             onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
-                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) }
+                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
+                            onRename: { node in beginRename(node) },
+                            onCreateFolder: { path in beginCreateFolder(in: path) }
                         )
                     }
                     .frame(minWidth: 250)
@@ -116,6 +125,7 @@ struct ContentView: View {
                             tree: syncManager.destinationTree, 
                             otherTree: syncManager.sourceTree,
                             isLoading: syncManager.isLoadingDestinationTree, 
+                            currentPath: currentDestinationPath,
                             selection: $selectedDestinationPaths,
                             otherSelection: selectedSourcePaths,
                             onFocus: { node in focusFolder(node, isSource: false) },
@@ -123,7 +133,9 @@ struct ContentView: View {
                             onDelete: { nodes in deleteItems(nodes) },
                             onCopyToClipboard: { nodes in syncManager.clipboardNodes = nodes },
                             onPaste: { targetDir in pasteItems(to: targetDir) },
-                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) }
+                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
+                            onRename: { node in beginRename(node) },
+                            onCreateFolder: { path in beginCreateFolder(in: path) }
                         )
                     }
                     .frame(minWidth: 250)
@@ -169,6 +181,36 @@ struct ContentView: View {
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environmentObject(settings)
+        }
+        .alert("Rename Item", isPresented: Binding(
+            get: { renamingNode != nil },
+            set: { if !$0 { renamingNode = nil } }
+        )) {
+            TextField("New name", text: $newName)
+            Button("Cancel", role: .cancel) { }
+            Button("Rename") {
+                if let node = renamingNode, !newName.isEmpty {
+                    Task {
+                        await syncManager.renameItem(at: node.id, to: newName)
+                        refreshAction()
+                    }
+                }
+            }
+        }
+        .alert("New Folder", isPresented: Binding(
+            get: { creatingFolderInPath != nil },
+            set: { if !$0 { creatingFolderInPath = nil } }
+        )) {
+            TextField("Folder name", text: $newFolderName)
+            Button("Cancel", role: .cancel) { }
+            Button("Create") {
+                if let path = creatingFolderInPath, !newFolderName.isEmpty {
+                    Task {
+                        await syncManager.createFolder(named: newFolderName, in: path)
+                        refreshAction()
+                    }
+                }
+            }
         }
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation {
@@ -252,6 +294,18 @@ struct ContentView: View {
             await syncManager.copyItems(nodes: nodes, toPath: targetFolder.id)
             refreshAction()
         }
+    }
+    
+    // MARK: - File Operations Helpers
+    
+    private func beginRename(_ node: FileNode) {
+        newName = node.name
+        renamingNode = node
+    }
+    
+    private func beginCreateFolder(in path: String) {
+        newFolderName = ""
+        creatingFolderInPath = path
     }
     
     private func refreshAction() {

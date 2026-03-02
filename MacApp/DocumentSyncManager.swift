@@ -358,12 +358,41 @@ class DocumentSyncManager: ObservableObject {
                     }
                     try fm.copyItem(atPath: node.id, toPath: targetPath)
                 } catch {
-                    print("Error copying item \(node.name) to specific path: \(error)")
+                    print("Error copying item \(node.name): \(error)")
                 }
             }
         }.value
     }
     
+    // MARK: - File Operations
+
+    func renameItem(at path: String, to newName: String) async {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let url = URL(fileURLWithPath: path)
+            let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
+            
+            do {
+                try fm.moveItem(at: url, to: newURL)
+            } catch {
+                print("Error renaming item \(path): \(error)")
+            }
+        }.value
+    }
+    
+    func createFolder(named name: String, in path: String) async {
+        await Task.detached(priority: .userInitiated) {
+            let fm = FileManager.default
+            let url = URL(fileURLWithPath: path).appendingPathComponent(name)
+            
+            do {
+                try fm.createDirectory(at: url, withIntermediateDirectories: true)
+            } catch {
+                print("Error creating folder \(name) at \(path): \(error)")
+            }
+        }.value
+    }
+
 
     func deleteItems(at paths: [String]) async {
         await Task.detached(priority: .userInitiated) {
