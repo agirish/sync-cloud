@@ -26,7 +26,7 @@ class DocumentSyncManager: ObservableObject {
     @Published var clipboardNodes: [FileNode] = []
     @Published var clipboardIsCut: Bool = false
     
-    // Globabl Error state
+    // Global Error state
     @Published var currentError: String? = nil
     
     // Navigation State (Relative paths from provider roots)

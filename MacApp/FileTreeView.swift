@@ -75,14 +75,15 @@ struct FileTreeView: View {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
         Divider()
-        Button(action: { }) {
-            Label("View options...", systemImage: "gearshape")
-        }
-        Menu("Group By") {
+        Menu("Sort By") {
             Button("Name") {}
+            Button("Kind") {}
             Button("Date Modified") {}
             Button("Size") {}
-            Button("Kind") {}
+            Button("Tags") {}
+        }
+        Button(action: { }) {
+            Label("Show View Options", systemImage: "gearshape")
         }
     }
 }
