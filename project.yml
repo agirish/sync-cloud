@@ -1,0 +1,20 @@
+name: SyncCloud
+options:
+  bundleIdPrefix: com.example
+targets:
+  SyncCloud:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: MacApp
+        excludes:
+          - "Info.plist"
+          - "Entitlements.plist"
+    settings:
+      CODE_SIGN_ENTITLEMENTS: MacApp/Entitlements.plist
+      INFOPLIST_FILE: MacApp/Info.plist
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      ENABLE_PREVIEWS: YES
+      SWIFT_VERSION: 5.0
