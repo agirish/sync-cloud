@@ -78,9 +78,16 @@ class SettingsManager: ObservableObject {
     }
     
     func setPath(_ path: String, for providerId: String) {
-        userDefaults.set(path, forKey: "\(overrideKeyPrefix)\(providerId)")
-        if let index = availableProviders.firstIndex(where: { $0.id == providerId }) {
-            availableProviders[index].path = path
+        if path.isEmpty {
+            userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
+        } else {
+            userDefaults.set(path, forKey: "\(overrideKeyPrefix)\(providerId)")
         }
+        discoverProviders()
+    }
+    
+    func resetPath(for providerId: String) {
+        userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
+        discoverProviders()
     }
 }

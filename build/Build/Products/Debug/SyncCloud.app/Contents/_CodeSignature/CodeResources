@@ -47,10 +47,10 @@
 		<dict>
 			<key>cdhash</key>
 			<data>
-			PXTwYIcxo3d+4gVS9WIdXqTMwhg=
+			Ta6MRjxVdoSrHDuB8PGPaoySd2g=
 			</data>
 			<key>requirement</key>
-			<string>cdhash H"3d74f0608731a3777ee20552f5621d5ea4ccc218"</string>
+			<string>cdhash H"4dae8c463c557684ab1c3b81f0f18f6a8c927768"</string>
 		</dict>
 		<key>MacOS/__preview.dylib</key>
 		<dict>
