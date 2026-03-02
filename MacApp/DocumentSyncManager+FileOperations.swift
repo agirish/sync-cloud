@@ -95,7 +95,7 @@ extension DocumentSyncManager {
         let tempURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try fileManager.copyItem(at: sourceURL, to: tempURL)
         
-        if fileManager.fileExists(atPath: destinationURL.path) {
+        if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
             try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
             trashedOriginal = trashedURL as URL?
@@ -113,7 +113,7 @@ extension DocumentSyncManager {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
-        if fileManager.fileExists(atPath: destinationURL.path) {
+        if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
             try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
             trashedOriginal = trashedURL as URL?
@@ -130,6 +130,12 @@ extension DocumentSyncManager {
         return trashedOriginal
     }
     
+    
+    private nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL) -> Bool {
+        return source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&
+               source.lastPathComponent.lowercased() == destination.lastPathComponent.lowercased()
+    }
+
     // MARK: - File Operations
     
     /// Copies multiple files or folders between the Source and Destination panes.
@@ -290,7 +296,8 @@ extension DocumentSyncManager {
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         
-        if FileManager.default.fileExists(atPath: newURL.path) {
+        let isCaseOnly = url.lastPathComponent.lowercased() == newName.lowercased()
+        if !isCaseOnly && FileManager.default.fileExists(atPath: newURL.path) {
             let msg = "Error renaming item: An item named \"\(newName)\" already exists."
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
@@ -362,8 +369,20 @@ extension DocumentSyncManager {
                             try fm.trashItem(at: url, resultingItemURL: &trashedURL)
                             trashedItems.append((original: url, trashed: trashedURL as? URL))
                         } catch {
-                            trashedItems.append((original: url, trashed: nil)) // Mark as failed trash so we align
-                            taskErrors.append(error)
+                            // If trashing fails (e.g. network drive), fallback to immediate deletion if user confirms
+                            let confirmed = await MainActor.run { NativeAlerts.confirmPermanentDelete(fileName: url.lastPathComponent) }
+                            if confirmed {
+                                do {
+                                    try fm.removeItem(at: url)
+                                    trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
+                                } catch let rmErr {
+                                    trashedItems.append((original: url, trashed: nil))
+                                    taskErrors.append(rmErr)
+                                }
+                            } else {
+                                trashedItems.append((original: url, trashed: nil))
+                                taskErrors.append(error)
+                            }
                         }
                     }
                 }

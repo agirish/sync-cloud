@@ -88,4 +88,24 @@ struct NativeAlerts {
         }
         return nil
     }
+    
+    /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
+    /// - Parameter fileName: The name of the file
+    /// - Returns: True if confirmed for immediate permanent deletion.
+    static func confirmPermanentDelete(fileName: String) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "Are you sure you want to permanently delete \"\(fileName)\"?"
+        alert.informativeText = "This item will be deleted immediately because it cannot be moved to the Trash. You can't undo this action."
+        
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        
+        if let deleteButton = alert.buttons.first {
+            deleteButton.hasDestructiveAction = true
+            deleteButton.keyEquivalent = "\r"
+        }
+        
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 }
