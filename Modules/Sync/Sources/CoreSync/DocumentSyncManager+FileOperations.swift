@@ -373,19 +373,13 @@ extension DocumentSyncManager {
                             try fm.trashItem(at: url, resultingItemURL: &trashedURL)
                             trashedItems.append((original: url, trashed: trashedURL as? URL))
                         } catch {
-                            // If trashing fails (e.g. network drive), fallback to immediate deletion if user confirms
-                            let confirmed = true // UI Confirmation decoupled from SPM module
-                            if confirmed {
-                                do {
-                                    try fm.removeItem(at: url)
-                                    trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
-                                } catch let rmErr {
-                                    trashedItems.append((original: url, trashed: nil))
-                                    taskErrors.append(rmErr)
-                                }
-                            } else {
+                            // If trashing fails (e.g. network drive), fallback to immediate deletion
+                            do {
+                                try fm.removeItem(at: url)
+                                trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
+                            } catch let rmErr {
                                 trashedItems.append((original: url, trashed: nil))
-                                taskErrors.append(error)
+                                taskErrors.append(rmErr)
                             }
                         }
                     }
@@ -479,7 +473,7 @@ extension DocumentSyncManager {
                     await redoParamResolver.resolve(redoParams)
                     
                     for item in items {
-                        try? Self.safeMoveItem(at: item.to, to: item.from)
+                        _ = try? Self.safeMoveItem(at: item.to, to: item.from)
                         
                         if let trashed = item.overwritten {
                             try? FileManager.default.moveItem(at: trashed, to: item.to)
@@ -564,7 +558,7 @@ extension DocumentSyncManager {
                     for (idx, targetURL) in urls.enumerated() {
                         if let trashedURL = trashedItems[idx] {
                             try? FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            try? Self.safeMoveItem(at: trashedURL, to: targetURL)
+                            _ = try? Self.safeMoveItem(at: trashedURL, to: targetURL)
                         }
                     }
                 }

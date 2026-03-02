@@ -63,7 +63,7 @@ public struct NavigationToolbar: View {
                 Label("Hidden", systemImage: "eye")
             }
             .toggleStyle(.button)
-            .onChange(of: syncManager.showHiddenFiles) { _ in
+            .onChange(of: syncManager.showHiddenFiles) {
                 refreshAction()
             }
         }

@@ -68,7 +68,9 @@ struct ContentView: View {
                     destinationCount: syncManager.destinationItemCount,
                     differences: syncManager.differences
                 )
-                
+                .onChange(of: syncManager.differences) {
+                    isScanning = false
+                }
                 Divider()
                 
                 // File Trees Split View
@@ -222,17 +224,17 @@ struct ContentView: View {
             }
             refreshAction()
         }
-        .onChange(of: sourceProviderId) { _ in
+        .onChange(of: sourceProviderId) {
             selectedSourcePaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: destinationProviderId) { _ in
+        .onChange(of: destinationProviderId) {
             selectedDestinationPaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: settings.availableProviders) { _ in
+        .onChange(of: settings.availableProviders) {
             refreshAction()
         }
     }
