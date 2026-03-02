@@ -1,24 +1,39 @@
 import SwiftUI
 
-/// The main application layout for SyncCloud
-/// Contains a two-pane NavigationSplitView managing source and destination FileTreeViews
-/// Handles top-level file operation alert bindings through the FileOperationAlerts modifier
+/// The main application layout for SyncCloud.
+/// Contains a two-pane `NavigationSplitView` managing source and destination `FileTreeView`s.
+/// Handles top-level file operation alert bindings through the `FileOperationAlerts` modifier.
 struct ContentView: View {
+    /// The global synchronization engine tracking tree structures and differences.
     @StateObject private var syncManager = DocumentSyncManager()
+    /// The unmanaged configuration logic responsible for available providers.
     @StateObject private var settings = SettingsManager()
+    
+    /// The currently selected CloudProvider ID driving the left Source pane.
     @State private var sourceProviderId: String = "iCloud"
+    /// The currently selected CloudProvider ID driving the right Destination pane.
     @State private var destinationProviderId: String = "iCloud"
+    
+    /// Tracks visual animation states when scanning directories.
     @State private var isScanning = false
     
+    /// Identifiers of the files currently highlighted by the user in the left pane.
     @State private var selectedSourcePaths: Set<String> = []
+    /// Identifiers of the files currently highlighted by the user in the right pane.
     @State private var selectedDestinationPaths: Set<String> = []
+    
+    /// The paths inside the left tree which have been toggled open (expanded disclosure groups).
     @State private var sourceExpandedPaths: Set<String> = []
+    /// The paths inside the right tree which have been toggled open (expanded disclosure groups).
     @State private var destExpandedPaths: Set<String> = []
     
+    /// Controls the presentation of the User Preferences sheet.
     @State private var showingSettings = false
+    /// Controls the presentation of the Logger Activity inspector pane.
     @State private var showingLogs = false
     
-    // File Action States
+    // MARK: - File Action UI States
+    
     @State private var renamingNode: FileNode?
     @State private var newName: String = ""
     @State private var creatingFolderInPath: String?
@@ -221,6 +236,10 @@ struct ContentView: View {
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
     }
     
+    /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
+    /// - Parameters:
+    ///   - node: The directory node to focus.
+    ///   - isSource: True if navigating within the left pane; False for the right pane.
     private func focusFolder(_ node: FileNode, isSource: Bool) {
         let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destinationProviderId)
         let otherRootPath = isSource ? settings.path(for: destinationProviderId) : settings.path(for: sourceProviderId)
@@ -235,6 +254,10 @@ struct ContentView: View {
         refreshAction()
     }
     
+    /// Initiates an asynchronous cross-pane copy operation.
+    /// - Parameters:
+    ///   - nodes: An array of files/folders selected to be copied.
+    ///   - fromSource: Whether the transfer originates from the Source (true) or Destination (false) pane.
     private func copyItems(_ nodes: [FileNode], fromSource: Bool) {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destinationProviderId)
@@ -245,12 +268,18 @@ struct ContentView: View {
         }
     }
     
+    /// Unpacks the clipboard contents and delegates them to the primary `pasteItems` handler.
+    /// - Parameter targetFolder: The destination directory node where copied contents will reside.
     private func pasteItems(to targetFolder: FileNode) {
         let nodesToPaste = syncManager.clipboardNodes
         guard !nodesToPaste.isEmpty else { return }
         pasteItems(nodesToPaste, to: targetFolder)
     }
     
+    /// Handles the internal execution of dropping nodes into a directory, observing if it was a Cut or Copy.
+    /// - Parameters:
+    ///   - nodes: The items residing in the virtual clipboard.
+    ///   - targetFolder: The destination directory node.
     private func pasteItems(_ nodes: [FileNode], to targetFolder: FileNode) {
         Task {
             if syncManager.clipboardIsCut {
@@ -280,6 +309,7 @@ struct ContentView: View {
         nodesToDelete = nodes
     }
     
+    /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
     private func refreshAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }

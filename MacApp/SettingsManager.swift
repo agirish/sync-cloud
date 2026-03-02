@@ -1,8 +1,11 @@
 import Foundation
 import SwiftUI
 
+/// Manages the discovery and customization of Cloud Providers available to the application.
+/// Interfaces with `UserDefaults` to persist custom path overwrites per provider.
 @MainActor
 class SettingsManager: ObservableObject {
+    /// A sorted array of natively detected and custom-configured providers (e.g., iCloud, OneDrive).
     @Published var availableProviders: [CloudProvider] = []
     
     private let userDefaults = UserDefaults.standard
@@ -12,6 +15,8 @@ class SettingsManager: ObservableObject {
         discoverProviders()
     }
     
+    /// Scans the local filesystem's CloudStorage mounting point to detect configured provider accounts.
+    /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
     func discoverProviders() {
         var providers: [CloudProvider] = []
         
@@ -73,10 +78,21 @@ class SettingsManager: ObservableObject {
         self.availableProviders = providers
     }
     
+    }
+    
+    /// Returns the active root path (either default or user-overridden) for a specific provider.
+    /// - Parameter providerId: The unique identifier.
+    /// - Returns: The absolute directory path as a string.
     func path(for providerId: String) -> String {
         return availableProviders.first(where: { $0.id == providerId })?.path ?? ""
     }
     
+    }
+    
+    /// Persists a custom absolute path mapping for a specific provider ID, dropping the system default.
+    /// - Parameters:
+    ///   - path: The new folder target path.
+    ///   - providerId: The targeted provider ID.
     func setPath(_ path: String, for providerId: String) {
         if path.isEmpty {
             userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
@@ -86,6 +102,10 @@ class SettingsManager: ObservableObject {
         discoverProviders()
     }
     
+    }
+    
+    /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
+    /// - Parameter providerId: The targeted provider ID.
     func resetPath(for providerId: String) {
         userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
         discoverProviders()

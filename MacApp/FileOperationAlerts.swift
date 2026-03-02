@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A SwiftUI ViewModifier that attaches application-wide filesystem alerts (rename, create folder, delete) directly to the layout hierarchy.
 struct FileOperationAlerts: ViewModifier {
     @ObservedObject var syncManager: DocumentSyncManager
     let refreshAction: () -> Void
@@ -63,6 +64,8 @@ struct FileOperationAlerts: ViewModifier {
             }
     }
     
+    /// Executes the deletion of the selected node targets using the global sync manager.
+    /// - Parameter nodes: The items queued for imminent destruction.
     private func deleteItems(_ nodes: [FileNode]) {
         Task {
             await syncManager.deleteItems(at: nodes.map { $0.id })

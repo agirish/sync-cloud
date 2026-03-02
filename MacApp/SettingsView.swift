@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 
+/// An overlay window allowing users to customize CloudProvider synchronization paths.
 struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: SettingsManager
@@ -71,6 +72,7 @@ struct SettingsView: View {
     }
 }
 
+/// An interactive UI card displaying the configurations and health status of a specific `CloudProvider`.
 struct ProviderCard: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
@@ -204,6 +206,7 @@ struct ProviderCard: View {
     }
 }
 
+/// A tiny visual indicator showing whether a given String path actually exists as a directory on disk.
 struct StatusBadge: View {
     let isValid: Bool
     
@@ -225,6 +228,7 @@ struct StatusBadge: View {
 }
 
 // Utility view for blur effects
+/// A SwiftUI bridge to `NSVisualEffectView` allowing native macOS vibrancy and background blurring.
 struct VisualEffectView: NSViewRepresentable {
     let material: NSVisualEffectView.Material
     let blendingMode: NSVisualEffectView.BlendingMode

@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 struct LogViewer: View {
     @EnvironmentObject var logger: Logger
     
@@ -100,6 +101,7 @@ struct LogViewer: View {
     }
 }
 
+/// An atomic row view rendering a single LogEntry with color-coded severity icons.
 private struct LogEntryRow: View {
     let entry: LogEntry
     

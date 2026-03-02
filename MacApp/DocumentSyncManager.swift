@@ -6,11 +6,16 @@ import UniformTypeIdentifiers
 /// Responsible for scanning directories, computing FileDifferences, and tracking relative navigation paths.
 @MainActor
 class DocumentSyncManager: ObservableObject {
+    /// Array of differences calculated between the source and destination directories.
     @Published var differences: [FileDifference] = []
+    /// Indicates whether a deep structure scan is currently in progress.
     @Published var isScanning = false
+    /// Indicates whether at least one successful scan has occurred.
     @Published var hasScanned = false
     
+    /// Internal representation of the loaded file structure for the source provider.
     @Published var sourceTree: [FileNode] = []
+    /// Internal representation of the loaded file structure for the destination provider.
     @Published var destinationTree: [FileNode] = []
     @Published var isLoadingSourceTree = false
     @Published var isLoadingDestinationTree = false
@@ -28,12 +33,15 @@ class DocumentSyncManager: ObservableObject {
     @Published var sourceRelativePath: String = ""
     @Published var destRelativePath: String = ""
     
+    /// Tracks the navigational history across both panes.
     private var history: [(source: String, dest: String)] = [("", "")]
     private var historyIndex: Int = 0
     
     @Published var canGoBack: Bool = false
     @Published var canGoForward: Bool = false
     
+    /// Instructs the manager to read the filesystem and construct an in-memory tree for the source pane.
+    /// - Parameter path: The absolute, expanded root URL string of the provider.
     func loadSourceTree(path: String) async {
         isLoadingSourceTree = true
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)

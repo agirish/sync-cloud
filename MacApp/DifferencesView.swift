@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A scrollable dashboard list displaying all files that require manual synchronization actions.
 struct DifferencesView: View {
     @ObservedObject var syncManager: DocumentSyncManager
     let refreshAction: () -> Void
@@ -37,6 +38,7 @@ struct DifferencesView: View {
     }
 }
 
+/// A highly detailed row displaying the relative path, modification timestamp alert, and a button to execute a one-way sync.
 struct DifferenceRow: View {
     let difference: FileDifference
     let onSync: () -> Void

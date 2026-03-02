@@ -1,5 +1,7 @@
 import SwiftUI
 
+/// The left-most navigation pane in the application split view.
+/// Allows users to independently select the driving CloudProvider mapping for both the Source and Destination synchronization trees.
 struct ProviderSidebarView: View {
     let settings: SettingsManager
     @Binding var sourceProviderId: String

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// A recursive tree view that displays an interactive file hierarchy
-/// Supports drag-and-drop, context menus, and selection bindings.
+/// A recursive tree view that displays an interactive file hierarchy for a single CloudProvider pane.
+/// Supports intra/inter-pane drag-and-drop, context menus, and hierarchical selection bindings.
 struct FileTreeView: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
@@ -88,6 +88,7 @@ struct FileTreeView: View {
 }
 
 /// Dynamically generated context menu for file operations bounding the selected node and the overarching selection
+/// Adapts its available buttons depending on whether a single file, a batch of files, or a folder was right-clicked.
 struct FileContextMenu: View {
     let node: FileNode
     let selection: Set<String>
@@ -168,7 +169,7 @@ struct FileContextMenu: View {
     }
 }
 
-/// Renders a single row representing a file or directory node
+/// Renders a single row representing a file or directory node with its associated system icon.
 struct FileRowView: View {
     let node: FileNode
     
@@ -185,7 +186,8 @@ struct FileRowView: View {
     }
 }
 
-/// Recursively evaluates and creates DisclosureGroups for deep directory views
+/// Recursively evaluates and creates `DisclosureGroup` lists for deep directory views.
+/// Delegates operation requests (like Cut, Copy, Paste, Delete, Rename) up the chain to the parent environment via callbacks.
 struct RecursiveFileNodeView: View {
     let node: FileNode
     @Binding var selection: Set<String>

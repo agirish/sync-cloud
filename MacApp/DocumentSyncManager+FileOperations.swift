@@ -2,6 +2,12 @@ import Foundation
 
 extension DocumentSyncManager {
     
+    /// Copies multiple files or folders between the Source and Destination panes.
+    /// - Parameters:
+    ///   - nodes: The array of `FileNode` items to copy.
+    ///   - fromSource: A boolean indicating if the copy originates from the source provider (true) or destination provider (false).
+    ///   - sourceRoot: The expanded root URL path of the source provider.
+    ///   - destinationRoot: The expanded root URL path of the destination provider.
     func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
@@ -34,6 +40,10 @@ extension DocumentSyncManager {
     }
     
 
+    /// Copies multiple files to a specific absolute destination directory path.
+    /// - Parameters:
+    ///   - nodes: The array of `FileNode` items to copy.
+    ///   - destinationPath: The absolute string path to the target directory.
     func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
         let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
             var taskErrors: [Error] = []
@@ -60,6 +70,10 @@ extension DocumentSyncManager {
         }
     }
     
+    /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
+    /// - Parameters:
+    ///   - nodes: The array of `FileNode` items to move.
+    ///   - destinationPath: The absolute string path to the target directory.
     func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
         let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
             var taskErrors: [Error] = []
@@ -88,6 +102,10 @@ extension DocumentSyncManager {
     
     // MARK: - File Operations
 
+    /// Renames a specific file or folder on disk.
+    /// - Parameters:
+    ///   - path: The absolute path of the item to rename.
+    ///   - newName: The new local filename (not a full path).
     func renameItem(at path: String, to newName: String) async {
         let error = await Task.detached(priority: .userInitiated) { () -> Error? in
             let fm = FileManager.default
@@ -111,6 +129,10 @@ extension DocumentSyncManager {
         }
     }
     
+    /// Creates a new empty directory on disk.
+    /// - Parameters:
+    ///   - name: The local name of the new folder.
+    ///   - path: The absolute path of the parent directory where the folder should be created.
     func createFolder(named name: String, in path: String) async {
         let error = await Task.detached(priority: .userInitiated) { () -> Error? in
             let fm = FileManager.default
@@ -133,6 +155,8 @@ extension DocumentSyncManager {
         }
     }
 
+    /// Permanently deletes files or directories from disk.
+    /// - Parameter paths: An array of absolute string paths to remove from the filesystem.
     func deleteItems(at paths: [String]) async {
         let errors = await Task.detached(priority: .userInitiated) { () -> [Error] in
             var taskErrors: [Error] = []

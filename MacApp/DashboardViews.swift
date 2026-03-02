@@ -1,5 +1,6 @@
 import SwiftUI
 
+/// A top-level status bar displaying aggregated metrics across both source and destination trees.
 struct DashboardHeader: View {
     let sourceCount: Int
     let destinationCount: Int
@@ -18,6 +19,7 @@ struct DashboardHeader: View {
     }
 }
 
+/// A reusable atomic UI component that displays a single numerical metric with an icon and title.
 struct DashboardMetric: View {
     let title: String
     let value: String
@@ -43,6 +45,7 @@ struct DashboardMetric: View {
     }
 }
 
+/// A visual header sitting atop a file pane, indicating the targeted provider and the current absolute path on disk.
 struct PaneHeader: View {
     let title: String
     let provider: CloudProvider?

@@ -1,9 +1,13 @@
 import Foundation
 import SwiftUI
 
+/// Defines the severity level of an application log entry.
 enum LogLevel: String, CaseIterable, Identifiable, Codable {
+    /// Informational telemetry or standard operational success events.
     case info = "INFO"
+    /// A non-critical issue that did not halt execution but requires attention.
     case warning = "WARN"
+    /// A critical failure or severe application error.
     case error = "ERROR"
     
     var id: String { self.rawValue }
@@ -25,10 +29,15 @@ enum LogLevel: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Represents a single recorded event in the application's lifecycle.
 struct LogEntry: Identifiable, Codable {
+    /// A unique identifier for the entry.
     let id: UUID
+    /// The exact timestamp when the event occurred.
     let timestamp: Date
+    /// The severity classification of the event.
     let level: LogLevel
+    /// A detailed human-readable description of the event.
     let message: String
     
     init(id: UUID = UUID(), timestamp: Date = Date(), level: LogLevel, message: String) {
@@ -45,16 +54,23 @@ struct LogEntry: Identifiable, Codable {
     }
 }
 
+/// A thread-safe, globally accessible logging service for the SyncCloud application.
+/// Manages writing event traces to disk (`~/sync-cloud.log`) and maintaining an observable history for the LogViewer UI.
 @MainActor
 class Logger: ObservableObject {
+    /// The shared singleton instance used across the application to trace events.
     static let shared = Logger()
     
+    /// The active memory cache of recent log entries presented in the UI.
     @Published private(set) var entries: [LogEntry] = []
     
-    // Global UX error bubbled up to the UI alert
+    /// A volatile string holding the latest severe error. Bound to `.alert()` modifiers to display OS-level popups.
     @Published var currentAlertError: String? = nil
     
+    /// The absolute disk URL mapping to the destination log file.
     private let logFileURL: URL
+    
+    /// A dedicated background GCD queue guaranteeing atomic log file writes without stalling the main UI thread.
     private let fileQueue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     
     private init() {
@@ -67,14 +83,22 @@ class Logger: ObservableObject {
         }
     }
     
+    /// Records an informational trace event to memory and disk.
+    /// - Parameter message: The string description to log.
     func info(_ message: String) {
         log(level: .info, message: message)
     }
     
+    /// Records a warning trace event to memory and disk.
+    /// - Parameter message: The string description of the warning.
     func warning(_ message: String) {
         log(level: .warning, message: message)
     }
     
+    /// Records an error trace event.
+    /// - Parameters:
+    ///   - message: The string description of the failure.
+    ///   - showAlert: If true, assigns the message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
     func error(_ message: String, showAlert: Bool = true) {
         log(level: .error, message: message)
         if showAlert {
@@ -82,6 +106,7 @@ class Logger: ObservableObject {
         }
     }
     
+    /// Internal abstraction formatting the memory entry and dispatching to the disk background queue.
     private func log(level: LogLevel, message: String) {
         let entry = LogEntry(level: level, message: message)
         
@@ -108,6 +133,7 @@ class Logger: ObservableObject {
         }
     }
     
+    /// Empties the internal memory array and overwrites the local disk file with an empty sequence.
     func clearLogs() {
         entries.removeAll()
         fileQueue.async { [url = self.logFileURL] in
@@ -115,6 +141,7 @@ class Logger: ObservableObject {
         }
     }
     
+    /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
     func openLogFile() {
         NSWorkspace.shared.open(logFileURL)
     }
