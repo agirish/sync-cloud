@@ -78,15 +78,11 @@ class SettingsManager: ObservableObject {
         self.availableProviders = providers
     }
     
-    }
-    
     /// Returns the active root path (either default or user-overridden) for a specific provider.
     /// - Parameter providerId: The unique identifier.
     /// - Returns: The absolute directory path as a string.
     func path(for providerId: String) -> String {
         return availableProviders.first(where: { $0.id == providerId })?.path ?? ""
-    }
-    
     }
     
     /// Persists a custom absolute path mapping for a specific provider ID, dropping the system default.
@@ -100,8 +96,6 @@ class SettingsManager: ObservableObject {
             userDefaults.set(path, forKey: "\(overrideKeyPrefix)\(providerId)")
         }
         discoverProviders()
-    }
-    
     }
     
     /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
