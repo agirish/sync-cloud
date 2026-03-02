@@ -158,6 +158,16 @@ struct ContentView: View {
                     .background(Color(NSColor.textBackgroundColor).opacity(0.5))
                 }
             }
+            .quickLookPreview($quickLookURL)
+            .background(
+                Button(action: {
+                    if let targetPath = selectedSourcePaths.first ?? selectedDestinationPaths.first {
+                        quickLookURL = URL(fileURLWithPath: targetPath)
+                    }
+                }) { EmptyView() }
+                .keyboardShortcut(.space, modifiers: [])
+                .opacity(0)
+            )
             .background(Color(NSColor.windowBackgroundColor))
             .toolbar {
                 ToolbarItem(placement: .automatic) {
@@ -205,19 +215,6 @@ struct ContentView: View {
                 Text(errorMsg)
             }
         }
-        .quickLookPreview($quickLookURL)
-        .background(
-            Button(action: {
-                // Quick look the first selected item in either the source or destination pane
-                if let targetPath = selectedSourcePaths.first ?? selectedDestinationPaths.first {
-                    quickLookURL = URL(fileURLWithPath: targetPath)
-                }
-            }) {
-                EmptyView()
-            }
-            .keyboardShortcut(.space, modifiers: [])
-            .opacity(0)
-        )
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation {
                 isScanning = scanning
