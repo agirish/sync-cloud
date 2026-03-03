@@ -8,7 +8,6 @@ import QuickLook
 
 /// The main application layout for SyncCloud.
 /// Contains a two-pane `NavigationSplitView` managing source and destination `FileTreeView`s.
-/// Handles top-level file operation alert bindings through the `FileOperationAlerts` modifier.
 struct ContentView: View {
     /// The global synchronization engine tracking tree structures and differences.
     @StateObject private var syncManager = FileSyncManager()

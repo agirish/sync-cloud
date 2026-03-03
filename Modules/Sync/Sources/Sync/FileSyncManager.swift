@@ -432,7 +432,7 @@ public class FileSyncManager: ObservableObject {
     }
     
 
-    // Implementations moved to DocumentSyncManager+FileOperations.swift
+    // Implementations moved to FileOperations.swift
     
     // Returns a dictionary mapping relative paths to file URLs
     nonisolated private static func getFilesInDirectory(_ url: URL) throws -> [String: URL] {
