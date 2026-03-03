@@ -5,16 +5,10 @@ import UniformTypeIdentifiers
 /// Core business logic manager governing the synchronization engine
 /// Manages the in-memory tree structures (FileNode) for both source and destination cloud providers.
 /// Responsible for scanning directories, computing FileDifferences, and tracking relative navigation paths.
-public enum SortOption: String, CaseIterable, Equatable {
-    case name = "Name"
-    case kind = "Kind"
-    case dateModified = "Date Modified"
-    case size = "Size"
-    case tags = "Tags"
-}
+
 
 @MainActor
-public class DocumentSyncManager: ObservableObject {
+public class FileSyncManager: ObservableObject {
     public init() {}
     /// Array of differences calculated between the source and destination directories.
     @Published public var differences: [FileDifference] = []
@@ -472,83 +466,5 @@ public class DocumentSyncManager: ObservableObject {
         }
         
         return result
-    }
-}
-
-/// An in-memory representation of a file or directory mapped from a local or cloud path
-public struct FileNode: Identifiable, Hashable, Codable {
-    public let id: String // Absolute path
-    public let name: String
-    public let isDirectory: Bool
-    public var children: [FileNode]?
-    public var modificationDate: Date?
-    public var fileSize: Int?
-    var tags: [String]?
-    var kind: String?
-}
-
-extension FileNode: Transferable {
-    public static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .data)
-    }
-}
-
-/// Represents a computed discrepancy between the Source and Destination providers for a single file paths
-public struct FileDifference: Identifiable, Equatable {
-    public let id: UUID
-    public let relativePath: String
-    public let sourceItemPath: String
-    public let destinationItemPath: String
-    public let type: DifferenceType
-    public let action: SyncAction
-    public let description: String
-    public var isSyncing: Bool = false
-    
-    public init(id: UUID = UUID(), relativePath: String, sourceItemPath: String, destinationItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false) {
-        self.id = id
-        self.relativePath = relativePath
-        self.sourceItemPath = sourceItemPath
-        self.destinationItemPath = destinationItemPath
-        self.type = type
-        self.action = action
-        self.description = description
-        self.isSyncing = isSyncing
-    }
-    
-    public enum DifferenceType: Equatable {
-        case missingInDestination
-        case missingInSource
-        case differentDates
-    }
-    
-    public enum SyncAction: Equatable {
-        case copyToDestination
-        case copyToSource
-    }
-}
-
-extension Array where Element == FileNode {
-    func findNode(at path: String?) -> FileNode? {
-        guard let path = path else { return nil }
-        for node in self {
-            if node.id == path { return node }
-            if let children = node.children, let found = children.findNode(at: path) {
-                return found
-            }
-        }
-        return nil
-    }
-    
-    public func findNodes(at paths: Set<String>) -> [FileNode] {
-        var found: [FileNode] = []
-        for node in self {
-            if paths.contains(node.id) {
-                found.append(node)
-            }
-            if let children = node.children {
-                found.append(contentsOf: children.findNodes(at: paths))
-            }
-        }
-        return found
     }
 }

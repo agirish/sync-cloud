@@ -2,7 +2,7 @@ import Events
 import Foundation
 import AppKit
 
-extension DocumentSyncManager {
+extension FileSyncManager {
     
     // MARK: - Safe Atomic Replacements
     

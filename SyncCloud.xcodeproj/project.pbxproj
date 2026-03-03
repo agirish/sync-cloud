@@ -10,6 +10,7 @@
 		0D8B2D2C2DE9AF39E8817975 /* Sync in Frameworks */ = {isa = PBXBuildFile; productRef = 39D41E0AC7D2218F445DB841 /* Sync */; };
 		10646B98D1D159C076429036 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD04B885A6E5B2F79FBC29F /* ContentView.swift */; };
 		1339472D59A37891FF82903A /* onedrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 633A97B1D60E30053D74E73C /* onedrive.png */; };
+		16421EC601D9933B0F0AB988 /* FileActionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26F73CD9425097C12CBAB6F2 /* FileActionHandler.swift */; };
 		29BD2F097CD16F4898EA2B41 /* Entitlements.plist in Resources */ = {isa = PBXBuildFile; fileRef = A87C284D34C60D71BA0ADC83 /* Entitlements.plist */; };
 		33AEB539C615F6FC9B55A269 /* Dashboard in Frameworks */ = {isa = PBXBuildFile; productRef = 75B049F5AD04670F39EECE66 /* Dashboard */; };
 		33FEC1D169D0F0ACD5E6F8CD /* dropbox.png in Resources */ = {isa = PBXBuildFile; fileRef = E021F192338BC544ED67982D /* dropbox.png */; };
@@ -31,6 +32,7 @@
 		1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		249BB03C6B915A11D8A07DC2 /* FileExplorer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FileExplorer; path = Modules/FileExplorer; sourceTree = SOURCE_ROOT; };
 		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
+		26F73CD9425097C12CBAB6F2 /* FileActionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileActionHandler.swift; sourceTree = "<group>"; };
 		5BD04B885A6E5B2F79FBC29F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		617FAC2D93B622D15FEAE7ED /* onedrive.svg */ = {isa = PBXFileReference; path = onedrive.svg; sourceTree = "<group>"; };
 		633A97B1D60E30053D74E73C /* onedrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = onedrive.png; sourceTree = "<group>"; };
@@ -90,6 +92,7 @@
 				1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */,
 				5BD04B885A6E5B2F79FBC29F /* ContentView.swift */,
 				A87C284D34C60D71BA0ADC83 /* Entitlements.plist */,
+				26F73CD9425097C12CBAB6F2 /* FileActionHandler.swift */,
 				A936CE0A6225955E746D2CE8 /* Info.plist */,
 				8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */,
 				F1A882B42A0FB20D7C03266E /* Resources */,
@@ -211,6 +214,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				10646B98D1D159C076429036 /* ContentView.swift in Sources */,
+				16421EC601D9933B0F0AB988 /* FileActionHandler.swift in Sources */,
 				65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

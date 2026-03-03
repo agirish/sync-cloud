@@ -11,7 +11,7 @@ import QuickLook
 /// Handles top-level file operation alert bindings through the `FileOperationAlerts` modifier.
 struct ContentView: View {
     /// The global synchronization engine tracking tree structures and differences.
-    @StateObject private var syncManager = DocumentSyncManager()
+    @StateObject private var syncManager = FileSyncManager()
     /// The unmanaged configuration logic responsible for available providers.
     @StateObject private var settings = SettingsManager()
     
@@ -31,6 +31,9 @@ struct ContentView: View {
     /// Controls the presentation of the Logger Activity inspector pane.
     @State private var showingLogs = false
     
+    /// Extractable handler for native file actions (rename, copy, delete, etc.)
+    @State private var actionHandler: FileActionHandler?
+    
     // MARK: - File Action UI States
     
     /// Target file URL bound to the native macOS Quick Look panel.
@@ -39,7 +42,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             // Sidebar Navigation
-            ProviderSidebarView(
+            ProviderSidebar(
                 settings: settings,
                 sourceProviderId: $sourceProviderId,
                 destinationProviderId: $destinationProviderId
@@ -80,18 +83,18 @@ struct ContentView: View {
                             selection: $syncManager.selectedSourcePaths,
                             expandedPaths: $syncManager.sourceExpandedPaths,
                             otherSelection: syncManager.selectedDestinationPaths,
-                            onFocus: { node in focusFolder(node, isSource: true) },
-                            onCopy: { nodes in copyItems(nodes, fromSource: true) },
-                            onDelete: { nodes in confirmDelete(nodes) },
+                            onFocus: { node in actionHandler?.focusFolder(node, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
+                            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
+                            onDelete: { nodes in actionHandler?.confirmDelete(nodes, refreshAction: refreshAction) },
                             onCopyToClipboard: { nodes, isCut in 
                                 syncManager.clipboardNodes = nodes
                                 syncManager.clipboardIsCut = isCut
                             },
-                            onPaste: { targetDir in pasteItems(to: targetDir) },
-                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
-                            onRename: { node in beginRename(node) },
-                            onCreateFolder: { path in beginCreateFolder(in: path) },
-                            onGetInfo: { path in openGetInfo(for: path) },
+                            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir.id, refreshAction: refreshAction) },
+                            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir.id, isCut: false, refreshAction: refreshAction) },
+                            onRename: { node in actionHandler?.beginRename(node, refreshAction: refreshAction) },
+                            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path, refreshAction: refreshAction) },
+                            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
                             onSort: { option in syncManager.sortOption = option }
                         )
                     }
@@ -112,18 +115,18 @@ struct ContentView: View {
                             selection: $syncManager.selectedDestinationPaths,
                             expandedPaths: $syncManager.destExpandedPaths,
                             otherSelection: syncManager.selectedSourcePaths,
-                            onFocus: { node in focusFolder(node, isSource: false) },
-                            onCopy: { nodes in copyItems(nodes, fromSource: false) },
-                            onDelete: { nodes in confirmDelete(nodes) },
+                            onFocus: { node in actionHandler?.focusFolder(node, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
+                            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
+                            onDelete: { nodes in actionHandler?.confirmDelete(nodes, refreshAction: refreshAction) },
                             onCopyToClipboard: { nodes, isCut in 
                                 syncManager.clipboardNodes = nodes
                                 syncManager.clipboardIsCut = isCut
                             },
-                            onPaste: { targetDir in pasteItems(to: targetDir) },
-                            onPasteExplicit: { targetDir, nodes in pasteItems(nodes, to: targetDir) },
-                            onRename: { node in beginRename(node) },
-                            onCreateFolder: { path in beginCreateFolder(in: path) },
-                            onGetInfo: { path in openGetInfo(for: path) },
+                            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir.id, refreshAction: refreshAction) },
+                            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir.id, isCut: false, refreshAction: refreshAction) },
+                            onRename: { node in actionHandler?.beginRename(node, refreshAction: refreshAction) },
+                            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path, refreshAction: refreshAction) },
+                            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
                             onSort: { option in syncManager.sortOption = option }
                         )
                     }
@@ -202,6 +205,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
             syncManager.refreshCallback = {
                 DispatchQueue.main.async {
@@ -240,110 +244,7 @@ struct ContentView: View {
         if syncManager.destRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
     }
-    // MARK: - Actions
-    
-    /// Triggers native macOS 'Get Info' window using AppleScript.
-    private func openGetInfo(for path: String) {
-        let script = """
-        tell application "Finder"
-            activate
-            open information window of (POSIX file "\(path)" as alias)
-        end tell
-        """
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-            if let err = error {
-                Logger.shared.error("Failed to open Get Info: \(err)", showAlert: false)
-            }
-        }
-    }
-    
-    /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
-    /// - Parameters:
-    ///   - node: The directory node to focus.
-    ///   - isSource: True if navigating within the left pane; False for the right pane.
-    private func focusFolder(_ node: FileNode, isSource: Bool) {
-        let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destinationProviderId)
-        let otherRootPath = isSource ? settings.path(for: destinationProviderId) : settings.path(for: sourceProviderId)
-        
-        let expandedRoot = (rootPath as NSString).expandingTildeInPath
-        let nodePath = node.id // This is already absolute
-        
-        var relPath = nodePath.replacingOccurrences(of: expandedRoot, with: "")
-        if relPath.hasPrefix("/") { relPath.removeFirst() }
-        
-        syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
-        refreshAction()
-    }
-    
-    /// Initiates an asynchronous cross-pane copy operation.
-    /// - Parameters:
-    ///   - nodes: An array of files/folders selected to be copied.
-    ///   - fromSource: Whether the transfer originates from the Source (true) or Destination (false) pane.
-    private func copyItems(_ nodes: [FileNode], fromSource: Bool) {
-        let sourceRoot = settings.path(for: sourceProviderId)
-        let destRoot = settings.path(for: destinationProviderId)
-        
-        Task {
-            await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-            refreshAction()
-        }
-    }
-    
-    /// Unpacks the clipboard contents and delegates them to the primary `pasteItems` handler.
-    /// - Parameter targetFolder: The destination directory node where copied contents will reside.
-    private func pasteItems(to targetFolder: FileNode) {
-        let nodesToPaste = syncManager.clipboardNodes
-        guard !nodesToPaste.isEmpty else { return }
-        pasteItems(nodesToPaste, to: targetFolder)
-    }
-    
-    /// Handles the internal execution of dropping nodes into a directory, observing if it was a Cut or Copy.
-    /// - Parameters:
-    ///   - nodes: The items residing in the virtual clipboard.
-    ///   - targetFolder: The destination directory node.
-    private func pasteItems(_ nodes: [FileNode], to targetFolder: FileNode) {
-        Task {
-            if syncManager.clipboardIsCut {
-                await syncManager.moveItems(nodes: nodes, toPath: targetFolder.id)
-            } else {
-                await syncManager.copyItems(nodes: nodes, toPath: targetFolder.id)
-            }
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
-            refreshAction()
-        }
-    }
-    
-    // MARK: - File Operations Helpers
-    
-    private func beginRename(_ node: FileNode) {
-        if let newName = NativeAlerts.promptForRename(currentName: node.name), newName != node.name {
-            Task {
-                await syncManager.renameItem(at: node.id, to: newName)
-                refreshAction()
-            }
-        }
-    }
-    
-    private func beginCreateFolder(in path: String) {
-        if let folderName = NativeAlerts.promptForNewFolder() {
-            Task {
-                await syncManager.createFolder(named: folderName, in: path)
-                refreshAction()
-            }
-        }
-    }
-    
-    private func confirmDelete(_ nodes: [FileNode]) {
-        if NativeAlerts.confirmDelete(for: nodes.map { $0.name }) {
-            Task {
-                await syncManager.deleteItems(at: nodes.map { $0.id })
-                refreshAction()
-            }
-        }
-    }
+
     
     /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
     private func refreshAction() {

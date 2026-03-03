@@ -7,10 +7,10 @@ import Sync
 /// A horizontal focus and history control bar spanning the top of the main file viewer.
 /// Provides back/forward directory traversal and context on which relative folder is currently targeted.
 public struct NavigationToolbar: View {
-    @ObservedObject public var syncManager: DocumentSyncManager
+    @ObservedObject public var syncManager: FileSyncManager
     public let refreshAction: () -> Void
     
-    public init(syncManager: DocumentSyncManager, refreshAction: @escaping () -> Void) {
+    public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
         self.syncManager = syncManager
         self.refreshAction = refreshAction
     }

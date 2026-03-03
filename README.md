@@ -46,7 +46,7 @@ SyncCloud/
 ├── MacApp/
 │   ├── SyncCloudApp.swift          # Main app entry point
 │   ├── ContentView.swift           # Main UI view
-│   ├── DocumentSyncManager.swift   # Core sync logic
+│   ├── FileSyncManager.swift       # Core sync logic
 │   ├── Info.plist                  # App configuration
 │   └── Entitlements.plist          # App permissions
 └── README.md                       # This file

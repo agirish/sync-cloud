@@ -4,10 +4,10 @@ import Sync
 
 /// A scrollable dashboard list displaying all files that require manual synchronization actions.
 public struct DifferencesView: View {
-    @ObservedObject public var syncManager: DocumentSyncManager
+    @ObservedObject public var syncManager: FileSyncManager
     public let refreshAction: () -> Void
     
-    public init(syncManager: DocumentSyncManager, refreshAction: @escaping () -> Void) {
+    public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
         self.syncManager = syncManager
         self.refreshAction = refreshAction
     }
