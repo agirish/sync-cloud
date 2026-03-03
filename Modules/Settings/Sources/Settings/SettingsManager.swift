@@ -35,64 +35,77 @@ public class SettingsManager: ObservableObject {
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
     public func discoverProviders() async {
         Logger.shared.info("Discovering cloud providers...")
-        var providers: [CloudProvider] = []
         
-        // 1. iCloud is always available
-        let iCloudDefaultPath = (NSString(string: "~/Documents")).expandingTildeInPath
         let iCloudOverride = userDefaults.string(forKey: "\(overrideKeyPrefix)iCloud")
-        providers.append(CloudProvider(
-            id: "iCloud",
-            displayName: "iCloud",
-            imageName: "icloud",
-            path: iCloudOverride ?? iCloudDefaultPath,
-            type: .iCloud
-        ))
+        let cloudStoragePath = (NSString(string: "~/Library/CloudStorage")).expandingTildeInPath
+        let cloudStorageURL = URL(fileURLWithPath: cloudStoragePath)
         
-        // 2. Discover local Cloud Storage mapping
-        let cloudStorageURL = URL(fileURLWithPath: (NSString(string: "~/Library/CloudStorage")).expandingTildeInPath)
-        
-        if let enumerator = FileManager.default.enumerator(at: cloudStorageURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
-            for case let fileURL as URL in enumerator {
-                let folderName = fileURL.lastPathComponent
-                
-                if folderName.hasPrefix("OneDrive-") {
-                    let suffix = folderName.dropFirst("OneDrive-".count)
-                    let id = folderName
-                    let override = userDefaults.string(forKey: "\(overrideKeyPrefix)\(id)")
-                    providers.append(CloudProvider(
-                        id: id,
-                        displayName: "OneDrive (\(suffix))",
-                        imageName: "onedrive",
-                        path: override ?? fileURL.appendingPathComponent("Documents").path,
-                        type: .oneDrive
-                    ))
-                } else if folderName.hasPrefix("GoogleDrive-") {
-                    let suffix = folderName.dropFirst("GoogleDrive-".count)
-                    let id = folderName
-                    let override = userDefaults.string(forKey: "\(overrideKeyPrefix)\(id)")
-                    let defaultPath = fileURL.appendingPathComponent("My Drive").appendingPathComponent("Documents").path
-                    providers.append(CloudProvider(
-                        id: id,
-                        displayName: "Google Drive (\(suffix))",
-                        imageName: "googledrive",
-                        path: override ?? defaultPath,
-                        type: .googleDrive
-                    ))
-                } else if folderName == "Dropbox" {
-                    let id = folderName
-                    let override = userDefaults.string(forKey: "\(overrideKeyPrefix)\(id)")
-                    providers.append(CloudProvider(
-                        id: id,
-                        displayName: "Dropbox",
-                        imageName: "dropbox",
-                        path: override ?? fileURL.appendingPathComponent("Documents").path,
-                        type: .dropBox
-                    ))
+        let providers = await Task.detached(priority: .userInitiated) { () -> [CloudProvider] in
+            var found: [CloudProvider] = []
+            
+            // 1. iCloud is always available
+            let iCloudDefaultPath = (NSString(string: "~/Documents")).expandingTildeInPath
+            found.append(CloudProvider(
+                id: "iCloud",
+                displayName: "iCloud",
+                imageName: "icloud",
+                path: iCloudOverride ?? iCloudDefaultPath,
+                type: .iCloud
+            ))
+            
+            // 2. Discover local Cloud Storage mapping
+            if let enumerator = FileManager.default.enumerator(at: cloudStorageURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
+                for case let fileURL as URL in enumerator {
+                    let folderName = fileURL.lastPathComponent
+                    
+                    if folderName.hasPrefix("OneDrive-") {
+                        let suffix = folderName.dropFirst("OneDrive-".count)
+                        let id = folderName
+                        // We can't access userDefaults here easily as it's not Sendable, 
+                        // but we can pass the override map if needed. 
+                        // For now, let's keep it simple and just find the folders.
+                        found.append(CloudProvider(
+                            id: id,
+                            displayName: "OneDrive (\(suffix))",
+                            imageName: "onedrive",
+                            path: fileURL.appendingPathComponent("Documents").path,
+                            type: .oneDrive
+                        ))
+                    } else if folderName.hasPrefix("GoogleDrive-") {
+                        let suffix = folderName.dropFirst("GoogleDrive-".count)
+                        let id = folderName
+                        let defaultPath = fileURL.appendingPathComponent("My Drive").appendingPathComponent("Documents").path
+                        found.append(CloudProvider(
+                            id: id,
+                            displayName: "Google Drive (\(suffix))",
+                            imageName: "googledrive",
+                            path: defaultPath,
+                            type: .googleDrive
+                        ))
+                    } else if folderName == "Dropbox" {
+                        let id = folderName
+                        found.append(CloudProvider(
+                            id: id,
+                            displayName: "Dropbox",
+                            imageName: "dropbox",
+                            path: fileURL.appendingPathComponent("Documents").path,
+                            type: .dropBox
+                        ))
+                    }
                 }
+            }
+            return found
+        }.value
+        
+        // Apply overrides back on the Main Actor
+        var finalProviders = providers
+        for i in 0..<finalProviders.count {
+            if let override = userDefaults.string(forKey: "\(overrideKeyPrefix)\(finalProviders[i].id)") {
+                finalProviders[i].path = override
             }
         }
         
-        self.availableProviders = providers
+        self.availableProviders = finalProviders
     }
     
     /// Returns the active root path (either default or user-overridden) for a specific provider.

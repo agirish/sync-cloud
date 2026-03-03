@@ -202,20 +202,15 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            print("DEBUG: ContentView onAppear")
             syncManager.undoManager = undoManager
             syncManager.refreshCallback = {
                 DispatchQueue.main.async {
-                    print("DEBUG: refreshCallback triggered")
                     refreshAction()
                 }
             }
             if let first = settings.availableProviders.first?.id {
-                print("DEBUG: Auto-selecting first provider: \(first)")
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
-            } else {
-                print("DEBUG: No providers available in onAppear!")
             }
             refreshAction()
         }
@@ -352,17 +347,13 @@ struct ContentView: View {
     
     /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
     private func refreshAction() {
-        print("DEBUG: refreshAction() called")
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
-            print("DEBUG: refreshAction aborted - provider lookup failed. Source: \(sourceProviderId), Dest: \(destinationProviderId)")
             return 
         }
               
         Task {
-            print("DEBUG: refreshAction starting syncManager.refreshTreesAndScan")
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
-            print("DEBUG: refreshAction syncManager.refreshTreesAndScan completed")
         }
     }
 }

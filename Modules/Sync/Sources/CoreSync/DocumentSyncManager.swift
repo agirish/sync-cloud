@@ -94,14 +94,20 @@ public class DocumentSyncManager: ObservableObject {
     @Published public var canGoBack: Bool = false
     @Published public var canGoForward: Bool = false
     
-    /// Instructs the manager to read the filesystem and construct an in-memory tree for the source pane.
-    /// - Parameter path: The absolute, expanded root URL string of the provider.
-    public func loadSourceTree(path: String) async {
-        Logger.shared.info("Loading Source Tree for path: \(path)")
-        isLoadingSourceTree = true
+    /// Instructs the manager to read the filesystem and construct an in-memory tree for the specified pane.
+    /// - Parameters:
+    ///   - path: The absolute, expanded root URL string of the provider.
+    ///   - isSource: True for the source pane; false for destination.
+    public func loadTree(path: String, isSource: Bool) async {
+        let label = isSource ? "Source" : "Destination"
+        Logger.shared.info("Loading \(label) Tree for path: \(path)")
         
+        if isSource { isLoadingSourceTree = true }
+        else { isLoadingDestinationTree = true }
+        
+        let relPath = isSource ? sourceRelativePath : destRelativePath
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
+        let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
         let sortOp = self.sortOption
         let showHidden = self.showHiddenFiles
         
@@ -110,30 +116,16 @@ public class DocumentSyncManager: ObservableObject {
              return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
         }.value
         
-        self.sourceTree = tree
-        self.sourceItemCount = countItems(in: tree)
-        Logger.shared.info("Source Tree Loaded. Count: \(sourceItemCount)")
-        isLoadingSourceTree = false
-    }
-    
-    public func loadDestinationTree(path: String) async {
-        Logger.shared.info("Loading Destination Tree for path: \(path)")
-        isLoadingDestinationTree = true
-        
-        let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
-        let sortOp = self.sortOption
-        let showHidden = self.showHiddenFiles
-        
-        // Build the tree in a detached task to ensure no Main Actor blocking
-        let tree = await Task.detached(priority: .userInitiated) {
-             return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
-        }.value
-        
-        self.destinationTree = tree
-        self.destinationItemCount = countItems(in: tree)
-        Logger.shared.info("Destination Tree Loaded. Count: \(destinationItemCount)")
-        isLoadingDestinationTree = false
+        if isSource {
+            self.sourceTree = tree
+            self.sourceItemCount = countItems(in: tree)
+            isLoadingSourceTree = false
+        } else {
+            self.destinationTree = tree
+            self.destinationItemCount = countItems(in: tree)
+            isLoadingDestinationTree = false
+        }
+        Logger.shared.info("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
     }
     
     nonisolated private static func buildTree(url: URL, sortOption: SortOption, showHiddenFiles: Bool) async -> [FileNode] {
@@ -291,8 +283,8 @@ public class DocumentSyncManager: ObservableObject {
         let destRoot = (destination.path as NSString).expandingTildeInPath
         
         // Call tree loads sequentially on the MainActor to prevent deadlocks from withTaskGroup
-        await self.loadSourceTree(path: sourceRoot)
-        await self.loadDestinationTree(path: destRoot)
+        await self.loadTree(path: sourceRoot, isSource: true)
+        await self.loadTree(path: destRoot, isSource: false)
         
         let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
         let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)
