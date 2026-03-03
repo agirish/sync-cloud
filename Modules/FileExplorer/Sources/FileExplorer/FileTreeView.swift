@@ -21,12 +21,13 @@ public struct FileTreeView: View {
     public let onCopyToClipboard: ([FileNode], Bool) -> Void
     public let onPaste: (FileNode) -> Void
     public let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    public let onPasteToPath: (String) -> Void
     public let onRename: (FileNode) -> Void
     public let onCreateFolder: (String) -> Void
     public let onGetInfo: (String) -> Void
     public let onSort: (SortOption) -> Void
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, onFocus: @escaping (FileNode) -> Void, onCopy: @escaping ([FileNode]) -> Void, onDelete: @escaping ([FileNode]) -> Void, onCopyToClipboard: @escaping ([FileNode], Bool) -> Void, onPaste: @escaping (FileNode) -> Void, onPasteExplicit: @escaping (FileNode, [FileNode]) -> Void, onRename: @escaping (FileNode) -> Void, onCreateFolder: @escaping (String) -> Void, onGetInfo: @escaping (String) -> Void, onSort: @escaping (SortOption) -> Void) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, onFocus: @escaping (FileNode) -> Void, onCopy: @escaping ([FileNode]) -> Void, onDelete: @escaping ([FileNode]) -> Void, onCopyToClipboard: @escaping ([FileNode], Bool) -> Void, onPaste: @escaping (FileNode) -> Void, onPasteExplicit: @escaping (FileNode, [FileNode]) -> Void, onPasteToPath: @escaping (String) -> Void, onRename: @escaping (FileNode) -> Void, onCreateFolder: @escaping (String) -> Void, onGetInfo: @escaping (String) -> Void, onSort: @escaping (SortOption) -> Void) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -40,6 +41,7 @@ public struct FileTreeView: View {
         self.onCopyToClipboard = onCopyToClipboard
         self.onPaste = onPaste
         self.onPasteExplicit = onPasteExplicit
+        self.onPasteToPath = onPasteToPath
         self.onRename = onRename
         self.onCreateFolder = onCreateFolder
         self.onGetInfo = onGetInfo
@@ -63,6 +65,7 @@ public struct FileTreeView: View {
                         onCopyToClipboard: onCopyToClipboard,
                         onPaste: onPaste,
                         onPasteExplicit: onPasteExplicit,
+                        onPasteToPath: onPasteToPath,
                         onRename: onRename,
                         onCreateFolder: onCreateFolder,
                         onGetInfo: onGetInfo,
@@ -111,6 +114,9 @@ public struct FileTreeView: View {
         Button(action: { onCreateFolder(currentPath) }) {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
+        Button(action: { onPasteToPath(currentPath) }) {
+            Label("Paste here", systemImage: "doc.on.clipboard")
+        }
         Divider()
         Button(action: { onGetInfo(currentPath) }) {
             Label("Get Info", systemImage: "info.circle")
@@ -140,6 +146,7 @@ struct FileContextMenu: View {
     let onCopyToClipboard: ([FileNode], Bool) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    let onPasteToPath: (String) -> Void
     let onRename: (FileNode) -> Void
     let onCreateFolder: (String) -> Void
     let onGetInfo: (String) -> Void
@@ -186,20 +193,18 @@ struct FileContextMenu: View {
                 Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
             }
             
-            if node.isDirectory {
-                Button(action: { onPaste(node) }) {
-                    Label("Paste here", systemImage: "doc.on.clipboard")
-                }
-                
-                if !otherSelection.isEmpty {
-                    let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
-                    if !otherSelectedNodes.isEmpty {
-                        Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
-                            if otherSelectedNodes.count > 1 {
-                                Label("Copy \(otherSelectedNodes.count) items from other pane", systemImage: "arrow.right.to.line.compact")
-                            } else if let first = otherSelectedNodes.first {
-                                Label("Copy '\(first.name)' from other pane", systemImage: "arrow.right.to.line.compact")
-                            }
+            Button(action: { onPaste(node) }) {
+                Label("Paste here", systemImage: "doc.on.clipboard")
+            }
+            
+            if !otherSelection.isEmpty {
+                let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
+                if !otherSelectedNodes.isEmpty {
+                    Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
+                        if otherSelectedNodes.count > 1 {
+                            Label("Copy \(otherSelectedNodes.count) items from other pane", systemImage: "arrow.right.to.line.compact")
+                        } else if let first = otherSelectedNodes.first {
+                            Label("Copy '\(first.name)' from other pane", systemImage: "arrow.right.to.line.compact")
                         }
                     }
                 }
@@ -246,6 +251,7 @@ struct RecursiveFileNodeView: View {
     let onCopyToClipboard: ([FileNode], Bool) -> Void
     let onPaste: (FileNode) -> Void
     let onPasteExplicit: (FileNode, [FileNode]) -> Void
+    let onPasteToPath: (String) -> Void
     let onRename: (FileNode) -> Void
     let onCreateFolder: (String) -> Void
     let onGetInfo: (String) -> Void
@@ -277,6 +283,7 @@ struct RecursiveFileNodeView: View {
             onCopyToClipboard: onCopyToClipboard,
             onPaste: onPaste,
             onPasteExplicit: onPasteExplicit,
+            onPasteToPath: onPasteToPath,
             onRename: onRename,
             onCreateFolder: onCreateFolder,
             onGetInfo: onGetInfo,
@@ -301,6 +308,7 @@ struct RecursiveFileNodeView: View {
                         onCopyToClipboard: onCopyToClipboard,
                         onPaste: onPaste,
                         onPasteExplicit: onPasteExplicit,
+                        onPasteToPath: onPasteToPath,
                         onRename: onRename,
                         onCreateFolder: onCreateFolder,
                         onGetInfo: onGetInfo,

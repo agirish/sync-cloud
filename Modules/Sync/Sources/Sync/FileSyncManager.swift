@@ -1,5 +1,6 @@
 import Events
 import SwiftUI
+import Combine
 import UniformTypeIdentifiers
 
 /// Core business logic manager governing the synchronization engine
@@ -58,8 +59,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var sourceExpandedPaths: Set<String> = []
     @Published public var destExpandedPaths: Set<String> = []
     
-    /// Global closure to trigger a UI refresh of trees from anywhere
-    public var refreshCallback: (() -> Void)?
+    /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
+    public let refreshSubject = PassthroughSubject<Void, Never>()
     
     /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
@@ -74,7 +75,7 @@ public class FileSyncManager: ObservableObject {
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
             let res = await operation()
-            await MainActor.run { [weak self] in self?.refreshCallback?() }
+            await MainActor.run { [weak self] in self?.refreshSubject.send() }
             return res
         }
         fileOperationTask = Task { _ = await newTask.value }
@@ -311,18 +312,15 @@ public class FileSyncManager: ObservableObject {
                 // Check for files in source but not in destination (or compare if exists)
                 for (relativePath, sourceFile) in sourceFilesInfo {
                     if let destFile = destinationFilesInfo[relativePath] {
-                        // exists in both, compare dates
-                        let sourceAttributes = try FileManager.default.attributesOfItem(atPath: sourceFile.path)
-                        let destAttributes = try FileManager.default.attributesOfItem(atPath: destFile.path)
-                        
-                        if let sourceDate = sourceAttributes[.modificationDate] as? Date,
-                           let destDate = destAttributes[.modificationDate] as? Date {
+                        // exists in both, compare dates in RAM
+                        if let sourceDate = sourceFile.modificationDate,
+                           let destDate = destFile.modificationDate {
                             if abs(sourceDate.timeIntervalSince(destDate)) > 1 { // 1 second tolerance
                                 if sourceDate > destDate {
                                     diffs.append(FileDifference(
                                         relativePath: relativePath,
-                                        sourceItemPath: sourceFile.path,
-                                        destinationItemPath: destFile.path,
+                                        sourceItemPath: sourceFile.url.path,
+                                        destinationItemPath: destFile.url.path,
                                         type: .differentDates,
                                         action: .copyToDestination,
                                         description: "\(source.displayName) file is newer"
@@ -330,8 +328,8 @@ public class FileSyncManager: ObservableObject {
                                 } else {
                                     diffs.append(FileDifference(
                                         relativePath: relativePath,
-                                        sourceItemPath: sourceFile.path,
-                                        destinationItemPath: destFile.path,
+                                        sourceItemPath: sourceFile.url.path,
+                                        destinationItemPath: destFile.url.path,
                                         type: .differentDates,
                                         action: .copyToSource,
                                         description: "\(destination.displayName) file is newer"
@@ -344,7 +342,7 @@ public class FileSyncManager: ObservableObject {
                         let destExpectedPath = destinationURL.appendingPathComponent(relativePath).path
                         diffs.append(FileDifference(
                             relativePath: relativePath,
-                            sourceItemPath: sourceFile.path,
+                            sourceItemPath: sourceFile.url.path,
                             destinationItemPath: destExpectedPath,
                             type: .missingInDestination,
                             action: .copyToDestination,
@@ -360,7 +358,7 @@ public class FileSyncManager: ObservableObject {
                         diffs.append(FileDifference(
                             relativePath: relativePath,
                             sourceItemPath: sourceExpectedPath,
-                            destinationItemPath: destFile.path,
+                            destinationItemPath: destFile.url.path,
                             type: .missingInSource,
                             action: .copyToSource,
                             description: "Missing in \(source.displayName)"
@@ -434,30 +432,39 @@ public class FileSyncManager: ObservableObject {
 
     // Implementations moved to FileOperations.swift
     
-    // Returns a dictionary mapping relative paths to file URLs
-    nonisolated private static func getFilesInDirectory(_ url: URL) throws -> [String: URL] {
+    
+    private struct FileInfo {
+        let url: URL
+        let modificationDate: Date?
+    }
+    
+    // Returns a dictionary mapping relative paths to cached FileInfo
+    nonisolated private static func getFilesInDirectory(_ url: URL) throws -> [String: FileInfo] {
         let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey], options: [.skipsHiddenFiles]) else {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey]
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
             return [:]
         }
         
-        var result: [String: URL] = [:]
+        var result: [String: FileInfo] = [:]
+        let basePathLength = url.path.count + 1
         
         for case let fileURL as URL in enumerator {
             do {
-                let resourceValues = try fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
                 if let isRegularFile = resourceValues.isRegularFile, isRegularFile {
-                    // Safely compute relative path by dropping the base URL path plus the trailing slash
-                    let basePathLength = url.path.count + 1
+                    let relativePath: String
                     let path = fileURL.path
                     if path.count > basePathLength {
-                        let relativePath = String(path.dropFirst(basePathLength))
-                        result[relativePath] = fileURL
+                        relativePath = String(path.dropFirst(basePathLength))
                     } else {
-                        // Fallback, though shouldn't be reached if fileURL is structurally a child
-                        let relativePath = path.replacingOccurrences(of: url.path + "/", with: "")
-                        result[relativePath] = fileURL
+                        relativePath = path.replacingOccurrences(of: url.path + "/", with: "")
                     }
+                    
+                    result[relativePath] = FileInfo(
+                        url: fileURL, 
+                        modificationDate: resourceValues.contentModificationDate
+                    )
                 }
             } catch {
                 let msg = "Error reading resource values for \(fileURL): \(error)"

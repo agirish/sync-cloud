@@ -19,7 +19,7 @@ public class FileActionHandler {
     // MARK: - Navigation
     
     /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
-    public func focusFolder(_ node: FileNode, isSource: Bool, sourceProviderId: String, destProviderId: String, refreshAction: @escaping () -> Void) {
+    public func focusFolder(_ node: FileNode, isSource: Bool, sourceProviderId: String, destProviderId: String) {
         let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destProviderId)
         let otherRootPath = isSource ? settings.path(for: destProviderId) : settings.path(for: sourceProviderId)
         
@@ -30,7 +30,6 @@ public class FileActionHandler {
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
         syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
-        refreshAction()
     }
     
     // MARK: - Native Actions
@@ -55,61 +54,76 @@ public class FileActionHandler {
     // MARK: - File Transfers
     
     /// Initiates an asynchronous cross-pane copy operation.
-    public func copyItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String, refreshAction: @escaping () -> Void) {
+    public func copyItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
         
         Task {
             await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-            refreshAction()
         }
     }
     
     /// Handles the internal execution of dropping nodes into a directory, observing if it was a Cut or Copy.
-    public func pasteItems(_ nodes: [FileNode], to targetFolderPath: String, isCut: Bool, refreshAction: @escaping () -> Void) {
+    public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
+        let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
+        
         Task {
             if isCut {
-                await syncManager.moveItems(nodes: nodes, toPath: targetFolderPath)
+                await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
             } else {
-                await syncManager.copyItems(nodes: nodes, toPath: targetFolderPath)
+                await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
             }
             syncManager.clipboardNodes = []
             syncManager.clipboardIsCut = false
-            refreshAction()
         }
     }
     
-    public func pasteClipboard(to targetFolderPath: String, refreshAction: @escaping () -> Void) {
+    public func pasteClipboard(to targetDir: FileNode) {
         let nodesToPaste = syncManager.clipboardNodes
         guard !nodesToPaste.isEmpty else { return }
-        pasteItems(nodesToPaste, to: targetFolderPath, isCut: syncManager.clipboardIsCut, refreshAction: refreshAction)
+        pasteItems(nodesToPaste, to: targetDir, isCut: syncManager.clipboardIsCut)
+    }
+    
+    public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
+        Task {
+            if isCut {
+                await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+            } else {
+                await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
+            }
+            syncManager.clipboardNodes = []
+            syncManager.clipboardIsCut = false
+        }
+    }
+    
+    public func pasteClipboard(toPath destinationPath: String) {
+        let nodesToPaste = syncManager.clipboardNodes
+        guard !nodesToPaste.isEmpty else { return }
+        pasteItems(nodesToPaste, toPath: destinationPath, isCut: syncManager.clipboardIsCut)
     }
     
     // MARK: - Mutations
     
-    public func beginRename(_ node: FileNode, refreshAction: @escaping () -> Void) {
+    public func beginRename(_ node: FileNode) {
         if let newName = NativeAlerts.promptForRename(currentName: node.name), newName != node.name {
             Task {
                 await syncManager.renameItem(at: node.id, to: newName)
-                refreshAction()
             }
         }
     }
     
-    public func beginCreateFolder(in path: String, refreshAction: @escaping () -> Void) {
+    public func beginCreateFolder(in path: String) {
         if let folderName = NativeAlerts.promptForNewFolder() {
             Task {
                 await syncManager.createFolder(named: folderName, in: path)
-                refreshAction()
             }
         }
     }
     
-    public func confirmDelete(_ nodes: [FileNode], refreshAction: @escaping () -> Void) {
+    public func confirmDelete(_ nodes: [FileNode]) {
         if NativeAlerts.confirmDelete(for: nodes.map { $0.name }) {
             Task {
                 await syncManager.deleteItems(at: nodes.map { $0.id })
-                refreshAction()
             }
         }
     }

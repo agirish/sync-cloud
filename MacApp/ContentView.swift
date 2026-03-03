@@ -74,28 +74,7 @@ struct ContentView: View {
                             provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), 
                             path: currentSourcePath
                         )
-                        FileTreeView(
-                            tree: syncManager.sourceTree, 
-                            otherTree: syncManager.destinationTree,
-                            isLoading: syncManager.isLoadingSourceTree, 
-                            currentPath: currentSourcePath,
-                            selection: $syncManager.selectedSourcePaths,
-                            expandedPaths: $syncManager.sourceExpandedPaths,
-                            otherSelection: syncManager.selectedDestinationPaths,
-                            onFocus: { node in actionHandler?.focusFolder(node, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
-                            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
-                            onDelete: { nodes in actionHandler?.confirmDelete(nodes, refreshAction: refreshAction) },
-                            onCopyToClipboard: { nodes, isCut in 
-                                syncManager.clipboardNodes = nodes
-                                syncManager.clipboardIsCut = isCut
-                            },
-                            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir.id, refreshAction: refreshAction) },
-                            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir.id, isCut: false, refreshAction: refreshAction) },
-                            onRename: { node in actionHandler?.beginRename(node, refreshAction: refreshAction) },
-                            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path, refreshAction: refreshAction) },
-                            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
-                            onSort: { option in syncManager.sortOption = option }
-                        )
+                        sourceTreeView
                     }
                     .frame(minWidth: 250)
                     
@@ -106,28 +85,7 @@ struct ContentView: View {
                             provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), 
                             path: currentDestinationPath
                         )
-                        FileTreeView(
-                            tree: syncManager.destinationTree, 
-                            otherTree: syncManager.sourceTree,
-                            isLoading: syncManager.isLoadingDestinationTree, 
-                            currentPath: currentDestinationPath,
-                            selection: $syncManager.selectedDestinationPaths,
-                            expandedPaths: $syncManager.destExpandedPaths,
-                            otherSelection: syncManager.selectedSourcePaths,
-                            onFocus: { node in actionHandler?.focusFolder(node, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
-                            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, refreshAction: refreshAction) },
-                            onDelete: { nodes in actionHandler?.confirmDelete(nodes, refreshAction: refreshAction) },
-                            onCopyToClipboard: { nodes, isCut in 
-                                syncManager.clipboardNodes = nodes
-                                syncManager.clipboardIsCut = isCut
-                            },
-                            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir.id, refreshAction: refreshAction) },
-                            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir.id, isCut: false, refreshAction: refreshAction) },
-                            onRename: { node in actionHandler?.beginRename(node, refreshAction: refreshAction) },
-                            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path, refreshAction: refreshAction) },
-                            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
-                            onSort: { option in syncManager.sortOption = option }
-                        )
+                        destinationTreeView
                     }
                     .frame(minWidth: 250)
                 }
@@ -203,14 +161,12 @@ struct ContentView: View {
                 isScanning = scanning
             }
         }
+        .onReceive(syncManager.refreshSubject) { _ in
+            refreshAction()
+        }
         .onAppear {
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
-            syncManager.refreshCallback = {
-                DispatchQueue.main.async {
-                    refreshAction()
-                }
-            }
             if let first = settings.availableProviders.first?.id {
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
@@ -255,6 +211,62 @@ struct ContentView: View {
         Task {
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
         }
+    }
+    
+    // MARK: - Extracted Subviews
+    
+    @ViewBuilder
+    private var sourceTreeView: some View {
+        FileTreeView(
+            tree: syncManager.sourceTree, 
+            otherTree: syncManager.destinationTree,
+            isLoading: syncManager.isLoadingSourceTree, 
+            currentPath: currentSourcePath,
+            selection: $syncManager.selectedSourcePaths,
+            expandedPaths: $syncManager.sourceExpandedPaths,
+            otherSelection: syncManager.selectedDestinationPaths,
+            onFocus: { node in actionHandler?.focusFolder(node, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
+            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
+            onDelete: { nodes in actionHandler?.confirmDelete(nodes) },
+            onCopyToClipboard: { nodes, isCut in 
+                syncManager.clipboardNodes = nodes
+                syncManager.clipboardIsCut = isCut
+            },
+            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir) },
+            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir, isCut: false) },
+            onPasteToPath: { path in actionHandler?.pasteClipboard(toPath: path) },
+            onRename: { node in actionHandler?.beginRename(node) },
+            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path) },
+            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
+            onSort: { option in syncManager.sortOption = option }
+        )
+    }
+    
+    @ViewBuilder
+    private var destinationTreeView: some View {
+        FileTreeView(
+            tree: syncManager.destinationTree, 
+            otherTree: syncManager.sourceTree,
+            isLoading: syncManager.isLoadingDestinationTree, 
+            currentPath: currentDestinationPath,
+            selection: $syncManager.selectedDestinationPaths,
+            expandedPaths: $syncManager.destExpandedPaths,
+            otherSelection: syncManager.selectedSourcePaths,
+            onFocus: { node in actionHandler?.focusFolder(node, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
+            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
+            onDelete: { nodes in actionHandler?.confirmDelete(nodes) },
+            onCopyToClipboard: { nodes, isCut in 
+                syncManager.clipboardNodes = nodes
+                syncManager.clipboardIsCut = isCut
+            },
+            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir) },
+            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir, isCut: false) },
+            onPasteToPath: { path in actionHandler?.pasteClipboard(toPath: path) },
+            onRename: { node in actionHandler?.beginRename(node) },
+            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path) },
+            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
+            onSort: { option in syncManager.sortOption = option }
+        )
     }
 }
 

@@ -93,7 +93,9 @@ extension FileSyncManager {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
-        let tempURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let targetDirectory = destinationURL.deletingLastPathComponent()
+        let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
+        
         try fileManager.copyItem(at: sourceURL, to: tempURL)
         
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
@@ -123,8 +125,14 @@ extension FileSyncManager {
         do {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
         } catch {
-            // Fallback for Cross-Volume moves (EXDEV) or other similar access issues
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            // Fallback for Cross-Volume moves (EXDEV) or other similar access issues.
+            // Wrap in a temporary UUID directory mathematically guaranteed to be on the *same volume*
+            // to ensure atomic replacement and prevent corrupted half-files.
+            let targetDirectory = destinationURL.deletingLastPathComponent()
+            let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
+            
+            try fileManager.copyItem(at: sourceURL, to: tempURL)
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
             try? fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
         }
         
