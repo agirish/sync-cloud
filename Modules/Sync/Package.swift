@@ -17,7 +17,6 @@ let package = Package(
     targets: [
         .target(
             name: "Sync",
-            dependencies: ["Events"],
-            path: "Sources/CoreSync"), // Kept path as CoreSync for now due to folder name or we should rename it
+            dependencies: ["Events"]),
     ]
 )

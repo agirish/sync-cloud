@@ -55,7 +55,7 @@ public class SettingsManager: ObservableObject {
             
             // 2. Discover local Cloud Storage mapping
             if let enumerator = FileManager.default.enumerator(at: cloudStorageURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
-                for case let fileURL as URL in enumerator {
+                while let fileURL = enumerator.nextObject() as? URL {
                     let folderName = fileURL.lastPathComponent
                     
                     if folderName.hasPrefix("OneDrive-") {
