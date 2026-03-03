@@ -7,7 +7,7 @@ import Sync
 /// The left-most navigation pane in the application split view.
 /// Allows users to independently select the driving CloudProvider mapping for both the Source and Destination synchronization trees.
 public struct ProviderSidebarView: View {
-    public let settings: SettingsManager
+    @ObservedObject public var settings: SettingsManager
     @Binding public var sourceProviderId: String
     @Binding public var destinationProviderId: String
     

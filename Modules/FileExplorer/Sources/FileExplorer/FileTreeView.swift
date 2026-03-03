@@ -48,48 +48,59 @@ public struct FileTreeView: View {
     
     public var body: some View {
         ZStack {
-            Color(NSColor.textBackgroundColor)
-                .contextMenu { emptyAreaContextMenu }
-            
-            if isLoading {
-                ProgressView("Loading...")
-                    .padding()
-            } else if tree.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "folder.badge.questionmark")
-                        .font(.largeTitle)
-                        .foregroundColor(.secondary)
-                    Text("Directory is empty or invalid")
-                        .foregroundColor(.secondary)
+            List(selection: $selection) {
+                ForEach(tree) { node in
+                    RecursiveFileNodeView(
+                        node: node,
+                        selection: $selection,
+                        expandedPaths: $expandedPaths,
+                        tree: tree,
+                        otherTree: otherTree,
+                        otherSelection: otherSelection,
+                        onFocus: onFocus,
+                        onCopy: onCopy,
+                        onDelete: onDelete,
+                        onCopyToClipboard: onCopyToClipboard,
+                        onPaste: onPaste,
+                        onPasteExplicit: onPasteExplicit,
+                        onRename: onRename,
+                        onCreateFolder: onCreateFolder,
+                        onGetInfo: onGetInfo,
+                        onSort: onSort
+                    )
                 }
-            } else {
-                List(selection: $selection) {
-                    ForEach(tree) { node in
-                        RecursiveFileNodeView(
-                            node: node,
-                            selection: $selection,
-                            expandedPaths: $expandedPaths,
-                            tree: tree,
-                            otherTree: otherTree,
-                            otherSelection: otherSelection,
-                            onFocus: onFocus,
-                            onCopy: onCopy,
-                            onDelete: onDelete,
-                            onCopyToClipboard: onCopyToClipboard,
-                            onPaste: onPaste,
-                            onPasteExplicit: onPasteExplicit,
-                            onRename: onRename,
-                            onCreateFolder: onCreateFolder,
-                            onGetInfo: onGetInfo,
-                            onSort: onSort
-                        )
+            }
+            .listStyle(SidebarListStyle())
+            .contextMenu { emptyAreaContextMenu }
+            
+            if tree.isEmpty {
+                if isLoading {
+                    ProgressView("Scanning Directory...")
+                        .padding()
+                        .background(.ultraThinMaterial)
+                        .cornerRadius(8)
+                } else {
+                    VStack(spacing: 8) {
+                        Image(systemName: "folder.badge.questionmark")
+                            .font(.largeTitle)
+                            .foregroundColor(.secondary)
+                        Text("Directory is empty or invalid")
+                            .foregroundColor(.secondary)
                     }
                 }
-                .listStyle(SidebarListStyle())
-                .contextMenu { emptyAreaContextMenu }
-                .onDrop(of: [.data], isTargeted: nil) { providers in
-                    // Dropping onto the root of the pane is unsupported right now
-                    return false
+            } else if isLoading {
+                // Subtle corner overlay when refreshing non-empty tree
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .controlSize(.small)
+                            .padding(8)
+                            .background(.ultraThinMaterial)
+                            .cornerRadius(8)
+                            .padding(16)
+                    }
                 }
             }
         }

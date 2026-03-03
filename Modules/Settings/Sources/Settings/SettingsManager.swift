@@ -14,12 +14,27 @@ public class SettingsManager: ObservableObject {
     private let overrideKeyPrefix = "path_override_"
     
     public init() {
-        discoverProviders()
+        // Initialize with default iCloud provider to allow app to start immediately
+        let iCloudDefaultPath = (NSString(string: "~/Documents")).expandingTildeInPath
+        self.availableProviders = [
+            CloudProvider(
+                id: "iCloud",
+                displayName: "iCloud",
+                imageName: "icloud",
+                path: iCloudDefaultPath,
+                type: .iCloud
+            )
+        ]
+        
+        Task {
+            await discoverProviders()
+        }
     }
     
     /// Scans the local filesystem's CloudStorage mounting point to detect configured provider accounts.
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
-    public func discoverProviders() {
+    public func discoverProviders() async {
+        Logger.shared.info("Discovering cloud providers...")
         var providers: [CloudProvider] = []
         
         // 1. iCloud is always available
@@ -97,13 +112,17 @@ public class SettingsManager: ObservableObject {
         } else {
             userDefaults.set(path, forKey: "\(overrideKeyPrefix)\(providerId)")
         }
-        discoverProviders()
+        Task {
+            await discoverProviders()
+        }
     }
     
     /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
     /// - Parameter providerId: The targeted provider ID.
     public func resetPath(for providerId: String) {
         userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
-        discoverProviders()
+        Task {
+            await discoverProviders()
+        }
     }
 }

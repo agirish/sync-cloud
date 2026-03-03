@@ -58,6 +58,12 @@ public class DocumentSyncManager: ObservableObject {
     @Published public var sourceRelativePath: String = ""
     @Published public var destRelativePath: String = ""
     
+    // View State Persistence
+    @Published public var selectedSourcePaths: Set<String> = []
+    @Published public var selectedDestinationPaths: Set<String> = []
+    @Published public var sourceExpandedPaths: Set<String> = []
+    @Published public var destExpandedPaths: Set<String> = []
+    
     /// Global closure to trigger a UI refresh of trees from anywhere
     public var refreshCallback: (() -> Void)?
     
@@ -91,22 +97,42 @@ public class DocumentSyncManager: ObservableObject {
     /// Instructs the manager to read the filesystem and construct an in-memory tree for the source pane.
     /// - Parameter path: The absolute, expanded root URL string of the provider.
     public func loadSourceTree(path: String) async {
+        Logger.shared.info("Loading Source Tree for path: \(path)")
         isLoadingSourceTree = true
+        
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = sourceRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(sourceRelativePath)
-        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
-        sourceTree = tree
-        sourceItemCount = countItems(in: tree)
+        let sortOp = self.sortOption
+        let showHidden = self.showHiddenFiles
+        
+        // Build the tree in a detached task to ensure no Main Actor blocking
+        let tree = await Task.detached(priority: .userInitiated) {
+             return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
+        }.value
+        
+        self.sourceTree = tree
+        self.sourceItemCount = countItems(in: tree)
+        Logger.shared.info("Source Tree Loaded. Count: \(sourceItemCount)")
         isLoadingSourceTree = false
     }
     
     public func loadDestinationTree(path: String) async {
+        Logger.shared.info("Loading Destination Tree for path: \(path)")
         isLoadingDestinationTree = true
+        
         let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         let focusURL = destRelativePath.isEmpty ? rootURL : rootURL.appendingPathComponent(destRelativePath)
-        let tree = await Self.buildTree(url: focusURL, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
-        destinationTree = tree
-        destinationItemCount = countItems(in: tree)
+        let sortOp = self.sortOption
+        let showHidden = self.showHiddenFiles
+        
+        // Build the tree in a detached task to ensure no Main Actor blocking
+        let tree = await Task.detached(priority: .userInitiated) {
+             return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
+        }.value
+        
+        self.destinationTree = tree
+        self.destinationItemCount = countItems(in: tree)
+        Logger.shared.info("Destination Tree Loaded. Count: \(destinationItemCount)")
         isLoadingDestinationTree = false
     }
     
@@ -149,7 +175,9 @@ public class DocumentSyncManager: ObservableObject {
             }
             
             let fm = FileManager.default
+            await Logger.shared.info("buildTree scanning: \(url.path)")
             let contents = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
+            await Logger.shared.info("buildTree contents count: \(contents.count)")
             var rootChildren: [FileNode] = []
             for item in contents {
                 if !showHiddenFiles && item.hasPrefix(".") { continue }
@@ -262,10 +290,9 @@ public class DocumentSyncManager: ObservableObject {
         let sourceRoot = (source.path as NSString).expandingTildeInPath
         let destRoot = (destination.path as NSString).expandingTildeInPath
         
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.loadSourceTree(path: sourceRoot) }
-            group.addTask { await self.loadDestinationTree(path: destRoot) }
-        }
+        // Call tree loads sequentially on the MainActor to prevent deadlocks from withTaskGroup
+        await self.loadSourceTree(path: sourceRoot)
+        await self.loadDestinationTree(path: destRoot)
         
         let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
         let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)

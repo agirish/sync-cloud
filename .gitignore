@@ -87,5 +87,7 @@ iOSInjectionProject/
 
 # SyncCloud testing and log artifacts
 *.log
+build_runtime/
+build_runtime_backup/
 test*.txt
 test*.swift

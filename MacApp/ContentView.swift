@@ -23,16 +23,6 @@ struct ContentView: View {
     /// Tracks visual animation states when scanning directories.
     @State private var isScanning = false
     
-    /// Identifiers of the files currently highlighted by the user in the left pane.
-    @State private var selectedSourcePaths: Set<String> = []
-    /// Identifiers of the files currently highlighted by the user in the right pane.
-    @State private var selectedDestinationPaths: Set<String> = []
-    
-    /// The paths inside the left tree which have been toggled open (expanded disclosure groups).
-    @State private var sourceExpandedPaths: Set<String> = []
-    /// The paths inside the right tree which have been toggled open (expanded disclosure groups).
-    @State private var destExpandedPaths: Set<String> = []
-    
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
     
@@ -87,9 +77,9 @@ struct ContentView: View {
                             otherTree: syncManager.destinationTree,
                             isLoading: syncManager.isLoadingSourceTree, 
                             currentPath: currentSourcePath,
-                            selection: $selectedSourcePaths,
-                            expandedPaths: $sourceExpandedPaths,
-                            otherSelection: selectedDestinationPaths,
+                            selection: $syncManager.selectedSourcePaths,
+                            expandedPaths: $syncManager.sourceExpandedPaths,
+                            otherSelection: syncManager.selectedDestinationPaths,
                             onFocus: { node in focusFolder(node, isSource: true) },
                             onCopy: { nodes in copyItems(nodes, fromSource: true) },
                             onDelete: { nodes in confirmDelete(nodes) },
@@ -119,9 +109,9 @@ struct ContentView: View {
                             otherTree: syncManager.sourceTree,
                             isLoading: syncManager.isLoadingDestinationTree, 
                             currentPath: currentDestinationPath,
-                            selection: $selectedDestinationPaths,
-                            expandedPaths: $destExpandedPaths,
-                            otherSelection: selectedSourcePaths,
+                            selection: $syncManager.selectedDestinationPaths,
+                            expandedPaths: $syncManager.destExpandedPaths,
+                            otherSelection: syncManager.selectedSourcePaths,
                             onFocus: { node in focusFolder(node, isSource: false) },
                             onCopy: { nodes in copyItems(nodes, fromSource: false) },
                             onDelete: { nodes in confirmDelete(nodes) },
@@ -165,7 +155,7 @@ struct ContentView: View {
             .quickLookPreview($quickLookURL)
             .background(
                 Button(action: {
-                    if let targetPath = selectedSourcePaths.first ?? selectedDestinationPaths.first {
+                    if let targetPath = syncManager.selectedSourcePaths.first ?? syncManager.selectedDestinationPaths.first {
                         quickLookURL = URL(fileURLWithPath: targetPath)
                     }
                 }) { EmptyView() }
@@ -212,25 +202,30 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            print("DEBUG: ContentView onAppear")
             syncManager.undoManager = undoManager
             syncManager.refreshCallback = {
                 DispatchQueue.main.async {
+                    print("DEBUG: refreshCallback triggered")
                     refreshAction()
                 }
             }
             if let first = settings.availableProviders.first?.id {
+                print("DEBUG: Auto-selecting first provider: \(first)")
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
+            } else {
+                print("DEBUG: No providers available in onAppear!")
             }
             refreshAction()
         }
         .onChange(of: sourceProviderId) {
-            selectedSourcePaths = []
+            syncManager.selectedSourcePaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
         .onChange(of: destinationProviderId) {
-            selectedDestinationPaths = []
+            syncManager.selectedDestinationPaths = []
             syncManager.resetNavigation()
             refreshAction()
         }
@@ -357,11 +352,17 @@ struct ContentView: View {
     
     /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
     private func refreshAction() {
+        print("DEBUG: refreshAction() called")
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
-              let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { return }
+              let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
+            print("DEBUG: refreshAction aborted - provider lookup failed. Source: \(sourceProviderId), Dest: \(destinationProviderId)")
+            return 
+        }
               
         Task {
+            print("DEBUG: refreshAction starting syncManager.refreshTreesAndScan")
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
+            print("DEBUG: refreshAction syncManager.refreshTreesAndScan completed")
         }
     }
 }
