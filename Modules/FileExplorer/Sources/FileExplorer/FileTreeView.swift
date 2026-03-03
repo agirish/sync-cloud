@@ -14,20 +14,10 @@ public struct FileTreeView: View {
     @Binding public var expandedPaths: Set<String>
     public let otherSelection: Set<String>
     
-    // Callbacks for file operations
-    public let onFocus: (FileNode) -> Void
-    public let onCopy: ([FileNode]) -> Void
-    public let onDelete: ([FileNode]) -> Void
-    public let onCopyToClipboard: ([FileNode], Bool) -> Void
-    public let onPaste: (FileNode) -> Void
-    public let onPasteExplicit: (FileNode, [FileNode]) -> Void
-    public let onPasteToPath: (String) -> Void
-    public let onRename: (FileNode) -> Void
-    public let onCreateFolder: (String) -> Void
-    public let onGetInfo: (String) -> Void
-    public let onSort: (SortOption) -> Void
+    // Delegate for all file operations
+    public let delegate: FileActionDelegate
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, onFocus: @escaping (FileNode) -> Void, onCopy: @escaping ([FileNode]) -> Void, onDelete: @escaping ([FileNode]) -> Void, onCopyToClipboard: @escaping ([FileNode], Bool) -> Void, onPaste: @escaping (FileNode) -> Void, onPasteExplicit: @escaping (FileNode, [FileNode]) -> Void, onPasteToPath: @escaping (String) -> Void, onRename: @escaping (FileNode) -> Void, onCreateFolder: @escaping (String) -> Void, onGetInfo: @escaping (String) -> Void, onSort: @escaping (SortOption) -> Void) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, delegate: FileActionDelegate) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -35,17 +25,7 @@ public struct FileTreeView: View {
         self._selection = selection
         self._expandedPaths = expandedPaths
         self.otherSelection = otherSelection
-        self.onFocus = onFocus
-        self.onCopy = onCopy
-        self.onDelete = onDelete
-        self.onCopyToClipboard = onCopyToClipboard
-        self.onPaste = onPaste
-        self.onPasteExplicit = onPasteExplicit
-        self.onPasteToPath = onPasteToPath
-        self.onRename = onRename
-        self.onCreateFolder = onCreateFolder
-        self.onGetInfo = onGetInfo
-        self.onSort = onSort
+        self.delegate = delegate
     }
     
     public var body: some View {
@@ -59,17 +39,7 @@ public struct FileTreeView: View {
                         tree: tree,
                         otherTree: otherTree,
                         otherSelection: otherSelection,
-                        onFocus: onFocus,
-                        onCopy: onCopy,
-                        onDelete: onDelete,
-                        onCopyToClipboard: onCopyToClipboard,
-                        onPaste: onPaste,
-                        onPasteExplicit: onPasteExplicit,
-                        onPasteToPath: onPasteToPath,
-                        onRename: onRename,
-                        onCreateFolder: onCreateFolder,
-                        onGetInfo: onGetInfo,
-                        onSort: onSort
+                        delegate: delegate
                     )
                 }
             }
@@ -111,23 +81,23 @@ public struct FileTreeView: View {
     
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
-        Button(action: { onCreateFolder(currentPath) }) {
+        Button(action: { delegate.handleCreateFolder(at: currentPath) }) {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
-        Button(action: { onPasteToPath(currentPath) }) {
+        Button(action: { delegate.handlePasteToPath(currentPath) }) {
             Label("Paste here", systemImage: "doc.on.clipboard")
         }
         Divider()
-        Button(action: { onGetInfo(currentPath) }) {
+        Button(action: { delegate.handleGetInfo(for: currentPath) }) {
             Label("Get Info", systemImage: "info.circle")
         }
         Divider()
         Menu("Sort By") {
-            Button("Name") { onSort(.name) }
-            Button("Kind") { onSort(.kind) }
-            Button("Date Modified") { onSort(.dateModified) }
-            Button("Size") { onSort(.size) }
-            Button("Tags") { onSort(.tags) }
+            Button("Name") { delegate.handleSort(.name) }
+            Button("Kind") { delegate.handleSort(.kind) }
+            Button("Date Modified") { delegate.handleSort(.dateModified) }
+            Button("Size") { delegate.handleSort(.size) }
+            Button("Tags") { delegate.handleSort(.tags) }
         }
     }
 }
@@ -140,17 +110,7 @@ struct FileContextMenu: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let otherSelection: Set<String>
-    let onFocus: (FileNode) -> Void
-    let onCopy: ([FileNode]) -> Void
-    let onDelete: ([FileNode]) -> Void
-    let onCopyToClipboard: ([FileNode], Bool) -> Void
-    let onPaste: (FileNode) -> Void
-    let onPasteExplicit: (FileNode, [FileNode]) -> Void
-    let onPasteToPath: (String) -> Void
-    let onRename: (FileNode) -> Void
-    let onCreateFolder: (String) -> Void
-    let onGetInfo: (String) -> Void
-    let onSort: (SortOption) -> Void
+    let delegate: FileActionDelegate
     
     var body: some View {
         let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : selection)
@@ -158,20 +118,20 @@ struct FileContextMenu: View {
         
         Group {
             if count == 1, let singleNode = selectedNodes.first {
-                Button(action: { onGetInfo(singleNode.id) }) {
+                Button(action: { delegate.handleGetInfo(for: singleNode.id) }) {
                     Label("Get Info", systemImage: "info.circle")
                 }
                 Divider()
-                Button(action: { onRename(singleNode) }) {
+                Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
                 
                 if singleNode.isDirectory {
-                    Button(action: { onCreateFolder(singleNode.id) }) {
+                    Button(action: { delegate.handleCreateFolder(at: singleNode.id) }) {
                         Label("New Folder", systemImage: "folder.badge.plus")
                     }
                     Divider()
-                    Button(action: { onFocus(singleNode) }) {
+                    Button(action: { delegate.handleFocus(singleNode) }) {
                         // Better clarifies the function which isolates a specific folder mapping
                         Label("Compare only this folder", systemImage: "scope")
                     }
@@ -179,28 +139,28 @@ struct FileContextMenu: View {
                 Divider()
             }
             
-            Button(action: { onCopy(selectedNodes) }) {
+            Button(action: { delegate.handleCopy(selectedNodes) }) {
                 Label(count > 1 ? "Copy \(count) items to other provider" : "Copy to other provider", systemImage: "square.and.arrow.trailing")
             }
             
             Divider()
             
-            Button(action: { onCopyToClipboard(selectedNodes, true) }) {
+            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
                 Label(count > 1 ? "Cut \(count) items" : "Cut", systemImage: "scissors")
             }
             
-            Button(action: { onCopyToClipboard(selectedNodes, false) }) {
+            Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: false) }) {
                 Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
             }
             
-            Button(action: { onPaste(node) }) {
+            Button(action: { delegate.handlePaste(node) }) {
                 Label("Paste here", systemImage: "doc.on.clipboard")
             }
             
             if !otherSelection.isEmpty {
                 let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
                 if !otherSelectedNodes.isEmpty {
-                    Button(action: { onPasteExplicit(node, otherSelectedNodes) }) {
+                    Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                         if otherSelectedNodes.count > 1 {
                             Label("Copy \(otherSelectedNodes.count) items from other pane", systemImage: "arrow.right.to.line.compact")
                         } else if let first = otherSelectedNodes.first {
@@ -212,7 +172,7 @@ struct FileContextMenu: View {
             
             Divider()
             
-            Button(role: .destructive, action: { onDelete(selectedNodes) }) {
+            Button(role: .destructive, action: { delegate.handleDelete(selectedNodes) }) {
                 Label(count > 1 ? "Delete \(count) items" : "Delete", systemImage: "trash")
             }
         }
@@ -245,17 +205,7 @@ struct RecursiveFileNodeView: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let otherSelection: Set<String>
-    let onFocus: (FileNode) -> Void
-    let onCopy: ([FileNode]) -> Void
-    let onDelete: ([FileNode]) -> Void
-    let onCopyToClipboard: ([FileNode], Bool) -> Void
-    let onPaste: (FileNode) -> Void
-    let onPasteExplicit: (FileNode, [FileNode]) -> Void
-    let onPasteToPath: (String) -> Void
-    let onRename: (FileNode) -> Void
-    let onCreateFolder: (String) -> Void
-    let onGetInfo: (String) -> Void
-    let onSort: (SortOption) -> Void
+    let delegate: FileActionDelegate
     
     var isExpanded: Binding<Bool> {
         Binding(
@@ -277,17 +227,7 @@ struct RecursiveFileNodeView: View {
             tree: tree,
             otherTree: otherTree,
             otherSelection: otherSelection,
-            onFocus: onFocus,
-            onCopy: onCopy,
-            onDelete: onDelete,
-            onCopyToClipboard: onCopyToClipboard,
-            onPaste: onPaste,
-            onPasteExplicit: onPasteExplicit,
-            onPasteToPath: onPasteToPath,
-            onRename: onRename,
-            onCreateFolder: onCreateFolder,
-            onGetInfo: onGetInfo,
-            onSort: onSort
+            delegate: delegate
         )
     }
     
@@ -302,17 +242,7 @@ struct RecursiveFileNodeView: View {
                         tree: tree,
                         otherTree: otherTree,
                         otherSelection: otherSelection,
-                        onFocus: onFocus,
-                        onCopy: onCopy,
-                        onDelete: onDelete,
-                        onCopyToClipboard: onCopyToClipboard,
-                        onPaste: onPaste,
-                        onPasteExplicit: onPasteExplicit,
-                        onPasteToPath: onPasteToPath,
-                        onRename: onRename,
-                        onCreateFolder: onCreateFolder,
-                        onGetInfo: onGetInfo,
-                        onSort: onSort
+                        delegate: delegate
                     )
                 }
             } label: {

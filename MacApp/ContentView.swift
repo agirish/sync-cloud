@@ -225,20 +225,13 @@ struct ContentView: View {
             selection: $syncManager.selectedSourcePaths,
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
-            onFocus: { node in actionHandler?.focusFolder(node, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
-            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
-            onDelete: { nodes in actionHandler?.confirmDelete(nodes) },
-            onCopyToClipboard: { nodes, isCut in 
-                syncManager.clipboardNodes = nodes
-                syncManager.clipboardIsCut = isCut
-            },
-            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir) },
-            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir, isCut: false) },
-            onPasteToPath: { path in actionHandler?.pasteClipboard(toPath: path) },
-            onRename: { node in actionHandler?.beginRename(node) },
-            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path) },
-            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
-            onSort: { option in syncManager.sortOption = option }
+            delegate: PaneActionDelegate(
+                handler: actionHandler,
+                syncManager: syncManager,
+                isSource: true,
+                sourceProviderId: sourceProviderId,
+                destProviderId: destinationProviderId
+            )
         )
     }
     
@@ -252,21 +245,38 @@ struct ContentView: View {
             selection: $syncManager.selectedDestinationPaths,
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
-            onFocus: { node in actionHandler?.focusFolder(node, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
-            onCopy: { nodes in actionHandler?.copyItems(nodes, fromSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId) },
-            onDelete: { nodes in actionHandler?.confirmDelete(nodes) },
-            onCopyToClipboard: { nodes, isCut in 
-                syncManager.clipboardNodes = nodes
-                syncManager.clipboardIsCut = isCut
-            },
-            onPaste: { targetDir in actionHandler?.pasteClipboard(to: targetDir) },
-            onPasteExplicit: { targetDir, nodes in actionHandler?.pasteItems(nodes, to: targetDir, isCut: false) },
-            onPasteToPath: { path in actionHandler?.pasteClipboard(toPath: path) },
-            onRename: { node in actionHandler?.beginRename(node) },
-            onCreateFolder: { path in actionHandler?.beginCreateFolder(in: path) },
-            onGetInfo: { path in actionHandler?.openGetInfo(for: path) },
-            onSort: { option in syncManager.sortOption = option }
+            delegate: PaneActionDelegate(
+                handler: actionHandler,
+                syncManager: syncManager,
+                isSource: false,
+                sourceProviderId: sourceProviderId,
+                destProviderId: destinationProviderId
+            )
         )
     }
+}
+
+@MainActor
+struct PaneActionDelegate: FileActionDelegate {
+    let handler: FileActionHandler?
+    let syncManager: FileSyncManager
+    let isSource: Bool
+    let sourceProviderId: String
+    let destProviderId: String
+    
+    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
+    func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
+    func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
+    func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
+        syncManager.clipboardNodes = nodes
+        syncManager.clipboardIsCut = isCut 
+    }
+    func handlePaste(_ targetDir: FileNode) { handler?.pasteClipboard(to: targetDir) }
+    func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) { handler?.pasteItems(nodes, to: targetDir, isCut: false) }
+    func handlePasteToPath(_ path: String) { handler?.pasteClipboard(toPath: path) }
+    func handleRename(_ node: FileNode) { handler?.beginRename(node) }
+    func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
+    func handleGetInfo(for path: String) { handler?.openGetInfo(for: path) }
+    func handleSort(_ option: SortOption) { syncManager.sortOption = option }
 }
 
