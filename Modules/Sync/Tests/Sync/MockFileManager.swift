@@ -41,7 +41,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     
     public func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws {
         let path = url.path
-        if virtualDisk[path] != nil {
+        if let existing = virtualDisk[path] {
+            if createIntermediates && existing.isDirectory {
+                return // Native FileManager doesn't throw if the dir already exists and createIntermediates is true
+            }
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
         }
         
