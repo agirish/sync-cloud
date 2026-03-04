@@ -22,7 +22,11 @@ extension FileSyncManager {
                     await redoParamResolver.resolve(redoParams)
                     
                     for item in items {
-                        try? FileManager.default.trashItem(at: item.destination, resultingItemURL: nil)
+                        do {
+                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: nil)
+                        } catch {
+                            try? FileManager.default.removeItem(at: item.destination)
+                        }
                         
                         if let trashed = item.overwritten {
                             try? FileManager.default.moveItem(at: trashed, to: item.destination)
@@ -70,6 +74,7 @@ extension FileSyncManager {
                     await redoParamResolver.resolve(redoParams)
                     
                     for item in items {
+                        try? FileManager.default.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
                         _ = try? FileSyncManager.safeMoveItem(at: item.to, to: item.from)
                         
                         if let trashed = item.overwritten {
@@ -108,7 +113,13 @@ extension FileSyncManager {
     func registerCreateFolderUndo(url: URL) {
         undoManager?.registerUndo(withTarget: self) { target in
             target.registerCreateFolderRedo(url: url)
-            Task { await target.enqueueFileOperation { try? FileManager.default.trashItem(at: url, resultingItemURL: nil) } }
+            Task { await target.enqueueFileOperation { 
+                do {
+                    try FileManager.default.trashItem(at: url, resultingItemURL: nil) 
+                } catch {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            } }
         }
         undoManager?.setActionName("New Folder")
     }

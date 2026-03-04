@@ -182,6 +182,7 @@ extension FileSyncManager {
                 }
                 
                 do {
+                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
@@ -232,6 +233,7 @@ extension FileSyncManager {
                 }
                 
                 do {
+                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
@@ -282,6 +284,7 @@ extension FileSyncManager {
                 }
                 
                 do {
+                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
                     try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
@@ -387,12 +390,17 @@ extension FileSyncManager {
                             trashedItems.append((original: url, trashed: trashedURL as? URL))
                         } catch {
                             // If trashing fails (e.g. network drive), fallback to immediate deletion
-                            do {
-                                try fm.removeItem(at: url)
-                                trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
-                            } catch let rmErr {
-                                trashedItems.append((original: url, trashed: nil))
-                                taskErrors.append(rmErr)
+                            // but FIRST request user confirmation via explicit prompt.
+                            let fileName = url.lastPathComponent
+                            let confirmed = await MainActor.run { NativeAlerts.confirmPermanentDelete(fileName: fileName) }
+                            
+                            if confirmed {
+                                do {
+                                    try fm.removeItem(at: url)
+                                    trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
+                                } catch let rmErr {
+                                    taskErrors.append(rmErr)
+                                }
                             }
                         }
                     }
