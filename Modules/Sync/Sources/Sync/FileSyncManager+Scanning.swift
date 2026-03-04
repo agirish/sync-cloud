@@ -88,10 +88,6 @@ extension FileSyncManager {
                 let sourceURL = URL(fileURLWithPath: (sourcePath as NSString).expandingTildeInPath)
                 let destinationURL = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
                 
-                // Ensure directories exist
-                try FileManager.default.createDirectory(at: sourceURL, withIntermediateDirectories: true)
-                try FileManager.default.createDirectory(at: destinationURL, withIntermediateDirectories: true)
-                
                 let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL)
                 let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL)
                 

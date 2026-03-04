@@ -197,7 +197,7 @@ struct FileRowView: View {
 }
 
 /// Recursively evaluates and creates `DisclosureGroup` lists for deep directory views.
-/// Delegates operation requests (like Cut, Copy, Paste, Delete, Rename) up the chain to the parent environment via callbacks.
+/// Delegates operation requests (like Cut, Copy, Paste, Delete, Rename) to the injected `FileActionDelegate`.
 struct RecursiveFileNodeView: View {
     let node: FileNode
     @Binding var selection: Set<String>

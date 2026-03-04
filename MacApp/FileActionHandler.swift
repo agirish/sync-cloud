@@ -26,7 +26,10 @@ public class FileActionHandler {
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
         let nodePath = node.id
         
-        var relPath = nodePath.replacingOccurrences(of: expandedRoot, with: "")
+        var relPath = nodePath
+        if relPath.hasPrefix(expandedRoot) {
+            relPath = String(relPath.dropFirst(expandedRoot.count))
+        }
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
         syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)

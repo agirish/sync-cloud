@@ -8,34 +8,36 @@ public struct FileDiffEngine {
     public struct FileInfo: Sendable {
         public let url: URL
         public let modificationDate: Date?
+        public let fileSize: Int?
     }
     
     /// Recursively scans a directory and caches the .contentModificationDateKey for high-performance O(1) diffing.
     public static func getFilesInDirectory(_ url: URL) throws -> [String: FileInfo] {
         let fileManager = FileManager.default
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
             return [:]
         }
         
         var result: [String: FileInfo] = [:]
-        let basePathLength = url.path.count + 1
+        let basePath = url.path
         
         for case let fileURL as URL in enumerator {
             do {
                 let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
                 if let isRegularFile = resourceValues.isRegularFile, isRegularFile {
-                    let relativePath: String
-                    let path = fileURL.path
-                    if path.count > basePathLength {
-                        relativePath = String(path.dropFirst(basePathLength))
-                    } else {
-                        relativePath = path.replacingOccurrences(of: url.path + "/", with: "")
+                    var relativePath = fileURL.path
+                    if relativePath.hasPrefix(basePath) {
+                        relativePath = String(relativePath.dropFirst(basePath.count))
+                    }
+                    if relativePath.hasPrefix("/") {
+                        relativePath.removeFirst()
                     }
                     
                     result[relativePath] = FileInfo(
                         url: fileURL, 
-                        modificationDate: resourceValues.contentModificationDate
+                        modificationDate: resourceValues.contentModificationDate,
+                        fileSize: resourceValues.fileSize
                     )
                 }
             } catch {
@@ -61,18 +63,22 @@ public struct FileDiffEngine {
         // 1. Files in source but not in destination (or compare if exists)
         for (relativePath, sourceFile) in sourceFilesInfo {
             if let destFile = destinationFilesInfo[relativePath] {
-                // exists in both, compare dates in RAM
+                // exists in both, compare dates and sizes in RAM
                 if let sourceDate = sourceFile.modificationDate,
                    let destDate = destFile.modificationDate {
-                    if abs(sourceDate.timeIntervalSince(destDate)) > 1 { // 1 second tolerance
-                        if sourceDate > destDate {
+                    
+                    let dateDiffers = abs(sourceDate.timeIntervalSince(destDate)) > 1
+                    let sizeDiffers = (sourceFile.fileSize != destFile.fileSize) && (sourceFile.fileSize != nil)
+                    
+                    if dateDiffers || sizeDiffers { // 1 second tolerance or size mismatch
+                        if sourceDate > destDate || (sizeDiffers && !dateDiffers) {
                             diffs.append(FileDifference(
                                 relativePath: relativePath,
                                 sourceItemPath: sourceFile.url.path,
                                 destinationItemPath: destFile.url.path,
                                 type: .differentDates,
                                 action: .copyToDestination,
-                                description: "\(source.displayName) file is newer"
+                                description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(source.displayName) file is newer"
                             ))
                         } else {
                             diffs.append(FileDifference(

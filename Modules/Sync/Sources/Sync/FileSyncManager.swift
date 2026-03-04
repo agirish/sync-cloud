@@ -97,7 +97,7 @@ public class FileSyncManager: ObservableObject {
             differences[index].isSyncing = true
         }
         
-        let resultError = await Task.detached(priority: .userInitiated) { () -> Error? in
+        let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, from: URL?, to: URL?) in
             do {
                 let fromURL: URL
                 let toURL: URL
@@ -110,33 +110,33 @@ public class FileSyncManager: ObservableObject {
                     toURL = URL(fileURLWithPath: difference.sourceItemPath)
                 }
                 
-                // Ensure destination directory exists
-                try FileManager.default.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let fm = FileManager.default
+                try fm.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let trashed = try Self.safeCopyItem(at: fromURL, to: toURL, fileManager: fm)
                 
-                // Atomically copy the file to prevent file loss/corruption during sync
-                try Self.safeCopyItem(at: fromURL, to: toURL)
-                return nil
+                return (nil, trashed, fromURL, toURL)
                 
             } catch {
-                return error
+                return (error, nil, nil, nil)
             }
-        }.value
+        }
         
-        if let error = resultError {
+        if let error = result.error {
             let msg = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
-        }
-        
-        if resultError == nil {
-            Logger.shared.info("Synced file: \(difference.relativePath)")
-            // Remove from differences list
-            differences.removeAll { $0.id == difference.id }
-        } else {
-            // Reset syncing state
+            
             if let index = differences.firstIndex(where: { $0.id == difference.id }) {
                 differences[index].isSyncing = false
             }
+        } else {
+            Logger.shared.info("Synced file: \(difference.relativePath)")
+            if let from = result.from, let to = result.to {
+                let initialResolver = AsyncValueResolver<[CopyItemState]>()
+                Task { await initialResolver.resolve([(source: from, destination: to, overwritten: result.trashed)]) }
+                self.registerCopyUndo(stateResolver: initialResolver, actionName: "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")")
+            }
+            differences.removeAll { $0.id == difference.id }
         }
     }
     

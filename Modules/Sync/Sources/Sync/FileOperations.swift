@@ -158,7 +158,12 @@ extension FileSyncManager {
             let fm = FileManager.default
             
             for node in nodes {
-                let relativePath = node.id.replacingOccurrences(of: fromRoot, with: "")
+                var relativePath = node.id
+                if relativePath.hasPrefix(fromRoot) {
+                    relativePath = String(relativePath.dropFirst(fromRoot.count))
+                }
+                if relativePath.hasPrefix("/") { relativePath.removeFirst() }
+                
                 let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
                 
                 let sourceURL = URL(fileURLWithPath: node.id)
