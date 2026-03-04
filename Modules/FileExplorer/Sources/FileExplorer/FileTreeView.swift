@@ -45,6 +45,12 @@ public struct FileTreeView: View {
             }
             .listStyle(SidebarListStyle())
             .contextMenu { emptyAreaContextMenu }
+            .onDeleteCommand {
+                let selectedNodes = tree.findNodes(at: selection)
+                if !selectedNodes.isEmpty {
+                    delegate.handleDelete(selectedNodes)
+                }
+            }
             
             if tree.isEmpty {
                 if isLoading {
