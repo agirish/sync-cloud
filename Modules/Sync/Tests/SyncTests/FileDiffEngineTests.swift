@@ -99,4 +99,34 @@ import Foundation
         #expect(diffs.first?.relativePath == "data.bin")
         #expect(diffs.first?.type == .differentDates) // Current engine labels size diffs under the "differentDates/size" generic catch-all
     }
+    
+    @Test func testEmptyDirectorySync() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        // Create an empty directory in source
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/empty_folder"), withIntermediateDirectories: true)
+        
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        
+        // Verify the empty folder is found by scan
+        #expect(srcFiles["empty_folder"] != nil)
+        #expect(srcFiles["empty_folder"]?.isDirectory == true)
+        
+        let diffs = FileDiffEngine.computeDifferences(
+            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
+            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
+            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+        )
+        
+        // Should find 1 difference (the missing directory)
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "empty_folder")
+        #expect(diffs.first?.action == .copyToDestination)
+    }
 }

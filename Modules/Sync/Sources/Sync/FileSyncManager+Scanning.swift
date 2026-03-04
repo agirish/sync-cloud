@@ -12,33 +12,45 @@ extension FileSyncManager {
     ///   - path: The absolute, expanded root URL string of the provider.
     ///   - isSource: True for the source pane; false for destination.
     public func loadTree(path: String, isSource: Bool) async {
-        let label = isSource ? "Source" : "Destination"
-        Logger.shared.info("Loading \(label) Tree for path: \(path)")
-        
-        if isSource { isLoadingSourceTree = true }
-        else { isLoadingDestinationTree = true }
-        
-        let relPath = isSource ? sourceRelativePath : destRelativePath
-        let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
-        let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
-        let sortOp = self.sortOption
-        let showHidden = self.showHiddenFiles
-        
-        // Build the tree in a detached task to ensure no Main Actor blocking
-        let tree = await Task.detached(priority: .userInitiated) {
-             return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
-        }.value
-        
-        if isSource {
-            self.sourceTree = tree
-            self.sourceItemCount = countItems(in: tree)
-            isLoadingSourceTree = false
-        } else {
-            self.destinationTree = tree
-            self.destinationItemCount = countItems(in: tree)
-            isLoadingDestinationTree = false
+        if isSource { activeLoadSourceTask?.cancel() }
+        else { activeLoadDestTask?.cancel() }
+
+        let task = Task {
+            let label = isSource ? "Source" : "Destination"
+            Logger.shared.info("Loading \(label) Tree for path: \(path)")
+            
+            if isSource { isLoadingSourceTree = true }
+            else { isLoadingDestinationTree = true }
+            
+            let relPath = isSource ? sourceRelativePath : destRelativePath
+            let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+            let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
+            let sortOp = self.sortOption
+            let showHidden = self.showHiddenFiles
+            
+            // Build the tree in a detached task to ensure no Main Actor blocking
+            let tree = await Task.detached(priority: .userInitiated) {
+                return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
+            }.value
+            
+            guard !Task.isCancelled else { return }
+
+            if isSource {
+                self.sourceTree = tree
+                self.sourceItemCount = countItems(in: tree)
+                isLoadingSourceTree = false
+            } else {
+                self.destinationTree = tree
+                self.destinationItemCount = countItems(in: tree)
+                isLoadingDestinationTree = false
+            }
+            Logger.shared.info("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
         }
-        Logger.shared.info("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
+
+        if isSource { activeLoadSourceTask = task }
+        else { activeLoadDestTask = task }
+
+        await task.value
     }
     
     nonisolated func countItems(in tree: [FileNode]) -> Int {
@@ -80,6 +92,10 @@ extension FileSyncManager {
     ///   - destination: The `CloudProvider` for the destination pane.
     ///   - destinationPath: The currently focused absolute directory path for the destination pane.
     public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
+        guard !isScanning else { 
+            Logger.shared.warning("Scan already in progress, skipping redundant request.")
+            return 
+        }
         isScanning = true
         differences = []
         
@@ -170,7 +186,9 @@ extension FileSyncManager {
             }
             
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
-            await Logger.shared.info("buildTree scanning: \(url.path)")
+            // Batch logging to avoid MainActor overhead in recursion
+            // (Removed per-node logging)
+            
             let contents: [String] = {
                 if let realFm = fm as? FileManager {
                     return (try? realFm.contentsOfDirectory(atPath: url.path)) ?? []

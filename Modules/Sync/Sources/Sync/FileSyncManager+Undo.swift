@@ -16,21 +16,25 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    let items = await stateResolver.get()
-                    
-                    let redoParams = items.map { (source: $0.source, destination: $0.destination) }
-                    await redoParamResolver.resolve(redoParams)
-                    
-                    for item in items {
-                        do {
-                            try fm.trashItem(at: item.destination, resultingItemURL: nil)
-                        } catch {
-                            try? fm.removeItem(at: item.destination)
-                        }
+                    do {
+                        let items = await stateResolver.get()
                         
-                        if let trashed = item.overwritten {
-                            try? fm.moveItem(at: trashed, to: item.destination)
+                        let redoParams = items.map { (source: $0.source, destination: $0.destination) }
+                        await redoParamResolver.resolve(redoParams)
+                        
+                        for item in items {
+                            do {
+                                try fm.trashItem(at: item.destination, resultingItemURL: nil)
+                            } catch {
+                                try? fm.removeItem(at: item.destination)
+                            }
+                            
+                            if let trashed = item.overwritten {
+                                try? fm.moveItem(at: trashed, to: item.destination)
+                            }
                         }
+                    } catch {
+                        await redoParamResolver.fail(with: [])
                     }
                 }
             }
@@ -45,16 +49,20 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    let params = await paramResolver.get()
-                    var nextState: [CopyItemState] = []
-                    
-                    for param in params {
-                        try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        let trashed = try? FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
-                        nextState.append((source: param.source, destination: param.destination, overwritten: trashed))
+                    do {
+                        let params = await paramResolver.get()
+                        var nextState: [CopyItemState] = []
+                        
+                        for param in params {
+                            try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            let trashed = try? FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
+                            nextState.append((source: param.source, destination: param.destination, overwritten: trashed))
+                        }
+                        
+                        await nextUndoStateResolver.resolve(nextState)
+                    } catch {
+                        await nextUndoStateResolver.fail(with: [])
                     }
-                    
-                    await nextUndoStateResolver.resolve(nextState)
                 }
             }
         }
@@ -68,17 +76,21 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    let items = await stateResolver.get()
-                    let redoParams = items.map { (from: $0.from, to: $0.to) }
-                    await redoParamResolver.resolve(redoParams)
-                    
-                    for item in items {
-                        try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        _ = try? FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
+                    do {
+                        let items = await stateResolver.get()
+                        let redoParams = items.map { (from: $0.from, to: $0.to) }
+                        await redoParamResolver.resolve(redoParams)
                         
-                        if let trashed = item.overwritten {
-                            try? fm.moveItem(at: trashed, to: item.to)
+                        for item in items {
+                            try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            _ = try? FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
+                            
+                            if let trashed = item.overwritten {
+                                try? fm.moveItem(at: trashed, to: item.to)
+                            }
                         }
+                    } catch {
+                        await redoParamResolver.fail(with: [])
                     }
                 }
             }
@@ -93,16 +105,20 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    let params = await paramResolver.get()
-                    var nextState: [MoveItemState] = []
-                    
-                    for param in params {
-                        try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        let trashed = try? FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
-                        nextState.append((from: param.from, to: param.to, overwritten: trashed))
+                    do {
+                        let params = await paramResolver.get()
+                        var nextState: [MoveItemState] = []
+                        
+                        for param in params {
+                            try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            let trashed = try? FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
+                            nextState.append((from: param.from, to: param.to, overwritten: trashed))
+                        }
+                        
+                        await nextUndoStateResolver.resolve(nextState)
+                    } catch {
+                        await nextUndoStateResolver.fail(with: [])
                     }
-                    
-                    await nextUndoStateResolver.resolve(nextState)
                 }
             }
         }
@@ -138,17 +154,21 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    let fmLocal = fm
-                    var trashedItems: [URL?] = []
-                    for url in urls {
-                        var t: NSURL?
-                        if fmLocal.fileExists(atPath: url.path), (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
-                            trashedItems.append(trashed)
-                        } else {
-                            trashedItems.append(nil)
+                    do {
+                        let fmLocal = fm
+                        var trashedItems: [URL?] = []
+                        for url in urls {
+                            var t: NSURL?
+                            if fmLocal.fileExists(atPath: url.path), (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
+                                trashedItems.append(trashed)
+                            } else {
+                                trashedItems.append(nil)
+                            }
                         }
+                        await nextResolver.resolve(trashedItems)
+                    } catch {
+                        await nextResolver.fail(with: [])
                     }
-                    await nextResolver.resolve(trashedItems)
                 }
             }
         }
@@ -186,6 +206,11 @@ actor AsyncValueResolver<T: Sendable> {
         result = value
         for cont in continuations { cont.resume(returning: value) }
         continuations.removeAll()
+    }
+    
+    /// Fails the resolver with a provided value (e.g. empty array or nil) to unblock waiting tasks.
+    func fail(with fallback: T) {
+        resolve(fallback)
     }
     
     func get() async -> T {

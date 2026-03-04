@@ -9,6 +9,7 @@ public struct FileDiffEngine {
         public let url: URL
         public let modificationDate: Date?
         public let fileSize: Int?
+        public let isDirectory: Bool
     }
     
     /// Recursively scans a directory and caches the .contentModificationDateKey for high-performance O(1) diffing.
@@ -26,25 +27,28 @@ public struct FileDiffEngine {
                 var isReg = true
                 var modDate: Date? = nil
                 var size: Int? = nil
+                var isDir = false
                 
                 if let _ = fileManager as? FileManager {
-                    let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
+                    let resourceValues = try fileURL.resourceValues(forKeys: Set(keys + [.isDirectoryKey]))
                     isReg = resourceValues.isRegularFile ?? true
                     modDate = resourceValues.contentModificationDate
                     size = resourceValues.fileSize
+                    isDir = resourceValues.isDirectory ?? false
                 } else {
                     let attrs = try fileManager.attributesOfItem(atPath: fileURL.path)
-                    let fileType = attrs[.type] as? FileAttributeType
-                    isReg = (fileType == .typeRegular)
-                    modDate = attrs[.modificationDate] as? Date
-                    if let s = attrs[.size] as? NSNumber {
+                    let fileType = attrs[FileAttributeKey.type] as? FileAttributeType
+                    isReg = (fileType == FileAttributeType.typeRegular)
+                    isDir = (fileType == FileAttributeType.typeDirectory)
+                    modDate = attrs[FileAttributeKey.modificationDate] as? Date
+                    if let s = attrs[FileAttributeKey.size] as? NSNumber {
                         size = s.intValue
-                    } else if let s = attrs[.size] as? Int {
+                    } else if let s = attrs[FileAttributeKey.size] as? Int {
                         size = s
                     }
                 }
                 
-                if isReg {
+                if isReg || isDir {
                     var relativePath = fileURL.path
                     if relativePath.hasPrefix(basePath) {
                         relativePath = String(relativePath.dropFirst(basePath.count))
@@ -53,10 +57,13 @@ public struct FileDiffEngine {
                         relativePath.removeFirst()
                     }
                     
+                    if relativePath.isEmpty { continue }
+
                     result[relativePath] = FileInfo(
                         url: fileURL, 
                         modificationDate: modDate,
-                        fileSize: size
+                        fileSize: size,
+                        isDirectory: isDir
                     )
                 }
             } catch {
@@ -83,6 +90,21 @@ public struct FileDiffEngine {
         for (relativePath, sourceFile) in sourceFilesInfo {
             if let destFile = destinationFilesInfo[relativePath] {
                 // exists in both, compare dates and sizes in RAM
+                if sourceFile.isDirectory != destFile.isDirectory {
+                     // Type mismatch (file vs folder)
+                     diffs.append(FileDifference(
+                        relativePath: relativePath,
+                        sourceItemPath: sourceFile.url.path,
+                        destinationItemPath: destFile.url.path,
+                        type: .differentDates, // reusing for simplicity, UI will show names
+                        action: .copyToDestination,
+                        description: "Type mismatch (file vs folder)"
+                    ))
+                    continue
+                }
+
+                if sourceFile.isDirectory { continue } // Folders both exist, no "difference" in content but recursive scan will handle children
+
                 if let sourceDate = sourceFile.modificationDate,
                    let destDate = destFile.modificationDate {
                     
@@ -120,7 +142,7 @@ public struct FileDiffEngine {
                     destinationItemPath: destExpectedPath,
                     type: .missingInDestination,
                     action: .copyToDestination,
-                    description: "Missing in \(destination.displayName)"
+                    description: sourceFile.isDirectory ? "Folder missing in \(destination.displayName)" : "Missing in \(destination.displayName)"
                 ))
             }
         }
@@ -135,7 +157,7 @@ public struct FileDiffEngine {
                     destinationItemPath: destFile.url.path,
                     type: .missingInSource,
                     action: .copyToSource,
-                    description: "Missing in \(source.displayName)"
+                    description: destFile.isDirectory ? "Folder missing in \(source.displayName)" : "Missing in \(source.displayName)"
                 ))
             }
         }

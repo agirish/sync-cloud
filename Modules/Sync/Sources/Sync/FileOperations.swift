@@ -96,6 +96,8 @@ extension FileSyncManager {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
         
+        defer { try? fileManager.removeItem(at: tempURL) }
+        
         try fileManager.copyItem(at: sourceURL, to: tempURL)
         
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
@@ -130,6 +132,8 @@ extension FileSyncManager {
             // to ensure atomic replacement and prevent corrupted half-files.
             let targetDirectory = destinationURL.deletingLastPathComponent()
             let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
+            
+            defer { try? fileManager.removeItem(at: tempURL) }
             
             try fileManager.copyItem(at: sourceURL, to: tempURL)
             try fileManager.moveItem(at: tempURL, to: destinationURL)
@@ -373,29 +377,33 @@ extension FileSyncManager {
         let result = await enqueueFileOperation { () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
+            var trashFailures: [URL] = []
             
             for path in paths {
-                do {
-                    if fm.fileExists(atPath: path) {
-                        let url = URL(fileURLWithPath: path)
-                        var trashedURL: NSURL? = nil
+                if fm.fileExists(atPath: path) {
+                    let url = URL(fileURLWithPath: path)
+                    var trashedURL: NSURL? = nil
+                    do {
+                        try fm.trashItem(at: url, resultingItemURL: &trashedURL)
+                        trashedItems.append((original: url, trashed: trashedURL as? URL))
+                    } catch {
+                        trashFailures.append(url)
+                    }
+                }
+            }
+            
+            if !trashFailures.isEmpty {
+                let confirmed = await MainActor.run { 
+                    NativeAlerts.confirmPermanentDelete(itemNames: trashFailures.map { $0.lastPathComponent })
+                }
+                
+                if confirmed {
+                    for url in trashFailures {
                         do {
-                            try fm.trashItem(at: url, resultingItemURL: &trashedURL)
-                            trashedItems.append((original: url, trashed: trashedURL as? URL))
+                            try fm.removeItem(at: url)
+                            trashedItems.append((original: url, trashed: nil))
                         } catch {
-                            // If trashing fails (e.g. network drive), fallback to immediate deletion
-                            // but FIRST request user confirmation via explicit prompt.
-                            let fileName = url.lastPathComponent
-                            let confirmed = await MainActor.run { NativeAlerts.confirmPermanentDelete(fileName: fileName) }
-                            
-                            if confirmed {
-                                do {
-                                    try fm.removeItem(at: url)
-                                    trashedItems.append((original: url, trashed: nil)) // Mark permanently deleted (no undo)
-                                } catch let rmErr {
-                                    taskErrors.append(rmErr)
-                                }
-                            }
+                            taskErrors.append(error)
                         }
                     }
                 }

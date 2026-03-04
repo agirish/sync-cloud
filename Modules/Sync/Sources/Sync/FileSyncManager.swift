@@ -65,6 +65,10 @@ public class FileSyncManager: ObservableObject {
     /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
     
+    // Internal task tracking for re-entrancy protection
+    internal var activeLoadSourceTask: Task<Void, Never>?
+    internal var activeLoadDestTask: Task<Void, Never>?
+    
     /// Enqueues a file operation to be executed sequentially after all previous file operations have completed.
     /// This is strictly required to ensure that rapid Undo/Redo operations do not race with each other asynchronously.
     @discardableResult
@@ -75,7 +79,10 @@ public class FileSyncManager: ObservableObject {
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
             let res = await operation()
-            await MainActor.run { [weak self] in self?.refreshSubject.send() }
+            await MainActor.run { [weak self] in 
+                self?.pruneSelection()
+                self?.refreshSubject.send() 
+            }
             return res
         }
         fileOperationTask = Task { _ = await newTask.value }
@@ -140,6 +147,27 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
+
+    /// Prunes the selection sets to remove any paths that are no longer present in the trees.
+    /// This prevents "ghost" selection markers when files are moved or deleted.
+    public func pruneSelection() {
+        let allSourcePaths = Set(getAllPaths(in: sourceTree))
+        let allDestPaths = Set(getAllPaths(in: destinationTree))
+        
+        selectedSourcePaths = selectedSourcePaths.filter { allSourcePaths.contains($0) }
+        selectedDestinationPaths = selectedDestinationPaths.filter { allDestPaths.contains($0) }
+    }
+    
+    private func getAllPaths(in tree: [FileNode]) -> [String] {
+        var paths: [String] = []
+        for node in tree {
+            paths.append(node.id)
+            if let children = node.children {
+                paths.append(contentsOf: getAllPaths(in: children))
+            }
+        }
+        return paths
+    }
 
     // Implementations moved to FileOperations.swift
     
