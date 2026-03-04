@@ -52,6 +52,10 @@ extension FileSyncManager {
         return count
     }
     
+    /// Sequentially reloads the directory trees for both source and destination, then triggers a differential scan.
+    /// - Parameters:
+    ///   - source: The `CloudProvider` representing the source pane.
+    ///   - destination: The `CloudProvider` representing the destination pane.
     public func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
         let sourceRoot = (source.path as NSString).expandingTildeInPath
         let destRoot = (destination.path as NSString).expandingTildeInPath
@@ -69,6 +73,12 @@ extension FileSyncManager {
         )
     }
     
+    /// Performs a high-performance, background differential scan between the configured source and destination directories.
+    /// - Parameters:
+    ///   - source: The `CloudProvider` for the source pane.
+    ///   - sourcePath: The currently focused absolute directory path for the source pane.
+    ///   - destination: The `CloudProvider` for the destination pane.
+    ///   - destinationPath: The currently focused absolute directory path for the destination pane.
     public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
         isScanning = true
         differences = []

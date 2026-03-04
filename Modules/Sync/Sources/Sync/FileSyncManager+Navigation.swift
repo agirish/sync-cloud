@@ -6,6 +6,11 @@ extension FileSyncManager {
     
     // MARK: - Navigation Methods
     
+    /// Updates the navigation state to focus on a specific relative directory path.
+    /// - Parameters:
+    ///   - relativePath: The directory path to drill into.
+    ///   - isSource: Whether this action originated from the source pane.
+    ///   - otherProviderPath: The root path of the opposite provider to attempt matching navigation.
     public func focusOn(relativePath: String, isSource: Bool, otherProviderPath: String) {
         let newSource = isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
         let newDest = !isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
@@ -20,18 +25,21 @@ extension FileSyncManager {
         updateStateFromHistory()
     }
     
+    /// Navigates to the previous state in the directory history stack.
     public func goBack() {
         guard historyIndex > 0 else { return }
         historyIndex -= 1
         updateStateFromHistory()
     }
     
+    /// Navigates to the next state in the directory history stack.
     public func goForward() {
         guard historyIndex < history.count - 1 else { return }
         historyIndex += 1
         updateStateFromHistory()
     }
     
+    /// Resets the navigation state back to the root level.
     public func resetNavigation() {
         focusOn(relativePath: "", isSource: true, otherProviderPath: "")
     }
