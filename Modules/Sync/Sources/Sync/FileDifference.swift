@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents a computed discrepancy between the Source and Destination providers for a single file paths
-public struct FileDifference: Identifiable, Equatable {
+public struct FileDifference: Identifiable, Equatable, Sendable {
     public let id: UUID
     public let relativePath: String
     public let sourceItemPath: String
@@ -22,13 +22,13 @@ public struct FileDifference: Identifiable, Equatable {
         self.isSyncing = isSyncing
     }
     
-    public enum DifferenceType: Equatable {
+    public enum DifferenceType: Equatable, Sendable {
         case missingInDestination
         case missingInSource
         case differentDates
     }
     
-    public enum SyncAction: Equatable {
+    public enum SyncAction: Equatable, Sendable {
         case copyToDestination
         case copyToSource
     }

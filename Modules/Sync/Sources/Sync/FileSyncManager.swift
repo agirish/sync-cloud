@@ -91,7 +91,7 @@ public class FileSyncManager: ObservableObject {
     
     // Navigation and Scanning methods moved to extensions
     
-    public func syncFile(_ difference: FileDifference) async {
+    public func syncFile(_ difference: FileDifference, fileManager: FileManaging = FileManager.default) async {
         // Find the difference in our array and mark it as syncing
         if let index = differences.firstIndex(where: { $0.id == difference.id }) {
             differences[index].isSyncing = true
@@ -110,7 +110,7 @@ public class FileSyncManager: ObservableObject {
                     toURL = URL(fileURLWithPath: difference.sourceItemPath)
                 }
                 
-                let fm = FileManager.default
+                let fm = fileManager
                 try fm.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 let trashed = try Self.safeCopyItem(at: fromURL, to: toURL, fileManager: fm)
                 

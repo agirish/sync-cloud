@@ -1,9 +1,9 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
 
 let package = Package(
     name: "Settings",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     products: [
         .library(name: "Settings", targets: ["Settings"]),
     ],
@@ -14,6 +14,9 @@ let package = Package(
     targets: [
         .target(
             name: "Settings",
-            dependencies: ["Sync", "Events"])
+            dependencies: ["Sync", "Events"]),
+        .testTarget(
+            name: "SettingsTests",
+            dependencies: ["Settings", "Sync"])
     ]
 )

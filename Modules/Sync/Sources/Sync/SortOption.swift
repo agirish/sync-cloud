@@ -1,6 +1,6 @@
 import Foundation
 
-public enum SortOption: String, CaseIterable, Equatable {
+public enum SortOption: String, CaseIterable, Equatable, Sendable {
     case name = "Name"
     case kind = "Kind"
     case dateModified = "Date Modified"

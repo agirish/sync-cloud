@@ -9,10 +9,10 @@ extension FileSyncManager {
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     
-    func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String) {
+    func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             let redoParamResolver = AsyncValueResolver<[(source: URL, destination: URL)]>()
-            target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName)
+            target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
@@ -23,13 +23,13 @@ extension FileSyncManager {
                     
                     for item in items {
                         do {
-                            try FileManager.default.trashItem(at: item.destination, resultingItemURL: nil)
+                            try fm.trashItem(at: item.destination, resultingItemURL: nil)
                         } catch {
-                            try? FileManager.default.removeItem(at: item.destination)
+                            try? fm.removeItem(at: item.destination)
                         }
                         
                         if let trashed = item.overwritten {
-                            try? FileManager.default.moveItem(at: trashed, to: item.destination)
+                            try? fm.moveItem(at: trashed, to: item.destination)
                         }
                     }
                 }
@@ -38,17 +38,16 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String) {
+    func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             let nextUndoStateResolver = AsyncValueResolver<[CopyItemState]>()
-            target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName)
+            target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
                     let params = await paramResolver.get()
                     var nextState: [CopyItemState] = []
                     
-                    let fm = FileManager.default
                     for param in params {
                         try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                         let trashed = try? FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
@@ -62,10 +61,10 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveItemState]>, actionName: String) {
+    func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             let redoParamResolver = AsyncValueResolver<[(from: URL, to: URL)]>()
-            target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName)
+            target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
@@ -74,11 +73,11 @@ extension FileSyncManager {
                     await redoParamResolver.resolve(redoParams)
                     
                     for item in items {
-                        try? FileManager.default.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        _ = try? FileSyncManager.safeMoveItem(at: item.to, to: item.from)
+                        try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        _ = try? FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
                         
                         if let trashed = item.overwritten {
-                            try? FileManager.default.moveItem(at: trashed, to: item.to)
+                            try? fm.moveItem(at: trashed, to: item.to)
                         }
                     }
                 }
@@ -87,10 +86,10 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
 
-    func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String) {
+    func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             let nextUndoStateResolver = AsyncValueResolver<[MoveItemState]>()
-            target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName)
+            target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
@@ -98,8 +97,8 @@ extension FileSyncManager {
                     var nextState: [MoveItemState] = []
                     
                     for param in params {
-                        try? FileManager.default.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        let trashed = try? FileSyncManager.safeMoveItem(at: param.from, to: param.to)
+                        try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        let trashed = try? FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
                         nextState.append((from: param.from, to: param.to, overwritten: trashed))
                     }
                     
@@ -110,40 +109,40 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
     
-    func registerCreateFolderUndo(url: URL) {
+    func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCreateFolderRedo(url: url)
+            target.registerCreateFolderRedo(url: url, fileManager: fm)
             Task { await target.enqueueFileOperation { 
                 do {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil) 
+                    try fm.trashItem(at: url, resultingItemURL: nil) 
                 } catch {
-                    try? FileManager.default.removeItem(at: url)
+                    try? fm.removeItem(at: url)
                 }
             } }
         }
         undoManager?.setActionName("New Folder")
     }
     
-    func registerCreateFolderRedo(url: URL) {
+    func registerCreateFolderRedo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
-            target.registerCreateFolderUndo(url: url)
-            Task { await target.enqueueFileOperation { try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true) } }
+            target.registerCreateFolderUndo(url: url, fileManager: fm)
+            Task { await target.enqueueFileOperation { try? fm.createDirectory(at: url, withIntermediateDirectories: true) } }
         }
         undoManager?.setActionName("New Folder")
     }
     
-    func registerTrashItems(urls: [URL], actionName: String) {
+    func registerTrashItems(urls: [URL], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             let nextResolver = AsyncValueResolver<[URL?]>()
-            target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName)
+            target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
-                    let fm = FileManager.default
+                    let fmLocal = fm
                     var trashedItems: [URL?] = []
                     for url in urls {
                         var t: NSURL?
-                        if fm.fileExists(atPath: url.path), (try? fm.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
+                        if fmLocal.fileExists(atPath: url.path), (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
                             trashedItems.append(trashed)
                         } else {
                             trashedItems.append(nil)
@@ -156,17 +155,17 @@ extension FileSyncManager {
         undoManager?.setActionName(actionName)
     }
 
-    func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String) {
+    func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
-            target.registerTrashItems(urls: urls, actionName: actionName)
+            target.registerTrashItems(urls: urls, actionName: actionName, fileManager: fm)
             
             Task {
                 await target.enqueueFileOperation {
                     let trashedItems = await trashResolver.get()
                     for (idx, targetURL) in urls.enumerated() {
                         if let trashedURL = trashedItems[idx] {
-                            try? FileManager.default.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            _ = try? FileSyncManager.safeMoveItem(at: trashedURL, to: targetURL)
+                            try? fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                            _ = try? FileSyncManager.safeMoveItem(at: trashedURL, to: targetURL, fileManager: fm)
                         }
                     }
                 }
@@ -178,7 +177,7 @@ extension FileSyncManager {
 
 /// A generic async resolver used to chain dynamically generated state values (like Trash URLs) 
 /// from background file executions into sequential, synchronously registered Undo/Redo blocks.
-actor AsyncValueResolver<T> {
+actor AsyncValueResolver<T: Sendable> {
     private var result: T?
     private var continuations: [CheckedContinuation<T, Never>] = []
     

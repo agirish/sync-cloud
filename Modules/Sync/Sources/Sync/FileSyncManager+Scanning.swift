@@ -114,57 +114,86 @@ extension FileSyncManager {
     
     // MARK: - Internal Engine Operations
     
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, showHiddenFiles: Bool) async -> [FileNode] {
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, showHiddenFiles: Bool, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         await Task.detached(priority: .userInitiated) {
-            func buildNode(at fullURL: URL) -> FileNode? {
-                var isDirectory: ObjCBool = false
-                let fm = FileManager.default
-                guard fm.fileExists(atPath: fullURL.path, isDirectory: &isDirectory) else { return nil }
+            struct TreeBuilder {
+                let fileManager: FileManaging
+                let sortOption: SortOption
+                let showHiddenFiles: Bool
                 
-                let name = fullURL.lastPathComponent
-                
-                var modDate: Date?
-                var size: Int?
-                var tags: [String]?
-                var kind: String?
-                
-                if let rv = try? fullURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
-                    modDate = rv.contentModificationDate
-                    size = rv.fileSize
-                    tags = rv.tagNames
-                    kind = rv.typeIdentifier
-                }
-                
-                if isDirectory.boolValue {
-                    let contents = (try? fm.contentsOfDirectory(atPath: fullURL.path)) ?? []
-                    var children: [FileNode] = []
-                    for item in contents {
-                        if !showHiddenFiles && item.hasPrefix(".") { continue }
-                        let childURL = fullURL.appendingPathComponent(item)
-                        if let childNode = buildNode(at: childURL) {
-                            children.append(childNode)
-                        }
+                func buildNode(at fullURL: URL) -> FileNode? {
+                    var isDirectory: ObjCBool = false
+                    guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDirectory) else { return nil }
+                    
+                    let name = fullURL.lastPathComponent
+                    
+                    var modDate: Date?
+                    var size: Int?
+                    var tags: [String]?
+                    var kind: String?
+                    
+                    if let rv = try? fullURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
+                        modDate = rv.contentModificationDate
+                        size = rv.fileSize
+                        tags = rv.tagNames
+                        kind = rv.typeIdentifier
                     }
-                    children = sort(nodes: children, by: sortOption)
-                    return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
-                } else {
-                    return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                    
+                    if isDirectory.boolValue {
+                        let contents: [String] = {
+                            if let realFm = fileManager as? FileManager {
+                                return (try? realFm.contentsOfDirectory(atPath: fullURL.path)) ?? []
+                            } else {
+                                var names: [String] = []
+                                if let enumerator = fileManager.enumerator(at: fullURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
+                                    for case let url as URL in enumerator {
+                                        names.append(url.lastPathComponent)
+                                    }
+                                }
+                                return names
+                            }
+                        }()
+                        var children: [FileNode] = []
+                        for item in contents {
+                            if !showHiddenFiles && item.hasPrefix(".") { continue }
+                            let childURL = fullURL.appendingPathComponent(item)
+                            if let childNode = buildNode(at: childURL) {
+                                children.append(childNode)
+                            }
+                        }
+                        children = FileSyncManager.sort(nodes: children, by: sortOption)
+                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                    } else {
+                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                    }
                 }
             }
             
-            let fm = FileManager.default
+            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
             await Logger.shared.info("buildTree scanning: \(url.path)")
-            let contents = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
+            let contents: [String] = {
+                if let realFm = fm as? FileManager {
+                    return (try? realFm.contentsOfDirectory(atPath: url.path)) ?? []
+                } else {
+                    var names: [String] = []
+                    if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
+                        for case let u as URL in enumerator {
+                            names.append(u.lastPathComponent)
+                        }
+                    }
+                    return names
+                }
+            }()
             await Logger.shared.info("buildTree contents count: \(contents.count)")
             var rootChildren: [FileNode] = []
             for item in contents {
                 if !showHiddenFiles && item.hasPrefix(".") { continue }
                 let childURL = url.appendingPathComponent(item)
-                if let childNode = buildNode(at: childURL) {
+                if let childNode = builder.buildNode(at: childURL) {
                     rootChildren.append(childNode)
                 }
             }
-            rootChildren = sort(nodes: rootChildren, by: sortOption)
+            rootChildren = FileSyncManager.sort(nodes: rootChildren, by: sortOption)
             return rootChildren
         }.value
     }

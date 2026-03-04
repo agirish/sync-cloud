@@ -20,7 +20,7 @@ extension FileSyncManager {
         }
     }
     
-    private nonisolated static func validateFileOperation(source: URL, destination: URL) throws {
+    nonisolated static func validateFileOperation(source: URL, destination: URL) throws {
         let src = source.standardizedFileURL.path
         let dst = destination.standardizedFileURL.path
         
@@ -65,7 +65,7 @@ extension FileSyncManager {
         }
     }
     
-    private nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManager = .default) -> URL {
+    private nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension
@@ -89,7 +89,7 @@ extension FileSyncManager {
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns the URL of the overwritten item in the Trash, if any.
     @discardableResult
-    public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
+    public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
@@ -112,7 +112,7 @@ extension FileSyncManager {
     /// Safely moves a file, atomically replacing the destination if it exists.
     /// Returns the URL of the overwritten item in the Trash, if any.
     @discardableResult
-    public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManager = .default) throws -> URL? {
+    public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
@@ -148,14 +148,13 @@ extension FileSyncManager {
     // MARK: - File Operations
     
     /// Copies multiple files or folders between the Source and Destination panes.
-    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String) async {
+    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
-            let fm = FileManager.default
             
             for node in nodes {
                 var relativePath = node.id
@@ -210,11 +209,10 @@ extension FileSyncManager {
     }
     
     /// Copies multiple files to a specific absolute destination directory path.
-    public func copyItems(nodes: [FileNode], toPath destinationPath: String) async {
+    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
-            let fm = FileManager.default
             
             for node in nodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
@@ -261,11 +259,10 @@ extension FileSyncManager {
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    public func moveItems(nodes: [FileNode], toPath destinationPath: String) async {
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-            let fm = FileManager.default
             
             for node in nodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
@@ -312,12 +309,12 @@ extension FileSyncManager {
     }
     
     /// Renames a specific file or folder on disk.
-    public func renameItem(at path: String, to newName: String) async {
+    public func renameItem(at path: String, to newName: String, fileManager fm: FileManaging = FileManager.default) async {
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         
         let isCaseOnly = url.lastPathComponent.lowercased() == newName.lowercased()
-        if !isCaseOnly && FileManager.default.fileExists(atPath: newURL.path) {
+        if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
             let msg = "Error renaming item: An item named \"\(newName)\" already exists."
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
@@ -325,7 +322,6 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?) in
-            let fm = FileManager.default
             do {
                 let trashed = try Self.safeMoveItem(at: url, to: newURL, fileManager: fm)
                 return (nil, trashed)
@@ -347,11 +343,10 @@ extension FileSyncManager {
     }
     
     /// Creates a new empty directory on disk.
-    public func createFolder(named name: String, in path: String) async {
+    public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
         let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
         
         let error = await enqueueFileOperation { () -> Error? in
-            let fm = FileManager.default
             do {
                 if fm.fileExists(atPath: createdURL.path) {
                     throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSLocalizedDescriptionKey : "An item named \"\(name)\" already exists."])
@@ -374,11 +369,10 @@ extension FileSyncManager {
     }
 
     /// Permanently deletes files or directories from disk.
-    public func deleteItems(at paths: [String]) async {
+    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
-            let fm = FileManager.default
             
             for path in paths {
                 do {

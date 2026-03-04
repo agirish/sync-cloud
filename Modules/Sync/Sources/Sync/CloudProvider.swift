@@ -1,7 +1,7 @@
 import Events
 import Foundation
 
-public struct CloudProvider: Identifiable, Hashable {
+public struct CloudProvider: Identifiable, Hashable, Sendable {
     public let id: String
     public let displayName: String
     public let imageName: String
@@ -24,7 +24,7 @@ public struct CloudProvider: Identifiable, Hashable {
         self.iconName = imageName
     }
 
-    public enum ProviderType: String {
+    public enum ProviderType: String, Sendable {
         case iCloud = "iCloud"
         case oneDrive = "OneDrive"
         case dropBox = "Dropbox"

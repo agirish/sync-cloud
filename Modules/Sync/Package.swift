@@ -1,15 +1,14 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
+
 import PackageDescription
 
 let package = Package(
     name: "Sync",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
-        .library(
-            name: "Sync",
-            targets: ["Sync"]),
+        .library(name: "Sync", targets: ["Sync"]),
     ],
     dependencies: [
         .package(path: "../Events")
@@ -17,6 +16,11 @@ let package = Package(
     targets: [
         .target(
             name: "Sync",
-            dependencies: ["Events"]),
+            dependencies: ["Events"]
+        ),
+        .testTarget(
+            name: "SyncTests",
+            dependencies: ["Sync"]
+        )
     ]
 )

@@ -12,8 +12,7 @@ public struct FileDiffEngine {
     }
     
     /// Recursively scans a directory and caches the .contentModificationDateKey for high-performance O(1) diffing.
-    public static func getFilesInDirectory(_ url: URL) throws -> [String: FileInfo] {
-        let fileManager = FileManager.default
+    public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
             return [:]
@@ -24,8 +23,28 @@ public struct FileDiffEngine {
         
         for case let fileURL as URL in enumerator {
             do {
-                let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
-                if let isRegularFile = resourceValues.isRegularFile, isRegularFile {
+                var isReg = true
+                var modDate: Date? = nil
+                var size: Int? = nil
+                
+                if let _ = fileManager as? FileManager {
+                    let resourceValues = try fileURL.resourceValues(forKeys: Set(keys))
+                    isReg = resourceValues.isRegularFile ?? true
+                    modDate = resourceValues.contentModificationDate
+                    size = resourceValues.fileSize
+                } else {
+                    let attrs = try fileManager.attributesOfItem(atPath: fileURL.path)
+                    let fileType = attrs[.type] as? FileAttributeType
+                    isReg = (fileType == .typeRegular)
+                    modDate = attrs[.modificationDate] as? Date
+                    if let s = attrs[.size] as? NSNumber {
+                        size = s.intValue
+                    } else if let s = attrs[.size] as? Int {
+                        size = s
+                    }
+                }
+                
+                if isReg {
                     var relativePath = fileURL.path
                     if relativePath.hasPrefix(basePath) {
                         relativePath = String(relativePath.dropFirst(basePath.count))
@@ -36,8 +55,8 @@ public struct FileDiffEngine {
                     
                     result[relativePath] = FileInfo(
                         url: fileURL, 
-                        modificationDate: resourceValues.contentModificationDate,
-                        fileSize: resourceValues.fileSize
+                        modificationDate: modDate,
+                        fileSize: size
                     )
                 }
             } catch {
