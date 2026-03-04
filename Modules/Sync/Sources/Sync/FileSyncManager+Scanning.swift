@@ -139,6 +139,7 @@ extension FileSyncManager {
                 
                 func buildNode(at fullURL: URL) -> FileNode? {
                     var isDirectory: ObjCBool = false
+                    guard !Task.isCancelled else { return nil }
                     guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDirectory) else { return nil }
                     
                     let name = fullURL.lastPathComponent

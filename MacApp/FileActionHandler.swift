@@ -66,9 +66,13 @@ public class FileActionHandler {
         }
     }
     
-    /// Handles the internal execution of dropping nodes into a directory, observing if it was a Cut or Copy.
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
+        
+        if isCut {
+            syncManager.clipboardNodes = []
+            syncManager.clipboardIsCut = false
+        }
         
         Task {
             if isCut {
@@ -76,8 +80,6 @@ public class FileActionHandler {
             } else {
                 await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
             }
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
         }
     }
     
@@ -88,14 +90,17 @@ public class FileActionHandler {
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
+        if isCut {
+            syncManager.clipboardNodes = []
+            syncManager.clipboardIsCut = false
+        }
+        
         Task {
             if isCut {
                 await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
             } else {
                 await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
             }
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
         }
     }
     

@@ -14,6 +14,10 @@ let package = Package(
     targets: [
         .target(
             name: "FileExplorer",
-            dependencies: ["Sync", "Events"])
+            dependencies: ["Sync", "Events"]),
+        .testTarget(
+            name: "FileExplorerTests",
+            dependencies: ["FileExplorer", "Sync"],
+            path: "Tests/FileExplorer")
     ]
 )

@@ -104,33 +104,50 @@ public struct FileDiffEngine {
                 }
 
                 if sourceFile.isDirectory { continue } // Folders both exist, no "difference" in content but recursive scan will handle children
-
-                if let sourceDate = sourceFile.modificationDate,
-                   let destDate = destFile.modificationDate {
+                
+                let sourceDate = sourceFile.modificationDate
+                let destDate = destFile.modificationDate
+                
+                let dateDiffers: Bool
+                if let sD = sourceDate, let dD = destDate {
+                    dateDiffers = abs(sD.timeIntervalSince(dD)) > 1
+                } else {
+                    dateDiffers = false // Can't reliably compare dates, fallback to size
+                }
+                
+                let sizeDiffers = (sourceFile.fileSize != destFile.fileSize) && (sourceFile.fileSize != nil || destFile.fileSize != nil)
+                
+                if dateDiffers || sizeDiffers { // 1 second tolerance or size mismatch
+                    let sourceIsNewer = (sourceDate ?? Date.distantPast) > (destDate ?? Date.distantPast)
                     
-                    let dateDiffers = abs(sourceDate.timeIntervalSince(destDate)) > 1
-                    let sizeDiffers = (sourceFile.fileSize != destFile.fileSize) && (sourceFile.fileSize != nil)
-                    
-                    if dateDiffers || sizeDiffers { // 1 second tolerance or size mismatch
-                        if sourceDate > destDate || (sizeDiffers && !dateDiffers) {
-                            diffs.append(FileDifference(
-                                relativePath: relativePath,
-                                sourceItemPath: sourceFile.url.path,
-                                destinationItemPath: destFile.url.path,
-                                type: .differentDates,
-                                action: .copyToDestination,
-                                description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(source.displayName) file is newer"
-                            ))
-                        } else {
-                            diffs.append(FileDifference(
-                                relativePath: relativePath,
-                                sourceItemPath: sourceFile.url.path,
-                                destinationItemPath: destFile.url.path,
-                                type: .differentDates,
-                                action: .copyToSource,
-                                description: "\(destination.displayName) file is newer"
-                            ))
-                        }
+                    if sourceIsNewer || (sizeDiffers && !dateDiffers && sourceDate == nil && destDate == nil) {
+                        diffs.append(FileDifference(
+                            relativePath: relativePath,
+                            sourceItemPath: sourceFile.url.path,
+                            destinationItemPath: destFile.url.path,
+                            type: .differentDates,
+                            action: .copyToDestination,
+                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(source.displayName) file is newer"
+                        ))
+                    } else if !sourceIsNewer && dateDiffers {
+                        diffs.append(FileDifference(
+                            relativePath: relativePath,
+                            sourceItemPath: sourceFile.url.path,
+                            destinationItemPath: destFile.url.path,
+                            type: .differentDates,
+                            action: .copyToSource,
+                            description: "\(destination.displayName) file is newer"
+                        ))
+                    } else {
+                        // Fallback if dates are identical/missing but sizes differ: default to source as truth
+                        diffs.append(FileDifference(
+                            relativePath: relativePath,
+                            sourceItemPath: sourceFile.url.path,
+                            destinationItemPath: destFile.url.path,
+                            type: .differentDates,
+                            action: .copyToDestination,
+                            description: "Sizes differ"
+                        ))
                     }
                 }
             } else {

@@ -17,6 +17,7 @@ let package = Package(
             dependencies: ["Sync", "Events"]),
         .testTarget(
             name: "SettingsTests",
-            dependencies: ["Settings", "Sync"])
+            dependencies: ["Settings", "Sync"],
+            path: "Tests/Settings")
     ]
 )

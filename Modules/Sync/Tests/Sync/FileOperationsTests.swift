@@ -53,4 +53,43 @@ import Foundation
         
         try #expect(FileSyncManager.validateFileOperation(source: parentDir, destination: URL(fileURLWithPath: "/src/otherFolder")) == ())
     }
+    
+    @MainActor
+    @Test func testRenameFileCollision() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/fileA.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/fileB.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        // Rename A to B, causing a collision
+        await manager.renameItem(at: "/src/fileA.txt", to: "fileB.txt", fileManager: mockFM)
+        
+        let errStr = manager.currentError ?? ""
+        // Ensure error was set since fileB exists and wasn't case only rename
+        #expect(errStr.contains("already exists"))
+        
+        // Both files should still exist intact
+        #expect(mockFM.virtualDisk["/src/fileA.txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/fileB.txt"] != nil)
+    }
+    
+    @MainActor
+    @Test func testCreateFolder() async throws {
+        let manager = FileSyncManager()
+        manager.undoManager = UndoManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        
+        await manager.createFolder(named: "New Folder", in: "/src", fileManager: mockFM)
+        
+        #expect(mockFM.virtualDisk["/src/New Folder"] != nil)
+        #expect(manager.undoManager?.canUndo == true)
+        
+        manager.undoManager?.undo()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        
+        #expect(mockFM.virtualDisk["/src/New Folder"] == nil)
+    }
 }

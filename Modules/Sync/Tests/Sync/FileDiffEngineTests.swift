@@ -129,4 +129,35 @@ import Foundation
         #expect(diffs.first?.relativePath == "empty_folder")
         #expect(diffs.first?.action == .copyToDestination)
     }
+    
+    @Test func testMissingModificationDateFallback() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        // Simulating POSIX attributes or system aliases where modificationDate is missing (nil)
+        let attrSrcSize500: [FileAttributeKey: Any] = [.size: 500] // No date
+        let attrDstSize1000: [FileAttributeKey: Any] = [.size: 1000] // No date
+        
+        mockFM.virtualDisk["/src/nometa.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrSrcSize500, contents: nil)
+        mockFM.virtualDisk["/dst/nometa.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: attrDstSize1000, contents: nil)
+        
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+        
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        
+        // Test that despite missing dates, the size discrepancy forces a sync
+        let diffs = FileDiffEngine.computeDifferences(
+            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
+            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
+            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+        )
+        
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "nometa.txt")
+        #expect(diffs.first?.description == "Sizes differ")
+        #expect(diffs.first?.action == .copyToDestination) // Defaults to source-truth on tie
+    }
 }
