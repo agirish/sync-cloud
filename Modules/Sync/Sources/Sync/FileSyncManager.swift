@@ -8,7 +8,11 @@ import UniformTypeIdentifiers
 /// Tracks active file operations for app-wide termination guards and ensures serialized execution of background tasks.
 @MainActor
 public class FileSyncManager: ObservableObject {
-    public init() {}
+    public let fileManager: FileManaging
+    
+    public init(fileManager: FileManaging = FileManager.default) {
+        self.fileManager = fileManager
+    }
     /// Array of differences calculated between the source and destination directories.
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.

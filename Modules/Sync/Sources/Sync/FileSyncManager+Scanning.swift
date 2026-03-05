@@ -18,7 +18,7 @@ extension FileSyncManager {
             let showHidden = self.showHiddenFiles
             
             let tree = await Task.detached(priority: .background) {
-                return await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden)
+                return await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: self.fileManager)
             }.value
             
             self.prefetchedTrees[path] = tree
@@ -63,8 +63,9 @@ extension FileSyncManager {
             let showHidden = self.showHiddenFiles
             
             // Build the tree in a detached task to ensure no Main Actor blocking
+            let fm = self.fileManager
             let tree = await Task.detached(priority: .userInitiated) {
-                return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden)
+                return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: fm)
             }.value
             
             guard !Task.isCancelled else { return }
@@ -151,9 +152,9 @@ extension FileSyncManager {
                 let sourceURL = URL(fileURLWithPath: (sourcePath as NSString).expandingTildeInPath)
                 let destinationURL = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
                 
-                let showHidden = await MainActor.run { self.showHiddenFiles }
-                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, showHidden: showHidden)
-                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden)
+                let (fm, showHidden) = await MainActor.run { (self.fileManager, self.showHiddenFiles) }
+                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, showHidden: showHidden, fileManager: fm)
+                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden, fileManager: fm)
                 
                 return FileDiffEngine.computeDifferences(
                     source: source,
