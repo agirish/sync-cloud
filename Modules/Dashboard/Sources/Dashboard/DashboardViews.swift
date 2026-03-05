@@ -20,9 +20,9 @@ public struct DashboardHeader: View {
         HStack {
             DashboardMetric(title: "Source Items", value: "\(sourceCount)", icon: "doc.on.doc", color: .blue)
             Divider().frame(height: 30)
-            DashboardMetric(title: "Destination Items", value: "\(destinationCount)", icon: "arrow.down.doc", color: .purple)
-            Divider().frame(height: 30)
             DashboardMetric(title: "Differences", value: "\(differences.count)", icon: "exclamationmark.triangle", color: differences.isEmpty ? .green : .orange)
+            Divider().frame(height: 30)
+            DashboardMetric(title: "Destination Items", value: "\(destinationCount)", icon: "arrow.down.doc", color: .purple)
         }
         .padding()
         .background(.ultraThinMaterial)
