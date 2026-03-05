@@ -37,6 +37,7 @@ struct PaneActionDelegate: FileActionDelegate {
     
     func handleFocus(_ node: FileNode) {}
     func handleCopy(_ nodes: [FileNode]) {}
+    func handleMove(_ nodes: [FileNode]) {}
     func handleDelete(_ nodes: [FileNode]) {}
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
         syncManager.clipboardNodes = nodes
