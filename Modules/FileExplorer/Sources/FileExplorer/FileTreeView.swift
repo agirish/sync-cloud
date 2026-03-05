@@ -3,7 +3,7 @@ import SwiftUI
 import Sync
 
 /// A recursive tree view that displays an interactive file hierarchy for a single CloudProvider pane.
-/// It delegates business logic (drag-and-drop, context menus) to the injected `FileActionHandler` closures.
+/// It delegates business logic to the injected `FileActionDelegate`.
 public struct FileTreeView: View {
     public let tree: [FileNode]
     public let otherTree: [FileNode]
