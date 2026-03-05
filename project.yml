@@ -8,6 +8,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: MacApp
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
     dependencies:
       - package: Sync
       - package: Events
