@@ -3,6 +3,11 @@ import Foundation
 import AppKit
 
 extension FileSyncManager {
+
+    private enum ReplacementBackup {
+        case trash(URL)
+        case temporary(URL)
+    }
     
     // MARK: - Safe Atomic Replacements
     
@@ -87,6 +92,68 @@ extension FileSyncManager {
         
         return newURL
     }
+
+    /// Moves a pre-existing destination out of the way and returns a restorable backup handle.
+    /// Prefers Trash when available; falls back to a temporary in-place move when Trash is unsupported.
+    private nonisolated static func backupDestinationForReplacement(
+        sourceURL: URL,
+        destinationURL: URL,
+        fileManager: FileManaging
+    ) throws -> ReplacementBackup? {
+        guard !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL),
+              fileManager.fileExists(atPath: destinationURL.path) else {
+            return nil
+        }
+
+        var trashedURL: NSURL? = nil
+        do {
+            try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
+            if let trashed = trashedURL as URL? {
+                return .trash(trashed)
+            }
+            return nil
+        } catch {
+            // Some volumes do not support Trash. Keep a temporary rollback copy in-place.
+            let backupURL = destinationURL.deletingLastPathComponent().appendingPathComponent(".rollback_\(UUID().uuidString)")
+            try fileManager.moveItem(at: destinationURL, to: backupURL)
+            return .temporary(backupURL)
+        }
+    }
+
+    /// Attempts to restore destination from backup after a failed replacement.
+    private nonisolated static func rollbackDestination(
+        from backup: ReplacementBackup?,
+        to destinationURL: URL,
+        fileManager: FileManaging
+    ) {
+        guard let backup else { return }
+        try? fileManager.removeItem(at: destinationURL)
+        switch backup {
+        case .trash(let url), .temporary(let url):
+            try? fileManager.moveItem(at: url, to: destinationURL)
+        }
+    }
+
+    /// Finalizes a backup after successful replacement, returning overwritten Trash URL when available.
+    private nonisolated static func finalizeBackup(
+        _ backup: ReplacementBackup?,
+        fileManager: FileManaging
+    ) -> URL? {
+        guard let backup else { return nil }
+
+        switch backup {
+        case .trash(let url):
+            return url
+        case .temporary(let url):
+            // Try to preserve undo ability by moving to Trash; if unavailable, remove temporary backup.
+            var trashedURL: NSURL? = nil
+            if (try? fileManager.trashItem(at: url, resultingItemURL: &trashedURL)) != nil {
+                return trashedURL as URL?
+            }
+            try? fileManager.removeItem(at: url)
+            return nil
+        }
+    }
     
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns the URL of the overwritten item in the Trash, if any.
@@ -94,43 +161,22 @@ extension FileSyncManager {
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
-        var trashedOriginal: URL? = nil
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
         
         defer { try? fileManager.removeItem(at: tempURL) }
         
         try fileManager.copyItem(at: sourceURL, to: tempURL)
-        
-        // Setup completion tracker to rollback if the final atomic swap fails
-        var requiresRollback = false
-        
-        if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
-            var trashedURL: NSURL? = nil
-            do {
-                try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
-                trashedOriginal = trashedURL as URL?
-                requiresRollback = true
-            } catch {
-                // Some volumes do not support Trash. Fall back to a direct remove so replacement can still complete.
-                try fileManager.removeItem(at: destinationURL)
-                trashedOriginal = nil
-                requiresRollback = false
-            }
-        }
+        let backup = try backupDestinationForReplacement(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
         
         do {
             try fileManager.moveItem(at: tempURL, to: destinationURL)
         } catch {
-            if requiresRollback, let trashedURL = trashedOriginal {
-                // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
-                try? fileManager.removeItem(at: destinationURL)
-                try? fileManager.moveItem(at: trashedURL, to: destinationURL)
-            }
+            rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
             throw error
         }
         
-        return trashedOriginal
+        return finalizeBackup(backup, fileManager: fileManager)
     }
     
     /// Safely moves a file, atomically replacing the destination if it exists.
@@ -139,22 +185,7 @@ extension FileSyncManager {
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
-        var trashedOriginal: URL? = nil
-        var requiresRollback = false
-        
-        if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
-            var trashedURL: NSURL? = nil
-            do {
-                try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
-                trashedOriginal = trashedURL as URL?
-                requiresRollback = true
-            } catch {
-                // Some volumes do not support Trash. Fall back to a direct remove so replacement can still complete.
-                try fileManager.removeItem(at: destinationURL)
-                trashedOriginal = nil
-                requiresRollback = false
-            }
-        }
+        let backup = try backupDestinationForReplacement(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
         
         do {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
@@ -167,27 +198,23 @@ extension FileSyncManager {
             
             defer { try? fileManager.removeItem(at: tempURL) }
             
-            do {
-                try fileManager.copyItem(at: sourceURL, to: tempURL)
-                try fileManager.moveItem(at: tempURL, to: destinationURL)
+                do {
+                    try fileManager.copyItem(at: sourceURL, to: tempURL)
+                    try fileManager.moveItem(at: tempURL, to: destinationURL)
                 
                 // Cleanup source: Try trash first, fall back to direct remove if volume doesn't support trash.
                 do {
                     try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
-                } catch {
-                    try? fileManager.removeItem(at: sourceURL)
+                    } catch {
+                        try? fileManager.removeItem(at: sourceURL)
+                    }
+                } catch let fallbackError {
+                    rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
+                    throw fallbackError
                 }
-            } catch let fallbackError {
-                if requiresRollback, let trashedURL = trashedOriginal {
-                    // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
-                    try? fileManager.removeItem(at: destinationURL)
-                    try? fileManager.moveItem(at: trashedURL, to: destinationURL)
-                }
-                throw fallbackError
-            }
         }
         
-        return trashedOriginal
+        return finalizeBackup(backup, fileManager: fileManager)
     }
     
     

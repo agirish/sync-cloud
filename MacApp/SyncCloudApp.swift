@@ -14,10 +14,6 @@ struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager: FileSyncManager
     
-    private var isRunningUnitTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-    }
-    
     init() {
         let manager = FileSyncManager()
         _syncManager = StateObject(wrappedValue: manager)
@@ -28,12 +24,8 @@ struct SyncCloudApp: App {
     
     var body: some Scene {
         WindowGroup {
-            if isRunningUnitTests {
-                Color.clear
-            } else {
-                ContentView(syncManager: syncManager)
-                    .environmentObject(Logger.shared)
-            }
+            ContentView(syncManager: syncManager)
+                .environmentObject(Logger.shared)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
