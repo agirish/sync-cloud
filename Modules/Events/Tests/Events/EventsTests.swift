@@ -40,4 +40,28 @@ import Foundation
         #expect(logger.entries.count == 1000)
         #expect(logger.entries.first?.message == "Message 100") // 1100 - 1000 = 100 offset
     }
+    
+    @MainActor
+    @Test func testConcurrentLoggingThreadSafety() async throws {
+        let logger = Logger.shared
+        logger.clearLogs()
+        
+        let taskCount = 10
+        let logsPerTask = 50
+        
+        let prefix = "CONCURRENCY_TEST_"
+        // Use a TaskGroup for high parallelism
+        await withTaskGroup(of: Void.self) { group in
+            for t in 0..<taskCount {
+                group.addTask {
+                    for i in 0..<logsPerTask {
+                        await logger.info("\(prefix)Task \(t) - Log \(i)")
+                    }
+                }
+            }
+        }
+        
+        let filteredCount = logger.entries.filter { $0.message.hasPrefix(prefix) }.count
+        #expect(filteredCount == taskCount * logsPerTask)
+    }
 }

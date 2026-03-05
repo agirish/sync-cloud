@@ -160,4 +160,30 @@ import Foundation
         #expect(diffs.first?.description == "Sizes differ")
         #expect(diffs.first?.action == .copyToDestination) // Defaults to source-truth on tie
     }
+    
+    @Test func testDeepNestedDirectorySync() async throws {
+        let mockFM = MockFileManager()
+        let root = URL(fileURLWithPath: "/src")
+        try mockFM.createDirectory(at: root, withIntermediateDirectories: true)
+        
+        // Create 10 levels of nesting
+        var currentURL = root
+        for i in 1...10 {
+            currentURL = currentURL.appendingPathComponent("level_\(i)")
+            try mockFM.createDirectory(at: currentURL, withIntermediateDirectories: true)
+            
+            // Add a file at each level
+            let fileURL = currentURL.appendingPathComponent("file_\(i).txt")
+            mockFM.virtualDisk[fileURL.path] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+        
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(root, fileManager: mockFM)
+        
+        // Should find 10 files and 10 directories (excluding root)
+        // Note: the engine returns a flat dictionary of relative paths
+        #expect(srcFiles.count == 20)
+        
+        // Verify a deep file is present
+        #expect(srcFiles["level_1/level_2/level_3/level_4/level_5/level_6/level_7/level_8/level_9/level_10/file_10.txt"] != nil)
+    }
 }

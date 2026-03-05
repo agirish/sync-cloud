@@ -41,4 +41,41 @@ import Foundation
         
         #expect(sidebar.activePath == "/dst/fallback")
     }
+    
+    @MainActor
+    @Test func testMultiSelectionAcrossPanes() async throws {
+        let manager = FileSyncManager()
+        let sidebar = DetailsSidebar(syncManager: manager, sourcePath: "/src", destPath: "/dst")
+        
+        // Select multiple in Source
+        manager.selectedSourcePaths = ["/src/a.txt", "/src/b.txt"]
+        // Select one in Dest
+        manager.selectedDestinationPaths = ["/dst/c.txt"]
+        
+        // activePath should favor the first element of Source selection
+        #expect(sidebar.activePath == "/src/a.txt")
+        
+        // Clear Source -> should favor Dest
+        manager.selectedSourcePaths = []
+        #expect(sidebar.activePath == "/dst/c.txt")
+    }
+    
+    @MainActor
+    @Test func testSelectionPruningOnDeepMove() async throws {
+        let manager = FileSyncManager()
+        
+        let file1 = FileNode(id: "/src/folder/file1.txt", name: "file1.txt", isDirectory: false)
+        let folder = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [file1])
+        manager.sourceTree = [folder]
+        
+        // Select both folder and its child
+        manager.selectedSourcePaths = ["/src/folder", "/src/folder/file1.txt"]
+        
+        // Simulate "Move" or "Delete" that removes the folder
+        manager.sourceTree = []
+        manager.pruneSelection()
+        
+        // Both should be gone
+        #expect(manager.selectedSourcePaths.isEmpty)
+    }
 }

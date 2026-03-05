@@ -187,4 +187,39 @@ import Foundation
         // We mainly verify it doesn't hang or crash.
         #expect(manager.activeRefreshTask != nil)
     }
+    
+    @MainActor
+    @Test func testConcurrentFileOperationsStress() async throws {
+        actor Counter {
+            var value = 0
+            func increment() { value += 1 }
+            func get() -> Int { value }
+        }
+        
+        let manager = FileSyncManager()
+        let operationCount = 50
+        let counter = Counter()
+        
+        // Enqueue 50 fast operations
+        for _ in 0..<operationCount {
+            Task {
+                await manager.enqueueFileOperation {
+                    // Minimal work
+                    try? await Task.sleep(nanoseconds: 1_000_000) // 1ms
+                    await counter.increment()
+                }
+            }
+        }
+        
+        // Wait for all to finish. We use a timeout approach.
+        let start = Date()
+        var currentCount = 0
+        while currentCount < operationCount && Date().timeIntervalSince(start) < 5.0 {
+            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+            currentCount = await counter.get()
+        }
+        
+        #expect(currentCount == operationCount)
+        #expect(manager.activeFileOperationsCount == 0)
+    }
 }

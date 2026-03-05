@@ -29,4 +29,9 @@ import Foundation
         
         #expect(settings.path(for: "iCloud") != testPath)
     }
+    
+    @Test @MainActor func testPathForMissingProvider() async throws {
+        let settings = SettingsManager()
+        #expect(settings.path(for: "NonExistent") == "")
+    }
 }
