@@ -33,17 +33,20 @@ public struct FileTreeView: View {
     public var body: some View {
         ZStack {
             List(selection: $selection) {
-                ForEach(tree) { node in
-                    RecursiveFileNodeView(
-                        node: node,
-                        selection: $selection,
-                        expandedPaths: $expandedPaths,
-                        tree: tree,
-                        otherTree: otherTree,
-                        otherSelection: otherSelection,
-                        isSource: isSource,
-                        delegate: delegate
-                    )
+                OutlineGroup(tree, children: \.children) { node in
+                    FileRowView(node: node)
+                        .tag(node.id)
+                        .contextMenu {
+                            FileContextMenu(
+                                node: node,
+                                selection: selection,
+                                tree: tree,
+                                otherTree: otherTree,
+                                otherSelection: otherSelection,
+                                isSource: isSource,
+                                delegate: delegate
+                            )
+                        }
                 }
             }
             .listStyle(SidebarListStyle())
@@ -123,7 +126,7 @@ struct FileContextMenu: View {
     let delegate: FileActionDelegate
     
     var body: some View {
-        let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : selection)
+        let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : (selection.contains(node.id) ? selection : Set([node.id])))
         let count = selectedNodes.count
         
         Group {
@@ -209,69 +212,5 @@ struct FileRowView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-    }
-}
-
-/// Recursively evaluates and creates `DisclosureGroup` lists for deep directory views.
-/// Delegates operation requests (like Cut, Copy, Paste, Delete, Rename) to the injected `FileActionDelegate`.
-struct RecursiveFileNodeView: View {
-    let node: FileNode
-    @Binding var selection: Set<String>
-    @Binding var expandedPaths: Set<String>
-    let tree: [FileNode]
-    let otherTree: [FileNode]
-    let otherSelection: Set<String>
-    let isSource: Bool
-    let delegate: FileActionDelegate
-    
-    var isExpanded: Binding<Bool> {
-        Binding(
-            get: { expandedPaths.contains(node.id) },
-            set: { isExpanding in
-                if isExpanding {
-                    expandedPaths.insert(node.id)
-                } else {
-                    expandedPaths.remove(node.id)
-                }
-            }
-        )
-    }
-    
-    var nodeContextMenu: some View {
-        FileContextMenu(
-            node: node,
-            selection: selection,
-            tree: tree,
-            otherTree: otherTree,
-            otherSelection: otherSelection,
-            isSource: isSource,
-            delegate: delegate
-        )
-    }
-    
-    var body: some View {
-        if let children = node.children, !children.isEmpty {
-            DisclosureGroup(isExpanded: isExpanded) {
-                ForEach(children) { child in
-                    RecursiveFileNodeView(
-                        node: child,
-                        selection: $selection,
-                        expandedPaths: $expandedPaths,
-                        tree: tree,
-                        otherTree: otherTree,
-                        otherSelection: otherSelection,
-                        isSource: isSource,
-                        delegate: delegate
-                    )
-                }
-            } label: {
-                FileRowView(node: node).tag(node.id)
-            }
-            .contextMenu { nodeContextMenu }
-        } else {
-            // Leaf node or empty directory
-            FileRowView(node: node).tag(node.id)
-                .contextMenu { nodeContextMenu }
-        }
     }
 }

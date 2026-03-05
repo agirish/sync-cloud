@@ -28,21 +28,23 @@ extension FileSyncManager {
             throw FileOperationError.identicalSourceAndDestination
         }
         
-        if dst.hasPrefix(src + "/") {
+        // Ensure trailing slash for prefix check to avoid /a matching /abc
+        let srcWithSlash = src.hasSuffix("/") ? src : src + "/"
+        if dst.hasPrefix(srcWithSlash) {
             throw FileOperationError.nestingViolation
         }
     }
     
     // MARK: - Collision Resolution
     
-    enum CollisionResolution {
+    public enum CollisionResolution: Sendable {
         case replace
         case keepBoth
         case skip
     }
     
     @MainActor
-    private static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
+    public static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
         let alert = NSAlert()
         alert.messageText = "An item named \"\(fileName)\" already exists in this location."
         alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
@@ -201,7 +203,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: false) }
+                    let resolution = await self.collisionResolver(tName, false)
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -264,7 +266,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: true) }
+                    let resolution = await self.collisionResolver(tName, true)
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -316,7 +318,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: false) }
+                    let resolution = await self.collisionResolver(tName, false)
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -368,7 +370,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: true) }
+                    let resolution = await self.collisionResolver(tName, true)
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -471,7 +473,16 @@ extension FileSyncManager {
             var trashedItems: [(original: URL, trashed: URL?)] = []
             var trashFailures: [URL] = []
             
-            for path in paths {
+            // Prune nested paths to avoid redundant operations on children if parent is trashed
+            let sortedPaths = paths.sorted { $0.count < $1.count }
+            var prunedPaths: [String] = []
+            for path in sortedPaths {
+                if !prunedPaths.contains(where: { path.hasPrefix($0 + "/") }) {
+                    prunedPaths.append(path)
+                }
+            }
+            
+            for path in prunedPaths {
                 if fm.fileExists(atPath: path) {
                     let url = URL(fileURLWithPath: path)
                     var trashedURL: NSURL? = nil

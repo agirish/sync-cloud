@@ -12,6 +12,12 @@ public class FileSyncManager: ObservableObject {
     /// Can be injected to support testing via `MockFileManager`.
     public let fileManager: FileManaging
     
+    /// A closure that resolves naming collisions during file operations.
+    /// In production, this typically shows an NSAlert. In tests, it can be mocked to return specific resolutions.
+    public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { fileName, isMove in
+        return promptForCollision(fileName: fileName, isMove: isMove)
+    }
+    
     /// Initializes a new FileSyncManager with a specific file manager.
     /// - Parameter fileManager: The file manager to use. Defaults to `FileManager.default`.
     public init(fileManager: FileManaging = FileManager.default) {
@@ -33,6 +39,7 @@ public class FileSyncManager: ObservableObject {
             // Re-sort current trees globally when option changes
             sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
             destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
+            pruneSelection()
         }
     }
     
@@ -45,9 +52,13 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Internal representation of the loaded file structure for the source provider.
-    @Published public var sourceTree: [FileNode] = []
+    @Published public var sourceTree: [FileNode] = [] {
+        didSet { pruneSelection() }
+    }
     /// Internal representation of the loaded file structure for the destination provider.
-    @Published public var destinationTree: [FileNode] = []
+    @Published public var destinationTree: [FileNode] = [] {
+        didSet { pruneSelection() }
+    }
     @Published public var isLoadingSourceTree = false
     @Published public var isLoadingDestinationTree = false
     
@@ -107,7 +118,6 @@ public class FileSyncManager: ObservableObject {
             let res = await operation()
             await MainActor.run { [weak self] in 
                 self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
-                self?.pruneSelection()
                 self?.refreshSubject.send() 
             }
             return res
@@ -193,22 +203,23 @@ public class FileSyncManager: ObservableObject {
     /// Prunes the selection sets to remove any paths that are no longer present in the trees.
     /// This prevents "ghost" selection markers when files are moved or deleted.
     public func pruneSelection() {
-        let allSourcePaths = Set(getAllPaths(in: sourceTree))
-        let allDestPaths = Set(getAllPaths(in: destinationTree))
+        var allSourcePaths = Set<String>()
+        var allDestPaths = Set<String>()
+        
+        collectPaths(in: sourceTree, into: &allSourcePaths)
+        collectPaths(in: destinationTree, into: &allDestPaths)
         
         selectedSourcePaths = selectedSourcePaths.filter { allSourcePaths.contains($0) }
         selectedDestinationPaths = selectedDestinationPaths.filter { allDestPaths.contains($0) }
     }
     
-    private func getAllPaths(in tree: [FileNode]) -> [String] {
-        var paths: [String] = []
+    private func collectPaths(in tree: [FileNode], into paths: inout Set<String>) {
         for node in tree {
-            paths.append(node.id)
+            paths.insert(node.id)
             if let children = node.children {
-                paths.append(contentsOf: getAllPaths(in: children))
+                collectPaths(in: children, into: &paths)
             }
         }
-        return paths
     }
 
     // Implementations moved to FileOperations.swift
