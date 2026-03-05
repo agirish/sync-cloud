@@ -33,9 +33,9 @@ public struct DetailsSidebar: View {
     /// The absolute path of the file or folder currently being inspected.
     /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Source or Destination).
     internal var activePath: String {
-        if let sourceSelection = syncManager.selectedSourcePaths.first {
+        if let sourceSelection = syncManager.selectedSourcePaths.sorted().first {
             return sourceSelection
-        } else if let destSelection = syncManager.selectedDestinationPaths.first {
+        } else if let destSelection = syncManager.selectedDestinationPaths.sorted().first {
             return destSelection
         }
         
