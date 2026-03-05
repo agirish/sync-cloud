@@ -8,12 +8,17 @@ import UniformTypeIdentifiers
 /// Tracks active file operations for app-wide termination guards and ensures serialized execution of background tasks.
 @MainActor
 public class FileSyncManager: ObservableObject {
+    /// The file manager used for all disk operations.
+    /// Can be injected to support testing via `MockFileManager`.
     public let fileManager: FileManaging
     
+    /// Initializes a new FileSyncManager with a specific file manager.
+    /// - Parameter fileManager: The file manager to use. Defaults to `FileManager.default`.
     public init(fileManager: FileManaging = FileManager.default) {
         self.fileManager = fileManager
     }
-    /// Array of differences calculated between the source and destination directories.
+    
+    /// Array of differences calculated between the source and destination directories after a scan.
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
@@ -46,7 +51,9 @@ public class FileSyncManager: ObservableObject {
     @Published public var isLoadingSourceTree = false
     @Published public var isLoadingDestinationTree = false
     
+    /// Total number of recursive items found in the source directory.
     @Published public var sourceItemCount = 0
+    /// Total number of recursive items found in the destination directory.
     @Published public var destinationItemCount = 0
     
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
@@ -109,16 +116,25 @@ public class FileSyncManager: ObservableObject {
         return await newTask.value
     }
     
-    /// Tracks the navigational history across both panes.
+    /// Navigates through the navigational history across both panes.
     public var history: [(source: String, dest: String)] = [("", "")]
+    /// Current index in the navigation history stack.
     public var historyIndex: Int = 0
     
+    /// Indicates if the user can navigate back in history.
     @Published public var canGoBack: Bool = false
+    /// Indicates if the user can navigate forward in history.
     @Published public var canGoForward: Bool = false
     
     // Navigation and Scanning methods moved to extensions
     
-    public func syncFile(_ difference: FileDifference, fileManager: FileManaging = FileManager.default) async {
+    /// Synchronizes a specific file difference between source and destination.
+    /// Marks the difference as `isSyncing` and enqueues a safe copy operation.
+    /// - Parameters:
+    ///   - difference: The model representing the discrepancy to resolve.
+    ///   - fileManager: The file manager to use for the sync (defaults to `self.fileManager`).
+    public func syncFile(_ difference: FileDifference, fileManager: FileManaging? = nil) async {
+        let fm = fileManager ?? self.fileManager
         // Find the difference in our array and mark it as syncing
         if let index = differences.firstIndex(where: { $0.id == difference.id }) {
             differences[index].isSyncing = true

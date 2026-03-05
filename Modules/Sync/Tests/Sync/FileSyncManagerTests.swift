@@ -243,4 +243,37 @@ import Foundation
         manager.sortOption = .size
         #expect(manager.prefetchedTrees.isEmpty)
     }
+
+    @MainActor
+    @Test func testScanFailureHandling() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        
+        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", path: "/tmp/p1", type: .iCloud)
+        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", path: "/tmp/p2", type: .iCloud)
+        
+        // Simulate a directory that doesn't exist to trigger an error in scanDirectories
+        await manager.scanDirectories(source: provider1, sourcePath: "/non-existent", destination: provider2, destinationPath: "/tmp/p2")
+        
+        #expect(manager.differences.isEmpty)
+        #expect(!manager.isScanning)
+        #expect(manager.hasScanned) // Successfully completed with []
+    }
+    
+    @MainActor
+    @Test func testLoadingStateAccuracy() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        
+        // Start loading and check state
+        let task = Task { await manager.loadTree(path: "/src", isSource: true) }
+        
+        // Yield to allow task to start
+        try await Task.sleep(nanoseconds: 10_000_000)
+        #expect(manager.isLoadingSourceTree)
+        
+        await task.value
+        #expect(!manager.isLoadingSourceTree)
+    }
 }

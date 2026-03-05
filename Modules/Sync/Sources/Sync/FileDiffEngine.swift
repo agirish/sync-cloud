@@ -5,14 +5,25 @@ import Events
 /// Extracts heavy O(N) file system scanning and Date comparison logic out of the UI-bound SyncManager.
 public struct FileDiffEngine {
     
+    /// Lightweight metadata structure for individual files used during differential comparison.
     public struct FileInfo: Sendable {
+        /// The absolute URL of the file.
         public let url: URL
+        /// The modification date on the disk.
         public let modificationDate: Date?
+        /// The size of the file in bytes.
         public let fileSize: Int?
+        /// True if the item is a directory.
         public let isDirectory: Bool
     }
     
-    /// Recursively scans a directory and caches the .contentModificationDateKey for high-performance O(1) diffing.
+    /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
+    /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
+    /// - Parameters:
+    ///   - url: The root directory URL to scan.
+    ///   - showHidden: Whether to include files starting with '.' (e.g. .DS_Store).
+    ///   - fileManager: The file manager to use for scanning (supports injected mocks).
+    /// - Returns: A map of relative paths to `FileInfo` metadata.
     public static func getFilesInDirectory(_ url: URL, showHidden: Bool = false, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
         let options: FileManager.DirectoryEnumerationOptions = showHidden ? [] : [.skipsHiddenFiles]
@@ -76,7 +87,16 @@ public struct FileDiffEngine {
         return result
     }
     
-    /// Computes the exact synchronization differences between a Source and Destination dictionary.
+    /// Computes the exact synchronization differences between Source and Destination file sets.
+    /// Resolves discrepancies by comparing modification dates and file sizes.
+    /// - Parameters:
+    ///   - source: The source cloud provider model.
+    ///   - sourceURL: The absolute URL to the source root.
+    ///   - destination: The destination cloud provider model.
+    ///   - destinationURL: The absolute URL to the destination root.
+    ///   - sourceFilesInfo: Pre-scanned metadata for the source pane.
+    ///   - destinationFilesInfo: Pre-scanned metadata for the destination pane.
+    /// - Returns: A sorted list of `FileDifference` objects ready for UI display and synchronization.
     public static func computeDifferences(
         source: CloudProvider,
         sourceURL: URL,

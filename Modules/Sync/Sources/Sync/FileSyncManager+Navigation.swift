@@ -66,7 +66,7 @@ extension FileSyncManager {
         if relativePath.isEmpty { return "" }
         let fullPath = (rootPath as NSString).expandingTildeInPath + "/" + relativePath
         var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
+        if self.fileManager.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
             return relativePath
         }
         // If exact match not found, don't reset to root if we were already elsewhere

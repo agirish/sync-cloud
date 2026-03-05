@@ -2,18 +2,37 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// An in-memory representation of a file or directory mapped from a local or cloud path
+/// An in-memory representation of a file or directory mapped from a local or cloud path.
+/// Includes metadata used for UI display, sorting, and differential scanning.
 public struct FileNode: Identifiable, Hashable, Codable {
-    public let id: String // Absolute path
+    /// The absolute path of the file or directory on the local filesystem.
+    public let id: String
+    /// The display name of the item.
     public let name: String
+    /// True if the node represents a directory.
     public let isDirectory: Bool
+    /// Optional array of child nodes if this node is a directory.
     public var children: [FileNode]?
+    /// The last modified date, used for differential calculation in the Sync engine.
     public var modificationDate: Date?
+    /// The file size in bytes.
     public var fileSize: Int?
+    /// Custom metadata tags (e.g. from macOS Finder).
     public var tags: [String]?
+    /// The human-readable file type or kind (e.g. "PNG image").
     public var kind: String?
     
-    public init(id: String, name: String, isDirectory: Bool, children: [FileNode]? = nil, modificationDate: Date? = nil, fileSize: Int? = nil, tags: [String]? = nil, kind: String? = nil) {
+    /// Initializes a new FileNode with optional metadata.
+    public init(
+        id: String, 
+        name: String, 
+        isDirectory: Bool, 
+        children: [FileNode]? = nil, 
+        modificationDate: Date? = nil, 
+        fileSize: Int? = nil, 
+        tags: [String]? = nil, 
+        kind: String? = nil
+    ) {
         self.id = id
         self.name = name
         self.isDirectory = isDirectory
