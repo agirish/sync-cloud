@@ -151,8 +151,9 @@ extension FileSyncManager {
                 let sourceURL = URL(fileURLWithPath: (sourcePath as NSString).expandingTildeInPath)
                 let destinationURL = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
                 
-                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL)
-                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL)
+                let showHidden = await MainActor.run { self.showHiddenFiles }
+                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, showHidden: showHidden)
+                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden)
                 
                 return FileDiffEngine.computeDifferences(
                     source: source,

@@ -139,7 +139,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         
         for (key, _) in virtualDisk {
             if key.hasPrefix(root) && key != root {
-                allChildren.append(URL(fileURLWithPath: key))
+                let url = URL(fileURLWithPath: key)
+                if mask.contains(.skipsHiddenFiles) && url.lastPathComponent.hasPrefix(".") {
+                    continue
+                }
+                allChildren.append(url)
             }
         }
         

@@ -67,7 +67,7 @@ public struct NavigationToolbar: View {
             }
             .toggleStyle(.button)
             .help("Toggle visibility of hidden files")
-            .onChange(of: syncManager.showHiddenFiles) {
+            .onChange(of: syncManager.showHiddenFiles) { _, _ in
                 refreshAction()
             }
         }

@@ -222,4 +222,25 @@ import Foundation
         #expect(currentCount == operationCount)
         #expect(manager.activeFileOperationsCount == 0)
     }
+    
+    @MainActor
+    @Test func testCacheInvalidationOnToggle() async throws {
+        let manager = FileSyncManager()
+        
+        // 1. Fill cache
+        manager.prefetchedTrees["/src"] = [FileNode(id: "/src/a", name: "a", isDirectory: false)]
+        #expect(!manager.prefetchedTrees.isEmpty)
+        
+        // 2. Toggle hidden files -> should clear cache
+        manager.showHiddenFiles = true
+        #expect(manager.prefetchedTrees.isEmpty)
+        
+        // 3. Fill again
+        manager.prefetchedTrees["/src"] = [FileNode(id: "/src/a", name: "a", isDirectory: false)]
+        #expect(!manager.prefetchedTrees.isEmpty)
+        
+        // 4. Change sort option -> should clear cache
+        manager.sortOption = .size
+        #expect(manager.prefetchedTrees.isEmpty)
+    }
 }

@@ -19,14 +19,21 @@ public class FileSyncManager: ObservableObject {
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
         didSet {
-            // Re-sort trees globally when option changes
+            // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
+            prefetchedTrees.removeAll()
+            // Re-sort current trees globally when option changes
             sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
             destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
         }
     }
     
     /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)
-    @Published public var showHiddenFiles: Bool = false
+    @Published public var showHiddenFiles: Bool = false {
+        didSet {
+            // CRITICAL: Cache must be invalidated because hidden files change the tree structure itself
+            prefetchedTrees.removeAll()
+        }
+    }
     
     /// Internal representation of the loaded file structure for the source provider.
     @Published public var sourceTree: [FileNode] = []

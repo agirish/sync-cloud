@@ -186,4 +186,23 @@ import Foundation
         // Verify a deep file is present
         #expect(srcFiles["level_1/level_2/level_3/level_4/level_5/level_6/level_7/level_8/level_9/level_10/file_10.txt"] != nil)
     }
+
+    @Test func testHiddenFilesDetection() async throws {
+        let mockFM = MockFileManager()
+        let root = URL(fileURLWithPath: "/src")
+        try mockFM.createDirectory(at: root, withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/.gitignore"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/visible.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        // 1. Default (Hidden files skipped)
+        let hiddenSkipped = try FileDiffEngine.getFilesInDirectory(root, showHidden: false, fileManager: mockFM)
+        #expect(hiddenSkipped.count == 1)
+        #expect(hiddenSkipped[".gitignore"] == nil)
+        
+        // 2. Show Hidden enabled
+        let hiddenShown = try FileDiffEngine.getFilesInDirectory(root, showHidden: true, fileManager: mockFM)
+        #expect(hiddenShown.count == 2)
+        #expect(hiddenShown[".gitignore"] != nil)
+    }
 }

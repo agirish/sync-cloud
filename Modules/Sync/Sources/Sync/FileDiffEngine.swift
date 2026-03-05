@@ -13,9 +13,10 @@ public struct FileDiffEngine {
     }
     
     /// Recursively scans a directory and caches the .contentModificationDateKey for high-performance O(1) diffing.
-    public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
+    public static func getFilesInDirectory(_ url: URL, showHidden: Bool = false, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
-        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
+        let options: FileManager.DirectoryEnumerationOptions = showHidden ? [] : [.skipsHiddenFiles]
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: options) else {
             return [:]
         }
         
