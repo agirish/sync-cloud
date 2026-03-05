@@ -114,29 +114,29 @@ struct ContentView: View {
             }
             refreshAction()
         }
-        .onChange(of: sourceProviderId) {
+        .onChange(of: sourceProviderId) { _, _ in
             syncManager.selectedSourcePaths = []
             syncManager.sourceRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: destinationProviderId) {
+        .onChange(of: destinationProviderId) { _, _ in
             syncManager.selectedDestinationPaths = []
             syncManager.destRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: syncManager.selectedSourcePaths) { paths in
+        .onChange(of: syncManager.selectedSourcePaths) { _, paths in
             if !paths.isEmpty && showingBottomPane {
                 withAnimation { selectedBottomTab = .details }
             }
         }
-        .onChange(of: syncManager.selectedDestinationPaths) { paths in
+        .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
             if !paths.isEmpty && showingBottomPane {
                 withAnimation { selectedBottomTab = .details }
             }
         }
-        .onChange(of: settings.availableProviders) {
+        .onChange(of: settings.availableProviders) { _, _ in
             Task {
                 await syncManager.prefetch(providers: settings.availableProviders)
             }

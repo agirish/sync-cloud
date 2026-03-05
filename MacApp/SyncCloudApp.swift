@@ -32,4 +32,26 @@ struct SyncCloudApp: App {
 /// A custom app delegate for SyncCloud to handle macOS system events.
 /// Implements `applicationShouldTerminate` to prevent accidental quitting during active file operations.
 class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
+    /// Reference to the shared sync manager for checking active operations.
+    var syncManager: FileSyncManager?
+    
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let manager = syncManager, manager.activeFileOperationsCount > 0 else {
+            return .terminateNow
+        }
+        
+        let alert = NSAlert()
+        alert.messageText = "File Operations in Progress"
+        alert.informativeText = "Quitting now may cause data corruption or partial synchronization. Are you sure you want to quit?"
+        alert.addButton(withTitle: "Wait")
+        alert.addButton(withTitle: "Quit Anyway")
+        alert.alertStyle = .warning
+        
+        let response = alert.runModal()
+        if response == .alertSecondButtonReturn {
+            return .terminateNow
+        } else {
+            return .terminateCancel
+        }
+    }
 }
