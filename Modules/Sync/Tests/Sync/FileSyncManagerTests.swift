@@ -76,7 +76,6 @@ import Foundation
         manager.undoManager = UndoManager()
         
         let mockFM = MockFileManager()
-        let url = URL(fileURLWithPath: "/src/delete_me.txt")
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/delete_me.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         
@@ -338,5 +337,30 @@ import Foundation
         // Should exist in destination but NOT source (Moved)
         #expect(mockFM.virtualDisk["/src/test_move.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] != nil)
+    }
+    
+    @MainActor
+    @Test func testMockEnumeratorSkipsSubdirectoryDescendants() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/folder/child.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        let en = mockFM.enumerator(
+            at: URL(fileURLWithPath: "/src"),
+            includingPropertiesForKeys: nil,
+            options: [.skipsSubdirectoryDescendants],
+            errorHandler: nil
+        )
+        
+        var paths: [String] = []
+        if let en {
+            while let next = en.nextObject() as? URL {
+                paths.append(next.path)
+            }
+        }
+        
+        #expect(paths.contains("/src/folder"))
+        #expect(!paths.contains("/src/folder/child.txt"))
     }
 }

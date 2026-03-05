@@ -85,4 +85,19 @@ import Foundation
         #expect(manager.sourceRelativePath == "common")
         #expect(manager.destRelativePath == "common")
     }
+    
+    @MainActor
+    @Test func testNonMatchingPathFallsBackToRoot() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/photos"), withIntermediateDirectories: true)
+        // Destination intentionally does not have /dst/photos
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        manager.focusOn(relativePath: "photos", isSource: true, otherProviderPath: "/dst")
+        
+        #expect(manager.sourceRelativePath == "photos")
+        #expect(manager.destRelativePath == "")
+    }
 }

@@ -1,6 +1,11 @@
 import Testing
 @testable import Settings
 
-@Test func example() async throws {
-    // Write your test here and use APIs like `#expect(...)` to check expected conditions.
+@MainActor
+@Test func testResetPathKeepsProviderDiscoverable() async throws {
+    let settings = SettingsManager()
+    settings.resetPath(for: "iCloud")
+    
+    try await Task.sleep(for: .milliseconds(100))
+    #expect(settings.availableProviders.contains(where: { $0.id == "iCloud" }))
 }

@@ -1,6 +1,10 @@
 import SwiftUI
 import Sync
 import Events
+import AppIntents
+
+// Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
+private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 
 @main
 /// The main entry point for the SyncCloud macOS application.
@@ -10,13 +14,21 @@ struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager = FileSyncManager()
     
+    private var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+    
     var body: some Scene {
         WindowGroup {
-            ContentView(syncManager: syncManager)
-                .environmentObject(Logger.shared)
-                .onAppear {
-                    appDelegate.syncManager = syncManager
-                }
+            if isRunningUnitTests {
+                Color.clear
+            } else {
+                ContentView(syncManager: syncManager)
+                    .environmentObject(Logger.shared)
+                    .onAppear {
+                        appDelegate.syncManager = syncManager
+                    }
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)

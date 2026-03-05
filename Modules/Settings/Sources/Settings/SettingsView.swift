@@ -80,7 +80,7 @@ public struct SettingsView: View {
 struct ProviderCard: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
-    @State private var isHovered = false
+    @State private var draftPath: String = ""
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -137,10 +137,7 @@ struct ProviderCard: View {
             
             // Path Input Area
             HStack(spacing: 12) {
-                TextField("Synchronized Path", text: Binding(
-                    get: { provider.path },
-                    set: { settings.setPath($0, for: provider.id) }
-                ))
+                TextField("Synchronized Path", text: $draftPath)
                 .textFieldStyle(.plain)
                 .font(.system(.body, design: .monospaced))
                 .padding(10)
@@ -150,6 +147,18 @@ struct ProviderCard: View {
                     RoundedRectangle(cornerRadius: 8)
                         .stroke(.white.opacity(0.1), lineWidth: 1)
                 )
+                .onSubmit { commitPath() }
+                
+                Button(action: { commitPath() }) {
+                    Text("Save")
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(draftPath == provider.path ? Color.secondary.opacity(0.25) : Color.accentColor)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                }
+                .buttonStyle(.plain)
+                .disabled(draftPath == provider.path)
                 
                 Button(action: { selectDirectory() }) {
                     HStack {
@@ -174,9 +183,12 @@ struct ProviderCard: View {
                         .stroke(.white.opacity(0.07), lineWidth: 1)
                 )
         )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                isHovered = hovering
+        .onAppear {
+            draftPath = provider.path
+        }
+        .onChange(of: provider.path) { _, updated in
+            if draftPath != updated {
+                draftPath = updated
             }
         }
     }
@@ -195,18 +207,27 @@ struct ProviderCard: View {
         
         if panel.runModal() == .OK {
             if let url = panel.url {
-                settings.setPath(url.path, for: provider.id)
+                draftPath = url.path
+                commitPath()
             }
         }
     }
     
     private func resetToDefault() {
+        draftPath = ""
         settings.resetPath(for: provider.id)
     }
     
     private func openInFinder() {
         let url = URL(fileURLWithPath: (provider.path as NSString).expandingTildeInPath)
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
+    }
+    
+    private func commitPath() {
+        let normalized = draftPath.trimmingCharacters(in: .newlines)
+        draftPath = normalized
+        guard normalized != provider.path else { return }
+        settings.setPath(normalized, for: provider.id)
     }
 }
 
@@ -250,4 +271,3 @@ struct VisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
-

@@ -34,11 +34,9 @@ final class ModifierTracker: ObservableObject {
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
-    public let refreshAction: () -> Void
     
-    public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
+    public init(syncManager: FileSyncManager) {
         self.syncManager = syncManager
-        self.refreshAction = refreshAction
     }
     
     public var body: some View {
@@ -64,7 +62,6 @@ public struct DifferencesView: View {
                         ) { isMove in
                             Task {
                                 await syncManager.syncFile(difference, isMove: isMove)
-                                refreshAction()
                             }
                         }
                         .transition(.slide)

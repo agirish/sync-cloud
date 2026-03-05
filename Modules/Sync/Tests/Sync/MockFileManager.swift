@@ -115,7 +115,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         // Emulate moving to ~/.Trash
         let trashedTarget = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(url.lastPathComponent)
         
-        try moveItem(at: url, to: trashedTarget)
+        // Use a direct copy+remove path so injected move-failure flags continue to apply
+        // only to the operation under test, not to trash bookkeeping.
+        try copyItem(at: url, to: trashedTarget)
+        try removeItem(at: url)
         trashedPaths.append(trashedTarget.path)
         
         outResultingURL?.pointee = trashedTarget as NSURL
@@ -145,13 +148,21 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         
         for (key, _) in virtualDisk {
             if key.hasPrefix(root) && key != root {
-                let url = URL(fileURLWithPath: key)
-                if mask.contains(.skipsHiddenFiles) && url.lastPathComponent.hasPrefix(".") {
+                let rel = String(key.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if rel.isEmpty { continue }
+                
+                if mask.contains(.skipsSubdirectoryDescendants), rel.contains("/") {
                     continue
                 }
-                allChildren.append(url)
+                
+                let itemURL = URL(fileURLWithPath: key)
+                if mask.contains(.skipsHiddenFiles) && itemURL.lastPathComponent.hasPrefix(".") {
+                    continue
+                }
+                allChildren.append(itemURL)
             }
         }
+        allChildren.sort { $0.path < $1.path }
         
         // Return a mock MockDirectoryEnumerator 
         return MockEnumerator(urls: allChildren)

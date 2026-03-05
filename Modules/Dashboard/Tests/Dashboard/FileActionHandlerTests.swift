@@ -1,64 +1,84 @@
 import Testing
 import Foundation
 import Sync
+import Settings
 @testable import Dashboard
-
-// Re-declaring minimal mockup of the FileActionHandler directly for Logic testing.
-// In reality, this lives in MacApp, but its core logic is strictly business logic.
-// We can wrap the basic paste dispatch logic here to test state expectations on FileSyncManager.
-
-@MainActor
-class MockFileActionHandler {
-    let syncManager: FileSyncManager
-    
-    init(syncManager: FileSyncManager) {
-        self.syncManager = syncManager
-    }
-    
-    // Mimicking MacApp/FileActionHandler's updated behavior
-    func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
-        if isCut {
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
-        }
-    }
-}
 
 @Suite struct FileActionHandlerTests {
     
     @MainActor
     @Test func testClipboardPersistenceOnCopy() async throws {
         let manager = FileSyncManager()
-        let handler = MockFileActionHandler(syncManager: manager)
+        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
         
-        let node1 = FileNode(id: "/src/file1.txt", name: "file1.txt", isDirectory: false)
-        
-        // User copies a node
-        manager.clipboardNodes = [node1]
+        manager.clipboardNodes = [node]
         manager.clipboardIsCut = false
         
-        // User pastes it. Since it's a Copy, the clipboard should persist
-        handler.pasteItems([node1], toPath: "/dst", isCut: false)
+        handler.pasteItems([node], toPath: "/tmp", isCut: false)
+        await waitForOperationsToFinish(manager)
         
         #expect(manager.clipboardNodes.count == 1)
-        #expect(manager.clipboardNodes.first?.id == "/src/file1.txt")
+        #expect(manager.clipboardNodes.first?.id == node.id)
+        #expect(manager.clipboardIsCut == false)
     }
     
     @MainActor
-    @Test func testClipboardClearingOnCut() async throws {
+    @Test func testClipboardClearsOnlyAfterSuccessfulCutPaste() async throws {
         let manager = FileSyncManager()
-        let handler = MockFileActionHandler(syncManager: manager)
+        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
         
-        let node1 = FileNode(id: "/src/file1.txt", name: "file1.txt", isDirectory: false)
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
+        let srcDir = root.appendingPathComponent("src")
+        let dstDir = root.appendingPathComponent("dst")
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
         
-        // User cuts a node
-        manager.clipboardNodes = [node1]
+        defer { try? FileManager.default.removeItem(at: root) }
+        
+        let srcFile = srcDir.appendingPathComponent("cut-me.txt")
+        try Data("hello".utf8).write(to: srcFile)
+        
+        let node = FileNode(id: srcFile.path, name: srcFile.lastPathComponent, isDirectory: false)
+        manager.clipboardNodes = [node]
         manager.clipboardIsCut = true
         
-        // User pastes it. Since it's a Cut, the clipboard should clear
-        handler.pasteItems([node1], toPath: "/dst", isCut: true)
+        handler.pasteItems([node], toPath: dstDir.path, isCut: true)
+        await waitForOperationsToFinish(manager)
         
+        let movedFile = dstDir.appendingPathComponent(node.name)
+        #expect(FileManager.default.fileExists(atPath: movedFile.path))
+        #expect(!FileManager.default.fileExists(atPath: srcFile.path))
         #expect(manager.clipboardNodes.isEmpty)
         #expect(manager.clipboardIsCut == false)
+    }
+    
+    @MainActor
+    @Test func testClipboardRemainsWhenCutPasteFails() async throws {
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+        let node = FileNode(id: "/tmp/does-not-exist.txt", name: "does-not-exist.txt", isDirectory: false)
+        
+        manager.clipboardNodes = [node]
+        manager.clipboardIsCut = true
+        
+        handler.pasteItems([node], toPath: "/tmp", isCut: true)
+        await waitForOperationsToFinish(manager)
+        
+        #expect(manager.clipboardNodes.count == 1)
+        #expect(manager.clipboardNodes.first?.id == node.id)
+        #expect(manager.clipboardIsCut == true)
+    }
+    
+    @MainActor
+    private func waitForOperationsToFinish(_ manager: FileSyncManager) async {
+        for _ in 0..<50 {
+            if manager.activeFileOperationsCount == 0 {
+                // Allow clipboard update that runs immediately after awaited move result.
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                return
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 }

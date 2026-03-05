@@ -107,9 +107,16 @@ extension FileSyncManager {
         
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
-            try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
-            trashedOriginal = trashedURL as URL?
-            requiresRollback = true
+            do {
+                try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
+                trashedOriginal = trashedURL as URL?
+                requiresRollback = true
+            } catch {
+                // Some volumes do not support Trash. Fall back to a direct remove so replacement can still complete.
+                try fileManager.removeItem(at: destinationURL)
+                trashedOriginal = nil
+                requiresRollback = false
+            }
         }
         
         do {
@@ -137,9 +144,16 @@ extension FileSyncManager {
         
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
-            try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
-            trashedOriginal = trashedURL as URL?
-            requiresRollback = true
+            do {
+                try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
+                trashedOriginal = trashedURL as URL?
+                requiresRollback = true
+            } catch {
+                // Some volumes do not support Trash. Fall back to a direct remove so replacement can still complete.
+                try fileManager.removeItem(at: destinationURL)
+                trashedOriginal = nil
+                requiresRollback = false
+            }
         }
         
         do {
@@ -242,7 +256,9 @@ extension FileSyncManager {
     }
     
     /// Moves multiple files or folders between the Source and Destination panes.
-    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async {
+    /// - Returns: `true` when all pruned input nodes were moved successfully.
+    @discardableResult
+    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> Bool {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
@@ -299,9 +315,12 @@ extension FileSyncManager {
             let msg = "Error moving items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
+            return false
         } else if !nodes.isEmpty {
             Logger.shared.info("Moved \(nodes.count) items between panes")
         }
+        
+        return moved.count == prunedNodes.count
     }
     
     /// Copies multiple files to a specific absolute destination directory path.
@@ -357,7 +376,9 @@ extension FileSyncManager {
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
+    /// - Returns: `true` when all pruned input nodes were moved successfully.
+    @discardableResult
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> Bool {
         let prunedNodes = nodes.pruneNestedNodes()
         
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
@@ -403,9 +424,12 @@ extension FileSyncManager {
             let msg = "Error moving items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
+            return false
         } else if !nodes.isEmpty {
             Logger.shared.info("Moved \(nodes.count) items to \(destinationPath)")
         }
+        
+        return moved.count == prunedNodes.count
     }
     
     /// Renames a specific file or folder on disk.
@@ -530,8 +554,8 @@ extension FileSyncManager {
             let msg = "Error deleting items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
-        } else if !paths.isEmpty {
-            Logger.shared.info("Deleted \(paths.count) items")
+        } else if !items.isEmpty {
+            Logger.shared.info("Deleted \(items.count) items")
         }
     }
 }

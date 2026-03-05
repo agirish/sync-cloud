@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var actionHandler: FileActionHandler?
     @State private var quickLookURL: URL? = nil
     @State private var showingBottomPane: Bool = true
+    @State private var isBootstrappingProviders: Bool = true
     
     /// Represents the available tabs in the integrated bottom workspace.
     enum BottomTab: String, CaseIterable {
@@ -106,36 +107,46 @@ struct ContentView: View {
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
             if let first = settings.availableProviders.first?.id {
-                sourceProviderId = first
-                destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
+                if sourceProviderId != first {
+                    sourceProviderId = first
+                }
+                let initialDestination = settings.availableProviders.dropFirst().first?.id ?? first
+                if destinationProviderId != initialDestination {
+                    destinationProviderId = initialDestination
+                }
             }
             Task {
                 await syncManager.prefetch(providers: settings.availableProviders)
             }
             refreshAction()
+            DispatchQueue.main.async {
+                isBootstrappingProviders = false
+            }
         }
         .onChange(of: sourceProviderId) { _, newId in
+            guard !isBootstrappingProviders else { return }
             Logger.shared.info("User switched source provider to \(newId)")
-            syncManager.selectedSourcePaths = []
-            syncManager.sourceRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
         .onChange(of: destinationProviderId) { _, newId in
+            guard !isBootstrappingProviders else { return }
             Logger.shared.info("User switched destination provider to \(newId)")
-            syncManager.selectedDestinationPaths = []
-            syncManager.destRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
         .onChange(of: syncManager.selectedSourcePaths) { _, paths in
-            if !paths.isEmpty && showingBottomPane {
-                withAnimation { selectedBottomTab = .details }
+            guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
+            DispatchQueue.main.async {
+                guard showingBottomPane else { return }
+                selectedBottomTab = .details
             }
         }
         .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
-            if !paths.isEmpty && showingBottomPane {
-                withAnimation { selectedBottomTab = .details }
+            guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
+            DispatchQueue.main.async {
+                guard showingBottomPane else { return }
+                selectedBottomTab = .details
             }
         }
         .onChange(of: settings.availableProviders) { _, _ in
@@ -258,7 +269,7 @@ struct ContentView: View {
             ZStack {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
-                        DifferencesView(syncManager: syncManager, refreshAction: refreshAction)
+                        DifferencesView(syncManager: syncManager)
                     } else if syncManager.hasScanned {
                         VStack {
                             Image(systemName: "checkmark.seal.fill").font(.system(size: 40)).foregroundColor(.green).padding(.bottom, 8)
@@ -311,4 +322,3 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.sortOption = option 
     }
 }
-

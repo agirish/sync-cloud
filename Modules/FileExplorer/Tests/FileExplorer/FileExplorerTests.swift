@@ -1,53 +1,45 @@
 import Testing
-import Foundation
 import Sync
 @testable import FileExplorer
 
 @Suite struct FileExplorerTests {
     
     @MainActor
-    @Test func testPaneActionDelegateSorting() async throws {
-        let manager = FileSyncManager()
-        let delegate = PaneActionDelegate(
-            handler: nil, 
-            syncManager: manager, 
-            isSource: true, 
-            sourceProviderId: "iCloud", 
-            destProviderId: "iCloud"
-        )
+    @Test func testResolvedSelectionUsesContextNodeWhenNothingSelected() async throws {
+        let nodeA = FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)
+        let nodeB = FileNode(id: "/src/b.txt", name: "b.txt", isDirectory: false)
+        let tree = [nodeA, nodeB]
         
-        #expect(manager.sortOption == .name)
+        let resolved = FileContextMenu.resolvedSelection(node: nodeB, selection: [], tree: tree)
         
-        delegate.handleSort(.dateModified)
-        #expect(manager.sortOption == .dateModified)
-        
-        delegate.handleSort(.size)
-        #expect(manager.sortOption == .size)
+        #expect(resolved.count == 1)
+        #expect(resolved.first?.id == nodeB.id)
     }
-}
-
-// Minimal mock delegate for testing ContentView-like logic in isolation
-@MainActor
-struct PaneActionDelegate: FileActionDelegate {
-    let handler: Any? // Not needed for this test
-    let syncManager: FileSyncManager
-    let isSource: Bool
-    let sourceProviderId: String
-    let destProviderId: String
     
-    func handleFocus(_ node: FileNode) {}
-    func handleCopy(_ nodes: [FileNode]) {}
-    func handleMove(_ nodes: [FileNode]) {}
-    func handleDelete(_ nodes: [FileNode]) {}
-    func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
-        syncManager.clipboardNodes = nodes
-        syncManager.clipboardIsCut = isCut 
+    @MainActor
+    @Test func testResolvedSelectionUsesCurrentSelectionWhenNodeIncluded() async throws {
+        let nodeA = FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)
+        let nodeB = FileNode(id: "/src/b.txt", name: "b.txt", isDirectory: false)
+        let tree = [nodeA, nodeB]
+        let selection: Set<String> = [nodeA.id, nodeB.id]
+        
+        let resolved = FileContextMenu.resolvedSelection(node: nodeA, selection: selection, tree: tree)
+        
+        #expect(resolved.count == 2)
+        #expect(Set(resolved.map(\.id)) == selection)
     }
-    func handlePaste(_ targetDir: FileNode) {}
-    func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
-    func handlePasteToPath(_ path: String) {}
-    func handleRename(_ node: FileNode) {}
-    func handleCreateFolder(at path: String) {}
-    func handleGetInfo(for path: String) {}
-    func handleSort(_ option: SortOption) { syncManager.sortOption = option }
+    
+    @MainActor
+    @Test func testResolvedSelectionFallsBackToContextNodeWhenNodeNotInSelection() async throws {
+        let nodeA = FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)
+        let nodeB = FileNode(id: "/src/b.txt", name: "b.txt", isDirectory: false)
+        let nodeC = FileNode(id: "/src/c.txt", name: "c.txt", isDirectory: false)
+        let tree = [nodeA, nodeB, nodeC]
+        let selection: Set<String> = [nodeA.id]
+        
+        let resolved = FileContextMenu.resolvedSelection(node: nodeC, selection: selection, tree: tree)
+        
+        #expect(resolved.count == 1)
+        #expect(resolved.first?.id == nodeC.id)
+    }
 }

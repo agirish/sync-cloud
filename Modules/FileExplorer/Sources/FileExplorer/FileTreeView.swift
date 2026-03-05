@@ -125,8 +125,20 @@ struct FileContextMenu: View {
     let isSource: Bool
     let delegate: FileActionDelegate
     
+    static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
+        let effectiveSelection: Set<String>
+        if selection.isEmpty {
+            effectiveSelection = [node.id]
+        } else if selection.contains(node.id) {
+            effectiveSelection = selection
+        } else {
+            effectiveSelection = [node.id]
+        }
+        return tree.findNodes(at: effectiveSelection)
+    }
+    
     var body: some View {
-        let selectedNodes = tree.findNodes(at: selection.isEmpty ? Set([node.id]) : (selection.contains(node.id) ? selection : Set([node.id])))
+        let selectedNodes = Self.resolvedSelection(node: node, selection: selection, tree: tree)
         let count = selectedNodes.count
         
         Group {

@@ -1,7 +1,11 @@
 import Testing
 import AppKit
+import AppIntents
 import Sync
 @testable import SyncCloud
+
+// Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
+private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
 @Suite struct SyncCloudTests {
 

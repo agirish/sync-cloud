@@ -40,10 +40,11 @@ public class FileActionHandler {
     
     /// Triggers native macOS 'Get Info' window using AppleScript.
     public func openGetInfo(for path: String) {
+        let escapedPath = Self.escapeForAppleScript(path)
         let script = """
         tell application "Finder"
             activate
-            open information window of (POSIX file "\(path)" as alias)
+            open information window of (POSIX file "\(escapedPath)" as alias)
         end tell
         """
         if let appleScript = NSAppleScript(source: script) {
@@ -81,16 +82,15 @@ public class FileActionHandler {
     
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
-        
-        if isCut {
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
-        }
-        
+
         Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
         Task {
             if isCut {
-                await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
+                let moved = await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
+                if moved {
+                    syncManager.clipboardNodes = []
+                    syncManager.clipboardIsCut = false
+                }
             } else {
                 await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
             }
@@ -110,15 +110,14 @@ public class FileActionHandler {
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
-        if isCut {
-            syncManager.clipboardNodes = []
-            syncManager.clipboardIsCut = false
-        }
-        
         Logger.shared.info("User pasting \(nodes.count) items to specific path (isCut: \(isCut))")
         Task {
             if isCut {
-                await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+                let moved = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+                if moved {
+                    syncManager.clipboardNodes = []
+                    syncManager.clipboardIsCut = false
+                }
             } else {
                 await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
             }
@@ -129,6 +128,12 @@ public class FileActionHandler {
         let nodesToPaste = syncManager.clipboardNodes
         guard !nodesToPaste.isEmpty else { return }
         pasteItems(nodesToPaste, toPath: destinationPath, isCut: syncManager.clipboardIsCut)
+    }
+
+    private static func escapeForAppleScript(_ raw: String) -> String {
+        raw
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
     }
     
     // MARK: - Mutations

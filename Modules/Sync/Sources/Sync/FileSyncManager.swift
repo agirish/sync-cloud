@@ -211,8 +211,15 @@ public class FileSyncManager: ObservableObject {
         collectPaths(in: sourceTree, into: &allSourcePaths)
         collectPaths(in: destinationTree, into: &allDestPaths)
         
-        selectedSourcePaths = selectedSourcePaths.filter { allSourcePaths.contains($0) }
-        selectedDestinationPaths = selectedDestinationPaths.filter { allDestPaths.contains($0) }
+        let prunedSource = selectedSourcePaths.filter { allSourcePaths.contains($0) }
+        let prunedDest = selectedDestinationPaths.filter { allDestPaths.contains($0) }
+        
+        if prunedSource != selectedSourcePaths {
+            selectedSourcePaths = prunedSource
+        }
+        if prunedDest != selectedDestinationPaths {
+            selectedDestinationPaths = prunedDest
+        }
     }
     
     private func collectPaths(in tree: [FileNode], into paths: inout Set<String>) {

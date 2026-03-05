@@ -42,6 +42,46 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty == true)
     }
     
+    @Test func testSafeCopyReplaceFallsBackWhenTrashUnsupported() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+        mockFM.shouldFailTrash = true
+        
+        try FileSyncManager.safeCopyItem(
+            at: URL(fileURLWithPath: "/src/new.txt"),
+            to: URL(fileURLWithPath: "/dst/new.txt"),
+            fileManager: mockFM
+        )
+        
+        #expect(mockFM.virtualDisk["/src/new.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/new.txt"] != nil)
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/new.txt")
+        #expect(attrs[.size] as? Int == 100)
+    }
+    
+    @Test func testSafeMoveReplaceFallsBackWhenTrashUnsupported() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.shouldFailTrash = true
+        
+        try FileSyncManager.safeMoveItem(
+            at: URL(fileURLWithPath: "/src/new.txt"),
+            to: URL(fileURLWithPath: "/dst/new.txt"),
+            fileManager: mockFM
+        )
+        
+        #expect(mockFM.virtualDisk["/src/new.txt"] == nil)
+        #expect(mockFM.virtualDisk["/dst/new.txt"] != nil)
+    }
+    
     @Test func testRecursivePathValidation() async throws {
         let parentDir = URL(fileURLWithPath: "/src/folder")
         let targetChildDir = URL(fileURLWithPath: "/src/folder/child")
