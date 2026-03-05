@@ -55,7 +55,7 @@ import Foundation
             for t in 0..<taskCount {
                 group.addTask {
                     for i in 0..<logsPerTask {
-                        await logger.info("\(prefix)Task \(t) - Log \(i)")
+                        await logger.info("\(prefix)Task \(t) - Log \(i)").value
                     }
                 }
             }
