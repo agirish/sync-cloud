@@ -140,19 +140,22 @@ extension FileSyncManager {
     ///   - destination: The `CloudProvider` for the destination pane.
     ///   - destinationPath: The currently focused absolute directory path for the destination pane.
     public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
-        guard !isScanning else { 
+        if isScanning {
             Logger.shared.warning("Scan already in progress, skipping redundant request.")
-            return 
+            return
         }
-        isScanning = true
-        differences = []
         
-        let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference] in
+        isScanning = true
+        defer { isScanning = false }
+        
+        let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
             do {
                 let sourceURL = URL(fileURLWithPath: (sourcePath as NSString).expandingTildeInPath)
                 let destinationURL = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
                 
                 let (fm, showHidden) = await MainActor.run { (self.fileManager, self.showHiddenFiles) }
+                
+                // Allow cancellation check inside the detached block if needed
                 let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, showHidden: showHidden, fileManager: fm)
                 let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden, fileManager: fm)
                 
@@ -168,16 +171,16 @@ extension FileSyncManager {
             } catch {
                 let msg = "Error scanning directories: \(error)"
                 Task { @MainActor in Logger.shared.error(msg, showAlert: false) }
-                return []
+                return nil
             }
         }.value
         
-        differences = newDifferences
+        guard !Task.isCancelled, let results = newDifferences else { return }
+        
+        differences = results
         hasScanned = true
-        isScanning = false
-        Task { @MainActor in
-            Logger.shared.info("Scan completed: found \(newDifferences.count) differences.")
-        }
+        
+        Logger.shared.info("Scan completed: found \(results.count) differences.")
     }
     
     // MARK: - Internal Engine Operations

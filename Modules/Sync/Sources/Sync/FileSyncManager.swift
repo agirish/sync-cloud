@@ -40,6 +40,7 @@ public class FileSyncManager: ObservableObject {
             sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
             destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
             pruneSelection()
+            refreshSubject.send()
         }
     }
     
@@ -48,6 +49,7 @@ public class FileSyncManager: ObservableObject {
         didSet {
             // CRITICAL: Cache must be invalidated because hidden files change the tree structure itself
             prefetchedTrees.removeAll()
+            refreshSubject.send()
         }
     }
     

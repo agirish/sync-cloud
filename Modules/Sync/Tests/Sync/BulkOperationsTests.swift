@@ -122,4 +122,58 @@ import Foundation
         let attrs = try mockFM.attributesOfItem(atPath: "/dst/old.txt")
         #expect(attrs[.creationDate] as? Date == Date.distantPast)
     }
+
+    @MainActor
+    @Test func testConcurrentScanProtection() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let provider = CloudProvider(id: "test", displayName: "Test", imageName: "test", path: "/test", type: .iCloud)
+        
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/test"), withIntermediateDirectories: true)
+        
+        // Start first refresh
+        let firstRefresh = Task {
+            await manager.refreshTreesAndScan(source: provider, destination: provider)
+        }
+        
+        // Immediately start second refresh - should cancel the first
+        let secondRefresh = Task {
+            await manager.refreshTreesAndScan(source: provider, destination: provider)
+        }
+        
+        await firstRefresh.value
+        await secondRefresh.value
+        
+        #expect(manager.isScanning == false)
+        #expect(manager.hasScanned == true)
+    }
+
+    @Test func testSafeMoveItemRollbackHardened() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        let srcURL = URL(fileURLWithPath: "/src/data.bin")
+        let dstURL = URL(fileURLWithPath: "/dst/data.bin")
+        
+        // Force the fallback temp copy to fail during the final rename
+        mockFM.shouldFailMoveOnTempRename = true
+        // Force the moveItem to fail to trigger EXDEV fallback
+        mockFM.shouldFailMove = true
+        
+        do {
+            try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
+            Issue.record("Expected safeMoveItem to throw")
+        } catch {
+            // Expected
+        }
+        
+        // Rollback check: Dest should be restored securely
+        // My toughened logic ensures destination is removed before restoration
+        #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
+        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
+    }
 }

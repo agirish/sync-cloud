@@ -117,6 +117,7 @@ extension FileSyncManager {
         } catch {
             if requiresRollback, let trashedURL = trashedOriginal {
                 // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
+                try? fileManager.removeItem(at: destinationURL)
                 try? fileManager.moveItem(at: trashedURL, to: destinationURL)
             }
             throw error
@@ -159,6 +160,7 @@ extension FileSyncManager {
             } catch let fallbackError {
                 if requiresRollback, let trashedURL = trashedOriginal {
                     // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
+                    try? fileManager.removeItem(at: destinationURL)
                     try? fileManager.moveItem(at: trashedURL, to: destinationURL)
                 }
                 throw fallbackError
