@@ -19,29 +19,48 @@
 		4E2E97CED41A0BF88239162B /* FileExplorer in Frameworks */ = {isa = PBXBuildFile; productRef = 440A6708317E81A73C7E8E9C /* FileExplorer */; };
 		5BF320EC613B3387652030E2 /* dropbox.svg in Resources */ = {isa = PBXBuildFile; fileRef = 256A8AE43BF68EC1733BA4BB /* dropbox.svg */; };
 		65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */; };
+		6A1876FD75492A0EDA8858DE /* create_final_scheme.rb in Resources */ = {isa = PBXBuildFile; fileRef = 9F5C733C4A197E26304EFE02 /* create_final_scheme.rb */; };
 		753B46093EB7AF800D2C9DC0 /* googledrive.svg in Resources */ = {isa = PBXBuildFile; fileRef = B3CD1A89AA66A7B25222F96D /* googledrive.svg */; };
+		9FF561BB7A096219460CD95B /* SyncCloudTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C513AFCDA083DF5F6395A9EF /* SyncCloudTests.swift */; };
+		B0BC5E35B32EAA82C6FE6354 /* run_tests_standalone.rb in Resources */ = {isa = PBXBuildFile; fileRef = AB534208C47C9E4D3BC9477B /* run_tests_standalone.rb */; };
 		DF84BA277D29FBD3391EC1B2 /* icloud.png in Resources */ = {isa = PBXBuildFile; fileRef = 9031D932BC75D0093BEBFB25 /* icloud.png */; };
 		E2F577C62FBA38918A5C6FCD /* Settings in Frameworks */ = {isa = PBXBuildFile; productRef = 22A2504123F7462DA6649376 /* Settings */; };
+		E66AD1F9624F29BCAE7C7092 /* link_sources.rb in Resources */ = {isa = PBXBuildFile; fileRef = 5DCC923FE4C3DB92B9F3C21F /* link_sources.rb */; };
 		EDEDC978B563D131631AA792 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */; };
 		F666DDBF3F6D9E700A1D440A /* googledrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 8B4FBF21F132A600B398B3F7 /* googledrive.png */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		A67514F6C26C752CD977C301 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8F51E2A0E5D519A22B215402 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 2F2A7EFC2DAEF1C44DA97076;
+			remoteInfo = SyncCloud;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		170F1B4A0B84D2D5970A04A4 /* Dashboard */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Dashboard; path = Modules/Dashboard; sourceTree = SOURCE_ROOT; };
+		1AB17A22A5B0A15B8AACA0AD /* SyncCloudTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SyncCloudTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		1B89B5ACEF687CEF54AD1132 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		249BB03C6B915A11D8A07DC2 /* FileExplorer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FileExplorer; path = Modules/FileExplorer; sourceTree = SOURCE_ROOT; };
 		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
 		5BD04B885A6E5B2F79FBC29F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5DCC923FE4C3DB92B9F3C21F /* link_sources.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = link_sources.rb; sourceTree = "<group>"; };
 		617FAC2D93B622D15FEAE7ED /* onedrive.svg */ = {isa = PBXFileReference; path = onedrive.svg; sourceTree = "<group>"; };
 		633A97B1D60E30053D74E73C /* onedrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = onedrive.png; sourceTree = "<group>"; };
 		8B4FBF21F132A600B398B3F7 /* googledrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = googledrive.png; sourceTree = "<group>"; };
 		8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCloudApp.swift; sourceTree = "<group>"; };
 		9031D932BC75D0093BEBFB25 /* icloud.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = icloud.png; sourceTree = "<group>"; };
 		92A469F7D5E028F9E340043E /* SyncCloud.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SyncCloud.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9F5C733C4A197E26304EFE02 /* create_final_scheme.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = create_final_scheme.rb; sourceTree = "<group>"; };
 		A87C284D34C60D71BA0ADC83 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Entitlements.plist; sourceTree = "<group>"; };
 		A936CE0A6225955E746D2CE8 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		AB534208C47C9E4D3BC9477B /* run_tests_standalone.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = run_tests_standalone.rb; sourceTree = "<group>"; };
 		B3CD1A89AA66A7B25222F96D /* googledrive.svg */ = {isa = PBXFileReference; path = googledrive.svg; sourceTree = "<group>"; };
 		BC6AC2B57D1463873507DBFB /* icloud.svg */ = {isa = PBXFileReference; path = icloud.svg; sourceTree = "<group>"; };
+		C513AFCDA083DF5F6395A9EF /* SyncCloudTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncCloudTests.swift; sourceTree = "<group>"; };
 		C5488F34D4662728825C883A /* Settings */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Settings; path = Modules/Settings; sourceTree = SOURCE_ROOT; };
 		D9EC3A871C96FBADC3E1B909 /* Events */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Events; path = Modules/Events; sourceTree = SOURCE_ROOT; };
 		E021F192338BC544ED67982D /* dropbox.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dropbox.png; sourceTree = "<group>"; };
@@ -68,6 +87,7 @@
 			isa = PBXGroup;
 			children = (
 				92A469F7D5E028F9E340043E /* SyncCloud.app */,
+				1AB17A22A5B0A15B8AACA0AD /* SyncCloudTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -82,6 +102,17 @@
 				E1ACD55C5C5C4606EAEACDA2 /* Sync */,
 			);
 			name = Packages;
+			sourceTree = "<group>";
+		};
+		A9D19D3517CAFF6696A0ABB6 /* SyncCloudTests */ = {
+			isa = PBXGroup;
+			children = (
+				9F5C733C4A197E26304EFE02 /* create_final_scheme.rb */,
+				5DCC923FE4C3DB92B9F3C21F /* link_sources.rb */,
+				AB534208C47C9E4D3BC9477B /* run_tests_standalone.rb */,
+				C513AFCDA083DF5F6395A9EF /* SyncCloudTests.swift */,
+			);
+			path = SyncCloudTests;
 			sourceTree = "<group>";
 		};
 		AE23DCEADCE07A4AE1CD6CA6 /* MacApp */ = {
@@ -117,6 +148,7 @@
 			children = (
 				AE23DCEADCE07A4AE1CD6CA6 /* MacApp */,
 				7837C1442A1D14BD86F65B6D /* Packages */,
+				A9D19D3517CAFF6696A0ABB6 /* SyncCloudTests */,
 				4D656DC3CF8A777043EE869F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -147,6 +179,25 @@
 			productName = SyncCloud;
 			productReference = 92A469F7D5E028F9E340043E /* SyncCloud.app */;
 			productType = "com.apple.product-type.application";
+		};
+		37A4AF72B8A9D9F9B8ACAC13 /* SyncCloudTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FD96A3DEF0E229FD077F2A66 /* Build configuration list for PBXNativeTarget "SyncCloudTests" */;
+			buildPhases = (
+				1F15A6B8E327A1F06B410111 /* Sources */,
+				DC49C5D5DF7BC6ADE1648908 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EE3A518DA3967C3F1D848A4F /* PBXTargetDependency */,
+			);
+			name = SyncCloudTests;
+			packageProductDependencies = (
+			);
+			productName = SyncCloudTests;
+			productReference = 1AB17A22A5B0A15B8AACA0AD /* SyncCloudTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -181,6 +232,7 @@
 			projectRoot = "";
 			targets = (
 				2F2A7EFC2DAEF1C44DA97076 /* SyncCloud */,
+				37A4AF72B8A9D9F9B8ACAC13 /* SyncCloudTests */,
 			);
 		};
 /* End PBXProject section */
@@ -203,9 +255,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DC49C5D5DF7BC6ADE1648908 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A1876FD75492A0EDA8858DE /* create_final_scheme.rb in Resources */,
+				E66AD1F9624F29BCAE7C7092 /* link_sources.rb in Resources */,
+				B0BC5E35B32EAA82C6FE6354 /* run_tests_standalone.rb in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1F15A6B8E327A1F06B410111 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9FF561BB7A096219460CD95B /* SyncCloudTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BEDE03EC165E04CF66C58B10 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -216,6 +286,14 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		EE3A518DA3967C3F1D848A4F /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 2F2A7EFC2DAEF1C44DA97076 /* SyncCloud */;
+			targetProxy = A67514F6C26C752CD977C301 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		34D2844DA7282FDB5B0110EF /* Release */ = {
@@ -273,6 +351,23 @@
 			};
 			name = Release;
 		};
+		428649DEAE29B2B0E2CE7809 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.SyncCloudTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SyncCloud.app/Contents/MacOS/SyncCloud";
+			};
+			name = Debug;
+		};
 		B2EFAEABFDD0D25A8C04D2F4 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -288,6 +383,23 @@
 				SDKROOT = macosx;
 			};
 			name = Debug;
+		};
+		C3C8465444B0F77A19FA8ED8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.SyncCloudTests;
+				SDKROOT = macosx;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SyncCloud.app/Contents/MacOS/SyncCloud";
+			};
+			name = Release;
 		};
 		DD200FE54550F144E4F623AB /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -384,6 +496,15 @@
 			buildConfigurations = (
 				E63F40BEEE022E2CAFAD7A3F /* Debug */,
 				34D2844DA7282FDB5B0110EF /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FD96A3DEF0E229FD077F2A66 /* Build configuration list for PBXNativeTarget "SyncCloudTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				428649DEAE29B2B0E2CE7809 /* Debug */,
+				C3C8465444B0F77A19FA8ED8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

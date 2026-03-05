@@ -42,6 +42,7 @@ import Sync
         #expect(manager.sourceRelativePath.isEmpty)
         #expect(manager.sourceExpandedPaths.isEmpty)
         #expect(manager.destExpandedPaths.isEmpty)
-        #expect(manager.navigationHistory.isEmpty)
+        #expect(manager.destExpandedPaths.isEmpty)
+        #expect(manager.history.count == 1)
     }
 }
