@@ -276,4 +276,65 @@ import Foundation
         await task.value
         #expect(!manager.isLoadingSourceTree)
     }
+    
+    @MainActor
+    @Test func testSyncFileWithCopyAction() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        let diff = FileDifference(
+            id: UUID(),
+            relativePath: "test.txt",
+            action: .copyToDestination,
+            type: .missingInDestination,
+            description: "Missing",
+            sourceItemPath: "/src/test.txt",
+            destinationItemPath: "/dst/test.txt"
+        )
+        
+        // Add to manager so it can find it by ID and mark as syncing
+        manager.differences = [diff]
+        
+        // isMove is false by default
+        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+        
+        // Should exist in both places (Copied)
+        #expect(mockFM.virtualDisk["/src/test.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
+    }
+    
+    @MainActor
+    @Test func testSyncFileWithMoveAction() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/test_move.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        let diff = FileDifference(
+            id: UUID(),
+            relativePath: "test_move.txt",
+            action: .copyToDestination,
+            type: .missingInDestination,
+            description: "Missing",
+            sourceItemPath: "/src/test_move.txt",
+            destinationItemPath: "/dst/test_move.txt"
+        )
+        
+        manager.differences = [diff]
+        
+        // Set isMove to true
+        await manager.syncFile(diff, isMove: true, fileManager: mockFM)
+        
+        // Should exist in destination but NOT source (Moved)
+        #expect(mockFM.virtualDisk["/src/test_move.txt"] == nil)
+        #expect(mockFM.virtualDisk["/dst/test_move.txt"] != nil)
+    }
 }

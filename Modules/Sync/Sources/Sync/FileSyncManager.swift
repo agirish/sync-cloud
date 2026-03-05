@@ -129,11 +129,12 @@ public class FileSyncManager: ObservableObject {
     // Navigation and Scanning methods moved to extensions
     
     /// Synchronizes a specific file difference between source and destination.
-    /// Marks the difference as `isSyncing` and enqueues a safe copy operation.
+    /// Marks the difference as `isSyncing` and enqueues a safe copy or move operation.
     /// - Parameters:
     ///   - difference: The model representing the discrepancy to resolve.
+    ///   - isMove: If true, moves the file instead of copying.
     ///   - fileManager: The file manager to use for the sync (defaults to `self.fileManager`).
-    public func syncFile(_ difference: FileDifference, fileManager: FileManaging? = nil) async {
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async {
         let activeFM = fileManager ?? self.fileManager
         // Find the difference in our array and mark it as syncing
         if let index = differences.firstIndex(where: { $0.id == difference.id }) {
@@ -154,7 +155,13 @@ public class FileSyncManager: ObservableObject {
                 }
                 
                 try activeFM.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                let trashed = try Self.safeCopyItem(at: fromURL, to: toURL, fileManager: activeFM)
+                
+                let trashed: URL?
+                if isMove {
+                    trashed = try Self.safeMoveItem(at: fromURL, to: toURL, fileManager: activeFM)
+                } else {
+                    trashed = try Self.safeCopyItem(at: fromURL, to: toURL, fileManager: activeFM)
+                }
                 
                 return (nil, trashed, fromURL, toURL)
                 

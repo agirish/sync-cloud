@@ -100,14 +100,26 @@ extension FileSyncManager {
         
         try fileManager.copyItem(at: sourceURL, to: tempURL)
         
+        // Setup completion tracker to rollback if the final atomic swap fails
+        var requiresRollback = false
+        
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
             try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
             trashedOriginal = trashedURL as URL?
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
-        } else {
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
+            requiresRollback = true
         }
+        
+        do {
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+        } catch {
+            if requiresRollback, let trashedURL = trashedOriginal {
+                // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
+                try? fileManager.moveItem(at: trashedURL, to: destinationURL)
+            }
+            throw error
+        }
+        
         return trashedOriginal
     }
     
@@ -118,10 +130,13 @@ extension FileSyncManager {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
         
         var trashedOriginal: URL? = nil
+        var requiresRollback = false
+        
         if !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL) && fileManager.fileExists(atPath: destinationURL.path) {
             var trashedURL: NSURL? = nil
             try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
             trashedOriginal = trashedURL as URL?
+            requiresRollback = true
         }
         
         do {
@@ -135,9 +150,17 @@ extension FileSyncManager {
             
             defer { try? fileManager.removeItem(at: tempURL) }
             
-            try fileManager.copyItem(at: sourceURL, to: tempURL)
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
-            try? fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+            do {
+                try fileManager.copyItem(at: sourceURL, to: tempURL)
+                try fileManager.moveItem(at: tempURL, to: destinationURL)
+                try? fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+            } catch let fallbackError {
+                if requiresRollback, let trashedURL = trashedOriginal {
+                    // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
+                    try? fileManager.moveItem(at: trashedURL, to: destinationURL)
+                }
+                throw fallbackError
+            }
         }
         
         return trashedOriginal

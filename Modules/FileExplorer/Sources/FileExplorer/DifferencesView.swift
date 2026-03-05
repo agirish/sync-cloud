@@ -1,10 +1,39 @@
 import Events
 import SwiftUI
 import Sync
+import AppKit
+
+/// Tracks modifier keys (Shift, Command) to alter UI behavior.
+@MainActor
+final class ModifierTracker: ObservableObject {
+    @Published var isMoveModifierPressed: Bool = false
+    nonisolated(unsafe) private var monitor: Any?
+    
+    init() {
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+            self?.updateModifiers(event.modifierFlags)
+            return event
+        }
+    }
+    
+    deinit {
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+    
+    private func updateModifiers(_ flags: NSEvent.ModifierFlags) {
+        let isPressed = flags.contains(.shift) || flags.contains(.command)
+        if isMoveModifierPressed != isPressed {
+            isMoveModifierPressed = isPressed
+        }
+    }
+}
 
 /// A scrollable dashboard list displaying all files that require manual synchronization actions.
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
+    @StateObject private var modifierTracker = ModifierTracker()
     public let refreshAction: () -> Void
     
     public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
@@ -29,9 +58,12 @@ public struct DifferencesView: View {
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(syncManager.differences, id: \.id) { difference in
-                        DifferenceRow(difference: difference) {
+                        DifferenceRow(
+                            difference: difference,
+                            isMove: modifierTracker.isMoveModifierPressed
+                        ) { isMove in
                             Task {
-                                await syncManager.syncFile(difference)
+                                await syncManager.syncFile(difference, isMove: isMove)
                                 refreshAction()
                             }
                         }
@@ -48,7 +80,8 @@ public struct DifferencesView: View {
 /// A highly detailed row displaying the relative path, modification timestamp alert, and a button to execute a one-way sync.
 struct DifferenceRow: View {
     let difference: FileDifference
-    let onSync: () -> Void
+    let isMove: Bool
+    let onSync: (Bool) -> Void
     
     var body: some View {
         HStack(spacing: 16) {
@@ -78,7 +111,7 @@ struct DifferenceRow: View {
             Spacer()
             
             // Sync Action
-            Button(action: onSync) {
+            Button(action: { onSync(isMove) }) {
                 HStack {
                     if difference.isSyncing {
                         ProgressView()
@@ -87,9 +120,9 @@ struct DifferenceRow: View {
                     } else {
                         switch difference.action {
                         case .copyToDestination:
-                            Label("Copy to Dest", systemImage: "arrow.right.circle.fill")
+                            Label(isMove ? "Move to Dest" : "Copy to Dest", systemImage: "arrow.right.circle.fill")
                         case .copyToSource:
-                            Label("Copy to Source", systemImage: "arrow.left.circle.fill")
+                            Label(isMove ? "Move to Source" : "Copy to Source", systemImage: "arrow.left.circle.fill")
                         }
                     }
                 }
