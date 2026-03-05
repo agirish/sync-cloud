@@ -3,10 +3,9 @@ import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 
-/// Core business logic manager governing the synchronization engine
-/// Manages the in-memory tree structures (`FileNode`) for both source and destination cloud providers.
-/// Responsible for scanning directories, computing `FileDifference` arrays, tracking relative navigation paths,
-/// caching prefetched generic file trees, and marshaling disk-level `UndoManager` native registrations.
+/// Core business logic manager governing the synchronization engine.
+/// Manages in-memory tree structures (`FileNode`) for cloud providers and handles differential scanning.
+/// Tracks active file operations for app-wide termination guards and ensures serialized execution of background tasks.
 @MainActor
 public class FileSyncManager: ObservableObject {
     public init() {}
@@ -61,7 +60,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var sourceExpandedPaths: Set<String> = []
     @Published public var destExpandedPaths: Set<String> = []
     
-    /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.)
+    /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
+    /// Used by the app-level guard to prevent accidental termination during critical tasks.
     @Published public var activeFileOperationsCount = 0
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
@@ -75,8 +75,8 @@ public class FileSyncManager: ObservableObject {
     internal var activeLoadDestTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
     
-    /// Enqueues a file operation to be executed sequentially after all previous file operations have completed.
-    /// This is strictly required to ensure that rapid Undo/Redo operations do not race with each other asynchronously.
+    /// Enqueues a file operation to be executed sequentially.
+    /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
     @discardableResult
     public func enqueueFileOperation<T: Sendable>(
         _ operation: @escaping @Sendable () async -> T

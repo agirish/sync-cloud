@@ -2,9 +2,9 @@ import SwiftUI
 import Sync
 import UniformTypeIdentifiers
 
-/// A native SwiftUI Details Sidebar replacing the legacy macOS "Get Info" dialog.
-/// It renders embedded file constraints and metadata. In the modern `SyncCloud`
-/// architecture, this view naturally collapses into the right-hand HSplitView column.
+/// A native SwiftUI Details Sidebar that displays rich file metadata.
+/// Integrated into the bottom tabbed workspace of the `ContentView`.
+/// It provides fallback information for the currently navigated folder when no specific file is selected.
 public struct DetailsSidebar: View {
     @ObservedObject public var syncManager: FileSyncManager
     
@@ -30,6 +30,8 @@ public struct DetailsSidebar: View {
         let isDirectory: Bool
     }
     
+    /// The absolute path of the file or folder currently being inspected.
+    /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Source or Destination).
     private var activePath: String {
         // Find whichever pane the user clicked on last.
         // We favor explicitly selected files. If both panes have selections, we favor Source as the primary driver.

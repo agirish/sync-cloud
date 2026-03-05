@@ -100,7 +100,8 @@ extension FileSyncManager {
         return count
     }
     
-    /// Sequentially reloads the directory trees for both source and destination, then triggers a differential scan.
+    /// Sequentially reloads the directory trees and triggers a differential scan.
+    /// Features re-entrancy protection by canceling any previously active refresh tasks.
     /// - Parameters:
     ///   - source: The `CloudProvider` representing the source pane.
     ///   - destination: The `CloudProvider` representing the destination pane.
@@ -130,7 +131,8 @@ extension FileSyncManager {
         await task.value
     }
     
-    /// Performs a high-performance, background differential scan between the configured source and destination directories.
+    /// Performs a high-performance, background differential scan between the focused directories.
+    /// Includes re-entrancy guards to prevent redundant concurrent scans.
     /// - Parameters:
     ///   - source: The `CloudProvider` for the source pane.
     ///   - sourcePath: The currently focused absolute directory path for the source pane.

@@ -7,7 +7,9 @@ import Dashboard
 import QuickLook
 
 /// The main application layout for SyncCloud.
-/// Contains a two-pane `NavigationSplitView` managing source and destination `FileTreeView`s.
+/// Implements a stable 2-column `NavigationSplitView` with:
+/// - Sidebar: Cloud provider selection.
+/// - Detail: Two-pane file explorer with an integrated bottom tabbed workspace for differences and metadata.
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @StateObject private var settings = SettingsManager()
@@ -24,8 +26,11 @@ struct ContentView: View {
     @State private var quickLookURL: URL? = nil
     @State private var showingBottomPane: Bool = true
     
+    /// Represents the available tabs in the integrated bottom workspace.
     enum BottomTab: String, CaseIterable {
+        /// Displays differential scanning results and sync actions.
         case differences = "Differences"
+        /// Displays rich file metadata (size, dates, permissions).
         case details = "Details"
     }
     @State private var selectedBottomTab: BottomTab = .differences
@@ -151,6 +156,8 @@ struct ContentView: View {
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
     }
 
+    /// Refreshes the directory trees and performs a differential scan.
+    /// This utilizes `syncManager.refreshTreesAndScan` which includes re-entrancy and cancellation protection.
     private func refreshAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
@@ -220,6 +227,8 @@ struct ContentView: View {
         )
     }
     
+    /// The tabbed workspace at the bottom of the file explorer.
+    /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
     private var bottomPaneView: some View {
         VStack(spacing: 0) {
@@ -268,6 +277,8 @@ struct ContentView: View {
     }
 }
     
+/// A delegate that bridges `FileTreeView` interactions to the central `FileActionHandler`.
+/// Manages actions like focus, copy, delete, and rename for a specific tree pane.
 @MainActor
 struct PaneActionDelegate: FileActionDelegate {
     let handler: FileActionHandler?

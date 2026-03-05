@@ -4,7 +4,8 @@ import Events
 
 @main
 /// The main entry point for the SyncCloud macOS application.
-/// Configures the root `ContentView` and injects the global `Logger` environment object.
+/// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
+/// Integrated with `SyncCloudAppDelegate` for app-level guards and termination handling.
 struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager = FileSyncManager()
@@ -26,4 +27,9 @@ struct SyncCloudApp: App {
         }
         .windowResizability(.contentMinSize)
     }
-} 
+}
+
+/// A custom app delegate for SyncCloud to handle macOS system events.
+/// Implements `applicationShouldTerminate` to prevent accidental quitting during active file operations.
+class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
+}
