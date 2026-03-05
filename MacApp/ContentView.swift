@@ -209,6 +209,7 @@ struct ContentView: View {
             selection: $syncManager.selectedSourcePaths,
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
+            isSource: true,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
         )
     }
@@ -223,6 +224,7 @@ struct ContentView: View {
             selection: $syncManager.selectedDestinationPaths,
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
+            isSource: false,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
         )
     }
@@ -289,6 +291,7 @@ struct PaneActionDelegate: FileActionDelegate {
     
     func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
+    func handleMove(_ nodes: [FileNode]) { handler?.moveItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
         syncManager.clipboardNodes = nodes

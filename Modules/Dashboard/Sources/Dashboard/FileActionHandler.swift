@@ -66,6 +66,16 @@ public class FileActionHandler {
         }
     }
     
+    /// Initiates an asynchronous cross-pane move operation.
+    public func moveItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) {
+        let sourceRoot = settings.path(for: sourceProviderId)
+        let destRoot = settings.path(for: destProviderId)
+        
+        Task {
+            await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+        }
+    }
+    
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
         

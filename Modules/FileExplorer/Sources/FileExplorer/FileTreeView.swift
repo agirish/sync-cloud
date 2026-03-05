@@ -13,11 +13,12 @@ public struct FileTreeView: View {
     @Binding public var selection: Set<String>
     @Binding public var expandedPaths: Set<String>
     public let otherSelection: Set<String>
+    public let isSource: Bool
     
     // Delegate for all file operations
     public let delegate: FileActionDelegate
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, delegate: FileActionDelegate) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isSource: Bool, delegate: FileActionDelegate) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -25,6 +26,7 @@ public struct FileTreeView: View {
         self._selection = selection
         self._expandedPaths = expandedPaths
         self.otherSelection = otherSelection
+        self.isSource = isSource
         self.delegate = delegate
     }
     
@@ -39,6 +41,7 @@ public struct FileTreeView: View {
                         tree: tree,
                         otherTree: otherTree,
                         otherSelection: otherSelection,
+                        isSource: isSource,
                         delegate: delegate
                     )
                 }
@@ -116,6 +119,7 @@ struct FileContextMenu: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let otherSelection: Set<String>
+    let isSource: Bool
     let delegate: FileActionDelegate
     
     var body: some View {
@@ -146,7 +150,13 @@ struct FileContextMenu: View {
             }
             
             Button(action: { delegate.handleCopy(selectedNodes) }) {
-                Label(count > 1 ? "Copy \(count) items to other provider" : "Copy to other provider", systemImage: "square.and.arrow.trailing")
+                let targetPane = isSource ? "Destination" : "Source"
+                Label(count > 1 ? "Copy \(count) items to \(targetPane)" : "Copy to \(targetPane)", systemImage: "arrow.right.doc.on.clipboard")
+            }
+            
+            Button(action: { delegate.handleMove(selectedNodes) }) {
+                let targetPane = isSource ? "Destination" : "Source"
+                Label(count > 1 ? "Move \(count) items to \(targetPane)" : "Move to \(targetPane)", systemImage: "arrow.right.square")
             }
             
             Divider()
@@ -211,6 +221,7 @@ struct RecursiveFileNodeView: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let otherSelection: Set<String>
+    let isSource: Bool
     let delegate: FileActionDelegate
     
     var isExpanded: Binding<Bool> {
@@ -233,6 +244,7 @@ struct RecursiveFileNodeView: View {
             tree: tree,
             otherTree: otherTree,
             otherSelection: otherSelection,
+            isSource: isSource,
             delegate: delegate
         )
     }
@@ -248,6 +260,7 @@ struct RecursiveFileNodeView: View {
                         tree: tree,
                         otherTree: otherTree,
                         otherSelection: otherSelection,
+                        isSource: isSource,
                         delegate: delegate
                     )
                 }

@@ -212,6 +212,67 @@ extension FileSyncManager {
         }
     }
     
+    /// Moves multiple files or folders between the Source and Destination panes.
+    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async {
+        let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+        let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+        
+        let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
+            var taskErrors: [Error] = []
+            var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
+            
+            for node in nodes {
+                var relativePath = node.id
+                if relativePath.hasPrefix(fromRoot) {
+                    relativePath = String(relativePath.dropFirst(fromRoot.count))
+                }
+                if relativePath.hasPrefix("/") { relativePath.removeFirst() }
+                
+                let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
+                
+                let sourceURL = URL(fileURLWithPath: node.id)
+                var targetURL = URL(fileURLWithPath: targetPath)
+                
+                if sourceURL == targetURL {
+                    continue
+                } else if fm.fileExists(atPath: targetURL.path) {
+                    let tName = targetURL.lastPathComponent
+                    let resolution = await MainActor.run { Self.promptForCollision(fileName: tName, isMove: true) }
+                    switch resolution {
+                    case .replace: break
+                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                    case .skip: continue
+                    }
+                }
+                
+                do {
+                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
+                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
+                    targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
+                } catch {
+                    taskErrors.append(error)
+                }
+            }
+            return (taskErrors, targetItems)
+        }
+        
+        let moved = result.moved
+        if !moved.isEmpty {
+            let initialResolver = AsyncValueResolver<[MoveItemState]>()
+            Task { await initialResolver.resolve(moved) }
+            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items")
+        }
+        
+        if let firstError = result.errors.first {
+            let msg = "Error moving items: \(firstError.localizedDescription)"
+            self.currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+        } else if !nodes.isEmpty {
+            Logger.shared.info("Moved \(nodes.count) items between panes")
+        }
+    }
+    
     /// Copies multiple files to a specific absolute destination directory path.
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in

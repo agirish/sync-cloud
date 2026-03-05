@@ -118,6 +118,46 @@ import Foundation
     }
     
     @MainActor
+    @Test func testMoveCrossPane() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/cross.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/cross.txt", name: "cross.txt", isDirectory: false)
+        
+        // Move from source pane to destination pane
+        await manager.moveItems(nodes: [node], fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        
+        // Assert moved to dest
+        #expect(mockFM.virtualDisk["/dst/cross.txt"] != nil)
+        
+        // Assert removed from src
+        #expect(mockFM.virtualDisk["/src/cross.txt"] == nil)
+    }
+    
+    @MainActor
+    @Test func testMoveCrossPaneFromDestination() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/dst/cross2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/dst/cross2.txt", name: "cross2.txt", isDirectory: false)
+        
+        // Move from destination pane to source pane
+        await manager.moveItems(nodes: [node], fromSource: false, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        
+        // Assert moved to src
+        #expect(mockFM.virtualDisk["/src/cross2.txt"] != nil)
+        
+        // Assert removed from dst
+        #expect(mockFM.virtualDisk["/dst/cross2.txt"] == nil)
+    }
+    
+    @MainActor
     @Test func testMoveDirectoryWithChildren() async throws {
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
