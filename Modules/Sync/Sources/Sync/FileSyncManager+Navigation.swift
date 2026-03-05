@@ -39,9 +39,19 @@ extension FileSyncManager {
         updateStateFromHistory()
     }
     
-    /// Resets the navigation state back to the root level.
+    /// Resets the navigation state back to the root level and clears UI interaction state.
     public func resetNavigation() {
-        focusOn(relativePath: "", isSource: true, otherProviderPath: "")
+        sourceRelativePath = ""
+        destRelativePath = ""
+        selectedSourcePaths = []
+        selectedDestinationPaths = []
+        sourceExpandedPaths = []
+        destExpandedPaths = []
+        
+        // Reset history to root
+        history = [("", "")]
+        historyIndex = 0
+        updateStateFromHistory()
     }
     
     func updateStateFromHistory() {

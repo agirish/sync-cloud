@@ -2,17 +2,6 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A recursive tree view that displays an interactive file hierarchy for a single CloudProvider pane.
-/// It delegates business logic (drag-and-drop, context menus) to the injected `FileActionDelegate`.
-public struct FileTreeView: View {
-    // The actual content of FileTreeView would go here.
-    // As the instruction only provided the documentation and the start of the struct,
-    // I'm leaving the body empty as per the `{{ ... }}` in the instruction.
-    public var body: some View {
-        Text("File Tree View Placeholder")
-    }
-}
-
 /// An in-memory representation of a file or directory mapped from a local or cloud path
 public struct FileNode: Identifiable, Hashable, Codable {
     public let id: String // Absolute path
@@ -21,8 +10,19 @@ public struct FileNode: Identifiable, Hashable, Codable {
     public var children: [FileNode]?
     public var modificationDate: Date?
     public var fileSize: Int?
-    var tags: [String]?
-    var kind: String?
+    public var tags: [String]?
+    public var kind: String?
+    
+    public init(id: String, name: String, isDirectory: Bool, children: [FileNode]? = nil, modificationDate: Date? = nil, fileSize: Int? = nil, tags: [String]? = nil, kind: String? = nil) {
+        self.id = id
+        self.name = name
+        self.isDirectory = isDirectory
+        self.children = children
+        self.modificationDate = modificationDate
+        self.fileSize = fileSize
+        self.tags = tags
+        self.kind = kind
+    }
 }
 
 extension FileNode: Transferable {
