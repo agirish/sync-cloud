@@ -80,4 +80,23 @@ extension Array where Element == FileNode {
         }
         return found
     }
+    
+    /// Prunes nested nodes from a selection array, keeping only the highest-level parent nodes.
+    /// This prevents duplicate operations (e.g., trying to move a child after its parent was already moved).
+    public func pruneNestedNodes() -> [FileNode] {
+        // Sort paths by length so parents come first
+        let sortedNodes = self.sorted { $0.id.count < $1.id.count }
+        var pruned: [FileNode] = []
+        
+        for node in sortedNodes {
+            // Check if this node is a child of any already accepted parent
+            let isChildOfAcceptedParent = pruned.contains { parent in
+                node.id.hasPrefix(parent.id + "/")
+            }
+            if !isChildOfAcceptedParent {
+                pruned.append(node)
+            }
+        }
+        return pruned
+    }
 }

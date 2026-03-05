@@ -179,11 +179,13 @@ extension FileSyncManager {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
+        let prunedNodes = nodes.pruneNestedNodes()
+        
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
-            for node in nodes {
+            for node in prunedNodes {
                 var relativePath = node.id
                 if relativePath.hasPrefix(fromRoot) {
                     relativePath = String(relativePath.dropFirst(fromRoot.count))
@@ -240,11 +242,13 @@ extension FileSyncManager {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
+        let prunedNodes = nodes.pruneNestedNodes()
+        
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
-            for node in nodes {
+            for node in prunedNodes {
                 var relativePath = node.id
                 if relativePath.hasPrefix(fromRoot) {
                     relativePath = String(relativePath.dropFirst(fromRoot.count))
@@ -298,11 +302,13 @@ extension FileSyncManager {
     
     /// Copies multiple files to a specific absolute destination directory path.
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
+        let prunedNodes = nodes.pruneNestedNodes()
+        
         let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
-            for node in nodes {
+            for node in prunedNodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
@@ -348,11 +354,13 @@ extension FileSyncManager {
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
     public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
+        let prunedNodes = nodes.pruneNestedNodes()
+        
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
-            for node in nodes {
+            for node in prunedNodes {
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
