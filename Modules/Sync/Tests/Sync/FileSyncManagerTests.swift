@@ -127,4 +127,64 @@ import Foundation
         try await Task.sleep(nanoseconds: 100_000_000)
         #expect(mockFM.virtualDisk["/dst/copy_me.txt"] != nil)
     }
+    
+    @MainActor
+    @Test func testActiveOperationTracking() async throws {
+        let manager = FileSyncManager()
+        #expect(manager.activeFileOperationsCount == 0)
+        
+        // Use a task that sleeps to simulate a long operation
+        let operationTask = Task {
+            await manager.enqueueFileOperation {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+        }
+        
+        // Wait a bit for the operation to start and increment the count
+        try await Task.sleep(nanoseconds: 50_000_000)
+        #expect(manager.activeFileOperationsCount == 1)
+        
+        await operationTask.value
+        #expect(manager.activeFileOperationsCount == 0)
+    }
+    
+    @MainActor
+    @Test func testResetNavigation() async throws {
+        let manager = FileSyncManager()
+        manager.sourceRelativePath = "some/path"
+        manager.destRelativePath = "other/path"
+        manager.sourceExpandedPaths = ["/root/some/path"]
+        manager.destExpandedPaths = ["/root/other/path"]
+        
+        manager.resetNavigation()
+        
+        #expect(manager.sourceRelativePath == "")
+        #expect(manager.destRelativePath == "")
+        #expect(manager.sourceExpandedPaths.isEmpty)
+        #expect(manager.destExpandedPaths.isEmpty)
+    }
+    
+    @MainActor
+    @Test func testRefreshTreesAndScanCancellation() async throws {
+        let manager = FileSyncManager()
+        let provider1 = CloudProvider(id: "p1", displayName: "P1", imageName: "", path: "/tmp/p1", type: .iCloud)
+        let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", path: "/tmp/p2", type: .iCloud)
+        
+        // Start a refresh
+        let task1 = Task {
+            await manager.refreshTreesAndScan(source: provider1, destination: provider2)
+        }
+        
+        // Immediately start another one
+        let task2 = Task {
+            await manager.refreshTreesAndScan(source: provider1, destination: provider2)
+        }
+        
+        await task1.value
+        await task2.value
+        
+        // If task1 was correctly cancelled, manager should be in a stable state.
+        // We mainly verify it doesn't hang or crash.
+        #expect(manager.activeRefreshTask != nil)
+    }
 }

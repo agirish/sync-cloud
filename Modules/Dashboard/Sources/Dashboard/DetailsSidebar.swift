@@ -32,7 +32,7 @@ public struct DetailsSidebar: View {
     
     /// The absolute path of the file or folder currently being inspected.
     /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Source or Destination).
-    private var activePath: String {
+    internal var activePath: String {
         // Find whichever pane the user clicked on last.
         // We favor explicitly selected files. If both panes have selections, we favor Source as the primary driver.
         if let sourceSelection = syncManager.selectedSourcePaths.first {
