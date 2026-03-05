@@ -79,12 +79,18 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
     
     public var shouldFailMove: Bool = false
+    public var shouldFailMoveOnTempRename: Bool = false
     
     public func moveItem(at srcURL: URL, to dstURL: URL) throws {
         if shouldFailMove {
             shouldFailMove = false
             // Emulate Cross-Device Link failure (EXDEV)
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
+        }
+        
+        if shouldFailMoveOnTempRename && srcURL.path.contains(".tmp_") {
+            shouldFailMoveOnTempRename = false
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
         }
         
         // Simple mock of move (copy + delete)

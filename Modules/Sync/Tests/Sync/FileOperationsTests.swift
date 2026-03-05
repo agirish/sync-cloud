@@ -35,7 +35,7 @@ import Foundation
         
         let targetURL = URL(fileURLWithPath: "/src/data.bin")
         
-        try await FileSyncManager().deleteItems(at: [targetURL.path], fileManager: mockFM)
+        await FileSyncManager().deleteItems(at: [targetURL.path], fileManager: mockFM)
         
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
         // Verify it didn't end up in the `.trashedPaths` mock stub array but was physically deleted instead
@@ -269,5 +269,87 @@ import Foundation
         // In current implementation, if the destination directory exists, it might throw or handle it.
         // Let's verify what actually happened (likely an error recorded in manager.currentError)
         #expect(manager.currentError != nil)
+    }
+    
+    // MARK: - Safe Move & Copy Rollback Logic
+    
+    @Test func testSafeCopyItemRollbackOnError() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) // Already exists, forces a replacement
+        
+        let srcURL = URL(fileURLWithPath: "/src/doc.txt")
+        let dstURL = URL(fileURLWithPath: "/dst/doc.txt")
+        
+        // Setup mock to fail during the critical `.tmp_` rename phase
+        mockFM.shouldFailMoveOnTempRename = true
+        
+        do {
+            try FileSyncManager.safeCopyItem(at: srcURL, to: dstURL, fileManager: mockFM)
+            Issue.record("Expected safeCopyItem to throw due to simulation failure")
+        } catch {
+            // Expected
+        }
+        
+        // Core verification: The original destination file MUST have been restored from trash
+        #expect(mockFM.virtualDisk["/dst/doc.txt"] != nil)
+        
+        // Also ensure source is untouched (since it was a copy)
+        #expect(mockFM.virtualDisk["/src/doc.txt"] != nil)
+        
+        // Ensure our temp file cleanup deferred block ran correctly by inspecting disk
+        let tmpExists = mockFM.virtualDisk.keys.contains { $0.contains(".tmp_") }
+        #expect(tmpExists == false)
+    }
+    
+    @Test func testSafeMoveItemRollbackOnError() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil) // Target exists
+        
+        let srcURL = URL(fileURLWithPath: "/src/data.bin")
+        let dstURL = URL(fileURLWithPath: "/dst/data.bin")
+        
+        // 1. Force initial moveItem to fail to trigger EXDEV fallback
+        mockFM.shouldFailMove = true
+        
+        // 2. Force the fallback temp copy to fail during the final rename
+        mockFM.shouldFailMoveOnTempRename = true
+        
+        do {
+            try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
+            Issue.record("Expected safeMoveItem to throw")
+        } catch {
+            // Expected
+        }
+        
+        // Rollback check: Dest should be restored securely
+        #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
+        
+        // Source should still exist safely because it failed before we trashed the source
+        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
+    }
+    
+    @Test func testSafeMoveNonExistentSource() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        let srcURL = URL(fileURLWithPath: "/src/phantom.txt")
+        let dstURL = URL(fileURLWithPath: "/dst/phantom.txt")
+        
+        do {
+            try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
+            Issue.record("Expected to throw NSFileReadNoSuchFileError")
+        } catch {
+            let nsError = error as NSError
+            #expect(nsError.domain == NSCocoaErrorDomain)
+            #expect(nsError.code == NSFileReadNoSuchFileError || nsError.code == NSFileNoSuchFileError)
+        }
     }
 }

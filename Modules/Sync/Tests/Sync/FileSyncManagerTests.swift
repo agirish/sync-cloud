@@ -290,11 +290,12 @@ import Foundation
         let diff = FileDifference(
             id: UUID(),
             relativePath: "test.txt",
-            action: .copyToDestination,
-            type: .missingInDestination,
-            description: "Missing",
             sourceItemPath: "/src/test.txt",
-            destinationItemPath: "/dst/test.txt"
+            destinationItemPath: "/dst/test.txt",
+            type: .missingInDestination,
+            action: .copyToDestination,
+            description: "Missing",
+            isSyncing: false
         )
         
         // Add to manager so it can find it by ID and mark as syncing
@@ -321,11 +322,12 @@ import Foundation
         let diff = FileDifference(
             id: UUID(),
             relativePath: "test_move.txt",
-            action: .copyToDestination,
-            type: .missingInDestination,
-            description: "Missing",
             sourceItemPath: "/src/test_move.txt",
-            destinationItemPath: "/dst/test_move.txt"
+            destinationItemPath: "/dst/test_move.txt",
+            type: .missingInDestination,
+            action: .copyToDestination,
+            description: "Missing",
+            isSyncing: false
         )
         
         manager.differences = [diff]
