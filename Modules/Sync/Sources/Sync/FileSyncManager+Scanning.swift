@@ -175,6 +175,9 @@ extension FileSyncManager {
         differences = newDifferences
         hasScanned = true
         isScanning = false
+        Task { @MainActor in
+            Logger.shared.info("Scan completed: found \(newDifferences.count) differences.")
+        }
     }
     
     // MARK: - Internal Engine Operations

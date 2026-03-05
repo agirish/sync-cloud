@@ -114,13 +114,15 @@ struct ContentView: View {
             }
             refreshAction()
         }
-        .onChange(of: sourceProviderId) { _, _ in
+        .onChange(of: sourceProviderId) { _, newId in
+            Logger.shared.info("User switched source provider to \(newId)")
             syncManager.selectedSourcePaths = []
             syncManager.sourceRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: destinationProviderId) { _, _ in
+        .onChange(of: destinationProviderId) { _, newId in
+            Logger.shared.info("User switched destination provider to \(newId)")
             syncManager.selectedDestinationPaths = []
             syncManager.destRelativePath = ""
             syncManager.resetNavigation()
@@ -163,6 +165,8 @@ struct ContentView: View {
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
             return 
         }
+        
+        Logger.shared.info("User initiated scan comparing \(sourceProvider.displayName) and \(destProvider.displayName)")
         Task {
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
         }
@@ -294,8 +298,7 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleMove(_ nodes: [FileNode]) { handler?.moveItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
-        syncManager.clipboardNodes = nodes
-        syncManager.clipboardIsCut = isCut 
+        handler?.handleCopyToClipboard(nodes, isCut: isCut)
     }
     func handlePaste(_ targetDir: FileNode) { handler?.pasteClipboard(to: targetDir) }
     func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) { handler?.pasteItems(nodes, to: targetDir, isCut: false) }
@@ -303,6 +306,9 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
     func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
     func handleGetInfo(for path: String) { handler?.openGetInfo(for: path) }
-    func handleSort(_ option: SortOption) { syncManager.sortOption = option }
+    func handleSort(_ option: SortOption) { 
+        Logger.shared.info("User changed sort option to \(option)")
+        syncManager.sortOption = option 
+    }
 }
 

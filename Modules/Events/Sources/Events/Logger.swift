@@ -90,18 +90,29 @@ public class Logger: ObservableObject {
     }
     
     /// Records a warning trace event to memory and disk.
-    /// - Parameter message: The string description of the warning.
-    public func warning(_ message: String) {
-        log(level: .warning, message: message)
+    /// - Parameters:
+    ///   - message: The string description of the warning.
+    ///   - file: The source file where the warning occurred (auto-captured).
+    ///   - line: The line number where the warning occurred (auto-captured).
+    ///   - function: The function where the warning occurred (auto-captured).
+    public func warning(_ message: String, file: String = #file, line: Int = #line, function: String = #function) {
+        let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
+        log(level: .warning, message: locationMsg)
     }
     
     /// Records an error trace event.
     /// - Parameters:
     ///   - message: The string description of the failure.
-    ///   - showAlert: If true, assigns the message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
-    public func error(_ message: String, showAlert: Bool = true) {
-        log(level: .error, message: message)
+    ///   - showAlert: If true, assigns the original message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
+    ///   - file: The source file where the error occurred (auto-captured).
+    ///   - line: The line number where the error occurred (auto-captured).
+    ///   - function: The function where the error occurred (auto-captured).
+    public func error(_ message: String, showAlert: Bool = true, file: String = #file, line: Int = #line, function: String = #function) {
+        let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
+        log(level: .error, message: locationMsg)
+        
         if showAlert {
+            // Only show the clean, concise message to the user in the UI popup
             currentAlertError = message
         }
     }

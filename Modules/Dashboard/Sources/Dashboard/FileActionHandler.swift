@@ -32,6 +32,7 @@ public class FileActionHandler {
         }
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
+        Logger.shared.info("User focusing folder: \(relPath)")
         syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
     }
     
@@ -61,6 +62,7 @@ public class FileActionHandler {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
         
+        Logger.shared.info("User initiating copy of \(nodes.count) items")
         Task {
             await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
         }
@@ -71,6 +73,7 @@ public class FileActionHandler {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
         
+        Logger.shared.info("User initiating move of \(nodes.count) items")
         Task {
             await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
         }
@@ -84,6 +87,7 @@ public class FileActionHandler {
             syncManager.clipboardIsCut = false
         }
         
+        Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
         Task {
             if isCut {
                 await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
@@ -99,12 +103,19 @@ public class FileActionHandler {
         pasteItems(nodesToPaste, to: targetDir, isCut: syncManager.clipboardIsCut)
     }
     
+    public func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {
+        Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) items to internal clipboard.")
+        syncManager.clipboardNodes = nodes
+        syncManager.clipboardIsCut = isCut
+    }
+    
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
         if isCut {
             syncManager.clipboardNodes = []
             syncManager.clipboardIsCut = false
         }
         
+        Logger.shared.info("User pasting \(nodes.count) items to specific path (isCut: \(isCut))")
         Task {
             if isCut {
                 await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
@@ -124,6 +135,7 @@ public class FileActionHandler {
     
     public func beginRename(_ node: FileNode) {
         if let newName = NativeAlerts.promptForRename(currentName: node.name), newName != node.name {
+            Logger.shared.info("User initiated rename of '\(node.name)' to '\(newName)'")
             Task {
                 await syncManager.renameItem(at: node.id, to: newName)
             }
@@ -132,6 +144,7 @@ public class FileActionHandler {
     
     public func beginCreateFolder(in path: String) {
         if let folderName = NativeAlerts.promptForNewFolder() {
+            Logger.shared.info("User initiated create folder: '\(folderName)'")
             Task {
                 await syncManager.createFolder(named: folderName, in: path)
             }
@@ -140,6 +153,7 @@ public class FileActionHandler {
     
     public func confirmDelete(_ nodes: [FileNode]) {
         if NativeAlerts.confirmDelete(for: nodes.map { $0.name }) {
+            Logger.shared.info("User confirmed deletion of \(nodes.count) items")
             Task {
                 await syncManager.deleteItems(at: nodes.map { $0.id })
             }

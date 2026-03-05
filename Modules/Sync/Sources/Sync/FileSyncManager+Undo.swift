@@ -11,6 +11,7 @@ extension FileSyncManager {
     
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Undo: \(actionName)")
             let redoParamResolver = AsyncValueResolver<[(source: URL, destination: URL)]>()
             target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
@@ -40,6 +41,7 @@ extension FileSyncManager {
     
     func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Redo: \(actionName)")
             let nextUndoStateResolver = AsyncValueResolver<[CopyItemState]>()
             target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
             
@@ -63,6 +65,7 @@ extension FileSyncManager {
     
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Undo: \(actionName)")
             let redoParamResolver = AsyncValueResolver<[(from: URL, to: URL)]>()
             target.registerMoveRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
             
@@ -88,6 +91,7 @@ extension FileSyncManager {
 
     func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Redo: \(actionName)")
             let nextUndoStateResolver = AsyncValueResolver<[MoveItemState]>()
             target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
             
@@ -111,6 +115,7 @@ extension FileSyncManager {
     
     func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Undo: New Folder")
             target.registerCreateFolderRedo(url: url, fileManager: fm)
             Task { await target.enqueueFileOperation { 
                 do {
@@ -125,6 +130,7 @@ extension FileSyncManager {
     
     func registerCreateFolderRedo(url: URL, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Redo: New Folder")
             target.registerCreateFolderUndo(url: url, fileManager: fm)
             Task { await target.enqueueFileOperation { try? fm.createDirectory(at: url, withIntermediateDirectories: true) } }
         }
@@ -133,6 +139,7 @@ extension FileSyncManager {
     
     func registerTrashItems(urls: [URL], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Undo: \(actionName)")
             let nextResolver = AsyncValueResolver<[URL?]>()
             target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName, fileManager: fm)
             
@@ -157,6 +164,7 @@ extension FileSyncManager {
 
     func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
+            Logger.shared.info("User triggered Redo: \(actionName)")
             target.registerTrashItems(urls: urls, actionName: actionName, fileManager: fm)
             
             Task {

@@ -121,8 +121,10 @@ public class SettingsManager: ObservableObject {
     ///   - providerId: The targeted provider ID.
     public func setPath(_ path: String, for providerId: String) {
         if path.isEmpty {
+            Logger.shared.info("User cleared custom path mapping for provider: \(providerId)")
             userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
         } else {
+            Logger.shared.info("User mapped custom path \(path) for provider: \(providerId)")
             userDefaults.set(path, forKey: "\(overrideKeyPrefix)\(providerId)")
         }
         Task {
@@ -133,6 +135,7 @@ public class SettingsManager: ObservableObject {
     /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
     /// - Parameter providerId: The targeted provider ID.
     public func resetPath(for providerId: String) {
+        Logger.shared.info("User reset path mapping to default system root for provider: \(providerId)")
         userDefaults.removeObject(forKey: "\(overrideKeyPrefix)\(providerId)")
         Task {
             await discoverProviders()
