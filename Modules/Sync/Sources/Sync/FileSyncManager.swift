@@ -34,6 +34,7 @@ public class FileSyncManager: ObservableObject {
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
         didSet {
+            guard sortOption != oldValue else { return }
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             prefetchedTrees.removeAll()
             // Re-sort current trees globally when option changes
@@ -47,6 +48,7 @@ public class FileSyncManager: ObservableObject {
     /// Global toggle to show/hide hidden files (e.g. .DS_Store, .git)
     @Published public var showHiddenFiles: Bool = false {
         didSet {
+            guard showHiddenFiles != oldValue else { return }
             // CRITICAL: Cache must be invalidated because hidden files change the tree structure itself
             prefetchedTrees.removeAll()
             refreshSubject.send()

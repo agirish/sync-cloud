@@ -176,4 +176,28 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
     }
+
+    @MainActor
+    @Test func testCrossVolumeMoveCleanupWithoutTrashSupport() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        
+        let srcURL = URL(fileURLWithPath: "/src/data.bin")
+        let dstURL = URL(fileURLWithPath: "/dst/data.bin")
+        
+        // Force cross-volume fallback
+        mockFM.shouldFailMove = true
+        // Disable trash support
+        mockFM.shouldFailTrash = true
+        
+        try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
+        
+        // Verify source is GONE (Directly removed because trash failed)
+        #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
+        // Verify destination exists
+        #expect(mockFM.virtualDisk["/dst/data.bin"] != nil)
+    }
 }

@@ -2,14 +2,14 @@ import Testing
 import Foundation
 @testable import Events
 
-@Suite struct EventsTests {
+@Suite(.serialized) struct EventsTests {
     
     @MainActor
     @Test func testLoggerInfo() async throws {
         let logger = Logger.shared
         logger.clearLogs()
         
-        logger.info("Test info message")
+        await logger.info("Test info message").value
         
         #expect(logger.entries.count == 1)
         #expect(logger.entries.first?.level == .info)
@@ -21,7 +21,7 @@ import Foundation
         let logger = Logger.shared
         logger.clearLogs()
         
-        logger.error("Critical failure", showAlert: true)
+        await logger.error("Critical failure", showAlert: true).value
         
         #expect(logger.entries.last?.level == .error)
         #expect(logger.currentAlertError == "Critical failure")
@@ -34,7 +34,7 @@ import Foundation
         
         // Log 1100 entries (limit is 1000)
         for i in 0..<1100 {
-            logger.info("Message \(i)")
+            await logger.info("Message \(i)").value
         }
         
         #expect(logger.entries.count == 1000)

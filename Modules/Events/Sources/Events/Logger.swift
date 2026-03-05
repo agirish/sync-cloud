@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Defines the severity level of an application log entry.
-public enum LogLevel: String, CaseIterable, Identifiable, Codable {
+public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
     /// Informational telemetry or standard operational success events.
     case info = "INFO"
     /// A non-critical issue that did not halt execution but requires attention.
@@ -30,7 +30,7 @@ public enum LogLevel: String, CaseIterable, Identifiable, Codable {
 }
 
 /// Represents a single recorded event in the application's lifecycle.
-public struct LogEntry: Identifiable, Codable {
+public struct LogEntry: Identifiable, Codable, Sendable {
     /// A unique identifier for the entry.
     public let id: UUID
     /// The exact timestamp when the event occurred.
@@ -85,61 +85,71 @@ public class Logger: ObservableObject {
     
     /// Records an informational trace event to memory and disk.
     /// - Parameter message: The string description to log.
-    public func info(_ message: String) {
-        log(level: .info, message: message)
+    @discardableResult
+    public nonisolated func info(_ message: String) -> Task<Void, Never> {
+        return log(level: .info, message: message)
     }
     
     /// Records a warning trace event to memory and disk.
     /// - Parameters:
     ///   - message: The string description of the warning.
-    ///   - file: The source file where the warning occurred (auto-captured).
-    ///   - line: The line number where the warning occurred (auto-captured).
-    ///   - function: The function where the warning occurred (auto-captured).
-    public func warning(_ message: String, file: String = #file, line: Int = #line, function: String = #function) {
+    @discardableResult
+    public nonisolated func warning(_ message: String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
         let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
-        log(level: .warning, message: locationMsg)
+        return log(level: .warning, message: locationMsg)
     }
     
     /// Records an error trace event.
     /// - Parameters:
     ///   - message: The string description of the failure.
     ///   - showAlert: If true, assigns the original message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
-    ///   - file: The source file where the error occurred (auto-captured).
-    ///   - line: The line number where the error occurred (auto-captured).
-    ///   - function: The function where the error occurred (auto-captured).
-    public func error(_ message: String, showAlert: Bool = true, file: String = #file, line: Int = #line, function: String = #function) {
+    @discardableResult
+    public nonisolated func error(_ message: String, showAlert: Bool = true, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
         let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
-        log(level: .error, message: locationMsg)
-        
-        if showAlert {
-            // Only show the clean, concise message to the user in the UI popup
-            currentAlertError = message
-        }
+        return log(level: .error, message: locationMsg, showAlert: showAlert, cleanMessage: message)
     }
     
     /// Internal abstraction formatting the memory entry and dispatching to the disk background queue.
-    private func log(level: LogLevel, message: String) {
+    @discardableResult
+    private nonisolated func log(level: LogLevel, message: String, showAlert: Bool = false, cleanMessage: String? = nil) -> Task<Void, Never> {
         let entry = LogEntry(level: level, message: message)
-        
-        // Update UI state
+        let logText = entry.formattedString + "\n"
+
+        // Preserve synchronous semantics for main-thread callers while keeping a safe nonisolated API.
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                applyLogEntry(entry, logText: logText, showAlert: showAlert, cleanMessage: cleanMessage)
+            }
+            return Task {}
+        }
+
+        return Task { @MainActor in
+            self.applyLogEntry(entry, logText: logText, showAlert: showAlert, cleanMessage: cleanMessage)
+        }
+    }
+
+    @MainActor
+    private func applyLogEntry(_ entry: LogEntry, logText: String, showAlert: Bool, cleanMessage: String?) {
         entries.append(entry)
-        
-        // Maintain reasonable memory footprint (e.g., last 1000 logs)
+
         if entries.count > 1000 {
             entries.removeFirst(entries.count - 1000)
         }
-        
-        // Append to file asynchronously
-        let logText = entry.formattedString + "\n"
-        fileQueue.async { [url = self.logFileURL] in
-            if let data = logText.data(using: .utf8) {
-                if let fileHandle = try? FileHandle(forWritingTo: url) {
-                    fileHandle.seekToEndOfFile()
-                    fileHandle.write(data)
-                    fileHandle.closeFile()
-                } else {
-                    try? data.write(to: url, options: .atomic)
-                }
+
+        if showAlert, let clean = cleanMessage {
+            currentAlertError = clean
+        }
+
+        // Append to file asynchronously on background queue
+        fileQueue.async { [url = logFileURL] in
+            guard let data = logText.data(using: .utf8) else { return }
+
+            if let fileHandle = try? FileHandle(forWritingTo: url) {
+                defer { try? fileHandle.close() }
+                fileHandle.seekToEndOfFile()
+                fileHandle.write(data)
+            } else {
+                try? data.write(to: url, options: .atomic)
             }
         }
     }

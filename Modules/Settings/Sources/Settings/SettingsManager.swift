@@ -10,6 +10,10 @@ public class SettingsManager: ObservableObject {
     /// A sorted array of natively detected and custom-configured providers (e.g., iCloud, OneDrive).
     @Published public var availableProviders: [CloudProvider] = []
     
+    /// Indicates whether a provider discovery scan is currently active.
+    @Published public var isDiscovering = false
+    private var activeDiscoveryCount = 0
+    
     private let userDefaults = UserDefaults.standard
     private let overrideKeyPrefix = "path_override_"
     
@@ -35,6 +39,12 @@ public class SettingsManager: ObservableObject {
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
     public func discoverProviders() async {
         Logger.shared.info("Discovering cloud providers...")
+        activeDiscoveryCount += 1
+        isDiscovering = true
+        defer {
+            activeDiscoveryCount = max(0, activeDiscoveryCount - 1)
+            isDiscovering = activeDiscoveryCount > 0
+        }
         
         let iCloudOverride = userDefaults.string(forKey: "\(overrideKeyPrefix)iCloud")
         let cloudStoragePath = (NSString(string: "~/Library/CloudStorage")).expandingTildeInPath

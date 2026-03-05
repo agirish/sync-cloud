@@ -12,10 +12,18 @@ private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 /// Integrated with `SyncCloudAppDelegate` for app-level guards and termination handling.
 struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
-    @StateObject private var syncManager = FileSyncManager()
+    @StateObject private var syncManager: FileSyncManager
     
     private var isRunningUnitTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+    
+    init() {
+        let manager = FileSyncManager()
+        _syncManager = StateObject(wrappedValue: manager)
+        // CRITICAL: Linking the manager to the delegate during init ensures 
+        // the termination guard is active even if the app is quit immediately.
+        appDelegate.syncManager = manager
     }
     
     var body: some Scene {
@@ -25,9 +33,6 @@ struct SyncCloudApp: App {
             } else {
                 ContentView(syncManager: syncManager)
                     .environmentObject(Logger.shared)
-                    .onAppear {
-                        appDelegate.syncManager = syncManager
-                    }
             }
         }
         .windowStyle(.hiddenTitleBar)

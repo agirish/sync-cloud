@@ -170,7 +170,13 @@ extension FileSyncManager {
             do {
                 try fileManager.copyItem(at: sourceURL, to: tempURL)
                 try fileManager.moveItem(at: tempURL, to: destinationURL)
-                try? fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+                
+                // Cleanup source: Try trash first, fall back to direct remove if volume doesn't support trash.
+                do {
+                    try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+                } catch {
+                    try? fileManager.removeItem(at: sourceURL)
+                }
             } catch let fallbackError {
                 if requiresRollback, let trashedURL = trashedOriginal {
                     // Critical Rollback: Atomic swap failed, restore the user's destination file from trash
