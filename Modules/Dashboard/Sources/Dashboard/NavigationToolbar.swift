@@ -22,11 +22,13 @@ public struct NavigationToolbar: View {
                     Image(systemName: "chevron.left")
                 }
                 .disabled(!syncManager.canGoBack)
+                .help("Navigate to the previous directory")
                 
                 Button(action: { syncManager.goForward(); refreshAction() }) {
                     Image(systemName: "chevron.right")
                 }
                 .disabled(!syncManager.canGoForward)
+                .help("Navigate to the next directory")
             }
             .buttonStyle(.bordered)
             
@@ -52,6 +54,7 @@ public struct NavigationToolbar: View {
                     Label("Restore Root", systemImage: "house")
                 }
                 .buttonStyle(.bordered)
+                .help("Return to the root directory view")
             } else {
                 Text("Viewing All Files (Root)")
                     .font(.subheadline)
@@ -63,6 +66,7 @@ public struct NavigationToolbar: View {
                 Label("Hidden", systemImage: "eye")
             }
             .toggleStyle(.button)
+            .help("Toggle visibility of hidden files")
             .onChange(of: syncManager.showHiddenFiles) {
                 refreshAction()
             }

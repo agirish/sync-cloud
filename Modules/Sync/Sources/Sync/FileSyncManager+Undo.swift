@@ -16,7 +16,6 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    do {
                         let items = await stateResolver.get()
                         
                         let redoParams = items.map { (source: $0.source, destination: $0.destination) }
@@ -33,9 +32,6 @@ extension FileSyncManager {
                                 try? fm.moveItem(at: trashed, to: item.destination)
                             }
                         }
-                    } catch {
-                        await redoParamResolver.fail(with: [])
-                    }
                 }
             }
         }
@@ -49,7 +45,6 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    do {
                         let params = await paramResolver.get()
                         var nextState: [CopyItemState] = []
                         
@@ -60,9 +55,6 @@ extension FileSyncManager {
                         }
                         
                         await nextUndoStateResolver.resolve(nextState)
-                    } catch {
-                        await nextUndoStateResolver.fail(with: [])
-                    }
                 }
             }
         }
@@ -76,7 +68,6 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    do {
                         let items = await stateResolver.get()
                         let redoParams = items.map { (from: $0.from, to: $0.to) }
                         await redoParamResolver.resolve(redoParams)
@@ -89,9 +80,6 @@ extension FileSyncManager {
                                 try? fm.moveItem(at: trashed, to: item.to)
                             }
                         }
-                    } catch {
-                        await redoParamResolver.fail(with: [])
-                    }
                 }
             }
         }
@@ -105,7 +93,6 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    do {
                         let params = await paramResolver.get()
                         var nextState: [MoveItemState] = []
                         
@@ -116,9 +103,6 @@ extension FileSyncManager {
                         }
                         
                         await nextUndoStateResolver.resolve(nextState)
-                    } catch {
-                        await nextUndoStateResolver.fail(with: [])
-                    }
                 }
             }
         }
@@ -154,7 +138,6 @@ extension FileSyncManager {
             
             Task {
                 await target.enqueueFileOperation {
-                    do {
                         let fmLocal = fm
                         var trashedItems: [URL?] = []
                         for url in urls {
@@ -166,9 +149,6 @@ extension FileSyncManager {
                             }
                         }
                         await nextResolver.resolve(trashedItems)
-                    } catch {
-                        await nextResolver.fail(with: [])
-                    }
                 }
             }
         }

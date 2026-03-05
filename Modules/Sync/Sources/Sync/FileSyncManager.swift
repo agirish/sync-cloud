@@ -4,10 +4,9 @@ import Combine
 import UniformTypeIdentifiers
 
 /// Core business logic manager governing the synchronization engine
-/// Manages the in-memory tree structures (FileNode) for both source and destination cloud providers.
-/// Responsible for scanning directories, computing FileDifferences, and tracking relative navigation paths.
-
-
+/// Manages the in-memory tree structures (`FileNode`) for both source and destination cloud providers.
+/// Responsible for scanning directories, computing `FileDifference` arrays, tracking relative navigation paths,
+/// caching prefetched generic file trees, and marshaling disk-level `UndoManager` native registrations.
 @MainActor
 public class FileSyncManager: ObservableObject {
     public init() {}
@@ -40,6 +39,9 @@ public class FileSyncManager: ObservableObject {
     @Published public var sourceItemCount = 0
     @Published public var destinationItemCount = 0
     
+    /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
+    @Published public var prefetchedTrees: [String: [FileNode]] = [:]
+    
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false
     
@@ -59,6 +61,9 @@ public class FileSyncManager: ObservableObject {
     @Published public var sourceExpandedPaths: Set<String> = []
     @Published public var destExpandedPaths: Set<String> = []
     
+    /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.)
+    @Published public var activeFileOperationsCount = 0
+    
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()
     
@@ -68,6 +73,7 @@ public class FileSyncManager: ObservableObject {
     // Internal task tracking for re-entrancy protection
     internal var activeLoadSourceTask: Task<Void, Never>?
     internal var activeLoadDestTask: Task<Void, Never>?
+    internal var activeRefreshTask: Task<Void, Never>?
     
     /// Enqueues a file operation to be executed sequentially after all previous file operations have completed.
     /// This is strictly required to ensure that rapid Undo/Redo operations do not race with each other asynchronously.
@@ -75,11 +81,14 @@ public class FileSyncManager: ObservableObject {
     public func enqueueFileOperation<T: Sendable>(
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
+        await MainActor.run { self.activeFileOperationsCount += 1 }
+        
         let previousTask = fileOperationTask
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
             let res = await operation()
             await MainActor.run { [weak self] in 
+                self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
                 self?.pruneSelection()
                 self?.refreshSubject.send() 
             }

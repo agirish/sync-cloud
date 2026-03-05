@@ -9,139 +9,74 @@ import QuickLook
 /// The main application layout for SyncCloud.
 /// Contains a two-pane `NavigationSplitView` managing source and destination `FileTreeView`s.
 struct ContentView: View {
-    /// The global synchronization engine tracking tree structures and differences.
-    @StateObject private var syncManager = FileSyncManager()
-    /// The unmanaged configuration logic responsible for available providers.
+    @ObservedObject var syncManager: FileSyncManager
     @StateObject private var settings = SettingsManager()
     
-    /// The currently selected CloudProvider ID driving the left Source pane.
     @State private var sourceProviderId: String = "iCloud"
-    /// The currently selected CloudProvider ID driving the right Destination pane.
     @State private var destinationProviderId: String = "iCloud"
-    
-    /// Tracks visual animation states when scanning directories.
     @State private var isScanning = false
     
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
     
-    /// Controls the presentation of the User Preferences sheet.
     @State private var showingSettings = false
-    /// Controls the presentation of the Logger Activity inspector pane.
-    @State private var showingLogs = false
-    
-    /// Extractable handler for native file actions (rename, copy, delete, etc.)
     @State private var actionHandler: FileActionHandler?
-    
-    // MARK: - File Action UI States
-    
-    /// Target file URL bound to the native macOS Quick Look panel.
     @State private var quickLookURL: URL? = nil
+    @State private var showingBottomPane: Bool = true
+    
+    enum BottomTab: String, CaseIterable {
+        case differences = "Differences"
+        case details = "Details"
+    }
+    @State private var selectedBottomTab: BottomTab = .differences
 
     var body: some View {
         NavigationSplitView {
-            // Sidebar Navigation
             ProviderSidebar(
                 settings: settings,
                 sourceProviderId: $sourceProviderId,
                 destinationProviderId: $destinationProviderId
             )
         } detail: {
-            // Main Content Area
-            VStack(spacing: 0) {
-                // Focus Navigation Toolbar
-                NavigationToolbar(syncManager: syncManager, refreshAction: refreshAction)
-                
-                Divider()
-                
-                // Dashboard Header
-                DashboardHeader(
-                    sourceCount: syncManager.sourceItemCount,
-                    destinationCount: syncManager.destinationItemCount,
-                    differences: syncManager.differences
-                )
-                .onChange(of: syncManager.differences) {
-                    isScanning = false
-                }
-                Divider()
-                
-                // File Trees Split View
-                HSplitView {
-                    // Left Pane (Source)
-                    VStack(spacing: 0) {
-                        PaneHeader(
-                            title: "Source", 
-                            provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), 
-                            path: currentSourcePath
-                        )
-                        sourceTreeView
-                    }
-                    .frame(minWidth: 250)
-                    
-                    // Right Pane (Destination)
-                    VStack(spacing: 0) {
-                        PaneHeader(
-                            title: "Destination", 
-                            provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), 
-                            path: currentDestinationPath
-                        )
-                        destinationTreeView
-                    }
-                    .frame(minWidth: 250)
-                }
-                
-                // Differences Results Area
-                if !syncManager.differences.isEmpty {
-                    Divider()
-                    DifferencesView(syncManager: syncManager, refreshAction: refreshAction)
-                        .frame(maxHeight: 300)
-                } else if syncManager.hasScanned {
-                    Divider()
-                    VStack {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 40))
-                            .foregroundColor(.green)
-                            .padding(.bottom, 8)
-                        Text("Everything is in sync")
-                            .font(.headline)
-                        Text("No differences found between focused directories.")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: 200)
-                    .background(Color(NSColor.textBackgroundColor).opacity(0.5))
-                }
-            }
-            .quickLookPreview($quickLookURL)
-            .background(
-                Button(action: {
-                    if let targetPath = syncManager.selectedSourcePaths.first ?? syncManager.selectedDestinationPaths.first {
-                        quickLookURL = URL(fileURLWithPath: targetPath)
-                    }
-                }) { EmptyView() }
-                .keyboardShortcut(.space, modifiers: [])
-                .opacity(0)
-            )
-            .background(Color(NSColor.windowBackgroundColor))
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button(action: refreshAction) {
-                        Label("Scan", systemImage: isScanning ? "hourglass" : "magnifyingglass")
-                    }
-                    .disabled(isScanning)
-                }
-                ToolbarItem(placement: .automatic) {
-                    Button(action: { openWindow(id: "activity-log") }) {
-                        Label("Logs", systemImage: "list.bullet.rectangle")
+            mainContentView
+                .frame(minWidth: 600)
+                .toolbar {
+                    ToolbarItemGroup(placement: .principal) {
+                        ControlGroup {
+                            Button(action: refreshAction) {
+                                Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
+                            }
+                            .disabled(isScanning)
+                            
+                            Button(action: {
+                                withAnimation { showingBottomPane.toggle() }
+                            }) {
+                                Label("Toggle Bottom Pane", systemImage: "rectangle.bottomthird.inset.filled")
+                                    .foregroundColor(showingBottomPane ? .accentColor : .primary)
+                            }
+                            
+                            Button(action: { openWindow(id: "activity-log") }) {
+                                Label("Logs", systemImage: "list.bullet.rectangle")
+                            }
+                            
+                            Button(action: { showingSettings = true }) {
+                                Label("Settings", systemImage: "gear")
+                            }
+                        }
                     }
                 }
-                ToolbarItem(placement: .automatic) {
-                    Button(action: { showingSettings = true }) {
-                        Label("Settings", systemImage: "gear")
-                    }
-                }
-            }
         }
+        .quickLookPreview($quickLookURL)
+        .background(
+            Button(action: {
+                if let targetPath = syncManager.selectedSourcePaths.first ?? syncManager.selectedDestinationPaths.first {
+                    quickLookURL = URL(fileURLWithPath: targetPath)
+                }
+            }) { EmptyView() }
+            .keyboardShortcut(.space, modifiers: [])
+            .opacity(0)
+        )
+        .background(Color(NSColor.windowBackgroundColor))
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environmentObject(settings)
@@ -157,9 +92,7 @@ struct ContentView: View {
             }
         }
         .onReceive(syncManager.$isScanning) { scanning in
-            withAnimation {
-                isScanning = scanning
-            }
+            withAnimation { isScanning = scanning }
         }
         .onReceive(syncManager.refreshSubject) { _ in
             refreshAction()
@@ -171,19 +104,37 @@ struct ContentView: View {
                 sourceProviderId = first
                 destinationProviderId = settings.availableProviders.dropFirst().first?.id ?? first
             }
+            Task {
+                await syncManager.prefetch(providers: settings.availableProviders)
+            }
             refreshAction()
         }
         .onChange(of: sourceProviderId) {
             syncManager.selectedSourcePaths = []
+            syncManager.sourceRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
         .onChange(of: destinationProviderId) {
             syncManager.selectedDestinationPaths = []
+            syncManager.destRelativePath = ""
             syncManager.resetNavigation()
             refreshAction()
         }
+        .onChange(of: syncManager.selectedSourcePaths) { paths in
+            if !paths.isEmpty && showingBottomPane {
+                withAnimation { selectedBottomTab = .details }
+            }
+        }
+        .onChange(of: syncManager.selectedDestinationPaths) { paths in
+            if !paths.isEmpty && showingBottomPane {
+                withAnimation { selectedBottomTab = .details }
+            }
+        }
         .onChange(of: settings.availableProviders) {
+            Task {
+                await syncManager.prefetch(providers: settings.availableProviders)
+            }
             refreshAction()
         }
     }
@@ -200,38 +151,58 @@ struct ContentView: View {
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
     }
 
-    
-    /// Triggers an immediate refresh cycle: scanning files and rebuilding the view-model trees from disk.
     private func refreshAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
             return 
         }
-              
         Task {
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
         }
     }
-    
-    // MARK: - Extracted Subviews
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        VStack(spacing: 0) {
+            NavigationToolbar(syncManager: syncManager, refreshAction: refreshAction)
+            Divider()
+            VSplitView {
+                VStack(spacing: 0) {
+                    HSplitView {
+                        VStack(spacing: 0) {
+                            PaneHeader(title: "Source", provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), path: currentSourcePath)
+                            sourceTreeView
+                        }
+                        .frame(minWidth: 250)
+                        
+                        VStack(spacing: 0) {
+                            PaneHeader(title: "Destination", provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), path: currentDestinationPath)
+                            destinationTreeView
+                        }
+                        .frame(minWidth: 250)
+                    }
+                    Divider()
+                    DashboardHeader(sourceCount: syncManager.sourceItemCount, destinationCount: syncManager.destinationItemCount, differences: syncManager.differences)
+                }
+                if showingBottomPane {
+                    bottomPaneView
+                        .frame(minHeight: 150)
+                }
+            }
+        }
+    }
     
     @ViewBuilder
     private var sourceTreeView: some View {
         FileTreeView(
-            tree: syncManager.sourceTree, 
+            tree: syncManager.sourceTree,
             otherTree: syncManager.destinationTree,
-            isLoading: syncManager.isLoadingSourceTree, 
+            isLoading: syncManager.isLoadingSourceTree,
             currentPath: currentSourcePath,
             selection: $syncManager.selectedSourcePaths,
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
-            delegate: PaneActionDelegate(
-                handler: actionHandler,
-                syncManager: syncManager,
-                isSource: true,
-                sourceProviderId: sourceProviderId,
-                destProviderId: destinationProviderId
-            )
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
         )
     }
     
@@ -245,17 +216,58 @@ struct ContentView: View {
             selection: $syncManager.selectedDestinationPaths,
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
-            delegate: PaneActionDelegate(
-                handler: actionHandler,
-                syncManager: syncManager,
-                isSource: false,
-                sourceProviderId: sourceProviderId,
-                destProviderId: destinationProviderId
-            )
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
         )
     }
+    
+    @ViewBuilder
+    private var bottomPaneView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Picker("", selection: $selectedBottomTab) {
+                    ForEach(BottomTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                
+                Spacer()
+            }
+            .background(Color(NSColor.windowBackgroundColor))
+            
+            Divider()
+            
+            ZStack {
+                if selectedBottomTab == .differences {
+                    if !syncManager.differences.isEmpty {
+                        DifferencesView(syncManager: syncManager, refreshAction: refreshAction)
+                    } else if syncManager.hasScanned {
+                        VStack {
+                            Image(systemName: "checkmark.seal.fill").font(.system(size: 40)).foregroundColor(.green).padding(.bottom, 8)
+                            Text("Everything is in sync").font(.headline)
+                            Text("No differences found between focused directories.").font(.subheadline).foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+                    } else {
+                        VStack {
+                            Text("No Scan Performed").font(.headline).foregroundColor(.secondary)
+                            Text("Click Scan to compare directories.").font(.subheadline).foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    DetailsSidebar(syncManager: syncManager, sourcePath: currentSourcePath, destPath: currentDestinationPath)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+    }
 }
-
+    
 @MainActor
 struct PaneActionDelegate: FileActionDelegate {
     let handler: FileActionHandler?

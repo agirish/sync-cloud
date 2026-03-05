@@ -7,6 +7,25 @@ extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
     
+    /// Pre-loads file trees for the given providers asynchronously in the background.
+    public func prefetch(providers: [CloudProvider]) async {
+        for provider in providers {
+            let path = (provider.path as NSString).expandingTildeInPath
+            if prefetchedTrees[path] != nil { continue } // Already cached
+            
+            let rootURL = URL(fileURLWithPath: path)
+            let sortOp = self.sortOption
+            let showHidden = self.showHiddenFiles
+            
+            let tree = await Task.detached(priority: .background) {
+                return await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden)
+            }.value
+            
+            self.prefetchedTrees[path] = tree
+            Logger.shared.info("Prefetched tree for \(provider.id) (\(path))")
+        }
+    }
+    
     /// Instructs the manager to read the filesystem and construct an in-memory tree for the specified pane.
     /// - Parameters:
     ///   - path: The absolute, expanded root URL string of the provider.
@@ -19,12 +38,27 @@ extension FileSyncManager {
             let label = isSource ? "Source" : "Destination"
             Logger.shared.info("Loading \(label) Tree for path: \(path)")
             
-            if isSource { isLoadingSourceTree = true }
-            else { isLoadingDestinationTree = true }
-            
             let relPath = isSource ? sourceRelativePath : destRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
+            
+            // Fast Path: Check prefetch cache if we are at the root
+            if relPath.isEmpty, let cachedTree = prefetchedTrees[path] {
+                Logger.shared.info("Consuming prefetched tree for \(path)")
+                if isSource {
+                    self.sourceTree = cachedTree
+                    self.sourceItemCount = countItems(in: cachedTree)
+                } else {
+                    self.destinationTree = cachedTree
+                    self.destinationItemCount = countItems(in: cachedTree)
+                }
+                return
+            }
+            
+            // Slow Path: Load actively
+            if isSource { isLoadingSourceTree = true }
+            else { isLoadingDestinationTree = true }
+            
             let sortOp = self.sortOption
             let showHidden = self.showHiddenFiles
             
@@ -44,6 +78,8 @@ extension FileSyncManager {
                 self.destinationItemCount = countItems(in: tree)
                 isLoadingDestinationTree = false
             }
+            // Update cache since we did the work
+            if relPath.isEmpty { self.prefetchedTrees[path] = tree }
             Logger.shared.info("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
         }
 
@@ -69,20 +105,29 @@ extension FileSyncManager {
     ///   - source: The `CloudProvider` representing the source pane.
     ///   - destination: The `CloudProvider` representing the destination pane.
     public func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
-        let sourceRoot = (source.path as NSString).expandingTildeInPath
-        let destRoot = (destination.path as NSString).expandingTildeInPath
+        activeRefreshTask?.cancel()
         
-        // Call tree loads sequentially on the MainActor to prevent deadlocks from withTaskGroup
-        await self.loadTree(path: sourceRoot, isSource: true)
-        await self.loadTree(path: destRoot, isSource: false)
+        let task = Task {
+            let sourceRoot = (source.path as NSString).expandingTildeInPath
+            let destRoot = (destination.path as NSString).expandingTildeInPath
+            
+            await self.loadTree(path: sourceRoot, isSource: true)
+            guard !Task.isCancelled else { return }
+            
+            await self.loadTree(path: destRoot, isSource: false)
+            guard !Task.isCancelled else { return }
+            
+            let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
+            let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)
+            
+            await scanDirectories(
+                source: source, sourcePath: currentSourceFull,
+                destination: destination, destinationPath: currentDestFull
+            )
+        }
         
-        let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
-        let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)
-        
-        await scanDirectories(
-            source: source, sourcePath: currentSourceFull,
-            destination: destination, destinationPath: currentDestFull
-        )
+        activeRefreshTask = task
+        await task.value
     }
     
     /// Performs a high-performance, background differential scan between the configured source and destination directories.

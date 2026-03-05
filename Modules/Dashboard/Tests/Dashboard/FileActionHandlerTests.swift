@@ -1,6 +1,7 @@
 import Testing
 import Foundation
-@testable import Sync
+import Sync
+@testable import Dashboard
 
 // Re-declaring minimal mockup of the FileActionHandler directly for Logic testing.
 // In reality, this lives in MacApp, but its core logic is strictly business logic.
