@@ -289,9 +289,9 @@ extension FileSyncManager {
     }
     
     /// Moves multiple files or folders between the Source and Destination panes.
-    /// - Returns: `true` when all pruned input nodes were moved successfully.
+    /// - Returns: Nodes that were successfully moved.
     @discardableResult
-    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> Bool {
+    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
@@ -343,17 +343,24 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(moved) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items")
         }
-        
+
+        let movedNodes = moved.compactMap { moved in
+            prunedNodes.first { $0.id == moved.from.path }
+        }
+
         if let firstError = result.errors.first {
             let msg = "Error moving items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
-            return false
         } else if !nodes.isEmpty {
-            Logger.shared.info("Moved \(nodes.count) items between panes")
+            if movedNodes.count == prunedNodes.count {
+                Logger.shared.info("Moved \(movedNodes.count) items between panes")
+            } else {
+                Logger.shared.info("Moved \(movedNodes.count) of \(prunedNodes.count) items between panes")
+            }
         }
-        
-        return moved.count == prunedNodes.count
+
+        return movedNodes
     }
     
     /// Copies multiple files to a specific absolute destination directory path.
@@ -409,9 +416,9 @@ extension FileSyncManager {
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    /// - Returns: `true` when all pruned input nodes were moved successfully.
+    /// - Returns: Nodes that were successfully moved.
     @discardableResult
-    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> Bool {
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let prunedNodes = nodes.pruneNestedNodes()
         
         let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
@@ -453,16 +460,17 @@ extension FileSyncManager {
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items")
         }
         
+        let movedNodes = result.moved.compactMap { moved in prunedNodes.first { $0.id == moved.from.path } }
+
         if let firstError = result.errors.first {
             let msg = "Error moving items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
-            return false
         } else if !nodes.isEmpty {
             Logger.shared.info("Moved \(nodes.count) items to \(destinationPath)")
         }
         
-        return moved.count == prunedNodes.count
+        return movedNodes
     }
     
     /// Renames a specific file or folder on disk.

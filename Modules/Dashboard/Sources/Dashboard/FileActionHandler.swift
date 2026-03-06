@@ -69,15 +69,13 @@ public class FileActionHandler {
         }
     }
     
-    /// Initiates an asynchronous cross-pane move operation.
-    public func moveItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) {
+    @discardableResult
+    public func moveItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) async -> [FileNode] {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
         
         Logger.shared.info("User initiating move of \(nodes.count) items")
-        Task {
-            await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-        }
+        return await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
     }
     
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
@@ -86,9 +84,10 @@ public class FileActionHandler {
         Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
         Task {
             if isCut {
-                let moved = await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
-                if moved {
-                    syncManager.clipboardNodes = []
+                let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
+                let successfullyMovedIds = Set(movedNodes.map { $0.id })
+                syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
+                if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
                 }
             } else {
@@ -113,9 +112,10 @@ public class FileActionHandler {
         Logger.shared.info("User pasting \(nodes.count) items to specific path (isCut: \(isCut))")
         Task {
             if isCut {
-                let moved = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
-                if moved {
-                    syncManager.clipboardNodes = []
+                let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+                let successfullyMovedIds = Set(movedNodes.map { $0.id })
+                syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
+                if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
                 }
             } else {

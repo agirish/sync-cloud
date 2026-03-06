@@ -137,14 +137,14 @@ struct ContentView: View {
         }
         .onChange(of: syncManager.selectedSourcePaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard showingBottomPane else { return }
                 selectedBottomTab = .details
             }
         }
         .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard showingBottomPane else { return }
                 selectedBottomTab = .details
             }
@@ -306,7 +306,11 @@ struct PaneActionDelegate: FileActionDelegate {
     
     func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
-    func handleMove(_ nodes: [FileNode]) { handler?.moveItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
+    func handleMove(_ nodes: [FileNode]) { 
+        Task {
+            _ = await handler?.moveItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) 
+        }
+    }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
         handler?.handleCopyToClipboard(nodes, isCut: isCut)

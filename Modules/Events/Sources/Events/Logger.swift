@@ -115,14 +115,6 @@ public class Logger: ObservableObject {
         let entry = LogEntry(level: level, message: message)
         let logText = entry.formattedString + "\n"
 
-        // Preserve synchronous semantics for main-thread callers while keeping a safe nonisolated API.
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                applyLogEntry(entry, logText: logText, showAlert: showAlert, cleanMessage: cleanMessage)
-            }
-            return Task {}
-        }
-
         return Task { @MainActor in
             self.applyLogEntry(entry, logText: logText, showAlert: showAlert, cleanMessage: cleanMessage)
         }
