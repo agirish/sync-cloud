@@ -126,6 +126,8 @@ extension FileSyncManager {
                 source: source, sourcePath: currentSourceFull,
                 destination: destination, destinationPath: currentDestFull
             )
+            guard !Task.isCancelled else { return }
+            self.scheduleSelectionPrune()
         }
         
         activeRefreshTask = task

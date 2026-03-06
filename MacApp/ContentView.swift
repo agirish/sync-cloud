@@ -106,20 +106,19 @@ struct ContentView: View {
         .onAppear {
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
-            if let first = settings.availableProviders.first?.id {
-                if sourceProviderId != first {
-                    sourceProviderId = first
+            Task { @MainActor in
+                if let first = settings.availableProviders.first?.id {
+                    if sourceProviderId != first {
+                        sourceProviderId = first
+                    }
+                    let initialDestination = settings.availableProviders.dropFirst().first?.id ?? first
+                    if destinationProviderId != initialDestination {
+                        destinationProviderId = initialDestination
+                    }
                 }
-                let initialDestination = settings.availableProviders.dropFirst().first?.id ?? first
-                if destinationProviderId != initialDestination {
-                    destinationProviderId = initialDestination
-                }
-            }
-            Task {
                 await syncManager.prefetch(providers: settings.availableProviders)
-            }
-            refreshAction()
-            DispatchQueue.main.async {
+                try? await Task.sleep(nanoseconds: 10_000_000)
+                refreshAction()
                 isBootstrappingProviders = false
             }
         }
@@ -138,6 +137,7 @@ struct ContentView: View {
         .onChange(of: syncManager.selectedSourcePaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 10_000_000)
                 guard showingBottomPane else { return }
                 selectedBottomTab = .details
             }
@@ -145,6 +145,7 @@ struct ContentView: View {
         .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 10_000_000)
                 guard showingBottomPane else { return }
                 selectedBottomTab = .details
             }
@@ -153,6 +154,7 @@ struct ContentView: View {
             Task {
                 await syncManager.prefetch(providers: settings.availableProviders)
             }
+            guard !isBootstrappingProviders else { return }
             refreshAction()
         }
     }

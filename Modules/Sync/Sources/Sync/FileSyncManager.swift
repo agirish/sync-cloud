@@ -40,7 +40,6 @@ public class FileSyncManager: ObservableObject {
             // Re-sort current trees globally when option changes
             sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
             destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
-            pruneSelection()
             refreshSubject.send()
         }
     }
@@ -56,13 +55,9 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Internal representation of the loaded file structure for the source provider.
-    @Published public var sourceTree: [FileNode] = [] {
-        didSet { pruneSelection() }
-    }
+    @Published public var sourceTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the destination provider.
-    @Published public var destinationTree: [FileNode] = [] {
-        didSet { pruneSelection() }
-    }
+    @Published public var destinationTree: [FileNode] = []
     @Published public var isLoadingSourceTree = false
     @Published public var isLoadingDestinationTree = false
     
@@ -107,6 +102,7 @@ public class FileSyncManager: ObservableObject {
     internal var activeLoadSourceTask: Task<Void, Never>?
     internal var activeLoadDestTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
+    private var hasPendingSelectionPrune = false
     
     /// Enqueues a file operation to be executed sequentially.
     /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
@@ -122,6 +118,7 @@ public class FileSyncManager: ObservableObject {
             let res = await operation()
             await MainActor.run { [weak self] in 
                 self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
+                self?.scheduleSelectionPrune()
                 self?.refreshSubject.send() 
             }
             return res
@@ -221,6 +218,19 @@ public class FileSyncManager: ObservableObject {
         }
         if prunedDest != selectedDestinationPaths {
             selectedDestinationPaths = prunedDest
+        }
+    }
+
+    /// Defers selection pruning to the next MainActor turn to avoid reentrant list delegate mutations.
+    func scheduleSelectionPrune() {
+        guard !hasPendingSelectionPrune else { return }
+        hasPendingSelectionPrune = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            // Defer to the next run-loop cycle to avoid NSTableView delegate reentrancy.
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            self.hasPendingSelectionPrune = false
+            self.pruneSelection()
         }
     }
     

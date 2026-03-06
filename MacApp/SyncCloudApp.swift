@@ -13,6 +13,7 @@ private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager: FileSyncManager
+    private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
         let manager = FileSyncManager()
@@ -24,15 +25,24 @@ struct SyncCloudApp: App {
     
     var body: some Scene {
         WindowGroup {
-            ContentView(syncManager: syncManager)
-                .environmentObject(Logger.shared)
+            if isRunningTests {
+                Color.clear
+                    .frame(width: 1, height: 1)
+            } else {
+                ContentView(syncManager: syncManager)
+                    .environmentObject(Logger.shared)
+            }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         
         Window("Activity Log", id: "activity-log") {
-            LogViewer()
-                .environmentObject(Logger.shared)
+            if isRunningTests {
+                Color.clear
+            } else {
+                LogViewer()
+                    .environmentObject(Logger.shared)
+            }
         }
         .windowResizability(.contentMinSize)
     }
