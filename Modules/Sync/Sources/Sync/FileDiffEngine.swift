@@ -16,6 +16,29 @@ public struct FileDiffEngine {
         /// True if the item is a directory.
         public let isDirectory: Bool
     }
+
+    private static func resolveTypeMismatch(
+        source: FileInfo,
+        sourceProvider: CloudProvider,
+        destination: FileInfo,
+        destinationProvider: CloudProvider
+    ) -> (action: FileDifference.SyncAction, description: String) {
+        let sourceDate = source.modificationDate ?? Date.distantPast
+        let destinationDate = destination.modificationDate ?? Date.distantPast
+
+        if abs(sourceDate.timeIntervalSince(destinationDate)) > 1 {
+            if sourceDate > destinationDate {
+                return (.copyToDestination, "\(sourceProvider.displayName) item is newer (type mismatch)")
+            }
+            return (.copyToSource, "\(destinationProvider.displayName) item is newer (type mismatch)")
+        }
+
+        if source.isDirectory {
+            return (.copyToDestination, "Type mismatch; defaulting to the folder from \(sourceProvider.displayName)")
+        }
+
+        return (.copyToSource, "Type mismatch; defaulting to the folder from \(destinationProvider.displayName)")
+    }
     
     /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
     /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
@@ -112,14 +135,19 @@ public struct FileDiffEngine {
             if let destFile = destinationFilesInfo[relativePath] {
                 // exists in both, compare dates and sizes in RAM
                 if sourceFile.isDirectory != destFile.isDirectory {
-                     // Type mismatch (file vs folder)
-                     diffs.append(FileDifference(
+                    let resolution = resolveTypeMismatch(
+                        source: sourceFile,
+                        sourceProvider: source,
+                        destination: destFile,
+                        destinationProvider: destination
+                    )
+                    diffs.append(FileDifference(
                         relativePath: relativePath,
                         sourceItemPath: sourceFile.url.path,
                         destinationItemPath: destFile.url.path,
-                        type: .differentDates, // reusing for simplicity, UI will show names
-                        action: .copyToDestination,
-                        description: "Type mismatch (file vs folder)"
+                        type: .differentDates,
+                        action: resolution.action,
+                        description: resolution.description
                     ))
                     continue
                 }

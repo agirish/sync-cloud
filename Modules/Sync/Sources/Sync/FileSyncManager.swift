@@ -192,9 +192,16 @@ public class FileSyncManager: ObservableObject {
         } else {
             Logger.shared.info("Synced file: \(difference.relativePath)")
             if let from = result.from, let to = result.to {
-                let initialResolver = AsyncValueResolver<[CopyItemState]>()
-                Task { await initialResolver.resolve([(source: from, destination: to, overwritten: result.trashed)]) }
-                self.registerCopyUndo(stateResolver: initialResolver, actionName: "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")")
+                let actionName = "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")"
+                if isMove {
+                    let initialResolver = AsyncValueResolver<[MoveItemState]>()
+                    Task { await initialResolver.resolve([(from: from, to: to, overwritten: result.trashed)]) }
+                    self.registerMoveUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                } else {
+                    let initialResolver = AsyncValueResolver<[CopyItemState]>()
+                    Task { await initialResolver.resolve([(source: from, destination: to, overwritten: result.trashed)]) }
+                    self.registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                }
             }
             differences.removeAll { $0.id == difference.id }
         }

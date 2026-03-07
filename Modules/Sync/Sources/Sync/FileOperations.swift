@@ -276,7 +276,7 @@ extension FileSyncManager {
         if !copied.isEmpty {
             let initialResolver = AsyncValueResolver<[CopyItemState]>()
             Task { await initialResolver.resolve(copied) }
-            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items")
+            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
         }
         
         if let firstError = result.errors.first {
@@ -341,7 +341,7 @@ extension FileSyncManager {
         if !moved.isEmpty {
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
             Task { await initialResolver.resolve(moved) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items")
+            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
 
         let movedNodes = moved.compactMap { moved in
@@ -403,7 +403,7 @@ extension FileSyncManager {
         if !copied.isEmpty {
             let initialResolver = AsyncValueResolver<[CopyItemState]>()
             Task { await initialResolver.resolve(copied) }
-            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items")
+            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
         }
         
         if let firstError = result.errors.first {
@@ -457,7 +457,7 @@ extension FileSyncManager {
         if !moved.isEmpty {
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
             Task { await initialResolver.resolve(moved) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items")
+            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
         
         let movedNodes = result.moved.compactMap { moved in prunedNodes.first { $0.id == moved.from.path } }
@@ -503,7 +503,7 @@ extension FileSyncManager {
             Logger.shared.info("Renamed item to \(newName)")
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
             Task { await initialResolver.resolve([(from: url, to: newURL, overwritten: result.trashed)]) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Rename Item")
+            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Rename Item", fileManager: fm)
         }
     }
     
@@ -529,7 +529,7 @@ extension FileSyncManager {
             Logger.shared.error(msg, showAlert: false)
         } else {
             Logger.shared.info("Created folder \(name) at \(path)")
-            self.registerCreateFolderUndo(url: createdURL)
+            self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
         }
     }
 
@@ -588,7 +588,7 @@ extension FileSyncManager {
             let initialResolver = AsyncValueResolver<[URL?]>()
             Task { await initialResolver.resolve(successfullyTrashed.map { $0.trashed }) }
             
-            self.registerRestoreItems(urls: urls, trashResolver: initialResolver, actionName: "Delete \(successfullyTrashed.count) Items")
+            self.registerRestoreItems(urls: urls, trashResolver: initialResolver, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
         }
         
         if let firstError = result.errors.first {

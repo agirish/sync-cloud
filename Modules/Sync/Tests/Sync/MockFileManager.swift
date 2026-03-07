@@ -100,6 +100,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     
     public var shouldFailTrash: Bool = false
     public var trashedPaths: [String] = []
+    public var enumeratorDelay: TimeInterval = 0
     
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
         if shouldFailTrash {
@@ -141,6 +142,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
     
     public func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        if enumeratorDelay > 0 {
+            Thread.sleep(forTimeInterval: enumeratorDelay)
+        }
         
         // Build flat array of child URLs
         var allChildren: [URL] = []

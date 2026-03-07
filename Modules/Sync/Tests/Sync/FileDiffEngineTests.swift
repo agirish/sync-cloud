@@ -99,6 +99,77 @@ import Foundation
         #expect(diffs.first?.relativePath == "data.bin")
         #expect(diffs.first?.type == .differentDates) // Current engine labels size diffs under the "differentDates/size" generic catch-all
     }
+
+    @Test func testTypeMismatchPrefersNewerDestination() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let older = Date(timeIntervalSince1970: 1_000)
+        let newer = older.addingTimeInterval(10)
+
+        mockFM.virtualDisk["/src/mismatch"] = MockFileManager.FileStub(
+            isDirectory: false,
+            attributes: [.modificationDate: older],
+            contents: nil
+        )
+        mockFM.virtualDisk["/dst/mismatch"] = MockFileManager.FileStub(
+            isDirectory: true,
+            attributes: [.modificationDate: newer],
+            contents: []
+        )
+
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+
+        let diffs = FileDiffEngine.computeDifferences(
+            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
+            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
+            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+        )
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "mismatch")
+        #expect(diffs.first?.action == .copyToSource)
+        #expect(diffs.first?.description == "Dest item is newer (type mismatch)")
+    }
+
+    @Test func testTypeMismatchDefaultsToFolderWhenDatesTie() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/mismatch"] = MockFileManager.FileStub(
+            isDirectory: true,
+            attributes: nil,
+            contents: []
+        )
+        mockFM.virtualDisk["/dst/mismatch"] = MockFileManager.FileStub(
+            isDirectory: false,
+            attributes: nil,
+            contents: nil
+        )
+
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+
+        let diffs = FileDiffEngine.computeDifferences(
+            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
+            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
+            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+        )
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "mismatch")
+        #expect(diffs.first?.action == .copyToDestination)
+        #expect(diffs.first?.description == "Type mismatch; defaulting to the folder from Source")
+    }
     
     @Test func testEmptyDirectorySync() async throws {
         let mockFM = MockFileManager()

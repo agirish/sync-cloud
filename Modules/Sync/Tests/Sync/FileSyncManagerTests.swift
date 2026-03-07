@@ -262,6 +262,7 @@ import Foundation
     @MainActor
     @Test func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.05
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         
@@ -312,6 +313,7 @@ import Foundation
     @Test func testSyncFileWithMoveAction() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
+        manager.undoManager = UndoManager()
         
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
@@ -337,6 +339,13 @@ import Foundation
         // Should exist in destination but NOT source (Moved)
         #expect(mockFM.virtualDisk["/src/test_move.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] != nil)
+
+        #expect(manager.undoManager?.canUndo == true)
+        manager.undoManager?.undo()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(mockFM.virtualDisk["/src/test_move.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/test_move.txt"] == nil)
     }
     
     @MainActor
