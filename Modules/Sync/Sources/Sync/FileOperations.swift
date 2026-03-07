@@ -523,8 +523,8 @@ extension FileSyncManager {
                 }
                 try fm.createDirectory(at: createdURL, withIntermediateDirectories: false)
                 return nil
-            } catch {
-                return error
+            } catch let createError {
+                return createError
             }
         }
         
