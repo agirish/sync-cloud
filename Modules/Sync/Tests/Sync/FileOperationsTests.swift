@@ -81,6 +81,27 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/new.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/new.txt"] != nil)
     }
+
+    @Test func testSafeMoveCrossVolumeCleanupFailureRollsBack() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.shouldFailMove = true
+        mockFM.shouldFailTrash = true
+        mockFM.failRemovePathsOnce = ["/src/data.bin"]
+
+        let srcURL = URL(fileURLWithPath: "/src/data.bin")
+        let dstURL = URL(fileURLWithPath: "/dst/data.bin")
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(at: srcURL, to: dstURL, fileManager: mockFM)
+        }
+
+        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
+        #expect(mockFM.virtualDisk["/dst/data.bin"] == nil)
+    }
     
     @Test func testRecursivePathValidation() async throws {
         let parentDir = URL(fileURLWithPath: "/src/folder")

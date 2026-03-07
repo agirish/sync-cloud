@@ -49,4 +49,38 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(manager.destExpandedPaths.isEmpty)
         #expect(manager.history.count == 1)
     }
+
+    @Test func testResolvedProviderSelectionPrefersDistinctDestinationDuringBootstrap() async throws {
+        let providers = [
+            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", path: "/iCloud", type: .iCloud),
+            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", path: "/oneDrive", type: .oneDrive)
+        ]
+
+        let resolved = ContentView.resolvedProviderSelection(
+            providers: providers,
+            currentSourceId: "iCloud",
+            currentDestinationId: "iCloud",
+            preferDistinctPair: true
+        )
+
+        #expect(resolved?.sourceId == "iCloud")
+        #expect(resolved?.destinationId == "oneDrive")
+    }
+
+    @Test func testResolvedProviderSelectionPreservesExplicitSameProviderOutsideBootstrap() async throws {
+        let providers = [
+            CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud", path: "/iCloud", type: .iCloud),
+            CloudProvider(id: "oneDrive", displayName: "OneDrive", imageName: "onedrive", path: "/oneDrive", type: .oneDrive)
+        ]
+
+        let resolved = ContentView.resolvedProviderSelection(
+            providers: providers,
+            currentSourceId: "iCloud",
+            currentDestinationId: "iCloud",
+            preferDistinctPair: false
+        )
+
+        #expect(resolved?.sourceId == "iCloud")
+        #expect(resolved?.destinationId == "iCloud")
+    }
 }

@@ -126,8 +126,8 @@ extension FileSyncManager {
         to destinationURL: URL,
         fileManager: FileManaging
     ) {
-        guard let backup else { return }
         try? fileManager.removeItem(at: destinationURL)
+        guard let backup else { return }
         switch backup {
         case .trash(let url), .temporary(let url):
             try? fileManager.moveItem(at: url, to: destinationURL)
@@ -206,7 +206,12 @@ extension FileSyncManager {
                 do {
                     try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
                     } catch {
-                        try? fileManager.removeItem(at: sourceURL)
+                        do {
+                            try fileManager.removeItem(at: sourceURL)
+                        } catch let cleanupError {
+                            rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
+                            throw cleanupError
+                        }
                     }
                 } catch let fallbackError {
                     rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)

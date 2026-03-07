@@ -97,12 +97,22 @@ public class FileSyncManager: ObservableObject {
     
     /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
+
+    struct ScanRequest: Sendable {
+        let source: CloudProvider
+        let sourcePath: String
+        let destination: CloudProvider
+        let destinationPath: String
+        let generation: Int
+    }
     
     // Internal task tracking for re-entrancy protection
     internal var activeLoadSourceTask: Task<Void, Never>?
     internal var activeLoadDestTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
     private var hasPendingSelectionPrune = false
+    var scanRequestGeneration = 0
+    var pendingScanRequest: ScanRequest?
     
     /// Enqueues a file operation to be executed sequentially.
     /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.

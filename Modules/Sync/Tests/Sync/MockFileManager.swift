@@ -101,6 +101,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     public var shouldFailTrash: Bool = false
     public var trashedPaths: [String] = []
     public var enumeratorDelay: TimeInterval = 0
+    public var failRemovePathsOnce: Set<String> = []
     
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
         if shouldFailTrash {
@@ -127,6 +128,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     
     public func removeItem(at URL: URL) throws {
         let path = URL.path
+        if failRemovePathsOnce.contains(path) {
+            failRemovePathsOnce.remove(path)
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
+        }
         guard let sourceData = virtualDisk[path] else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
         }

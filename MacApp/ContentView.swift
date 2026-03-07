@@ -36,6 +36,29 @@ struct ContentView: View {
     }
     @State private var selectedBottomTab: BottomTab = .differences
 
+    static func resolvedProviderSelection(
+        providers: [CloudProvider],
+        currentSourceId: String,
+        currentDestinationId: String,
+        preferDistinctPair: Bool
+    ) -> (sourceId: String, destinationId: String)? {
+        guard let first = providers.first?.id else { return nil }
+
+        var sourceId = currentSourceId
+        if !providers.contains(where: { $0.id == sourceId }) {
+            sourceId = first
+        }
+
+        let fallbackDestination = providers.first(where: { $0.id != sourceId })?.id ?? sourceId
+        var destinationId = currentDestinationId
+        let destinationExists = providers.contains(where: { $0.id == destinationId })
+        if !destinationExists || (preferDistinctPair && destinationId == sourceId) {
+            destinationId = fallbackDestination
+        }
+
+        return (sourceId, destinationId)
+    }
+
     var body: some View {
         NavigationSplitView {
             ProviderSidebar(
@@ -107,18 +130,13 @@ struct ContentView: View {
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
             Task { @MainActor in
-                if let first = settings.availableProviders.first?.id {
-                    if sourceProviderId != first {
-                        sourceProviderId = first
-                    }
-                    let initialDestination = settings.availableProviders.dropFirst().first?.id ?? first
-                    if destinationProviderId != initialDestination {
-                        destinationProviderId = initialDestination
-                    }
-                }
+                await settings.discoverProviders()
+                applyProviderSelection(preferDistinctPair: true)
                 await syncManager.prefetch(providers: settings.availableProviders)
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                refreshAction()
+                if !settings.availableProviders.isEmpty {
+                    try? await Task.sleep(nanoseconds: 10_000_000)
+                    refreshAction()
+                }
                 isBootstrappingProviders = false
             }
         }
@@ -154,6 +172,7 @@ struct ContentView: View {
             Task {
                 await syncManager.prefetch(providers: settings.availableProviders)
             }
+            applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
             guard !isBootstrappingProviders else { return }
             refreshAction()
         }
@@ -169,6 +188,24 @@ struct ContentView: View {
         let root = settings.path(for: destinationProviderId)
         if syncManager.destRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
+    }
+
+    private func applyProviderSelection(preferDistinctPair: Bool) {
+        guard let resolved = Self.resolvedProviderSelection(
+            providers: settings.availableProviders,
+            currentSourceId: sourceProviderId,
+            currentDestinationId: destinationProviderId,
+            preferDistinctPair: preferDistinctPair
+        ) else {
+            return
+        }
+
+        if sourceProviderId != resolved.sourceId {
+            sourceProviderId = resolved.sourceId
+        }
+        if destinationProviderId != resolved.destinationId {
+            destinationProviderId = resolved.destinationId
+        }
     }
 
     /// Refreshes the directory trees and performs a differential scan.

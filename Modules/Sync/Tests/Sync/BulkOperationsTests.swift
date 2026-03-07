@@ -148,6 +148,40 @@ import Foundation
         #expect(manager.hasScanned == true)
     }
 
+    @MainActor
+    @Test func testLatestQueuedScanWins() async throws {
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.05
+        let manager = FileSyncManager(fileManager: mockFM)
+
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src1"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst1"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src2"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst2"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src2/latest.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let source = CloudProvider(id: "src", displayName: "Source", imageName: "test", path: "/", type: .iCloud)
+        let destination = CloudProvider(id: "dst", displayName: "Destination", imageName: "test", path: "/", type: .iCloud)
+
+        let firstScan = Task {
+            await manager.scanDirectories(source: source, sourcePath: "/src1", destination: destination, destinationPath: "/dst1")
+        }
+
+        try await Task.sleep(nanoseconds: 10_000_000)
+
+        let secondScan = Task {
+            await manager.scanDirectories(source: source, sourcePath: "/src2", destination: destination, destinationPath: "/dst2")
+        }
+
+        await firstScan.value
+        await secondScan.value
+
+        #expect(manager.hasScanned)
+        #expect(!manager.isScanning)
+        #expect(manager.differences.count == 1)
+        #expect(manager.differences.first?.relativePath == "latest.txt")
+    }
+
     @Test func testSafeMoveItemRollbackHardened() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

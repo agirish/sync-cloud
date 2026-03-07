@@ -142,18 +142,31 @@ extension FileSyncManager {
     ///   - destination: The `CloudProvider` for the destination pane.
     ///   - destinationPath: The currently focused absolute directory path for the destination pane.
     public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
+        scanRequestGeneration += 1
+        let request = ScanRequest(
+            source: source,
+            sourcePath: sourcePath,
+            destination: destination,
+            destinationPath: destinationPath,
+            generation: scanRequestGeneration
+        )
+
         if isScanning {
-            Logger.shared.warning("Scan already in progress, skipping redundant request.")
+            pendingScanRequest = request
+            Logger.shared.warning("Scan already in progress, queueing latest request.")
             return
         }
-        
+
+        await executeScan(request)
+    }
+
+    private func executeScan(_ request: ScanRequest) async {
         isScanning = true
-        defer { isScanning = false }
-        
+
         let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
             do {
-                let sourceURL = URL(fileURLWithPath: (sourcePath as NSString).expandingTildeInPath)
-                let destinationURL = URL(fileURLWithPath: (destinationPath as NSString).expandingTildeInPath)
+                let sourceURL = URL(fileURLWithPath: (request.sourcePath as NSString).expandingTildeInPath)
+                let destinationURL = URL(fileURLWithPath: (request.destinationPath as NSString).expandingTildeInPath)
                 
                 let (fm, showHidden) = await MainActor.run { (self.fileManager, self.showHiddenFiles) }
                 
@@ -162,9 +175,9 @@ extension FileSyncManager {
                 let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden, fileManager: fm)
                 
                 return FileDiffEngine.computeDifferences(
-                    source: source,
+                    source: request.source,
                     sourceURL: sourceURL,
-                    destination: destination,
+                    destination: request.destination,
                     destinationURL: destinationURL,
                     sourceFilesInfo: sourceFilesInfo,
                     destinationFilesInfo: destinationFilesInfo
@@ -176,13 +189,23 @@ extension FileSyncManager {
                 return nil
             }
         }.value
-        
-        guard !Task.isCancelled, let results = newDifferences else { return }
-        
-        differences = results
-        hasScanned = true
-        
-        Logger.shared.info("Scan completed: found \(results.count) differences.")
+
+        let isLatestRequest = request.generation == scanRequestGeneration
+        if !Task.isCancelled, isLatestRequest, let results = newDifferences {
+            differences = results
+            hasScanned = true
+            
+            Logger.shared.info("Scan completed: found \(results.count) differences.")
+        }
+
+        isScanning = false
+
+        if let pending = pendingScanRequest {
+            pendingScanRequest = nil
+            if pending.generation > request.generation {
+                await executeScan(pending)
+            }
+        }
     }
     
     // MARK: - Internal Engine Operations
