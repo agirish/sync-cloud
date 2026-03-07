@@ -7,22 +7,31 @@ extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
     
-    /// Pre-loads file trees for the given providers asynchronously in the background.
+    /// Pre-loads file trees for the given providers concurrently in the background.
+    /// This populates the `prefetchedTrees` cache without blocking the UI or cancelling active tasks.
     public func prefetch(providers: [CloudProvider]) async {
-        for provider in providers {
-            let path = (provider.path as NSString).expandingTildeInPath
-            if prefetchedTrees[path] != nil { continue } // Already cached
+        let sortOp = self.sortOption
+        let showHidden = self.showHiddenFiles
+        let fm = self.fileManager
+        
+        await withTaskGroup(of: (String, [FileNode]?).self) { group in
+            for provider in providers {
+                let path = (provider.path as NSString).expandingTildeInPath
+                group.addTask {
+                    let rootURL = URL(fileURLWithPath: path)
+                    let tree = await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: fm)
+                    return (path, tree)
+                }
+            }
             
-            let rootURL = URL(fileURLWithPath: path)
-            let sortOp = self.sortOption
-            let showHidden = self.showHiddenFiles
-            
-            let tree = await Task.detached(priority: .background) {
-                return await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: self.fileManager)
-            }.value
-            
-            self.prefetchedTrees[path] = tree
-            Logger.shared.info("Prefetched tree for \(provider.id) (\(path))")
+            for await (path, tree) in group {
+                if let tree = tree {
+                    await MainActor.run {
+                        self.prefetchedTrees[path] = tree
+                        Logger.shared.info("Prefetched tree for \(path)")
+                    }
+                }
+            }
         }
     }
     

@@ -132,7 +132,12 @@ struct ContentView: View {
             Task { @MainActor in
                 await settings.discoverProviders()
                 applyProviderSelection(preferDistinctPair: true)
-                await syncManager.prefetch(providers: settings.availableProviders)
+                
+                // Start prefetching in the background without blocking the initial UI load
+                Task.detached(priority: .background) {
+                    await syncManager.prefetch(providers: settings.availableProviders)
+                }
+                
                 if !settings.availableProviders.isEmpty {
                     try? await Task.sleep(nanoseconds: 10_000_000)
                     refreshAction()
