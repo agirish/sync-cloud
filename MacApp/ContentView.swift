@@ -318,6 +318,15 @@ struct ContentView: View {
             }
             .disabled(activePane == nil)
 
+            Button(action: {
+                guard let node = activeSelectionNodes.first, node.isDirectory else { return }
+                let delegate = (activePane == .source) ? sourceActionDelegate : destinationActionDelegate
+                delegate.handleFocus(node)
+            }) {
+                Label("Compare", systemImage: "scope")
+            }
+            .disabled(activeSelectionNodes.count != 1 || !activeSelectionNodes[0].isDirectory)
+
             Button(role: .destructive, action: {
                 let nodes = activeSelectionNodes
                 guard !nodes.isEmpty else { return }
