@@ -34,6 +34,7 @@ extension FileSyncManager {
         if destRelativePath != state.dest { destRelativePath = state.dest }
         Logger.shared.info("User navigated back to \(state.source.isEmpty ? "root" : state.source)")
         updateHistoryState()
+        refreshSubject.send()
     }
     
     /// Navigates to the next state in the directory history stack.
@@ -45,6 +46,7 @@ extension FileSyncManager {
         if destRelativePath != state.dest { destRelativePath = state.dest }
         Logger.shared.info("User navigated forward to \(state.source.isEmpty ? "root" : state.source)")
         updateHistoryState()
+        refreshSubject.send()
     }
     
     /// Resets the navigation state back to the root level and clears UI interaction state.
@@ -74,6 +76,8 @@ extension FileSyncManager {
         let nextCanGoForward = historyIndex < history.count - 1
         if canGoBack != nextCanGoBack { canGoBack = nextCanGoBack }
         if canGoForward != nextCanGoForward { canGoForward = nextCanGoForward }
+        
+        refreshSubject.send()
     }
 
     // This function is introduced as part of the change to update the UI state
