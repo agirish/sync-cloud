@@ -232,6 +232,8 @@ struct ContentView: View {
         VStack(spacing: 0) {
             NavigationToolbar(syncManager: syncManager, refreshAction: refreshAction)
             Divider()
+            paneActionBar
+            Divider()
             VSplitView {
                 VStack(spacing: 0) {
                     HSplitView {
@@ -256,6 +258,78 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private enum ActivePane {
+        case source
+        case destination
+    }
+
+    private var activePane: ActivePane? {
+        if !syncManager.selectedSourcePaths.isEmpty { return .source }
+        if !syncManager.selectedDestinationPaths.isEmpty { return .destination }
+        return nil
+    }
+
+    private var activeSelectionNodes: [FileNode] {
+        switch activePane {
+        case .source?:
+            return syncManager.sourceTree.findNodes(at: syncManager.selectedSourcePaths)
+        case .destination?:
+            return syncManager.destinationTree.findNodes(at: syncManager.selectedDestinationPaths)
+        case nil:
+            return []
+        }
+    }
+
+    private var activePanePath: String? {
+        switch activePane {
+        case .source?: return currentSourcePath
+        case .destination?: return currentDestinationPath
+        case nil: return nil
+        }
+    }
+
+    @ViewBuilder
+    private var paneActionBar: some View {
+        HStack(spacing: 10) {
+            Button(action: refreshAction) {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+
+            Button(action: {
+                guard let path = activePanePath else { return }
+                actionHandler?.beginCreateFolder(in: path)
+            }) {
+                Label("New Folder", systemImage: "folder.badge.plus")
+            }
+            .disabled(activePane == nil)
+
+            Button(role: .destructive, action: {
+                let nodes = activeSelectionNodes
+                guard !nodes.isEmpty else { return }
+                actionHandler?.confirmDelete(nodes)
+            }) {
+                Label("Delete", systemImage: "trash")
+            }
+            .disabled(activeSelectionNodes.isEmpty)
+
+            Menu {
+                Button("Name") { syncManager.sortOption = .name }
+                Button("Kind") { syncManager.sortOption = .kind }
+                Button("Date Modified") { syncManager.sortOption = .dateModified }
+                Button("Size") { syncManager.sortOption = .size }
+                Button("Tags") { syncManager.sortOption = .tags }
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down")
+            }
+
+            Spacer()
+        }
+        .buttonStyle(.bordered)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
     }
     
     @ViewBuilder
@@ -348,6 +422,12 @@ struct PaneActionDelegate: FileActionDelegate {
     let sourceProviderId: String
     let destProviderId: String
     
+    func handleRefresh() {
+        Logger.shared.info("User requested refresh from context menu")
+        // Ensure we don't reuse stale prefetched root trees after filesystem writes.
+        syncManager.prefetchedTrees.removeAll()
+        syncManager.refreshSubject.send()
+    }
     func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleMove(_ nodes: [FileNode]) { 

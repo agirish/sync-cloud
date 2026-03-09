@@ -127,6 +127,8 @@ public class FileSyncManager: ObservableObject {
             _ = await previousTask.result
             let res = await operation()
             await MainActor.run { [weak self] in 
+                // File operations mutate the filesystem; cached prefetched roots are stale after any write.
+                self?.prefetchedTrees.removeAll()
                 self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
                 self?.scheduleSelectionPrune()
                 self?.refreshSubject.send() 

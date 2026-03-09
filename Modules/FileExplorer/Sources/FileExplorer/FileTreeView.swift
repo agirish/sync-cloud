@@ -93,6 +93,10 @@ public struct FileTreeView: View {
     
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
+        Button(action: { delegate.handleRefresh() }) {
+            Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        Divider()
         Button(action: { delegate.handleCreateFolder(at: currentPath) }) {
             Label("New Folder", systemImage: "folder.badge.plus")
         }
@@ -142,6 +146,10 @@ struct FileContextMenu: View {
         let count = selectedNodes.count
         
         Group {
+            Button(action: { delegate.handleRefresh() }) {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            Divider()
             if count == 1, let singleNode = selectedNodes.first {
                 Button(action: { delegate.handleGetInfo(for: singleNode.id) }) {
                     Label("Get Info", systemImage: "info.circle")

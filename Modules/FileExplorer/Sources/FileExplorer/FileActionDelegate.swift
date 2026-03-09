@@ -2,6 +2,7 @@ import Sync
 
 @MainActor
 public protocol FileActionDelegate: Sendable {
+    func handleRefresh()
     func handleFocus(_ node: FileNode)
     func handleCopy(_ nodes: [FileNode])
     func handleMove(_ nodes: [FileNode])
