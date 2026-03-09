@@ -236,12 +236,27 @@ extension FileSyncManager {
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
         let prunedNodes = nodes.pruneNestedNodes()
+        let total = Int64(prunedNodes.count)
         
-        let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
+        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+        if let progress {
+            progress.localizedDescription = "Copying \(total) Items"
+            progress.isCancellable = true
+            self.activeProgress = progress
+        }
+        
+        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
+            guard let self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
-            for node in prunedNodes {
+            for (index, node) in prunedNodes.enumerated() {
+                if progress?.isCancelled == true { break }
+                
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index)
+                    progress?.localizedAdditionalDescription = node.name
+                }
                 var relativePath = node.id
                 if relativePath.hasPrefix(fromRoot) {
                     relativePath = String(relativePath.dropFirst(fromRoot.count))
@@ -257,7 +272,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await self.collisionResolver(tName, false)
+                    let resolution = await MainActor.run { self.collisionResolver(tName, false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -284,6 +299,8 @@ extension FileSyncManager {
             self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
         }
         
+        self.activeProgress = nil
+        
         if let firstError = result.errors.first {
             let msg = "Error copying items: \(firstError.localizedDescription)"
             self.currentError = msg
@@ -301,12 +318,27 @@ extension FileSyncManager {
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
         let prunedNodes = nodes.pruneNestedNodes()
+        let total = Int64(prunedNodes.count)
         
-        let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
+        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+        if let progress {
+            progress.localizedDescription = "Moving \(total) Items"
+            progress.isCancellable = true
+            self.activeProgress = progress
+        }
+        
+        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
+            guard let self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
-            for node in prunedNodes {
+            for (index, node) in prunedNodes.enumerated() {
+                if progress?.isCancelled == true { break }
+                
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index)
+                    progress?.localizedAdditionalDescription = node.name
+                }
                 var relativePath = node.id
                 if relativePath.hasPrefix(fromRoot) {
                     relativePath = String(relativePath.dropFirst(fromRoot.count))
@@ -322,7 +354,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await self.collisionResolver(tName, true)
+                    let resolution = await MainActor.run { self.collisionResolver(tName, true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -348,6 +380,8 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(moved) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
+        
+        self.activeProgress = nil
 
         let movedNodes = moved.compactMap { moved in
             prunedNodes.first { $0.id == moved.from.path }
@@ -371,12 +405,27 @@ extension FileSyncManager {
     /// Copies multiple files to a specific absolute destination directory path.
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
         let prunedNodes = nodes.pruneNestedNodes()
+        let total = Int64(prunedNodes.count)
         
-        let result = await enqueueFileOperation { () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
+        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+        if let progress {
+            progress.localizedDescription = "Copying \(total) Items"
+            progress.isCancellable = true
+            self.activeProgress = progress
+        }
+        
+        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
+            guard let self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
-            for node in prunedNodes {
+            for (index, node) in prunedNodes.enumerated() {
+                if progress?.isCancelled == true { break }
+                
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index)
+                    progress?.localizedAdditionalDescription = node.name
+                }
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
@@ -384,7 +433,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await self.collisionResolver(tName, false)
+                    let resolution = await MainActor.run { self.collisionResolver(tName, false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -404,6 +453,7 @@ extension FileSyncManager {
             return (taskErrors, targetItems)
         }
         
+        self.activeProgress = nil
         let copied = result.copied
         if !copied.isEmpty {
             let initialResolver = AsyncValueResolver<[CopyItemState]>()
@@ -425,12 +475,27 @@ extension FileSyncManager {
     @discardableResult
     public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let prunedNodes = nodes.pruneNestedNodes()
+        let total = Int64(prunedNodes.count)
         
-        let result = await enqueueFileOperation { () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
+        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+        if let progress {
+            progress.localizedDescription = "Moving \(total) Items"
+            progress.isCancellable = true
+            self.activeProgress = progress
+        }
+        
+        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
+            guard let self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
-            for node in prunedNodes {
+            for (index, node) in prunedNodes.enumerated() {
+                if progress?.isCancelled == true { break }
+                
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index)
+                    progress?.localizedAdditionalDescription = node.name
+                }
                 let sourceURL = URL(fileURLWithPath: node.id)
                 var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
                 
@@ -438,7 +503,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await self.collisionResolver(tName, true)
+                    let resolution = await MainActor.run { self.collisionResolver(tName, true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -464,6 +529,8 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(moved) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
+        
+        self.activeProgress = nil
         
         let movedNodes = result.moved.compactMap { moved in prunedNodes.first { $0.id == moved.from.path } }
 
@@ -540,7 +607,8 @@ extension FileSyncManager {
 
     /// Permanently deletes files or directories from disk.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
-        let result = await enqueueFileOperation { () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
+        let result = await enqueueFileOperation { [weak self] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
+            guard let self else { return ([], []) }
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
             var trashFailures: [URL] = []
@@ -554,7 +622,23 @@ extension FileSyncManager {
                 }
             }
             
-            for path in prunedPaths {
+            let total = Int64(prunedPaths.count)
+            let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+            if let progress {
+                await MainActor.run {
+                    progress.localizedDescription = "Deleting \(total) Items"
+                    progress.isCancellable = true
+                    self.activeProgress = progress
+                }
+            }
+            
+            for (index, path) in prunedPaths.enumerated() {
+                if progress?.isCancelled == true { break }
+                
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index)
+                    progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
+                }
                 if fm.fileExists(atPath: path) {
                     let url = URL(fileURLWithPath: path)
                     var trashedURL: NSURL? = nil
@@ -603,5 +687,7 @@ extension FileSyncManager {
         } else if !items.isEmpty {
             Logger.shared.info("Deleted \(items.count) items")
         }
+        
+        self.activeProgress = nil
     }
 }

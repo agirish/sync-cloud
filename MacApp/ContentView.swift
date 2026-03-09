@@ -258,6 +258,19 @@ struct ContentView: View {
                 }
             }
         }
+        .overlay {
+            if let progress = syncManager.activeProgress {
+                ZStack {
+                    Color.black.opacity(0.1)
+                        .edgesIgnoringSafeArea(.all)
+                    
+                    ProgressDialogView(progress: progress)
+                        .padding()
+                        .transition(AnyTransition.move(edge: Edge.top).combined(with: AnyTransition.opacity))
+                }
+                .animation(.spring(), value: progress)
+            }
+        }
     }
 
     private enum ActivePane {

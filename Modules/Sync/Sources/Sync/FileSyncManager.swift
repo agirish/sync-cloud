@@ -91,6 +91,8 @@ public class FileSyncManager: ObservableObject {
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     @Published public var activeFileOperationsCount = 0
+    /// Real-time progress tracker for the currently active bulk file operation.
+    @Published public var activeProgress: Progress? = nil
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()
