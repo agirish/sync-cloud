@@ -320,6 +320,28 @@ struct ContentView: View {
             }
 
             Button(action: {
+                let nodes = activeSelectionNodes
+                guard !nodes.isEmpty, let activePane else { return }
+                let fromSource = (activePane == .source)
+                actionHandler?.copyItems(nodes, fromSource: fromSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+            }) {
+                Label("Copy", systemImage: "arrow.right.doc.on.clipboard")
+            }
+            .disabled(activeSelectionNodes.isEmpty)
+
+            Button(action: {
+                let nodes = activeSelectionNodes
+                guard !nodes.isEmpty, let activePane else { return }
+                let fromSource = (activePane == .source)
+                Task {
+                    _ = await actionHandler?.moveItems(nodes, fromSource: fromSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+                }
+            }) {
+                Label("Move", systemImage: "arrow.right.square")
+            }
+            .disabled(activeSelectionNodes.isEmpty)
+
+            Button(action: {
                 guard let path = activePanePath else { return }
                 actionHandler?.beginCreateFolder(in: path)
             }) {

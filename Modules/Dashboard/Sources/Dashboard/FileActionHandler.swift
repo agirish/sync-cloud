@@ -70,6 +70,12 @@ public class FileActionHandler {
     
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) async -> [FileNode] {
+        let destinationLabel = fromSource ? "Destination" : "Source"
+        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: destinationLabel) else {
+            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(destinationLabel)")
+            return []
+        }
+
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
         

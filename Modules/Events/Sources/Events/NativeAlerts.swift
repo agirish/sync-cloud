@@ -33,6 +33,36 @@ public struct NativeAlerts {
         
         return alert.runModal() == .alertFirstButtonReturn
     }
+
+    /// Presents a native macOS confirmation prompt before moving items (i.e., cut + paste).
+    /// - Parameters:
+    ///   - itemNames: The list of file or folder names selected for moving.
+    ///   - destinationLabel: A short label for where the items will be moved (e.g. "Destination", "Source").
+    /// - Returns: True if the user confirmed the move.
+    public static func confirmMove(for itemNames: [String], destinationLabel: String) -> Bool {
+        guard !itemNames.isEmpty else { return false }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+
+        if itemNames.count == 1, let first = itemNames.first {
+            alert.messageText = "Move \"\(first)\" to \(destinationLabel)?"
+            alert.informativeText = "This will remove the item from its current location."
+        } else {
+            alert.messageText = "Move \(itemNames.count) items to \(destinationLabel)?"
+            alert.informativeText = "This will remove the items from their current location."
+        }
+
+        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: "Cancel")
+
+        if let moveButton = alert.buttons.first {
+            moveButton.hasDestructiveAction = true
+            moveButton.keyEquivalent = "\r"
+        }
+
+        return alert.runModal() == .alertFirstButtonReturn
+    }
     
     /// Presents a native macOS prompt requesting a new name for an existing file/folder.
     /// - Parameters:
