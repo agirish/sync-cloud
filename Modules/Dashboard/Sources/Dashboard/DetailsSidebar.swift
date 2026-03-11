@@ -11,6 +11,9 @@ public struct DetailsSidebar: View {
     /// Contextual folder paths for fallback.
     public let sourcePath: String
     public let destPath: String
+
+    @State private var computedDirectorySizePath: String? = nil
+    @State private var computedDirectorySize: String? = nil
     
     public init(syncManager: FileSyncManager, sourcePath: String, destPath: String) {
         self.syncManager = syncManager
@@ -66,7 +69,7 @@ public struct DetailsSidebar: View {
             
             // Size
             let sizeInt = attrs[.size] as? Int64 ?? 0
-            let sizeStr = isDir.boolValue ? "--" : ByteCountFormatter.string(fromByteCount: sizeInt, countStyle: .file)
+            let sizeStr = isDir.boolValue ? "" : ByteCountFormatter.string(fromByteCount: sizeInt, countStyle: .file)
             
             // Permissions
             let perms = attrs[.posixPermissions] as? NSNumber
@@ -93,6 +96,16 @@ public struct DetailsSidebar: View {
         } catch {
             return nil
         }
+    }
+
+    private var displaySize: String {
+        guard let data = metadata else { return "" }
+        if !data.isDirectory { return data.size }
+
+        if computedDirectorySizePath == data.path, let computedDirectorySize {
+            return computedDirectorySize
+        }
+        return "Calculating…"
     }
 
     public var body: some View {
@@ -122,7 +135,7 @@ public struct DetailsSidebar: View {
                     Divider()
                     
                     metadataRow(label: "Kind:", value: data.kind)
-                    metadataRow(label: "Size:", value: data.size)
+                    metadataRow(label: "Size:", value: displaySize)
                     metadataRow(label: "Where:", value: data.path)
                     
                     Divider()
@@ -157,6 +170,56 @@ public struct DetailsSidebar: View {
         .background(Color(NSColor.textBackgroundColor).opacity(0.3))
         .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
+        .task(id: activePath) {
+            guard let data = metadata, data.isDirectory else {
+                computedDirectorySizePath = nil
+                computedDirectorySize = nil
+                return
+            }
+
+            // Avoid re-computing if we already have a cached value for this path.
+            if computedDirectorySizePath == data.path, computedDirectorySize != nil {
+                return
+            }
+
+            computedDirectorySizePath = data.path
+            computedDirectorySize = nil
+
+            let pathToCompute = data.path
+            let result = await Task.detached(priority: .utility) {
+                Self.computeDirectorySizeString(path: pathToCompute)
+            }.value
+
+            guard !Task.isCancelled else { return }
+            if computedDirectorySizePath == pathToCompute {
+                computedDirectorySize = result ?? "--"
+            }
+        }
+    }
+
+    nonisolated private static func computeDirectorySizeString(path: String) -> String? {
+        let url = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
+        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]) else {
+            return nil
+        }
+
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            autoreleasepool {
+                guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                      values.isRegularFile == true,
+                      let size = values.fileSize
+                else {
+                    return
+                }
+                total += Int64(size)
+            }
+        }
+
+        return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
     
     private func metadataRow(label: String, value: String) -> some View {
