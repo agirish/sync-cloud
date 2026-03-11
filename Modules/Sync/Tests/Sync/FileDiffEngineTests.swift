@@ -266,14 +266,10 @@ import Foundation
         mockFM.virtualDisk["/src/.gitignore"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/visible.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         
-        // 1. Default (Hidden files skipped)
-        let hiddenSkipped = try FileDiffEngine.getFilesInDirectory(root, showHidden: false, fileManager: mockFM)
-        #expect(hiddenSkipped.count == 1)
-        #expect(hiddenSkipped[".gitignore"] == nil)
-        
-        // 2. Show Hidden enabled
-        let hiddenShown = try FileDiffEngine.getFilesInDirectory(root, showHidden: true, fileManager: mockFM)
-        #expect(hiddenShown.count == 2)
-        #expect(hiddenShown[".gitignore"] != nil)
+        // getFilesInDirectory returns all files (including hidden); filtering by showHidden happens in applyFilters().
+        let files = try FileDiffEngine.getFilesInDirectory(root, fileManager: mockFM)
+        #expect(files.count == 2)
+        #expect(files[".gitignore"] != nil)
+        #expect(files["visible.txt"] != nil)
     }
 }

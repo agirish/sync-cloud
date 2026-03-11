@@ -49,6 +49,7 @@ public class FileSyncManager: ObservableObject {
     @Published public var showHiddenFiles: Bool = false {
         didSet {
             guard showHiddenFiles != oldValue else { return }
+            prefetchedTrees.removeAll()
             applyFilters()
         }
     }

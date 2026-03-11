@@ -19,13 +19,13 @@ import Foundation
         #expect(!manager.canGoForward)
         
         // 2. Navigate to folder1
-        manager.focusOn(relativePath: "folder1", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "folder1", isSource: true)
         #expect(manager.sourceRelativePath == "folder1")
         #expect(manager.canGoBack)
         #expect(!manager.canGoForward)
         
         // 3. Navigate to sub
-        manager.focusOn(relativePath: "folder1/sub", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "folder1/sub", isSource: true)
         #expect(manager.sourceRelativePath == "folder1/sub")
         #expect(manager.historyIndex == 2)
         
@@ -53,8 +53,8 @@ import Foundation
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         
-        manager.focusOn(relativePath: "a", isSource: true, otherProviderPath: "/dst")
-        manager.focusOn(relativePath: "a/b", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "a", isSource: true)
+        manager.focusOn(relativePath: "a/b", isSource: true)
         
         #expect(manager.history.count == 3) // Root, a, a/b
         
@@ -62,7 +62,7 @@ import Foundation
         #expect(manager.sourceRelativePath == "a")
         
         // Navigate to new path "c"
-        manager.focusOn(relativePath: "c", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "c", isSource: true)
         
         // Forward history "a/b" should be trimmed
         #expect(manager.history.count == 3)
@@ -79,11 +79,11 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/common"), withIntermediateDirectories: true)
         
         // Navigate source to "common"
-        manager.focusOn(relativePath: "common", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "common", isSource: true)
         
-        // Both should have updated if findMatchingPath succeeded
+        // focusOn only updates the focused pane; dest is unchanged
         #expect(manager.sourceRelativePath == "common")
-        #expect(manager.destRelativePath == "common")
+        #expect(manager.destRelativePath == "")
     }
     
     @MainActor
@@ -95,7 +95,7 @@ import Foundation
         // Destination intentionally does not have /dst/photos
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         
-        manager.focusOn(relativePath: "photos", isSource: true, otherProviderPath: "/dst")
+        manager.focusOn(relativePath: "photos", isSource: true)
         
         #expect(manager.sourceRelativePath == "photos")
         #expect(manager.destRelativePath == "")

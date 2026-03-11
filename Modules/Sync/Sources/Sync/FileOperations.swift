@@ -254,7 +254,6 @@ extension FileSyncManager {
                 if progress?.isCancelled == true { break }
                 
                 await MainActor.run {
-                    progress?.completedUnitCount = Int64(index)
                     progress?.localizedAdditionalDescription = node.name
                 }
                 var relativePath = node.id
@@ -287,6 +286,9 @@ extension FileSyncManager {
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
                 } catch {
                     taskErrors.append(error)
+                }
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index + 1)
                 }
             }
             return (taskErrors, targetItems)
@@ -336,7 +338,6 @@ extension FileSyncManager {
                 if progress?.isCancelled == true { break }
                 
                 await MainActor.run {
-                    progress?.completedUnitCount = Int64(index)
                     progress?.localizedAdditionalDescription = node.name
                 }
                 var relativePath = node.id
@@ -369,6 +370,9 @@ extension FileSyncManager {
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
                 } catch {
                     taskErrors.append(error)
+                }
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index + 1)
                 }
             }
             return (taskErrors, targetItems)
@@ -423,7 +427,6 @@ extension FileSyncManager {
                 if progress?.isCancelled == true { break }
                 
                 await MainActor.run {
-                    progress?.completedUnitCount = Int64(index)
                     progress?.localizedAdditionalDescription = node.name
                 }
                 let sourceURL = URL(fileURLWithPath: node.id)
@@ -448,6 +451,9 @@ extension FileSyncManager {
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
                 } catch {
                     taskErrors.append(error)
+                }
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index + 1)
                 }
             }
             return (taskErrors, targetItems)
@@ -493,7 +499,6 @@ extension FileSyncManager {
                 if progress?.isCancelled == true { break }
                 
                 await MainActor.run {
-                    progress?.completedUnitCount = Int64(index)
                     progress?.localizedAdditionalDescription = node.name
                 }
                 let sourceURL = URL(fileURLWithPath: node.id)
@@ -518,6 +523,9 @@ extension FileSyncManager {
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
                 } catch {
                     taskErrors.append(error)
+                }
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index + 1)
                 }
             }
             return (taskErrors, targetItems)
@@ -636,7 +644,6 @@ extension FileSyncManager {
                 if progress?.isCancelled == true { break }
                 
                 await MainActor.run {
-                    progress?.completedUnitCount = Int64(index)
                     progress?.localizedAdditionalDescription = (path as NSString).lastPathComponent
                 }
                 if fm.fileExists(atPath: path) {
@@ -648,6 +655,9 @@ extension FileSyncManager {
                     } catch {
                         trashFailures.append(url)
                     }
+                }
+                await MainActor.run {
+                    progress?.completedUnitCount = Int64(index + 1)
                 }
             }
             
