@@ -11,7 +11,6 @@ extension FileSyncManager {
     /// This populates the `prefetchedTrees` cache without blocking the UI or cancelling active tasks.
     public func prefetch(providers: [CloudProvider]) async {
         let sortOp = self.sortOption
-        let showHidden = self.showHiddenFiles
         let fm = self.fileManager
         
         await withTaskGroup(of: (String, [FileNode]?).self) { group in
