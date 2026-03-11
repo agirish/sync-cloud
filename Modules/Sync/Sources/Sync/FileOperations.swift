@@ -231,7 +231,9 @@ extension FileSyncManager {
     // MARK: - File Operations
     
     /// Copies multiple files or folders between the Source and Destination panes.
-    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async {
+    /// - Returns: Nodes that were successfully copied.
+    @discardableResult
+    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
         
@@ -303,13 +305,23 @@ extension FileSyncManager {
         
         self.activeProgress = nil
         
+        let copiedNodes = copied.compactMap { copiedItem in
+            prunedNodes.first { $0.id == copiedItem.source.path }
+        }
+        
         if let firstError = result.errors.first {
             let msg = "Error copying items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
-            Logger.shared.debug("Copied \(nodes.count) items between panes")
+            if copiedNodes.count == prunedNodes.count {
+                Logger.shared.debug("Copied \(copiedNodes.count) items between panes")
+            } else {
+                Logger.shared.debug("Copied \(copiedNodes.count) of \(prunedNodes.count) items between panes")
+            }
         }
+        
+        return copiedNodes
     }
     
     /// Moves multiple files or folders between the Source and Destination panes.
@@ -407,7 +419,9 @@ extension FileSyncManager {
     }
     
     /// Copies multiple files to a specific absolute destination directory path.
-    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async {
+    /// - Returns: Nodes that were successfully copied.
+    @discardableResult
+    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         
@@ -467,13 +481,23 @@ extension FileSyncManager {
             self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
         }
         
+        let copiedNodes = copied.compactMap { copiedItem in
+            prunedNodes.first { $0.id == copiedItem.source.path }
+        }
+        
         if let firstError = result.errors.first {
             let msg = "Error copying items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
-            Logger.shared.debug("Copied \(nodes.count) items to \(destinationPath)")
+            if copiedNodes.count == prunedNodes.count {
+                Logger.shared.debug("Copied \(copiedNodes.count) items to \(destinationPath)")
+            } else {
+                Logger.shared.debug("Copied \(copiedNodes.count) of \(prunedNodes.count) items to \(destinationPath)")
+            }
         }
+        
+        return copiedNodes
     }
     
     /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
@@ -696,6 +720,10 @@ extension FileSyncManager {
             Logger.shared.error(msg, showAlert: false)
         } else if !items.isEmpty {
             Logger.shared.debug("Deleted \(items.count) items")
+            let name = items.first?.original.lastPathComponent ?? "item"
+            self.bannerMessage = items.count == 1
+                ? "Deleted \"\(name)\""
+                : "Deleted \(items.count) items"
         }
         
         self.activeProgress = nil

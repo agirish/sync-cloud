@@ -106,6 +106,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var activeFileOperationsCount = 0
     /// Real-time progress tracker for the currently active bulk file operation.
     @Published public var activeProgress: Progress? = nil
+    /// Short-lived banner message for in-app operation completion toasts.
+    @Published public var bannerMessage: String? = nil
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()

@@ -286,6 +286,24 @@ struct ContentView: View {
                 .animation(.spring(), value: progress)
             }
         }
+        .overlay(alignment: .top) {
+            if let banner = syncManager.bannerMessage {
+                OperationBannerView(message: banner)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.bannerMessage)
+        .onChange(of: syncManager.bannerMessage) { _, newValue in
+            guard let current = newValue else { return }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                if syncManager.bannerMessage == current {
+                    syncManager.bannerMessage = nil
+                }
+            }
+        }
     }
 
     private enum ActivePane {
@@ -316,6 +334,24 @@ struct ContentView: View {
         case .destination?: return currentDestinationPath
         case nil: return nil
         }
+    }
+
+    /// Lightweight in-app banner used for bulk operation completion notifications.
+    @ViewBuilder
+    private func OperationBannerView(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundColor(.green)
+            Text(message)
+                .font(.subheadline)
+                .foregroundColor(.primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .background(.ultraThickMaterial)
+        .cornerRadius(10)
+        .shadow(radius: 4)
     }
 
     @ViewBuilder

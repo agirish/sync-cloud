@@ -61,10 +61,12 @@ public class FileActionHandler {
     public func copyItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) {
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
+        let destDisplayName = providerDisplayName(forProviderId: destProviderId)
         
         Logger.shared.info("User initiating copy of \(nodes.count) items")
         Task {
-            await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+            setBannerForCopy(copiedNodes, to: destDisplayName)
         }
     }
     
@@ -78,13 +80,17 @@ public class FileActionHandler {
 
         let sourceRoot = settings.path(for: sourceProviderId)
         let destRoot = settings.path(for: destProviderId)
+        let destDisplayName = providerDisplayName(forProviderId: destProviderId)
         
         Logger.shared.info("User initiating move of \(nodes.count) items")
-        return await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+        let movedNodes = await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
+        setBannerForMove(movedNodes, to: destDisplayName)
+        return movedNodes
     }
     
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
+        let destDisplayName = providerDisplayName(forPath: validDestinationPath)
 
         Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
         Task {
@@ -95,8 +101,10 @@ public class FileActionHandler {
                 if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
                 }
+                setBannerForMove(movedNodes, to: destDisplayName)
             } else {
-                await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
+                let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
+                setBannerForCopy(copiedNodes, to: destDisplayName)
             }
         }
     }
@@ -114,6 +122,7 @@ public class FileActionHandler {
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
+        let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User pasting \(nodes.count) items to specific path (isCut: \(isCut))")
         Task {
             if isCut {
@@ -123,8 +132,10 @@ public class FileActionHandler {
                 if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
                 }
+                setBannerForMove(movedNodes, to: destDisplayName)
             } else {
-                await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
+                let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
+                setBannerForCopy(copiedNodes, to: destDisplayName)
             }
         }
     }
@@ -139,6 +150,35 @@ public class FileActionHandler {
         raw
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+    
+    private func providerDisplayName(forProviderId id: String) -> String {
+        settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "destination"
+    }
+    
+    private func providerDisplayName(forPath path: String) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        for p in settings.availableProviders {
+            let root = (p.path as NSString).expandingTildeInPath
+            if expanded == root || expanded.hasPrefix(root + "/") {
+                return p.displayName
+            }
+        }
+        return "destination"
+    }
+    
+    private func setBannerForCopy(_ nodes: [FileNode], to destinationName: String) {
+        guard !nodes.isEmpty else { return }
+        syncManager.bannerMessage = nodes.count == 1
+            ? "Copied \"\(nodes[0].name)\" to \(destinationName)"
+            : "Copied \(nodes.count) items to \(destinationName)"
+    }
+    
+    private func setBannerForMove(_ nodes: [FileNode], to destinationName: String) {
+        guard !nodes.isEmpty else { return }
+        syncManager.bannerMessage = nodes.count == 1
+            ? "Moved \"\(nodes[0].name)\" to \(destinationName)"
+            : "Moved \(nodes.count) items to \(destinationName)"
     }
     
     // MARK: - Mutations
