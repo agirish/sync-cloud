@@ -184,13 +184,13 @@ struct ContentView: View {
     }
     
     private var currentSourcePath: String {
-        let root = settings.path(for: sourceProviderId)
+        let root = (settings.path(for: sourceProviderId) as NSString).expandingTildeInPath
         if syncManager.sourceRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.sourceRelativePath)
     }
     
     private var currentDestinationPath: String {
-        let root = settings.path(for: destinationProviderId)
+        let root = (settings.path(for: destinationProviderId) as NSString).expandingTildeInPath
         if syncManager.destRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
     }
