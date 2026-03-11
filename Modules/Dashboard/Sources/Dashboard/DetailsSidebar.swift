@@ -186,9 +186,7 @@ public struct DetailsSidebar: View {
             computedDirectorySize = nil
 
             let pathToCompute = data.path
-            let result = await Task.detached(priority: .utility) {
-                Self.computeDirectorySizeString(path: pathToCompute)
-            }.value
+            let result = await Self.computeDirectorySizeString(path: pathToCompute)
 
             guard !Task.isCancelled else { return }
             if computedDirectorySizePath == pathToCompute {
@@ -197,7 +195,7 @@ public struct DetailsSidebar: View {
         }
     }
 
-    nonisolated private static func computeDirectorySizeString(path: String) -> String? {
+    nonisolated private static func computeDirectorySizeString(path: String) async -> String? {
         let url = URL(fileURLWithPath: path)
         let fm = FileManager.default
 
@@ -207,7 +205,15 @@ public struct DetailsSidebar: View {
         }
 
         var total: Int64 = 0
-        for case let fileURL as URL in enumerator {
+        var count = 0
+        while let fileURL = enumerator.nextObject() as? URL {
+            // Check for cancellation periodically to avoid orphaned background work
+            if count % 100 == 0 {
+                if Task.isCancelled { return nil }
+                await Task.yield()
+            }
+            count += 1
+            
             autoreleasepool {
                 guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
                       values.isRegularFile == true,
@@ -219,6 +225,7 @@ public struct DetailsSidebar: View {
             }
         }
 
+        if Task.isCancelled { return nil }
         return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
     
