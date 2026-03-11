@@ -69,8 +69,8 @@ struct ContentView: View {
         } detail: {
             mainContentView
                 .frame(minWidth: 600)
-                .toolbar {
-                    ToolbarItemGroup(placement: .principal) {
+        .toolbar {
+            ToolbarItemGroup(placement: .navigation) {
                         ControlGroup {
                             Button(action: forceRefreshAction) {
                                 Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
