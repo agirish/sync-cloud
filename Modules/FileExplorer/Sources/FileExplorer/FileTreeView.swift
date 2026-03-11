@@ -40,7 +40,12 @@ public struct FileTreeView: View {
             rPath = String(rPath.dropFirst(currentPath.count))
             if rPath.hasPrefix("/") { rPath.removeFirst() }
         }
-        return ignoredPaths.contains(rPath)
+        for ignoredPath in ignoredPaths {
+            if rPath == ignoredPath || rPath.hasPrefix(ignoredPath + "/") {
+                return true
+            }
+        }
+        return false
     }
     
     public var body: some View {
@@ -194,7 +199,12 @@ struct FileContextMenu: View {
                     rPath = String(rPath.dropFirst(currentPath.count))
                     if rPath.hasPrefix("/") { rPath.removeFirst() }
                 }
-                return ignoredPaths.contains(rPath)
+                for ignoredPath in ignoredPaths {
+                    if rPath == ignoredPath || rPath.hasPrefix(ignoredPath + "/") {
+                        return true
+                    }
+                }
+                return false
             }
             Button(action: { delegate.handleIgnore(selectedNodes) }) {
                 Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
