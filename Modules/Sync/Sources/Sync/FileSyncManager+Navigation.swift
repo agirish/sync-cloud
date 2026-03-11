@@ -10,10 +10,9 @@ extension FileSyncManager {
     /// - Parameters:
     ///   - relativePath: The directory path to drill into.
     ///   - isSource: Whether this action originated from the source pane.
-    ///   - otherProviderPath: The root path of the opposite provider to attempt matching navigation.
-    public func focusOn(relativePath: String, isSource: Bool, otherProviderPath: String) {
-        let newSource = isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
-        let newDest = !isSource ? relativePath : findMatchingPath(relativePath, in: otherProviderPath)
+    public func focusOn(relativePath: String, isSource: Bool) {
+        let newSource = isSource ? relativePath : self.sourceRelativePath
+        let newDest = !isSource ? relativePath : self.destRelativePath
         
         // Trim history if we're not at the end
         if historyIndex < history.count - 1 {
@@ -89,14 +88,4 @@ extension FileSyncManager {
         if canGoForward != nextCanGoForward { canGoForward = nextCanGoForward }
     }
     
-    func findMatchingPath(_ relativePath: String, in rootPath: String) -> String {
-        if relativePath.isEmpty { return "" }
-        let fullPath = (rootPath as NSString).expandingTildeInPath + "/" + relativePath
-        var isDir: ObjCBool = false
-        if self.fileManager.fileExists(atPath: fullPath, isDirectory: &isDir), isDir.boolValue {
-            return relativePath
-        }
-        // If exact match is not present in the opposite provider, fall back to root.
-        return ""
-    }
 }

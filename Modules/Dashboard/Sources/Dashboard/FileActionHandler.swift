@@ -21,7 +21,6 @@ public class FileActionHandler {
     /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
     public func focusFolder(_ node: FileNode, isSource: Bool, sourceProviderId: String, destProviderId: String) {
         let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destProviderId)
-        let otherRootPath = isSource ? settings.path(for: destProviderId) : settings.path(for: sourceProviderId)
         
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
         let nodePath = node.id
@@ -33,7 +32,7 @@ public class FileActionHandler {
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
         Logger.shared.info("User focusing folder: \(relPath)")
-        syncManager.focusOn(relativePath: relPath, isSource: isSource, otherProviderPath: otherRootPath)
+        syncManager.focusOn(relativePath: relPath, isSource: isSource)
     }
     
     // MARK: - Native Actions
