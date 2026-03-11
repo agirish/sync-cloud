@@ -34,25 +34,15 @@ public struct FileTreeView: View {
         self.ignoredPaths = ignoredPaths
     }
     
-    private func isPathIgnored(_ id: String) -> Bool {
-        var rPath = id
-        if rPath.hasPrefix(currentPath) {
-            rPath = String(rPath.dropFirst(currentPath.count))
-            if rPath.hasPrefix("/") { rPath.removeFirst() }
-        }
-        for ignoredPath in ignoredPaths {
-            if rPath == ignoredPath || rPath.hasPrefix(ignoredPath + "/") {
-                return true
-            }
-        }
-        return false
+    private func isPathIgnored(_ node: FileNode) -> Bool {
+        return delegate.isNodeIgnored(node, currentPath: currentPath)
     }
     
     public var body: some View {
         ZStack {
             List(selection: $selection) {
                 OutlineGroup(tree, children: \.children) { node in
-                    FileRowView(node: node, isIgnored: isPathIgnored(node.id))
+                    FileRowView(node: node, isIgnored: isPathIgnored(node))
                         .tag(node.id)
                         .contextMenu {
                             FileContextMenu(
@@ -194,17 +184,7 @@ struct FileContextMenu: View {
             }
             
             let allIgnored = selectedNodes.allSatisfy { n in 
-                var rPath = n.id
-                if rPath.hasPrefix(currentPath) {
-                    rPath = String(rPath.dropFirst(currentPath.count))
-                    if rPath.hasPrefix("/") { rPath.removeFirst() }
-                }
-                for ignoredPath in ignoredPaths {
-                    if rPath == ignoredPath || rPath.hasPrefix(ignoredPath + "/") {
-                        return true
-                    }
-                }
-                return false
+                delegate.isNodeIgnored(n, currentPath: currentPath)
             }
             Button(action: { delegate.handleIgnore(selectedNodes) }) {
                 Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")

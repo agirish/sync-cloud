@@ -508,4 +508,7 @@ struct PaneActionDelegate: FileActionDelegate {
             }
         }
     }
+    func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
+        syncManager.isNodeIgnored(node, currentPath: currentPath)
+    }
 }

@@ -8,8 +8,7 @@ import UniformTypeIdentifiers
 /// Tracks active file operations for app-wide termination guards and ensures serialized execution of background tasks.
 @MainActor
 public class FileSyncManager: ObservableObject {
-    /// The file manager used for all disk operations.
-    /// Can be injected to support testing via `MockFileManager`.
+    /// Dedicated background queue for heavy file system enumeration to avoid blocking the main UI thread.
     public let fileManager: FileManaging
     
     /// A closure that resolves naming collisions during file operations.
@@ -152,6 +151,15 @@ public class FileSyncManager: ObservableObject {
         }
         fileOperationTask = Task { _ = await newTask.value }
         return await newTask.value
+    }
+    
+    public func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
+        var rPath = node.id
+        if rPath.hasPrefix(currentPath) {
+            rPath = String(rPath.dropFirst(currentPath.count))
+            if rPath.hasPrefix("/") { rPath.removeFirst() }
+        }
+        return Self.isIgnoredPath(rPath, ignored: ignoredPaths)
     }
     
     /// Instantly recalculates the visible trees and differences from the cached raw arrays

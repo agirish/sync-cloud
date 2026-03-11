@@ -16,4 +16,5 @@ public protocol FileActionDelegate: Sendable {
     func handleGetInfo(for path: String)
     func handleSort(_ option: SortOption)
     func handleIgnore(_ nodes: [FileNode])
+    func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool
 }

@@ -303,6 +303,15 @@ extension FileSyncManager {
     
     nonisolated static func sort(nodes: [FileNode], by option: SortOption) -> [FileNode] {
         var sorted = nodes
+        
+        // Recursively sort children first
+        for i in 0..<sorted.count {
+            if let children = sorted[i].children {
+                sorted[i].children = sort(nodes: children, by: option)
+            }
+        }
+        
+        // Sort the current level
         sorted.sort { a, b in
             // Typically preserve folder precedence
             if a.isDirectory != b.isDirectory { return a.isDirectory }
