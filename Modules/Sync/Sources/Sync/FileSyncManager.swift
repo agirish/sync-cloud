@@ -24,6 +24,8 @@ public class FileSyncManager: ObservableObject {
         self.fileManager = fileManager
     }
     
+    /// Cached raw baseline differences from the latest scan, unfiltered.
+    internal var rawDifferences: [FileDifference] = []
     /// Array of differences calculated between the source and destination directories after a scan.
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
@@ -38,9 +40,9 @@ public class FileSyncManager: ObservableObject {
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             prefetchedTrees.removeAll()
             // Re-sort current trees globally when option changes
-            sourceTree = Self.sort(nodes: sourceTree, by: sortOption)
-            destinationTree = Self.sort(nodes: destinationTree, by: sortOption)
-            refreshSubject.send()
+            rawSourceTree = Self.sort(nodes: rawSourceTree, by: sortOption)
+            rawDestinationTree = Self.sort(nodes: rawDestinationTree, by: sortOption)
+            applyFilters()
         }
     }
     
@@ -48,14 +50,17 @@ public class FileSyncManager: ObservableObject {
     @Published public var showHiddenFiles: Bool = false {
         didSet {
             guard showHiddenFiles != oldValue else { return }
-            // CRITICAL: Cache must be invalidated because hidden files change the tree structure itself
-            prefetchedTrees.removeAll()
-            refreshSubject.send()
+            applyFilters()
         }
     }
     
+    /// Internal representation of the raw loaded file structure for the source provider.
+    internal var rawSourceTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the source provider.
     @Published public var sourceTree: [FileNode] = []
+    
+    /// Internal representation of the raw loaded file structure for the destination provider.
+    internal var rawDestinationTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the destination provider.
     @Published public var destinationTree: [FileNode] = []
     @Published public var isLoadingSourceTree = false
@@ -139,6 +144,42 @@ public class FileSyncManager: ObservableObject {
         }
         fileOperationTask = Task { _ = await newTask.value }
         return await newTask.value
+    }
+    
+    /// Instantly recalculates the visible trees and differences from the cached raw arrays
+    /// based on the current filtering options (e.g. `showHiddenFiles`).
+    public func applyFilters() {
+        self.sourceTree = Self.filterTree(rawSourceTree, showHidden: showHiddenFiles)
+        self.destinationTree = Self.filterTree(rawDestinationTree, showHidden: showHiddenFiles)
+        self.sourceItemCount = countItems(in: self.sourceTree)
+        self.destinationItemCount = countItems(in: self.destinationTree)
+        
+        if showHiddenFiles {
+            self.differences = rawDifferences
+        } else {
+            self.differences = rawDifferences.filter { !Self.isHiddenPath($0.relativePath) }
+        }
+    }
+    
+    /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.
+    nonisolated static func filterTree(_ nodes: [FileNode], showHidden: Bool) -> [FileNode] {
+        if showHidden { return nodes }
+        var filtered: [FileNode] = []
+        for node in nodes {
+            if node.name.hasPrefix(".") { continue }
+            
+            var newNode = node
+            if let children = node.children {
+                newNode.children = filterTree(children, showHidden: showHidden)
+            }
+            filtered.append(newNode)
+        }
+        return filtered
+    }
+    
+    nonisolated static func isHiddenPath(_ path: String) -> Bool {
+        let components = path.components(separatedBy: "/")
+        return components.contains { $0.hasPrefix(".") }
     }
     
     /// Navigates through the navigational history across both panes.

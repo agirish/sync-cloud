@@ -44,13 +44,11 @@ public struct FileDiffEngine {
     /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
     /// - Parameters:
     ///   - url: The root directory URL to scan.
-    ///   - showHidden: Whether to include files starting with '.' (e.g. .DS_Store).
     ///   - fileManager: The file manager to use for scanning (supports injected mocks).
     /// - Returns: A map of relative paths to `FileInfo` metadata.
-    public static func getFilesInDirectory(_ url: URL, showHidden: Bool = false, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
+    public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
-        let options: FileManager.DirectoryEnumerationOptions = showHidden ? [] : [.skipsHiddenFiles]
-        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: options) else {
+        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
             return [:]
         }
         

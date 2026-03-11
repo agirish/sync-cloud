@@ -19,7 +19,7 @@ extension FileSyncManager {
                 let path = (provider.path as NSString).expandingTildeInPath
                 group.addTask {
                     let rootURL = URL(fileURLWithPath: path)
-                    let tree = await Self.buildTree(url: rootURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: fm)
+                    let tree = await Self.buildTree(url: rootURL, sortOption: sortOp, fileManager: fm)
                     return (path, tree)
                 }
             }
@@ -55,11 +55,11 @@ extension FileSyncManager {
             if relPath.isEmpty, let cachedTree = prefetchedTrees[path] {
                 Logger.shared.debug("Consuming prefetched tree for \(path)")
                 if isSource {
-                    self.sourceTree = cachedTree
-                    self.sourceItemCount = countItems(in: cachedTree)
+                    self.rawSourceTree = cachedTree
+                    self.applyFilters()
                 } else {
-                    self.destinationTree = cachedTree
-                    self.destinationItemCount = countItems(in: cachedTree)
+                    self.rawDestinationTree = cachedTree
+                    self.applyFilters()
                 }
                 return
             }
@@ -68,24 +68,22 @@ extension FileSyncManager {
             if isSource { isLoadingSourceTree = true }
             else { isLoadingDestinationTree = true }
             
-            let sortOp = self.sortOption
-            let showHidden = self.showHiddenFiles
-            
             // Build the tree in a detached task to ensure no Main Actor blocking
             let fm = self.fileManager
+            let sortOp = self.sortOption
             let tree = await Task.detached(priority: .userInitiated) {
-                return await Self.buildTree(url: focusURL, sortOption: sortOp, showHiddenFiles: showHidden, fileManager: fm)
+                return await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
             }.value
             
             guard !Task.isCancelled else { return }
 
             if isSource {
-                self.sourceTree = tree
-                self.sourceItemCount = countItems(in: tree)
+                self.rawSourceTree = tree
+                self.applyFilters()
                 isLoadingSourceTree = false
             } else {
-                self.destinationTree = tree
-                self.destinationItemCount = countItems(in: tree)
+                self.rawDestinationTree = tree
+                self.applyFilters()
                 isLoadingDestinationTree = false
             }
             // Update cache since we did the work
@@ -177,11 +175,11 @@ extension FileSyncManager {
                 let sourceURL = URL(fileURLWithPath: (request.sourcePath as NSString).expandingTildeInPath)
                 let destinationURL = URL(fileURLWithPath: (request.destinationPath as NSString).expandingTildeInPath)
                 
-                let (fm, showHidden) = await MainActor.run { (self.fileManager, self.showHiddenFiles) }
+                let fm = await MainActor.run { self.fileManager }
                 
                 // Allow cancellation check inside the detached block if needed
-                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, showHidden: showHidden, fileManager: fm)
-                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, showHidden: showHidden, fileManager: fm)
+                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, fileManager: fm)
+                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, fileManager: fm)
                 
                 return FileDiffEngine.computeDifferences(
                     source: request.source,
@@ -201,7 +199,8 @@ extension FileSyncManager {
 
         let isLatestRequest = request.generation == scanRequestGeneration
         if !Task.isCancelled, isLatestRequest, let results = newDifferences {
-            differences = results
+            self.rawDifferences = results
+            self.applyFilters()
             hasScanned = true
             
             Logger.shared.debug("Scan completed: found \(results.count) differences.")
@@ -219,12 +218,11 @@ extension FileSyncManager {
     
     // MARK: - Internal Engine Operations
     
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, showHiddenFiles: Bool, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         await Task.detached(priority: .userInitiated) {
             struct TreeBuilder {
                 let fileManager: FileManaging
                 let sortOption: SortOption
-                let showHiddenFiles: Bool
                 
                 func buildNode(at fullURL: URL) -> FileNode? {
                     var isDirectory: ObjCBool = false
@@ -261,7 +259,6 @@ extension FileSyncManager {
                         }()
                         var children: [FileNode] = []
                         for item in contents {
-                            if !showHiddenFiles && item.hasPrefix(".") { continue }
                             let childURL = fullURL.appendingPathComponent(item)
                             if let childNode = buildNode(at: childURL) {
                                 children.append(childNode)
@@ -275,7 +272,7 @@ extension FileSyncManager {
                 }
             }
             
-            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, showHiddenFiles: showHiddenFiles)
+            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
             
@@ -295,7 +292,6 @@ extension FileSyncManager {
             await Logger.shared.debug("buildTree contents count: \(contents.count)")
             var rootChildren: [FileNode] = []
             for item in contents {
-                if !showHiddenFiles && item.hasPrefix(".") { continue }
                 let childURL = url.appendingPathComponent(item)
                 if let childNode = builder.buildNode(at: childURL) {
                     rootChildren.append(childNode)
