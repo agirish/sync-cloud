@@ -96,8 +96,22 @@ public class FileSyncManager: ObservableObject {
     @Published public var destRelativePath: String = ""
     
     // View State Persistence
-    @Published public var selectedSourcePaths: Set<String> = []
-    @Published public var selectedDestinationPaths: Set<String> = []
+    @Published public var selectedSourcePaths: Set<String> = [] {
+        didSet {
+            // Enforce mutual exclusivity: a non-empty source selection clears any destination selection.
+            if !selectedSourcePaths.isEmpty && !selectedDestinationPaths.isEmpty {
+                selectedDestinationPaths = []
+            }
+        }
+    }
+    @Published public var selectedDestinationPaths: Set<String> = [] {
+        didSet {
+            // Enforce mutual exclusivity: a non-empty destination selection clears any source selection.
+            if !selectedDestinationPaths.isEmpty && !selectedSourcePaths.isEmpty {
+                selectedSourcePaths = []
+            }
+        }
+    }
     @Published public var sourceExpandedPaths: Set<String> = []
     @Published public var destExpandedPaths: Set<String> = []
     

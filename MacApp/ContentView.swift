@@ -158,9 +158,6 @@ struct ContentView: View {
             refreshAction()
         }
         .onChange(of: syncManager.selectedSourcePaths) { _, paths in
-            if !paths.isEmpty, !syncManager.selectedDestinationPaths.isEmpty {
-                syncManager.selectedDestinationPaths = []
-            }
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 10_000_000)
@@ -169,9 +166,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
-            if !paths.isEmpty, !syncManager.selectedSourcePaths.isEmpty {
-                syncManager.selectedSourcePaths = []
-            }
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 10_000_000)
