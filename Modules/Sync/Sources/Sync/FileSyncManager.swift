@@ -168,8 +168,7 @@ public class FileSyncManager: ObservableObject {
         }
         if !ignoredPaths.isEmpty {
             filteredDifferences = filteredDifferences.filter { diff in 
-                !Self.isIgnoredPath(diff.sourceItemPath, ignored: ignoredPaths) &&
-                !Self.isIgnoredPath(diff.destinationItemPath, ignored: ignoredPaths)
+                !Self.isIgnoredPath(diff.relativePath, ignored: ignoredPaths)
             }
         }
         self.differences = filteredDifferences

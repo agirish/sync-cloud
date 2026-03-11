@@ -491,8 +491,8 @@ struct PaneActionDelegate: FileActionDelegate {
         // Convert to relative paths from current focal point so they sync across panes seamlessly
         let relativeTargets: [String] = nodes.map { node in
             var rPath = node.id
-            if rPath.hasPrefix(expandedRoot) {
-                rPath = String(rPath.dropFirst(expandedRoot.count))
+            if rPath.hasPrefix(basePath) {
+                rPath = String(rPath.dropFirst(basePath.count))
                 if rPath.hasPrefix("/") { rPath.removeFirst() }
             }
             return rPath
