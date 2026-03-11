@@ -54,6 +54,14 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
+    /// Paths that the user has explicitly requested to hide from the current comparison context.
+    @Published public var ignoredPaths: Set<String> = [] {
+        didSet {
+            guard ignoredPaths != oldValue else { return }
+            applyFilters()
+        }
+    }
+    
     /// Internal representation of the raw loaded file structure for the source provider.
     internal var rawSourceTree: [FileNode] = []
     /// Internal representation of the loaded file structure for the source provider.
@@ -154,11 +162,14 @@ public class FileSyncManager: ObservableObject {
         self.sourceItemCount = countItems(in: self.sourceTree)
         self.destinationItemCount = countItems(in: self.destinationTree)
         
-        if showHiddenFiles {
-            self.differences = rawDifferences
-        } else {
-            self.differences = rawDifferences.filter { !Self.isHiddenPath($0.relativePath) }
+        var filteredDifferences = rawDifferences
+        if !showHiddenFiles {
+            filteredDifferences = filteredDifferences.filter { !Self.isHiddenPath($0.relativePath) }
         }
+        if !ignoredPaths.isEmpty {
+            filteredDifferences = filteredDifferences.filter { !Self.isIgnoredPath($0.relativePath, ignored: ignoredPaths) }
+        }
+        self.differences = filteredDifferences
     }
     
     /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.
@@ -175,6 +186,15 @@ public class FileSyncManager: ObservableObject {
             filtered.append(newNode)
         }
         return filtered
+    }
+    
+    nonisolated static func isIgnoredPath(_ path: String, ignored: Set<String>) -> Bool {
+        for ignoredPath in ignored {
+            if path == ignoredPath || path.hasPrefix(ignoredPath + "/") {
+                return true
+            }
+        }
+        return false
     }
     
     nonisolated static func isHiddenPath(_ path: String) -> Bool {

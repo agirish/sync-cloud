@@ -15,4 +15,5 @@ public protocol FileActionDelegate: Sendable {
     func handleCreateFolder(at path: String)
     func handleGetInfo(for path: String)
     func handleSort(_ option: SortOption)
+    func handleIgnore(_ nodes: [FileNode])
 }

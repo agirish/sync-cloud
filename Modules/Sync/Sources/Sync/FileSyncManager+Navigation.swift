@@ -11,6 +11,7 @@ extension FileSyncManager {
     ///   - relativePath: The directory path to drill into.
     ///   - isSource: Whether this action originated from the source pane.
     public func focusOn(relativePath: String, isSource: Bool) {
+        ignoredPaths.removeAll()
         let newSource = isSource ? relativePath : self.sourceRelativePath
         let newDest = !isSource ? relativePath : self.destRelativePath
         
@@ -27,6 +28,7 @@ extension FileSyncManager {
     /// Navigates to the previous state in the directory history stack.
     @MainActor public func goBack() {
         guard historyIndex > 0 else { return }
+        ignoredPaths.removeAll()
         historyIndex -= 1
         let state = history[historyIndex]
         if sourceRelativePath != state.source { sourceRelativePath = state.source }
@@ -39,6 +41,7 @@ extension FileSyncManager {
     /// Navigates to the next state in the directory history stack.
     @MainActor public func goForward() {
         guard historyIndex < history.count - 1 else { return }
+        ignoredPaths.removeAll()
         historyIndex += 1
         let state = history[historyIndex]
         if sourceRelativePath != state.source { sourceRelativePath = state.source }
@@ -51,6 +54,7 @@ extension FileSyncManager {
     /// Resets the navigation state back to the root level and clears UI interaction state.
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
+        ignoredPaths.removeAll()
         if !sourceRelativePath.isEmpty { sourceRelativePath = "" }
         if !destRelativePath.isEmpty { destRelativePath = "" }
         if !selectedSourcePaths.isEmpty { selectedSourcePaths = [] }

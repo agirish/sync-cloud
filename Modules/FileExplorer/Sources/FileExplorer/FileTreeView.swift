@@ -18,7 +18,10 @@ public struct FileTreeView: View {
     // Delegate for all file operations
     public let delegate: FileActionDelegate
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isSource: Bool, delegate: FileActionDelegate) {
+    // Set of paths that are currently ignored from comparison
+    public let ignoredPaths: Set<String>
+    
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isSource: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -28,13 +31,14 @@ public struct FileTreeView: View {
         self.otherSelection = otherSelection
         self.isSource = isSource
         self.delegate = delegate
+        self.ignoredPaths = ignoredPaths
     }
     
     public var body: some View {
         ZStack {
             List(selection: $selection) {
                 OutlineGroup(tree, children: \.children) { node in
-                    FileRowView(node: node)
+                    FileRowView(node: node, isIgnored: ignoredPaths.contains(node.id))
                         .tag(node.id)
                         .contextMenu {
                             FileContextMenu(
@@ -44,7 +48,8 @@ public struct FileTreeView: View {
                                 otherTree: otherTree,
                                 otherSelection: otherSelection,
                                 isSource: isSource,
-                                delegate: delegate
+                                delegate: delegate,
+                                ignoredPaths: ignoredPaths
                             )
                         }
                 }
@@ -128,6 +133,7 @@ struct FileContextMenu: View {
     let otherSelection: Set<String>
     let isSource: Bool
     let delegate: FileActionDelegate
+    let ignoredPaths: Set<String>
     
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
@@ -169,8 +175,13 @@ struct FileContextMenu: View {
                         Label("Compare only this folder", systemImage: "scope")
                     }
                 }
-                Divider()
             }
+            
+            let allIgnored = selectedNodes.allSatisfy { ignoredPaths.contains($0.id) }
+            Button(action: { delegate.handleIgnore(selectedNodes) }) {
+                Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
+            }
+            Divider()
             
             Button(action: { delegate.handleCopy(selectedNodes) }) {
                 let targetPane = isSource ? "Destination" : "Source"
@@ -221,6 +232,7 @@ struct FileContextMenu: View {
 /// Renders a single row representing a file or directory node with its associated system icon.
 struct FileRowView: View {
     let node: FileNode
+    let isIgnored: Bool
     
     var body: some View {
         HStack {
@@ -228,6 +240,8 @@ struct FileRowView: View {
                 .foregroundColor(node.isDirectory ? .blue : .secondary)
             Text(node.name)
                 .font(.system(.body, design: .rounded))
+                .strikethrough(isIgnored, color: .secondary)
+                .foregroundColor(isIgnored ? .secondary : .primary)
             Spacer()
         }
         .padding(.vertical, 4)

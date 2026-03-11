@@ -374,7 +374,8 @@ struct ContentView: View {
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
             isSource: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction)
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            ignoredPaths: syncManager.ignoredPaths
         )
     }
     
@@ -389,7 +390,8 @@ struct ContentView: View {
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
             isSource: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction)
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            ignoredPaths: syncManager.ignoredPaths
         )
     }
     
@@ -477,5 +479,15 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleSort(_ option: SortOption) { 
         Logger.shared.info("User changed sort option to \(option)")
         syncManager.sortOption = option 
+    }
+    func handleIgnore(_ nodes: [FileNode]) {
+        let allIgnored = nodes.allSatisfy { syncManager.ignoredPaths.contains($0.id) }
+        for node in nodes {
+            if allIgnored {
+                syncManager.ignoredPaths.remove(node.id)
+            } else {
+                syncManager.ignoredPaths.insert(node.id)
+            }
+        }
     }
 }
