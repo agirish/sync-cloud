@@ -230,7 +230,7 @@ public struct FileDiffEngine {
         
         let result = diffs.sorted { $0.relativePath < $1.relativePath }
         Task { @MainActor in 
-            Logger.shared.info("Computed differences: \(result.count) items requiring action.")
+            Logger.shared.debug("Computed differences: \(result.count) items requiring action.")
         }
         return result
     }

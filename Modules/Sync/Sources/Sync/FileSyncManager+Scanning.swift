@@ -28,7 +28,7 @@ extension FileSyncManager {
                 if let tree = tree {
                     await MainActor.run {
                         self.prefetchedTrees[path] = tree
-                        Logger.shared.info("Prefetched tree for \(path)")
+                        Logger.shared.debug("Prefetched tree for \(path)")
                     }
                 }
             }
@@ -45,7 +45,7 @@ extension FileSyncManager {
 
         let task = Task {
             let label = isSource ? "Source" : "Destination"
-            Logger.shared.info("Loading \(label) Tree for path: \(path)")
+            Logger.shared.debug("Loading \(label) Tree for path: \(path)")
             
             let relPath = isSource ? sourceRelativePath : destRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
@@ -53,7 +53,7 @@ extension FileSyncManager {
             
             // Fast Path: Check prefetch cache if we are at the root
             if relPath.isEmpty, let cachedTree = prefetchedTrees[path] {
-                Logger.shared.info("Consuming prefetched tree for \(path)")
+                Logger.shared.debug("Consuming prefetched tree for \(path)")
                 if isSource {
                     self.sourceTree = cachedTree
                     self.sourceItemCount = countItems(in: cachedTree)
@@ -90,7 +90,7 @@ extension FileSyncManager {
             }
             // Update cache since we did the work
             if relPath.isEmpty { self.prefetchedTrees[path] = tree }
-            Logger.shared.info("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
+            Logger.shared.debug("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
         }
 
         if isSource { activeLoadSourceTask = task }
@@ -204,7 +204,7 @@ extension FileSyncManager {
             differences = results
             hasScanned = true
             
-            Logger.shared.info("Scan completed: found \(results.count) differences.")
+            Logger.shared.debug("Scan completed: found \(results.count) differences.")
         }
 
         isScanning = false
@@ -292,7 +292,7 @@ extension FileSyncManager {
                     return names
                 }
             }()
-            await Logger.shared.info("buildTree contents count: \(contents.count)")
+            await Logger.shared.debug("buildTree contents count: \(contents.count)")
             var rootChildren: [FileNode] = []
             for item in contents {
                 if !showHiddenFiles && item.hasPrefix(".") { continue }

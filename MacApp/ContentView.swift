@@ -72,7 +72,7 @@ struct ContentView: View {
                 .toolbar {
                     ToolbarItemGroup(placement: .principal) {
                         ControlGroup {
-                            Button(action: refreshAction) {
+                            Button(action: forceRefreshAction) {
                                 Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
                             }
                             .disabled(isScanning)
@@ -215,16 +215,25 @@ struct ContentView: View {
 
     /// Refreshes the directory trees and performs a differential scan.
     /// This utilizes `syncManager.refreshTreesAndScan` which includes re-entrancy and cancellation protection.
+    /// Used heavily for internal navigation changes where cache-hits are desired.
     private func refreshAction() {
         guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
               let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
             return 
         }
         
-        Logger.shared.info("User initiated scan comparing \(sourceProvider.displayName) and \(destProvider.displayName)")
+        Logger.shared.info("Internal scan comparing \(sourceProvider.displayName) and \(destProvider.displayName)")
         Task {
             await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
         }
+    }
+
+    /// Explicit refresh triggered by the user. Bypasses the prefetch cache to ensure newly added
+    /// files on the disk manifest in the UI, even when currently browsing the root directory.
+    private func forceRefreshAction() {
+        Logger.shared.info("User requested a force refresh")
+        syncManager.prefetchedTrees.removeAll()
+        refreshAction()
     }
 
     @ViewBuilder
@@ -306,7 +315,7 @@ struct ContentView: View {
     @ViewBuilder
     private var paneActionBar: some View {
         HStack(spacing: 10) {
-            Button(action: refreshAction) {
+            Button(action: forceRefreshAction) {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
 
@@ -320,8 +329,8 @@ struct ContentView: View {
 
             Button(action: {
                 guard let node = activeSelectionNodes.first, node.isDirectory else { return }
-                let delegate = (activePane == .source) ? sourceActionDelegate : destinationActionDelegate
-                delegate.handleFocus(node)
+                let isSource = (activePane == .source)
+                actionHandler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
             }) {
                 Label("Compare", systemImage: "scope")
             }
@@ -365,7 +374,7 @@ struct ContentView: View {
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
             isSource: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction)
         )
     }
     
@@ -380,7 +389,7 @@ struct ContentView: View {
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
             isSource: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction)
         )
     }
     
@@ -443,12 +452,10 @@ struct PaneActionDelegate: FileActionDelegate {
     let isSource: Bool
     let sourceProviderId: String
     let destProviderId: String
+    let forceRefreshAction: () -> Void
     
     func handleRefresh() {
-        Logger.shared.info("User requested refresh from context menu")
-        // Ensure we don't reuse stale prefetched root trees after filesystem writes.
-        syncManager.prefetchedTrees.removeAll()
-        syncManager.refreshSubject.send()
+        forceRefreshAction()
     }
     func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }

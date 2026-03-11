@@ -5,6 +5,8 @@ import SwiftUI
 public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
     /// Informational telemetry or standard operational success events.
     case info = "INFO"
+    /// Detailed diagnostic information for development.
+    case debug = "DEBUG"
     /// A non-critical issue that did not halt execution but requires attention.
     case warning = "WARN"
     /// A critical failure or severe application error.
@@ -15,6 +17,7 @@ public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
     public var color: Color {
         switch self {
         case .info: return .blue
+        case .debug: return .gray
         case .warning: return .orange
         case .error: return .red
         }
@@ -23,6 +26,7 @@ public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
     public var icon: String {
         switch self {
         case .info: return "info.circle.fill"
+        case .debug: return "ant.fill"
         case .warning: return "exclamationmark.triangle.fill"
         case .error: return "xmark.octagon.fill"
         }
@@ -88,6 +92,13 @@ public class Logger: ObservableObject {
     @discardableResult
     public nonisolated func info(_ message: String) -> Task<Void, Never> {
         return log(level: .info, message: message)
+    }
+    
+    /// Records a diagnostic debug event.
+    /// - Parameter message: The string description to log.
+    @discardableResult
+    public nonisolated func debug(_ message: String) -> Task<Void, Never> {
+        return log(level: .debug, message: message)
     }
     
     /// Records a warning trace event to memory and disk.

@@ -306,7 +306,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
-            Logger.shared.info("Copied \(nodes.count) items between panes")
+            Logger.shared.debug("Copied \(nodes.count) items between panes")
         }
     }
     
@@ -393,9 +393,9 @@ extension FileSyncManager {
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
             if movedNodes.count == prunedNodes.count {
-                Logger.shared.info("Moved \(movedNodes.count) items between panes")
+                Logger.shared.debug("Moved \(movedNodes.count) items between panes")
             } else {
-                Logger.shared.info("Moved \(movedNodes.count) of \(prunedNodes.count) items between panes")
+                Logger.shared.debug("Moved \(movedNodes.count) of \(prunedNodes.count) items between panes")
             }
         }
 
@@ -466,7 +466,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
-            Logger.shared.info("Copied \(nodes.count) items to \(destinationPath)")
+            Logger.shared.debug("Copied \(nodes.count) items to \(destinationPath)")
         }
     }
     
@@ -539,7 +539,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !nodes.isEmpty {
-            Logger.shared.info("Moved \(nodes.count) items to \(destinationPath)")
+            Logger.shared.debug("Moved \(nodes.count) items to \(destinationPath)")
         }
         
         return movedNodes
@@ -572,7 +572,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else {
-            Logger.shared.info("Renamed item to \(newName)")
+            Logger.shared.debug("Renamed item to \(newName)")
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
             Task { await initialResolver.resolve([(from: url, to: newURL, overwritten: result.trashed)]) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Rename Item", fileManager: fm)
@@ -600,7 +600,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else {
-            Logger.shared.info("Created folder \(name) at \(path)")
+            Logger.shared.debug("Created folder \(name) at \(path)")
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
         }
     }
@@ -685,7 +685,7 @@ extension FileSyncManager {
             self.currentError = msg
             Logger.shared.error(msg, showAlert: false)
         } else if !items.isEmpty {
-            Logger.shared.info("Deleted \(items.count) items")
+            Logger.shared.debug("Deleted \(items.count) items")
         }
         
         self.activeProgress = nil

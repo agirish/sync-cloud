@@ -204,7 +204,7 @@ public class FileSyncManager: ObservableObject {
                 differences[index].isSyncing = false
             }
         } else {
-            Logger.shared.info("Synced file: \(difference.relativePath)")
+            Logger.shared.debug("Synced file: \(difference.relativePath)")
             if let from = result.from, let to = result.to {
                 let actionName = "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")"
                 if isMove {

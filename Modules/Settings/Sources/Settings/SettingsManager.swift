@@ -38,7 +38,7 @@ public class SettingsManager: ObservableObject {
     /// Scans the local filesystem's CloudStorage mounting point to detect configured provider accounts.
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
     public func discoverProviders() async {
-        Logger.shared.info("Discovering cloud providers...")
+        Logger.shared.debug("Discovering cloud providers...")
         activeDiscoveryCount += 1
         isDiscovering = true
         defer {
