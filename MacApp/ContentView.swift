@@ -374,7 +374,7 @@ struct ContentView: View {
             expandedPaths: $syncManager.sourceExpandedPaths,
             otherSelection: syncManager.selectedDestinationPaths,
             isSource: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths
         )
     }
@@ -390,7 +390,7 @@ struct ContentView: View {
             expandedPaths: $syncManager.destExpandedPaths,
             otherSelection: syncManager.selectedSourcePaths,
             isSource: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths
         )
     }
@@ -451,6 +451,7 @@ struct ContentView: View {
 struct PaneActionDelegate: FileActionDelegate {
     let handler: FileActionHandler?
     let syncManager: FileSyncManager
+    let settings: SettingsManager
     let isSource: Bool
     let sourceProviderId: String
     let destProviderId: String
@@ -481,12 +482,29 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.sortOption = option 
     }
     func handleIgnore(_ nodes: [FileNode]) {
-        let allIgnored = nodes.allSatisfy { syncManager.ignoredPaths.contains($0.id) }
-        for node in nodes {
+        let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destProviderId)
+        let expandedRoot = (rootPath as NSString).expandingTildeInPath
+        let relPrefix = isSource ? syncManager.sourceRelativePath : syncManager.destRelativePath
+        
+        let basePath = relPrefix.isEmpty ? expandedRoot : (expandedRoot as NSString).appendingPathComponent(relPrefix)
+        
+        // Convert to relative paths from current focal point so they sync across panes seamlessly
+        let relativeTargets: [String] = nodes.map { node in
+            var rPath = node.id
+            if rPath.hasPrefix(expandedRoot) {
+                rPath = String(rPath.dropFirst(expandedRoot.count))
+                if rPath.hasPrefix("/") { rPath.removeFirst() }
+            }
+            return rPath
+        }
+        
+        let allIgnored = relativeTargets.allSatisfy { syncManager.ignoredPaths.contains($0) }
+        
+        for relPath in relativeTargets {
             if allIgnored {
-                syncManager.ignoredPaths.remove(node.id)
+                syncManager.ignoredPaths.remove(relPath)
             } else {
-                syncManager.ignoredPaths.insert(node.id)
+                syncManager.ignoredPaths.insert(relPath)
             }
         }
     }

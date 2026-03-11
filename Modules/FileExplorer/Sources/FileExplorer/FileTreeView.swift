@@ -34,11 +34,20 @@ public struct FileTreeView: View {
         self.ignoredPaths = ignoredPaths
     }
     
+    private func isPathIgnored(_ id: String) -> Bool {
+        var rPath = id
+        if rPath.hasPrefix(currentPath) {
+            rPath = String(rPath.dropFirst(currentPath.count))
+            if rPath.hasPrefix("/") { rPath.removeFirst() }
+        }
+        return ignoredPaths.contains(rPath)
+    }
+    
     public var body: some View {
         ZStack {
             List(selection: $selection) {
                 OutlineGroup(tree, children: \.children) { node in
-                    FileRowView(node: node, isIgnored: ignoredPaths.contains(node.id))
+                    FileRowView(node: node, isIgnored: isPathIgnored(node.id))
                         .tag(node.id)
                         .contextMenu {
                             FileContextMenu(
@@ -48,6 +57,7 @@ public struct FileTreeView: View {
                                 otherTree: otherTree,
                                 otherSelection: otherSelection,
                                 isSource: isSource,
+                                currentPath: currentPath,
                                 delegate: delegate,
                                 ignoredPaths: ignoredPaths
                             )
@@ -132,6 +142,7 @@ struct FileContextMenu: View {
     let otherTree: [FileNode]
     let otherSelection: Set<String>
     let isSource: Bool
+    let currentPath: String
     let delegate: FileActionDelegate
     let ignoredPaths: Set<String>
     
@@ -177,7 +188,14 @@ struct FileContextMenu: View {
                 }
             }
             
-            let allIgnored = selectedNodes.allSatisfy { ignoredPaths.contains($0.id) }
+            let allIgnored = selectedNodes.allSatisfy { n in 
+                var rPath = n.id
+                if rPath.hasPrefix(currentPath) {
+                    rPath = String(rPath.dropFirst(currentPath.count))
+                    if rPath.hasPrefix("/") { rPath.removeFirst() }
+                }
+                return ignoredPaths.contains(rPath)
+            }
             Button(action: { delegate.handleIgnore(selectedNodes) }) {
                 Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
             }
