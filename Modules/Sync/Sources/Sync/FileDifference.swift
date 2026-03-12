@@ -23,13 +23,18 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     }
     
     public enum DifferenceType: Equatable, Sendable {
+        /// The file exists on the Left side but is missing on the Right side.
         case missingOnRight
+        /// The file exists on the Right side but is missing on the Left side.
         case missingOnLeft
+        /// The file exists on both sides but has differing modification dates or sizes.
         case differentDates
     }
     
     public enum SyncAction: Equatable, Sendable {
+        /// Action to synchronize the file by copying from the Left side to the Right side.
         case copyToRight
+        /// Action to synchronize the file by copying from the Right side to the Left side.
         case copyToLeft
     }
 }
