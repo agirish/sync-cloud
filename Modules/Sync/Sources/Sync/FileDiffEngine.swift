@@ -1,11 +1,11 @@
 import Foundation
 import Events
 
-/// A stateless engine responsible for computing synchronization differences between two directories.
-/// Extracts heavy O(N) file system scanning and Date comparison logic out of the UI-bound SyncManager.
+/// Stateless engine that computes sync differences between two directory trees (left and right panes).
+/// Handles O(N) filesystem scanning and date/size comparison; used by `FileSyncManager` on a background thread.
 public struct FileDiffEngine {
-    
-    /// Lightweight metadata structure for individual files used during differential comparison.
+
+    /// Per-file metadata used when comparing the two sides (path, date, size, isDirectory).
     public struct FileInfo: Sendable {
         /// The absolute URL of the file.
         public let url: URL
@@ -108,16 +108,15 @@ public struct FileDiffEngine {
         return result
     }
     
-    /// Computes the exact synchronization differences between Left and Right file sets.
-    /// Resolves discrepancies by comparing modification dates and file sizes.
+    /// Computes all sync differences between the left and right file sets (missing items, date/size mismatches).
     /// - Parameters:
-    ///   - left: The left cloud provider model.
-    ///   - leftURL: The absolute URL to the left root.
-    ///   - right: The right cloud provider model.
-    ///   - rightURL: The absolute URL to the right root.
-    ///   - leftFilesInfo: Pre-scanned metadata for the left pane.
-    ///   - rightFilesInfo: Pre-scanned metadata for the right pane.
-    /// - Returns: A sorted list of `FileDifference` objects ready for UI display and synchronization.
+    ///   - left: Cloud provider for the left pane (used for display names in descriptions).
+    ///   - leftURL: Root directory URL for the left pane.
+    ///   - right: Cloud provider for the right pane.
+    ///   - rightURL: Root directory URL for the right pane.
+    ///   - leftFilesInfo: Pre-scanned file metadata for the left pane (relative path → `FileInfo`).
+    ///   - rightFilesInfo: Pre-scanned file metadata for the right pane.
+    /// - Returns: Sorted array of `FileDifference` for UI and sync actions.
     public static func computeDifferences(
         left: CloudProvider,
         leftURL: URL,

@@ -6,10 +6,10 @@ extension FileSyncManager {
     
     // MARK: - Navigation Methods
     
-    /// Updates the navigation state to focus on a specific relative directory path.
+    /// Sets the focused subfolder for one pane and appends to the back/forward history.
     /// - Parameters:
-    ///   - relativePath: The directory path to drill into.
-    ///   - isLeft: Whether this action originated from the left pane.
+    ///   - relativePath: Subfolder path relative to the pane root (e.g. `"Documents/Projects"`).
+    ///   - isLeft: `true` if the user drilled into this folder from the left pane; `false` for the right pane.
     public func focusOn(relativePath: String, isLeft: Bool) {
         ignoredPaths.removeAll()
         let newLeft = isLeft ? relativePath : self.leftRelativePath
@@ -51,7 +51,7 @@ extension FileSyncManager {
         refreshSubject.send()
     }
     
-    /// Resets the navigation state back to the root level and clears UI interaction state.
+    /// Resets both panes to root, clears selection and expanded state, and resets back/forward history.
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
         ignoredPaths.removeAll()
@@ -83,8 +83,7 @@ extension FileSyncManager {
         refreshSubject.send()
     }
 
-    // This function is introduced as part of the change to update the UI state
-    // after navigation actions (goBack, goForward).
+    /// Updates `canGoBack` and `canGoForward` from the current history index (called after goBack/goForward).
     func updateHistoryState() {
         let nextCanGoBack = historyIndex > 0
         let nextCanGoForward = historyIndex < history.count - 1

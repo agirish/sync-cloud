@@ -6,10 +6,7 @@ import FileExplorer
 import Dashboard
 import QuickLook
 
-/// The main application layout for SyncCloud.
-/// Implements a stable 2-column `NavigationSplitView` with:
-/// - Sidebar: Cloud provider selection.
-/// - Detail: Two-pane file explorer with an integrated bottom tabbed workspace for differences and metadata.
+/// Main window content: provider sidebar, two file panes (left/right), toolbar, and bottom tab (Differences / Details).
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @StateObject private var settings = SettingsManager()
@@ -36,6 +33,9 @@ struct ContentView: View {
     }
     @State private var selectedBottomTab: BottomTab = .differences
 
+    /// Resolves the left and right provider IDs from the current list (e.g. after provider list changes or bootstrap).
+    /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a different provider for the right.
+    /// - Returns: `(leftId, rightId)` or `nil` if there are no providers.
     static func resolvedProviderSelection(
         providers: [CloudProvider],
         currentLeftId: String,
@@ -213,9 +213,7 @@ struct ContentView: View {
         }
     }
 
-    /// Refreshes the directory trees and performs a differential scan.
-    /// This utilizes `syncManager.refreshTreesAndScan` which includes re-entrancy and cancellation protection.
-    /// Used heavily for internal navigation changes where cache-hits are desired.
+    /// Reloads both pane trees and runs a diff scan (with re-entrancy and cancellation handled by the manager).
     private func refreshAction() {
         guard let leftProvider = settings.availableProviders.first(where: { $0.id == leftProviderId }),
               let rightProvider = settings.availableProviders.first(where: { $0.id == rightProviderId }) else { 
@@ -228,8 +226,7 @@ struct ContentView: View {
         }
     }
 
-    /// Explicit refresh triggered by the user. Bypasses the prefetch cache to ensure newly added
-    /// files on the disk manifest in the UI, even when currently browsing the root directory.
+    /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
     private func forceRefreshAction() {
         Logger.shared.info("User requested a force refresh")
         syncManager.prefetchedTrees.removeAll()
@@ -503,8 +500,7 @@ struct ContentView: View {
     }
 }
     
-/// A delegate that bridges `FileTreeView` interactions to the central `FileActionHandler`.
-/// Manages actions like focus, copy, delete, and rename for a specific tree pane.
+/// Connects a single pane’s `FileTreeView` to `FileActionHandler` (focus, copy, move, delete, rename, etc.).
 @MainActor
 struct PaneActionDelegate: FileActionDelegate {
     let handler: FileActionHandler?

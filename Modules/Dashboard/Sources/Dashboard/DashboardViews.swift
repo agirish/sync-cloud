@@ -4,7 +4,7 @@ import Events
 import SwiftUI
 import Sync
 
-/// A top-level status bar displaying aggregated metrics across both left and right trees.
+/// Status bar showing item counts for the left and right panes and the number of differences.
 public struct DashboardHeader: View {
     public let leftCount: Int
     public let rightCount: Int
@@ -29,7 +29,7 @@ public struct DashboardHeader: View {
     }
 }
 
-/// A reusable atomic UI component that displays a single numerical metric with an icon and title.
+/// One metric block in the dashboard header (e.g. "Left" count, "Differences" count).
 struct DashboardMetric: View {
     let title: String
     let value: String
@@ -55,7 +55,7 @@ struct DashboardMetric: View {
     }
 }
 
-/// A visual header sitting atop a file pane, indicating the targeted provider and the current absolute path on disk.
+/// Header above each file tree pane: pane title (Left/Right), provider icon/name, and current path.
 public struct PaneHeader: View {
     public let title: String
     public let provider: CloudProvider?

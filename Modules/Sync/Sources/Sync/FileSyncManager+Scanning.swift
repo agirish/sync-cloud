@@ -34,10 +34,10 @@ extension FileSyncManager {
         }
     }
     
-    /// Instructs the manager to read the filesystem and construct an in-memory tree for the specified pane.
+    /// Loads the file tree for one pane from disk (or from prefetch cache when at root).
     /// - Parameters:
-    ///   - path: The absolute, expanded root URL string of the provider.
-    ///   - isLeft: True for the left pane; false for right.
+    ///   - path: Absolute path of the pane root (e.g. expanded tilde).
+    ///   - isLeft: `true` for the left pane, `false` for the right pane.
     public func loadTree(path: String, isLeft: Bool) async {
         if isLeft { activeLoadLeftTask?.cancel() }
         else { activeLoadRightTask?.cancel() }
@@ -107,11 +107,10 @@ extension FileSyncManager {
         return count
     }
     
-    /// Sequentially reloads the directory trees and triggers a differential scan.
-    /// Features re-entrancy protection by canceling any previously active refresh tasks.
+    /// Loads both pane trees then runs a diff scan between the current left/right paths. Cancels any in-flight refresh.
     /// - Parameters:
-    ///   - left: The `CloudProvider` representing the left pane.
-    ///   - right: The `CloudProvider` representing the right pane.
+    ///   - left: Cloud provider for the left pane (root path and display name).
+    ///   - right: Cloud provider for the right pane.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider) async {
         activeRefreshTask?.cancel()
         
@@ -140,13 +139,12 @@ extension FileSyncManager {
         await task.value
     }
     
-    /// Performs a high-performance, background differential scan between the focused directories.
-    /// Includes re-entrancy guards to prevent redundant concurrent scans.
+    /// Runs a diff scan between the two given directory paths on a background thread. Queues a single scan if one is already running.
     /// - Parameters:
-    ///   - left: The `CloudProvider` for the left pane.
-    ///   - leftPath: The currently focused absolute directory path for the left pane.
-    ///   - right: The `CloudProvider` for the right pane.
-    ///   - rightPath: The currently focused absolute directory path for the right pane.
+    ///   - left: Cloud provider for the left pane.
+    ///   - leftPath: Absolute path of the left pane’s current folder (may be a subfolder).
+    ///   - right: Cloud provider for the right pane.
+    ///   - rightPath: Absolute path of the right pane’s current folder.
     public func scanDirectories(left: CloudProvider, leftPath: String, right: CloudProvider, rightPath: String) async {
         scanRequestGeneration += 1
         let request = ScanRequest(

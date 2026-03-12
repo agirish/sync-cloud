@@ -3,7 +3,7 @@ import SwiftUI
 import Sync
 import AppKit
 
-/// Tracks modifier keys (Shift, Command) to alter UI behavior.
+/// Tracks Shift/Command so the differences list can offer “Move” instead of “Copy” when a modifier is held.
 @MainActor
 final class ModifierTracker: ObservableObject {
     @Published var isMoveModifierPressed: Bool = false
@@ -30,7 +30,7 @@ final class ModifierTracker: ObservableObject {
     }
 }
 
-/// A scrollable dashboard list displaying all files that require manual synchronization actions.
+/// List of all differences between the two panes with actions to copy or move each item left or right.
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
@@ -74,7 +74,7 @@ public struct DifferencesView: View {
     }
 }
 
-/// A highly detailed row displaying the relative path, modification timestamp alert, and a button to execute a one-way sync.
+/// One row in the differences list: icon, path, description, and a button to sync (copy or move) the item.
 struct DifferenceRow: View {
     let difference: FileDifference
     let isMove: Bool

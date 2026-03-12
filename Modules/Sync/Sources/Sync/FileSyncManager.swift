@@ -3,12 +3,12 @@ import SwiftUI
 import Combine
 import UniformTypeIdentifiers
 
-/// Core business logic manager governing the synchronization engine.
-/// Manages in-memory tree structures (`FileNode`) for cloud providers and handles differential scanning.
-/// Tracks active file operations for app-wide termination guards and ensures serialized execution of background tasks.
+/// Core business logic for the two-pane file comparison and sync engine.
+/// Holds in-memory trees (`FileNode`) for the left and right panes, runs differential scans,
+/// and serializes file operations (copy, move, delete) with undo support and termination guards.
 @MainActor
 public class FileSyncManager: ObservableObject {
-    /// Dedicated background queue for heavy file system enumeration to avoid blocking the main UI thread.
+    /// File system abstraction used for all disk I/O (supports injection for tests).
     public let fileManager: FileManaging
     
     /// A closure that resolves naming collisions during file operations.
@@ -23,9 +23,9 @@ public class FileSyncManager: ObservableObject {
         self.fileManager = fileManager
     }
     
-    /// Cached raw baseline differences from the latest scan, unfiltered.
+    /// Cached differences from the latest scan before applying hidden/ignored filters.
     internal var rawDifferences: [FileDifference] = []
-    /// Array of differences calculated between the left and right directories after a scan.
+    /// Filtered list of differences between the left and right panes (respects `showHiddenFiles` and `ignoredPaths`).
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
@@ -62,21 +62,23 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
-    /// Internal representation of the raw loaded file structure for the left provider.
+    /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []
-    /// Internal representation of the loaded file structure for the left provider.
+    /// Filtered file tree for the left pane (used by the UI).
     @Published public var leftTree: [FileNode] = []
-    
-    /// Internal representation of the raw loaded file structure for the right provider.
+
+    /// Raw file tree for the right pane (before hidden/ignored filtering).
     internal var rawRightTree: [FileNode] = []
-    /// Internal representation of the loaded file structure for the right provider.
+    /// Filtered file tree for the right pane (used by the UI).
     @Published public var rightTree: [FileNode] = []
+    /// True while the left pane tree is being loaded from disk.
     @Published public var isLoadingLeftTree = false
+    /// True while the right pane tree is being loaded from disk.
     @Published public var isLoadingRightTree = false
-    
-    /// Total number of recursive items found in the left directory.
+
+    /// Total number of files and folders in the left pane tree (recursive).
     @Published public var leftItemCount = 0
-    /// Total number of recursive items found in the right directory.
+    /// Total number of files and folders in the right pane tree (recursive).
     @Published public var rightItemCount = 0
     
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
@@ -88,14 +90,15 @@ public class FileSyncManager: ObservableObject {
     /// Global UndoManager injected from SwiftUI environment
     public var undoManager: UndoManager?
     
-    // Global Error state
+    /// Last error message from a file operation (cleared when user dismisses the alert).
     @Published public var currentError: String? = nil
-    
-    // Navigation State (Relative paths from provider roots)
+
+    /// Current subfolder path relative to the left pane root (empty = root).
     @Published public var leftRelativePath: String = ""
+    /// Current subfolder path relative to the right pane root (empty = root).
     @Published public var rightRelativePath: String = ""
-    
-    // View State Persistence
+
+    /// Paths currently selected in the left pane (at most one pane has selection at a time).
     @Published public var selectedLeftPaths: Set<String> = [] {
         didSet {
             // Enforce mutual exclusivity: a non-empty left selection clears any right selection.
@@ -112,7 +115,9 @@ public class FileSyncManager: ObservableObject {
             }
         }
     }
+    /// Paths of expanded folders in the left pane tree view.
     @Published public var leftExpandedPaths: Set<String> = []
+    /// Paths of expanded folders in the right pane tree view.
     @Published public var rightExpandedPaths: Set<String> = []
     
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
@@ -126,9 +131,10 @@ public class FileSyncManager: ObservableObject {
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()
     
-    /// Global serial queue for file operations to prevent data corruption from concurrent Undo/Redo or file syncing.
+    /// Chains file operations so they run one after another (avoids concurrent copy/move/undo conflicts).
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
 
+    /// Captures a single scan request (left/right providers and paths) for re-entrancy and cancellation.
     struct ScanRequest: Sendable {
         let left: CloudProvider
         let leftPath: String
@@ -136,8 +142,8 @@ public class FileSyncManager: ObservableObject {
         let rightPath: String
         let generation: Int
     }
-    
-    // Internal task tracking for re-entrancy protection
+
+    /// Active tree-load and refresh tasks; cancel before starting a new one for the same pane.
     internal var activeLoadLeftTask: Task<Void, Never>?
     internal var activeLoadRightTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
@@ -179,8 +185,7 @@ public class FileSyncManager: ObservableObject {
         return Self.isIgnoredPath(rPath, ignored: ignoredPaths)
     }
     
-    /// Instantly recalculates the visible trees and differences from the cached raw arrays
-    /// based on the current filtering options (e.g. `showHiddenFiles`).
+    /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating published state.
     public func applyFilters() {
         self.leftTree = Self.filterTree(rawLeftTree, showHidden: showHiddenFiles)
         self.rightTree = Self.filterTree(rawRightTree, showHidden: showHiddenFiles)
@@ -229,9 +234,9 @@ public class FileSyncManager: ObservableObject {
         return components.contains { $0.hasPrefix(".") }
     }
     
-    /// Navigates through the navigational history across both panes.
+    /// Stack of (leftRelativePath, rightRelativePath) for back/forward navigation.
     public var history: [(left: String, right: String)] = [("", "")]
-    /// Current index in the navigation history stack.
+    /// Index into `history` for the current navigation state.
     public var historyIndex: Int = 0
     
     /// Indicates if the user can navigate back in history.
@@ -241,12 +246,11 @@ public class FileSyncManager: ObservableObject {
     
     // Navigation and Scanning methods moved to extensions
     
-    /// Synchronizes a specific file difference between left and right.
-    /// Marks the difference as `isSyncing` and enqueues a safe copy or move operation.
+    /// Resolves one difference by copying or moving the file between the two panes.
     /// - Parameters:
-    ///   - difference: The model representing the discrepancy to resolve.
-    ///   - isMove: If true, moves the file instead of copying.
-    ///   - fileManager: The file manager to use for the sync (defaults to `self.fileManager`).
+    ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
+    ///   - isMove: If true, moves the file; otherwise copies.
+    ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
     public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async {
         let activeFM = fileManager ?? self.fileManager
         // Find the difference in our array and mark it as syncing
@@ -310,8 +314,7 @@ public class FileSyncManager: ObservableObject {
     }
     
 
-    /// Prunes the selection sets to remove any paths that are no longer present in the trees.
-    /// This prevents "ghost" selection markers when files are moved or deleted.
+    /// Removes selected paths that no longer exist in the trees (e.g. after move/delete) to avoid ghost selection.
     public func pruneSelection() {
         var allLeftPaths = Set<String>()
         var allRightPaths = Set<String>()

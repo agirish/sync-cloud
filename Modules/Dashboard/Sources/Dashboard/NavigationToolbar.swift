@@ -4,8 +4,7 @@ import Events
 import SwiftUI
 import Sync
 
-/// A horizontal focus and history control bar spanning the top of the main file viewer.
-/// Provides back/forward directory traversal and context on which relative folder is currently targeted.
+/// Toolbar above the two file panes: back/forward navigation, current folder context, hidden-files toggle.
 public struct NavigationToolbar: View {
     @ObservedObject public var syncManager: FileSyncManager
     public let refreshAction: () -> Void

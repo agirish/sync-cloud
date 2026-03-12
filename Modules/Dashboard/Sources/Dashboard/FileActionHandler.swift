@@ -4,8 +4,8 @@ import Sync
 import Settings
 import Events
 
-/// Centralized handler for file management actions triggered from the UI.
-/// Relieves the View layers of business logic handling.
+/// Handles file and folder actions from the UI (copy, move, delete, rename, focus, paste).
+/// Coordinates between `FileSyncManager`, `SettingsManager`, and system APIs (Finder, alerts).
 @MainActor
 public class FileActionHandler {
     private let syncManager: FileSyncManager
@@ -18,7 +18,12 @@ public class FileActionHandler {
     
     // MARK: - Navigation
     
-    /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
+    /// Focuses the comparison on the selected folder (updates left/right relative path for the given pane).
+    /// - Parameters:
+    ///   - node: The folder node the user chose to “compare only this folder”.
+    ///   - isLeft: `true` if the folder is in the left pane, `false` if in the right.
+    ///   - leftProviderId: Current left-pane provider ID (for path lookup).
+    ///   - rightProviderId: Current right-pane provider ID.
     public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String) {
         let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
         
@@ -57,7 +62,11 @@ public class FileActionHandler {
     
     // MARK: - File Transfers
     
-    /// Initiates an asynchronous cross-pane copy operation.
+    /// Copies the given items from one pane to the other (left → right or right → left).
+    /// - Parameters:
+    ///   - fromLeft: `true` if items are in the left pane (copy to right); `false` for right → left.
+    ///   - leftProviderId: Provider ID for the left pane (root path).
+    ///   - rightProviderId: Provider ID for the right pane.
     public func copyItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) {
         let leftRoot = settings.path(for: leftProviderId)
         let rightRoot = settings.path(for: rightProviderId)
@@ -70,6 +79,8 @@ public class FileActionHandler {
         }
     }
     
+    /// Moves the given items to the opposite pane (after user confirmation). Returns the nodes that were moved.
+    /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
         let targetLabel = fromLeft ? "Right" : "Left"

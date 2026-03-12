@@ -14,11 +14,11 @@ extension FileSyncManager {
     enum FileOperationError: LocalizedError {
         case identicalSourceAndDestination
         case nestingViolation
-        
+
         var errorDescription: String? {
             switch self {
             case .identicalSourceAndDestination:
-                return "Source and destination are the same."
+                return "The two paths are the same."
             case .nestingViolation:
                 return "Cannot move or copy a directory into itself or its subdirectories."
             }
@@ -230,8 +230,8 @@ extension FileSyncManager {
 
     // MARK: - File Operations
     
-    /// Copies multiple files or folders between the Left and Right panes.
-    /// - Returns: Nodes that were successfully copied.
+    /// Copies the given nodes from one pane to the other (left → right or right → left). Resolves collisions via `collisionResolver`.
+    /// - Returns: The nodes that were successfully copied (may be fewer if user skips or errors occur).
     @discardableResult
     public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
@@ -324,8 +324,8 @@ extension FileSyncManager {
         return copiedNodes
     }
     
-    /// Moves multiple files or folders between the Left and Right panes.
-    /// - Returns: Nodes that were successfully moved.
+    /// Moves the given nodes to the opposite pane (removes from source). Collisions handled via `collisionResolver`.
+    /// - Returns: The nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath

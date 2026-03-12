@@ -2,23 +2,28 @@ import Events
 import SwiftUI
 import Sync
 
-/// A recursive tree view that displays an interactive file hierarchy for a single CloudProvider pane.
-/// It delegates business logic to the injected `FileActionDelegate`.
+/// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
 public struct FileTreeView: View {
+    /// File tree for this pane.
     public let tree: [FileNode]
+    /// File tree for the opposite pane (e.g. for “copy to other pane”).
     public let otherTree: [FileNode]
+    /// Whether this pane’s tree is currently loading.
     public let isLoading: Bool
+    /// Absolute path of the current folder shown in this pane.
     public let currentPath: String
-    
+
     @Binding public var selection: Set<String>
     @Binding public var expandedPaths: Set<String>
+    /// Selected paths in the opposite pane (for mutual exclusivity and paste-from-other).
     public let otherSelection: Set<String>
+    /// `true` if this view is for the left pane, `false` for the right.
     public let isLeft: Bool
-    
-    // Delegate for all file operations
+
+    /// Handles copy, move, delete, rename, focus, and other file actions.
     public let delegate: FileActionDelegate
-    
-    // Set of paths that are currently ignored from comparison
+
+    /// Paths ignored in the diff (user can toggle per path).
     public let ignoredPaths: Set<String>
     
     public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {

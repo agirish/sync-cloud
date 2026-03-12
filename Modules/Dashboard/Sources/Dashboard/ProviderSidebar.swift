@@ -4,8 +4,7 @@ import Events
 import SwiftUI
 import Sync
 
-/// The left-most navigation pane in the application split view.
-/// Allows users to independently select the driving CloudProvider mapping for both the Left and Right synchronization trees.
+/// Sidebar for choosing which cloud provider (and path) is used for the left and right comparison panes.
 public struct ProviderSidebar: View {
     @ObservedObject public var settings: SettingsManager
     @Binding public var leftProviderId: String

@@ -2,14 +2,14 @@ import SwiftUI
 import Sync
 import UniformTypeIdentifiers
 
-/// A native SwiftUI Details Sidebar that displays rich file metadata.
-/// Integrated into the bottom tabbed workspace of the `ContentView`.
-/// It provides fallback information for the currently navigated folder when no specific file is selected.
+/// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
+/// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
 public struct DetailsSidebar: View {
     @ObservedObject public var syncManager: FileSyncManager
-    
-    /// Contextual folder paths for fallback.
+
+    /// Current root path for the left pane (used when no item is selected).
     public let leftPath: String
+    /// Current root path for the right pane (used when no item is selected).
     public let rightPath: String
 
     @State private var computedDirectorySizePath: String? = nil
@@ -33,8 +33,7 @@ public struct DetailsSidebar: View {
         let isDirectory: Bool
     }
     
-    /// The absolute path of the file or folder currently being inspected.
-    /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Left or Right).
+    /// The path to display metadata for: first selected path in either pane, or the focused folder path.
     internal var activePath: String {
         if let leftSelection = syncManager.selectedLeftPaths.sorted().first {
             return leftSelection
