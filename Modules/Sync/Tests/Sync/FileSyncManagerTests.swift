@@ -11,21 +11,21 @@ import Foundation
         // Setup initial trees
         let node1 = FileNode(id: "/src/file1.txt", name: "file1.txt", isDirectory: false)
         let node2 = FileNode(id: "/src/file2.txt", name: "file2.txt", isDirectory: false)
-        manager.sourceTree = [node1, node2]
+        manager.leftTree = [node1, node2]
         
         // Select both
-        manager.selectedSourcePaths = ["/src/file1.txt", "/src/file2.txt"]
+        manager.selectedLeftPaths = ["/src/file1.txt", "/src/file2.txt"]
         
         // Simulate removal of file2.txt from tree
-        manager.sourceTree = [node1]
+        manager.leftTree = [node1]
         
         // Prune
         manager.pruneSelection()
         
         // Verify file2.txt is removed from selection, but file1.txt remains
-        #expect(manager.selectedSourcePaths.count == 1)
-        #expect(manager.selectedSourcePaths.contains("/src/file1.txt"))
-        #expect(!manager.selectedSourcePaths.contains("/src/file2.txt"))
+        #expect(manager.selectedLeftPaths.count == 1)
+        #expect(manager.selectedLeftPaths.contains("/src/file1.txt"))
+        #expect(!manager.selectedLeftPaths.contains("/src/file2.txt"))
     }
     
     @MainActor
@@ -34,19 +34,19 @@ import Foundation
         
         let subNode = FileNode(id: "/src/folder/sub.txt", name: "sub.txt", isDirectory: false)
         let folderNode = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [subNode])
-        manager.sourceTree = [folderNode]
+        manager.leftTree = [folderNode]
         
-        manager.selectedSourcePaths = ["/src/folder", "/src/folder/sub.txt"]
+        manager.selectedLeftPaths = ["/src/folder", "/src/folder/sub.txt"]
         
         // Remove only the subfile
         let emptyFolderNode = FileNode(id: "/src/folder", name: "folder", isDirectory: true, children: [])
-        manager.sourceTree = [emptyFolderNode]
+        manager.leftTree = [emptyFolderNode]
         
         manager.pruneSelection()
         
-        #expect(manager.selectedSourcePaths.count == 1)
-        #expect(manager.selectedSourcePaths.contains("/src/folder"))
-        #expect(!manager.selectedSourcePaths.contains("/src/folder/sub.txt"))
+        #expect(manager.selectedLeftPaths.count == 1)
+        #expect(manager.selectedLeftPaths.contains("/src/folder"))
+        #expect(!manager.selectedLeftPaths.contains("/src/folder/sub.txt"))
     }
     
     @MainActor
@@ -59,7 +59,7 @@ import Foundation
         // We can't trivially race the Task in unit tests predictably without hanging.
         // Instead, we explicitly inject the cancellation token check logic by running loadTree natively.
         // Swift handles the task detachments internally. If it doesn't crash or hang, the architecture is sound.
-        let treeTask = Task { await manager.loadTree(path: "/src", isSource: true) }
+        let treeTask = Task { await manager.loadTree(path: "/src", isLeft: true) }
         
         // Cancel it immediately before it can recursively build
         treeTask.cancel()
@@ -67,7 +67,7 @@ import Foundation
         
         // If cancelled perfectly before running, tree should be empty or partially populated (0 nodes ideal)
         // Since load yields across async boundaries, it should catch the cancel
-        #expect(manager.sourceTree.count == 0)
+        #expect(manager.leftTree.count == 0)
     }
 
     @MainActor
@@ -150,17 +150,17 @@ import Foundation
     @MainActor
     @Test func testResetNavigation() async throws {
         let manager = FileSyncManager()
-        manager.sourceRelativePath = "some/path"
-        manager.destRelativePath = "other/path"
-        manager.sourceExpandedPaths = ["/root/some/path"]
-        manager.destExpandedPaths = ["/root/other/path"]
+        manager.leftRelativePath = "some/path"
+        manager.rightRelativePath = "other/path"
+        manager.leftExpandedPaths = ["/root/some/path"]
+        manager.rightExpandedPaths = ["/root/other/path"]
         
         manager.resetNavigation()
         
-        #expect(manager.sourceRelativePath == "")
-        #expect(manager.destRelativePath == "")
-        #expect(manager.sourceExpandedPaths.isEmpty)
-        #expect(manager.destExpandedPaths.isEmpty)
+        #expect(manager.leftRelativePath == "")
+        #expect(manager.rightRelativePath == "")
+        #expect(manager.leftExpandedPaths.isEmpty)
+        #expect(manager.rightExpandedPaths.isEmpty)
     }
     
     @MainActor
@@ -171,12 +171,12 @@ import Foundation
         
         // Start a refresh
         let task1 = Task {
-            await manager.refreshTreesAndScan(source: provider1, destination: provider2)
+            await manager.refreshTreesAndScan(left: provider1, right: provider2)
         }
         
         // Immediately start another one
         let task2 = Task {
-            await manager.refreshTreesAndScan(source: provider1, destination: provider2)
+            await manager.refreshTreesAndScan(left: provider1, right: provider2)
         }
         
         await task1.value
@@ -252,7 +252,7 @@ import Foundation
         let provider2 = CloudProvider(id: "p2", displayName: "P2", imageName: "", path: "/tmp/p2", type: .iCloud)
         
         // Simulate a directory that doesn't exist to trigger an error in scanDirectories
-        await manager.scanDirectories(source: provider1, sourcePath: "/non-existent", destination: provider2, destinationPath: "/tmp/p2")
+        await manager.scanDirectories(left: provider1, leftPath: "/non-existent", right: provider2, rightPath: "/tmp/p2")
         
         #expect(manager.differences.isEmpty)
         #expect(!manager.isScanning)
@@ -267,14 +267,14 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         
         // Start loading and check state
-        let task = Task { await manager.loadTree(path: "/src", isSource: true) }
+        let task = Task { await manager.loadTree(path: "/src", isLeft: true) }
         
         // Yield to allow task to start
         try await Task.sleep(nanoseconds: 10_000_000)
-        #expect(manager.isLoadingSourceTree)
+        #expect(manager.isLoadingLeftTree)
         
         await task.value
-        #expect(!manager.isLoadingSourceTree)
+        #expect(!manager.isLoadingLeftTree)
     }
     
     @MainActor
@@ -290,10 +290,10 @@ import Foundation
         let diff = FileDifference(
             id: UUID(),
             relativePath: "test.txt",
-            sourceItemPath: "/src/test.txt",
-            destinationItemPath: "/dst/test.txt",
-            type: .missingInDestination,
-            action: .copyToDestination,
+            leftItemPath: "/src/test.txt",
+            rightItemPath: "/dst/test.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
             description: "Missing",
             isSyncing: false
         )
@@ -323,10 +323,10 @@ import Foundation
         let diff = FileDifference(
             id: UUID(),
             relativePath: "test_move.txt",
-            sourceItemPath: "/src/test_move.txt",
-            destinationItemPath: "/dst/test_move.txt",
-            type: .missingInDestination,
-            action: .copyToDestination,
+            leftItemPath: "/src/test_move.txt",
+            rightItemPath: "/dst/test_move.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
             description: "Missing",
             isSyncing: false
         )
@@ -336,7 +336,7 @@ import Foundation
         // Set isMove to true
         await manager.syncFile(diff, isMove: true, fileManager: mockFM)
         
-        // Should exist in destination but NOT source (Moved)
+        // Should exist on right but NOT left (Moved)
         #expect(mockFM.virtualDisk["/src/test_move.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] != nil)
 

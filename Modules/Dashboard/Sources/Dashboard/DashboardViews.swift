@@ -4,25 +4,25 @@ import Events
 import SwiftUI
 import Sync
 
-/// A top-level status bar displaying aggregated metrics across both source and destination trees.
+/// A top-level status bar displaying aggregated metrics across both left and right trees.
 public struct DashboardHeader: View {
-    public let sourceCount: Int
-    public let destinationCount: Int
+    public let leftCount: Int
+    public let rightCount: Int
     public let differences: [FileDifference]
     
-    public init(sourceCount: Int, destinationCount: Int, differences: [FileDifference]) {
-        self.sourceCount = sourceCount
-        self.destinationCount = destinationCount
+    public init(leftCount: Int, rightCount: Int, differences: [FileDifference]) {
+        self.leftCount = leftCount
+        self.rightCount = rightCount
         self.differences = differences
     }
     
     public var body: some View {
         HStack {
-            DashboardMetric(title: "Source Items", value: "\(sourceCount)", icon: "doc.on.doc", color: .blue)
+            DashboardMetric(title: "Left", value: "\(leftCount)", icon: "doc.on.doc", color: .blue)
             Divider().frame(height: 30)
             DashboardMetric(title: "Differences", value: "\(differences.count)", icon: "exclamationmark.triangle", color: differences.isEmpty ? .green : .orange)
             Divider().frame(height: 30)
-            DashboardMetric(title: "Destination Items", value: "\(destinationCount)", icon: "arrow.down.doc", color: .purple)
+            DashboardMetric(title: "Right", value: "\(rightCount)", icon: "arrow.down.doc", color: .purple)
         }
         .padding()
         .background(.ultraThinMaterial)

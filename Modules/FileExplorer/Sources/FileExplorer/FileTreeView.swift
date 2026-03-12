@@ -13,7 +13,7 @@ public struct FileTreeView: View {
     @Binding public var selection: Set<String>
     @Binding public var expandedPaths: Set<String>
     public let otherSelection: Set<String>
-    public let isSource: Bool
+    public let isLeft: Bool
     
     // Delegate for all file operations
     public let delegate: FileActionDelegate
@@ -21,7 +21,7 @@ public struct FileTreeView: View {
     // Set of paths that are currently ignored from comparison
     public let ignoredPaths: Set<String>
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isSource: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -29,7 +29,7 @@ public struct FileTreeView: View {
         self._selection = selection
         self._expandedPaths = expandedPaths
         self.otherSelection = otherSelection
-        self.isSource = isSource
+        self.isLeft = isLeft
         self.delegate = delegate
         self.ignoredPaths = ignoredPaths
     }
@@ -51,7 +51,7 @@ public struct FileTreeView: View {
                                 tree: tree,
                                 otherTree: otherTree,
                                 otherSelection: otherSelection,
-                                isSource: isSource,
+                                isLeft: isLeft,
                                 currentPath: currentPath,
                                 delegate: delegate,
                                 ignoredPaths: ignoredPaths
@@ -136,7 +136,7 @@ struct FileContextMenu: View {
     let tree: [FileNode]
     let otherTree: [FileNode]
     let otherSelection: Set<String>
-    let isSource: Bool
+    let isLeft: Bool
     let currentPath: String
     let delegate: FileActionDelegate
     let ignoredPaths: Set<String>
@@ -192,12 +192,12 @@ struct FileContextMenu: View {
             Divider()
             
             Button(action: { delegate.handleCopy(selectedNodes) }) {
-                let targetPane = isSource ? "Destination" : "Source"
+                let targetPane = isLeft ? "Right" : "Left"
                 Label(count > 1 ? "Copy \(count) items to \(targetPane)" : "Copy to \(targetPane)", systemImage: "arrow.right.doc.on.clipboard")
             }
             
             Button(action: { delegate.handleMove(selectedNodes) }) {
-                let targetPane = isSource ? "Destination" : "Source"
+                let targetPane = isLeft ? "Right" : "Left"
                 Label(count > 1 ? "Move \(count) items to \(targetPane)" : "Move to \(targetPane)", systemImage: "arrow.right.square")
             }
             

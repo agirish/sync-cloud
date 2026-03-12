@@ -9,18 +9,18 @@ extension FileSyncManager {
     /// Updates the navigation state to focus on a specific relative directory path.
     /// - Parameters:
     ///   - relativePath: The directory path to drill into.
-    ///   - isSource: Whether this action originated from the source pane.
-    public func focusOn(relativePath: String, isSource: Bool) {
+    ///   - isLeft: Whether this action originated from the left pane.
+    public func focusOn(relativePath: String, isLeft: Bool) {
         ignoredPaths.removeAll()
-        let newSource = isSource ? relativePath : self.sourceRelativePath
-        let newDest = !isSource ? relativePath : self.destRelativePath
+        let newLeft = isLeft ? relativePath : self.leftRelativePath
+        let newRight = !isLeft ? relativePath : self.rightRelativePath
         
         // Trim history if we're not at the end
         if historyIndex < history.count - 1 {
             history.removeSubrange((historyIndex + 1)...)
         }
         
-        history.append((newSource, newDest))
+        history.append((newLeft, newRight))
         historyIndex = history.count - 1
         updateStateFromHistory()
     }
@@ -31,9 +31,9 @@ extension FileSyncManager {
         ignoredPaths.removeAll()
         historyIndex -= 1
         let state = history[historyIndex]
-        if sourceRelativePath != state.source { sourceRelativePath = state.source }
-        if destRelativePath != state.dest { destRelativePath = state.dest }
-        Logger.shared.info("User navigated back to \(state.source.isEmpty ? "root" : state.source)")
+        if leftRelativePath != state.left { leftRelativePath = state.left }
+        if rightRelativePath != state.right { rightRelativePath = state.right }
+        Logger.shared.info("User navigated back to \(state.left.isEmpty ? "root" : state.left)")
         updateHistoryState()
         refreshSubject.send()
     }
@@ -44,9 +44,9 @@ extension FileSyncManager {
         ignoredPaths.removeAll()
         historyIndex += 1
         let state = history[historyIndex]
-        if sourceRelativePath != state.source { sourceRelativePath = state.source }
-        if destRelativePath != state.dest { destRelativePath = state.dest }
-        Logger.shared.info("User navigated forward to \(state.source.isEmpty ? "root" : state.source)")
+        if leftRelativePath != state.left { leftRelativePath = state.left }
+        if rightRelativePath != state.right { rightRelativePath = state.right }
+        Logger.shared.info("User navigated forward to \(state.left.isEmpty ? "root" : state.left)")
         updateHistoryState()
         refreshSubject.send()
     }
@@ -55,15 +55,15 @@ extension FileSyncManager {
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
         ignoredPaths.removeAll()
-        if !sourceRelativePath.isEmpty { sourceRelativePath = "" }
-        if !destRelativePath.isEmpty { destRelativePath = "" }
-        if !selectedSourcePaths.isEmpty { selectedSourcePaths = [] }
-        if !selectedDestinationPaths.isEmpty { selectedDestinationPaths = [] }
-        if !sourceExpandedPaths.isEmpty { sourceExpandedPaths = [] }
-        if !destExpandedPaths.isEmpty { destExpandedPaths = [] }
+        if !leftRelativePath.isEmpty { leftRelativePath = "" }
+        if !rightRelativePath.isEmpty { rightRelativePath = "" }
+        if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
+        if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
+        if !leftExpandedPaths.isEmpty { leftExpandedPaths = [] }
+        if !rightExpandedPaths.isEmpty { rightExpandedPaths = [] }
         
         // Reset history to root only when it is not already exactly one root entry.
-        if history.count != 1 || history[0].source != "" || history[0].dest != "" {
+        if history.count != 1 || history[0].left != "" || history[0].right != "" {
             history = [("", "")]
         }
         if historyIndex != 0 { historyIndex = 0 }
@@ -72,8 +72,8 @@ extension FileSyncManager {
     
     func updateStateFromHistory() {
         let state = history[historyIndex]
-        if sourceRelativePath != state.source { sourceRelativePath = state.source }
-        if destRelativePath != state.dest { destRelativePath = state.dest }
+        if leftRelativePath != state.left { leftRelativePath = state.left }
+        if rightRelativePath != state.right { rightRelativePath = state.right }
         
         let nextCanGoBack = historyIndex > 0
         let nextCanGoForward = historyIndex < history.count - 1

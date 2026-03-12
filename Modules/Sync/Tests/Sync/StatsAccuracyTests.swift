@@ -20,7 +20,7 @@ import Foundation
         mockFM.virtualDisk["/src/subDir/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         
         // Load the tree
-        await manager.loadTree(path: "/src", isSource: true)
+        await manager.loadTree(path: "/src", isLeft: true)
         
         // Verification:
         // root/file1, root/subDir, root/subDir/file2 -> 3 items (excluding root itself as per buildTree logic)
@@ -32,7 +32,7 @@ import Foundation
         // Node for subDir: 1 item + 1 child (file2.txt) = 2 items
         // Total = 3
         
-        #expect(manager.sourceItemCount == 3)
+        #expect(manager.leftItemCount == 3)
     }
     
     @MainActor
@@ -77,13 +77,13 @@ import Foundation
         
         // 1. Default (Hidden files skipped)
         manager.showHiddenFiles = false
-        await manager.loadTree(path: "/src", isSource: true)
-        #expect(manager.sourceItemCount == 1)
+        await manager.loadTree(path: "/src", isLeft: true)
+        #expect(manager.leftItemCount == 1)
         
         // 2. Show Hidden enabled
         manager.showHiddenFiles = true
-        await manager.loadTree(path: "/src", isSource: true)
-        #expect(manager.sourceItemCount == 2)
+        await manager.loadTree(path: "/src", isLeft: true)
+        #expect(manager.leftItemCount == 2)
     }
     
     @MainActor
@@ -93,9 +93,9 @@ import Foundation
         
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         
-        await manager.loadTree(path: "/src", isSource: true)
+        await manager.loadTree(path: "/src", isLeft: true)
         
-        #expect(manager.sourceItemCount == 0)
-        #expect(manager.sourceTree.isEmpty)
+        #expect(manager.leftItemCount == 0)
+        #expect(manager.leftTree.isEmpty)
     }
 }

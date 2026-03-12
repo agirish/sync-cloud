@@ -116,16 +116,16 @@ struct DifferenceRow: View {
                             .frame(width: 16, height: 16)
                     } else {
                         switch difference.action {
-                        case .copyToDestination:
-                            Label(isMove ? "Move to Dest" : "Copy to Dest", systemImage: "arrow.right.circle.fill")
-                        case .copyToSource:
-                            Label(isMove ? "Move to Source" : "Copy to Source", systemImage: "arrow.left.circle.fill")
+                        case .copyToRight:
+                            Label(isMove ? "Move to Right" : "Copy to Right", systemImage: "arrow.right.circle.fill")
+                        case .copyToLeft:
+                            Label(isMove ? "Move to Left" : "Copy to Left", systemImage: "arrow.left.circle.fill")
                         }
                     }
                 }
             }
             .buttonStyle(.borderedProminent)
-            .tint(difference.action == .copyToDestination ? .blue : .purple)
+            .tint(difference.action == .copyToRight ? .blue : .purple)
             .disabled(difference.isSyncing)
         }
         .padding()
@@ -137,9 +137,9 @@ struct DifferenceRow: View {
     @ViewBuilder
     private func iconForDifference(_ diff: FileDifference) -> some View {
         switch diff.type {
-        case .missingInDestination:
+        case .missingOnRight:
             Image(systemName: "plus.circle.fill")
-        case .missingInSource:
+        case .missingOnLeft:
             Image(systemName: "plus.circle.fill")
         case .differentDates:
             Image(systemName: "arrow.triangle.2.circlepath")
@@ -148,9 +148,9 @@ struct DifferenceRow: View {
     
     private func colorForDifference(_ diff: FileDifference) -> Color {
         switch diff.type {
-        case .missingInDestination:
+        case .missingOnRight:
             return .blue
-        case .missingInSource:
+        case .missingOnLeft:
             return .purple
         case .differentDates:
             return .orange

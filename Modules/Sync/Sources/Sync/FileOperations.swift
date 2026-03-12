@@ -230,12 +230,12 @@ extension FileSyncManager {
 
     // MARK: - File Operations
     
-    /// Copies multiple files or folders between the Source and Destination panes.
+    /// Copies multiple files or folders between the Left and Right panes.
     /// - Returns: Nodes that were successfully copied.
     @discardableResult
-    public func copyItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
-        let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+    public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
+        let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
@@ -324,12 +324,12 @@ extension FileSyncManager {
         return copiedNodes
     }
     
-    /// Moves multiple files or folders between the Source and Destination panes.
+    /// Moves multiple files or folders between the Left and Right panes.
     /// - Returns: Nodes that were successfully moved.
     @discardableResult
-    public func moveItems(nodes: [FileNode], fromSource: Bool, sourceRoot: String, destinationRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let fromRoot = ((fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
-        let toRoot = ((!fromSource ? sourceRoot : destinationRoot) as NSString).expandingTildeInPath
+    public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
+        let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)

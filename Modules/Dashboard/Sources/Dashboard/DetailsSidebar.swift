@@ -9,16 +9,16 @@ public struct DetailsSidebar: View {
     @ObservedObject public var syncManager: FileSyncManager
     
     /// Contextual folder paths for fallback.
-    public let sourcePath: String
-    public let destPath: String
+    public let leftPath: String
+    public let rightPath: String
 
     @State private var computedDirectorySizePath: String? = nil
     @State private var computedDirectorySize: String? = nil
     
-    public init(syncManager: FileSyncManager, sourcePath: String, destPath: String) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String) {
         self.syncManager = syncManager
-        self.sourcePath = sourcePath
-        self.destPath = destPath
+        self.leftPath = leftPath
+        self.rightPath = rightPath
     }
     
     // Internal struct to hold parsed metadata logic cleanly.
@@ -34,16 +34,16 @@ public struct DetailsSidebar: View {
     }
     
     /// The absolute path of the file or folder currently being inspected.
-    /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Source or Destination).
+    /// Prioritizes explicit tree selection, falling back to the currently navigated folder (Left or Right).
     internal var activePath: String {
-        if let sourceSelection = syncManager.selectedSourcePaths.sorted().first {
-            return sourceSelection
-        } else if let destSelection = syncManager.selectedDestinationPaths.sorted().first {
-            return destSelection
+        if let leftSelection = syncManager.selectedLeftPaths.sorted().first {
+            return leftSelection
+        } else if let rightSelection = syncManager.selectedRightPaths.sorted().first {
+            return rightSelection
         }
         
         // Fallback to navigated folders
-        return sourcePath.isEmpty ? destPath : sourcePath
+        return leftPath.isEmpty ? rightPath : leftPath
     }
     
     private var metadata: FileMetadata? {

@@ -37,35 +37,35 @@ extension FileSyncManager {
     /// Instructs the manager to read the filesystem and construct an in-memory tree for the specified pane.
     /// - Parameters:
     ///   - path: The absolute, expanded root URL string of the provider.
-    ///   - isSource: True for the source pane; false for destination.
-    public func loadTree(path: String, isSource: Bool) async {
-        if isSource { activeLoadSourceTask?.cancel() }
-        else { activeLoadDestTask?.cancel() }
+    ///   - isLeft: True for the left pane; false for right.
+    public func loadTree(path: String, isLeft: Bool) async {
+        if isLeft { activeLoadLeftTask?.cancel() }
+        else { activeLoadRightTask?.cancel() }
 
         let task = Task {
-            let label = isSource ? "Source" : "Destination"
+            let label = isLeft ? "Left" : "Right"
             Logger.shared.debug("Loading \(label) Tree for path: \(path)")
             
-            let relPath = isSource ? sourceRelativePath : destRelativePath
+            let relPath = isLeft ? leftRelativePath : rightRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
             
             // Fast Path: Check prefetch cache if we are at the root
             if relPath.isEmpty, let cachedTree = prefetchedTrees[path] {
                 Logger.shared.debug("Consuming prefetched tree for \(path)")
-                if isSource {
-                    self.rawSourceTree = cachedTree
+                if isLeft {
+                    self.rawLeftTree = cachedTree
                     self.applyFilters()
                 } else {
-                    self.rawDestinationTree = cachedTree
+                    self.rawRightTree = cachedTree
                     self.applyFilters()
                 }
                 return
             }
             
             // Slow Path: Load actively
-            if isSource { isLoadingSourceTree = true }
-            else { isLoadingDestinationTree = true }
+            if isLeft { isLoadingLeftTree = true }
+            else { isLoadingRightTree = true }
             
             // Build the tree in a detached task to ensure no Main Actor blocking
             let fm = self.fileManager
@@ -76,22 +76,22 @@ extension FileSyncManager {
             
             guard !Task.isCancelled else { return }
 
-            if isSource {
-                self.rawSourceTree = tree
+            if isLeft {
+                self.rawLeftTree = tree
                 self.applyFilters()
-                isLoadingSourceTree = false
+                isLoadingLeftTree = false
             } else {
-                self.rawDestinationTree = tree
+                self.rawRightTree = tree
                 self.applyFilters()
-                isLoadingDestinationTree = false
+                isLoadingRightTree = false
             }
             // Update cache since we did the work
             if relPath.isEmpty { self.prefetchedTrees[path] = tree }
-            Logger.shared.debug("\(label) Tree Loaded. Count: \(isSource ? sourceItemCount : destinationItemCount)")
+            Logger.shared.debug("\(label) Tree Loaded. Count: \(isLeft ? leftItemCount : rightItemCount)")
         }
 
-        if isSource { activeLoadSourceTask = task }
-        else { activeLoadDestTask = task }
+        if isLeft { activeLoadLeftTask = task }
+        else { activeLoadRightTask = task }
 
         await task.value
     }
@@ -110,27 +110,27 @@ extension FileSyncManager {
     /// Sequentially reloads the directory trees and triggers a differential scan.
     /// Features re-entrancy protection by canceling any previously active refresh tasks.
     /// - Parameters:
-    ///   - source: The `CloudProvider` representing the source pane.
-    ///   - destination: The `CloudProvider` representing the destination pane.
-    public func refreshTreesAndScan(source: CloudProvider, destination: CloudProvider) async {
+    ///   - left: The `CloudProvider` representing the left pane.
+    ///   - right: The `CloudProvider` representing the right pane.
+    public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider) async {
         activeRefreshTask?.cancel()
         
         let task = Task {
-            let sourceRoot = (source.path as NSString).expandingTildeInPath
-            let destRoot = (destination.path as NSString).expandingTildeInPath
+            let leftRoot = (left.path as NSString).expandingTildeInPath
+            let rightRoot = (right.path as NSString).expandingTildeInPath
             
-            await self.loadTree(path: sourceRoot, isSource: true)
+            await self.loadTree(path: leftRoot, isLeft: true)
             guard !Task.isCancelled else { return }
             
-            await self.loadTree(path: destRoot, isSource: false)
+            await self.loadTree(path: rightRoot, isLeft: false)
             guard !Task.isCancelled else { return }
             
-            let currentSourceFull = (sourceRoot as NSString).appendingPathComponent(sourceRelativePath)
-            let currentDestFull = (destRoot as NSString).appendingPathComponent(destRelativePath)
+            let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)
+            let currentRightFull = (rightRoot as NSString).appendingPathComponent(rightRelativePath)
             
             await scanDirectories(
-                source: source, sourcePath: currentSourceFull,
-                destination: destination, destinationPath: currentDestFull
+                left: left, leftPath: currentLeftFull,
+                right: right, rightPath: currentRightFull
             )
             guard !Task.isCancelled else { return }
             self.scheduleSelectionPrune()
@@ -143,17 +143,17 @@ extension FileSyncManager {
     /// Performs a high-performance, background differential scan between the focused directories.
     /// Includes re-entrancy guards to prevent redundant concurrent scans.
     /// - Parameters:
-    ///   - source: The `CloudProvider` for the source pane.
-    ///   - sourcePath: The currently focused absolute directory path for the source pane.
-    ///   - destination: The `CloudProvider` for the destination pane.
-    ///   - destinationPath: The currently focused absolute directory path for the destination pane.
-    public func scanDirectories(source: CloudProvider, sourcePath: String, destination: CloudProvider, destinationPath: String) async {
+    ///   - left: The `CloudProvider` for the left pane.
+    ///   - leftPath: The currently focused absolute directory path for the left pane.
+    ///   - right: The `CloudProvider` for the right pane.
+    ///   - rightPath: The currently focused absolute directory path for the right pane.
+    public func scanDirectories(left: CloudProvider, leftPath: String, right: CloudProvider, rightPath: String) async {
         scanRequestGeneration += 1
         let request = ScanRequest(
-            source: source,
-            sourcePath: sourcePath,
-            destination: destination,
-            destinationPath: destinationPath,
+            left: left,
+            leftPath: leftPath,
+            right: right,
+            rightPath: rightPath,
             generation: scanRequestGeneration
         )
 
@@ -171,22 +171,22 @@ extension FileSyncManager {
 
         let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
             do {
-                let sourceURL = URL(fileURLWithPath: (request.sourcePath as NSString).expandingTildeInPath)
-                let destinationURL = URL(fileURLWithPath: (request.destinationPath as NSString).expandingTildeInPath)
+                let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
+                let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
                 
                 let fm = await MainActor.run { self.fileManager }
                 
                 // Allow cancellation check inside the detached block if needed
-                let sourceFilesInfo = try FileDiffEngine.getFilesInDirectory(sourceURL, fileManager: fm)
-                let destinationFilesInfo = try FileDiffEngine.getFilesInDirectory(destinationURL, fileManager: fm)
+                let leftFilesInfo = try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
+                let rightFilesInfo = try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
                 
                 return FileDiffEngine.computeDifferences(
-                    source: request.source,
-                    sourceURL: sourceURL,
-                    destination: request.destination,
-                    destinationURL: destinationURL,
-                    sourceFilesInfo: sourceFilesInfo,
-                    destinationFilesInfo: destinationFilesInfo
+                    left: request.left,
+                    leftURL: leftURL,
+                    right: request.right,
+                    rightURL: rightURL,
+                    leftFilesInfo: leftFilesInfo,
+                    rightFilesInfo: rightFilesInfo
                 )
                 
             } catch {

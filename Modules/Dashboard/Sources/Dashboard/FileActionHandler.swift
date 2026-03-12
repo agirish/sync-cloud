@@ -19,8 +19,8 @@ public class FileActionHandler {
     // MARK: - Navigation
     
     /// Dives into a sub-folder within the targeted pane, adjusting the relative path navigation state.
-    public func focusFolder(_ node: FileNode, isSource: Bool, sourceProviderId: String, destProviderId: String) {
-        let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destProviderId)
+    public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String) {
+        let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
         
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
         let nodePath = node.id
@@ -32,7 +32,7 @@ public class FileActionHandler {
         if relPath.hasPrefix("/") { relPath.removeFirst() }
         
         Logger.shared.info("User focusing folder: \(relPath)")
-        syncManager.focusOn(relativePath: relPath, isSource: isSource)
+        syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
     }
     
     // MARK: - Native Actions
@@ -58,33 +58,33 @@ public class FileActionHandler {
     // MARK: - File Transfers
     
     /// Initiates an asynchronous cross-pane copy operation.
-    public func copyItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) {
-        let sourceRoot = settings.path(for: sourceProviderId)
-        let destRoot = settings.path(for: destProviderId)
-        let destDisplayName = providerDisplayName(forProviderId: destProviderId)
+    public func copyItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) {
+        let leftRoot = settings.path(for: leftProviderId)
+        let rightRoot = settings.path(for: rightProviderId)
+        let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
         
         Logger.shared.info("User initiating copy of \(nodes.count) items")
         Task {
-            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-            setBannerForCopy(copiedNodes, to: destDisplayName)
+            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+            setBannerForCopy(copiedNodes, to: targetDisplayName)
         }
     }
     
     @discardableResult
-    public func moveItems(_ nodes: [FileNode], fromSource: Bool, sourceProviderId: String, destProviderId: String) async -> [FileNode] {
-        let destinationLabel = fromSource ? "Destination" : "Source"
-        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: destinationLabel) else {
-            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(destinationLabel)")
+    public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
+        let targetLabel = fromLeft ? "Right" : "Left"
+        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: targetLabel) else {
+            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(targetLabel)")
             return []
         }
 
-        let sourceRoot = settings.path(for: sourceProviderId)
-        let destRoot = settings.path(for: destProviderId)
-        let destDisplayName = providerDisplayName(forProviderId: destProviderId)
+        let leftRoot = settings.path(for: leftProviderId)
+        let rightRoot = settings.path(for: rightProviderId)
+        let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
         
         Logger.shared.info("User initiating move of \(nodes.count) items")
-        let movedNodes = await syncManager.moveItems(nodes: nodes, fromSource: fromSource, sourceRoot: sourceRoot, destinationRoot: destRoot)
-        setBannerForMove(movedNodes, to: destDisplayName)
+        let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+        setBannerForMove(movedNodes, to: targetDisplayName)
         return movedNodes
     }
     
@@ -153,7 +153,7 @@ public class FileActionHandler {
     }
     
     private func providerDisplayName(forProviderId id: String) -> String {
-        settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "destination"
+        settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "other pane"
     }
     
     private func providerDisplayName(forPath path: String) -> String {
@@ -164,7 +164,7 @@ public class FileActionHandler {
                 return p.displayName
             }
         }
-        return "destination"
+        return "other pane"
     }
     
     private func setBannerForCopy(_ nodes: [FileNode], to destinationName: String) {

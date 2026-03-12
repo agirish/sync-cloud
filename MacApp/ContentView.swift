@@ -14,8 +14,8 @@ struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @StateObject private var settings = SettingsManager()
     
-    @State private var sourceProviderId: String = "iCloud"
-    @State private var destinationProviderId: String = "iCloud"
+    @State private var leftProviderId: String = "iCloud"
+    @State private var rightProviderId: String = "iCloud"
     @State private var isScanning = false
     
     @Environment(\.undoManager) private var undoManager
@@ -38,33 +38,33 @@ struct ContentView: View {
 
     static func resolvedProviderSelection(
         providers: [CloudProvider],
-        currentSourceId: String,
-        currentDestinationId: String,
+        currentLeftId: String,
+        currentRightId: String,
         preferDistinctPair: Bool
-    ) -> (sourceId: String, destinationId: String)? {
+    ) -> (leftId: String, rightId: String)? {
         guard let first = providers.first?.id else { return nil }
 
-        var sourceId = currentSourceId
-        if !providers.contains(where: { $0.id == sourceId }) {
-            sourceId = first
+        var leftId = currentLeftId
+        if !providers.contains(where: { $0.id == leftId }) {
+            leftId = first
         }
 
-        let fallbackDestination = providers.first(where: { $0.id != sourceId })?.id ?? sourceId
-        var destinationId = currentDestinationId
-        let destinationExists = providers.contains(where: { $0.id == destinationId })
-        if !destinationExists || (preferDistinctPair && destinationId == sourceId) {
-            destinationId = fallbackDestination
+        let fallbackRight = providers.first(where: { $0.id != leftId })?.id ?? leftId
+        var rightId = currentRightId
+        let rightExists = providers.contains(where: { $0.id == rightId })
+        if !rightExists || (preferDistinctPair && rightId == leftId) {
+            rightId = fallbackRight
         }
 
-        return (sourceId, destinationId)
+        return (leftId, rightId)
     }
 
     var body: some View {
         NavigationSplitView {
             ProviderSidebar(
                 settings: settings,
-                sourceProviderId: $sourceProviderId,
-                destinationProviderId: $destinationProviderId
+                leftProviderId: $leftProviderId,
+                rightProviderId: $rightProviderId
             )
         } detail: {
             mainContentView
@@ -98,7 +98,7 @@ struct ContentView: View {
         .quickLookPreview($quickLookURL)
         .background(
             Button(action: {
-                if let targetPath = syncManager.selectedSourcePaths.first ?? syncManager.selectedDestinationPaths.first {
+                if let targetPath = syncManager.selectedLeftPaths.first ?? syncManager.selectedRightPaths.first {
                     quickLookURL = URL(fileURLWithPath: targetPath)
                 }
             }) { EmptyView() }
@@ -145,19 +145,19 @@ struct ContentView: View {
                 isBootstrappingProviders = false
             }
         }
-        .onChange(of: sourceProviderId) { _, newId in
+        .onChange(of: leftProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
-            Logger.shared.info("User switched source provider to \(newId)")
+            Logger.shared.info("User switched left provider to \(newId)")
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: destinationProviderId) { _, newId in
+        .onChange(of: rightProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
-            Logger.shared.info("User switched destination provider to \(newId)")
+            Logger.shared.info("User switched right provider to \(newId)")
             syncManager.resetNavigation()
             refreshAction()
         }
-        .onChange(of: syncManager.selectedSourcePaths) { _, paths in
+        .onChange(of: syncManager.selectedLeftPaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 10_000_000)
@@ -165,7 +165,7 @@ struct ContentView: View {
                 selectedBottomTab = .details
             }
         }
-        .onChange(of: syncManager.selectedDestinationPaths) { _, paths in
+        .onChange(of: syncManager.selectedRightPaths) { _, paths in
             guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 10_000_000)
@@ -183,33 +183,33 @@ struct ContentView: View {
         }
     }
     
-    private var currentSourcePath: String {
-        let root = (settings.path(for: sourceProviderId) as NSString).expandingTildeInPath
-        if syncManager.sourceRelativePath.isEmpty { return root }
-        return (root as NSString).appendingPathComponent(syncManager.sourceRelativePath)
+    private var currentLeftPath: String {
+        let root = (settings.path(for: leftProviderId) as NSString).expandingTildeInPath
+        if syncManager.leftRelativePath.isEmpty { return root }
+        return (root as NSString).appendingPathComponent(syncManager.leftRelativePath)
     }
     
-    private var currentDestinationPath: String {
-        let root = (settings.path(for: destinationProviderId) as NSString).expandingTildeInPath
-        if syncManager.destRelativePath.isEmpty { return root }
-        return (root as NSString).appendingPathComponent(syncManager.destRelativePath)
+    private var currentRightPath: String {
+        let root = (settings.path(for: rightProviderId) as NSString).expandingTildeInPath
+        if syncManager.rightRelativePath.isEmpty { return root }
+        return (root as NSString).appendingPathComponent(syncManager.rightRelativePath)
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
         guard let resolved = Self.resolvedProviderSelection(
             providers: settings.availableProviders,
-            currentSourceId: sourceProviderId,
-            currentDestinationId: destinationProviderId,
+            currentLeftId: leftProviderId,
+            currentRightId: rightProviderId,
             preferDistinctPair: preferDistinctPair
         ) else {
             return
         }
 
-        if sourceProviderId != resolved.sourceId {
-            sourceProviderId = resolved.sourceId
+        if leftProviderId != resolved.leftId {
+            leftProviderId = resolved.leftId
         }
-        if destinationProviderId != resolved.destinationId {
-            destinationProviderId = resolved.destinationId
+        if rightProviderId != resolved.rightId {
+            rightProviderId = resolved.rightId
         }
     }
 
@@ -217,14 +217,14 @@ struct ContentView: View {
     /// This utilizes `syncManager.refreshTreesAndScan` which includes re-entrancy and cancellation protection.
     /// Used heavily for internal navigation changes where cache-hits are desired.
     private func refreshAction() {
-        guard let sourceProvider = settings.availableProviders.first(where: { $0.id == sourceProviderId }),
-              let destProvider = settings.availableProviders.first(where: { $0.id == destinationProviderId }) else { 
+        guard let leftProvider = settings.availableProviders.first(where: { $0.id == leftProviderId }),
+              let rightProvider = settings.availableProviders.first(where: { $0.id == rightProviderId }) else { 
             return 
         }
         
-        Logger.shared.info("Internal scan comparing \(sourceProvider.displayName) and \(destProvider.displayName)")
+        Logger.shared.info("Internal scan comparing \(leftProvider.displayName) and \(rightProvider.displayName)")
         Task {
-            await syncManager.refreshTreesAndScan(source: sourceProvider, destination: destProvider)
+            await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider)
         }
     }
 
@@ -247,19 +247,19 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     HSplitView {
                         VStack(spacing: 0) {
-                            PaneHeader(title: "Source", provider: settings.availableProviders.first(where: { $0.id == sourceProviderId }), path: currentSourcePath)
-                            sourceTreeView
+                            PaneHeader(title: "Left", provider: settings.availableProviders.first(where: { $0.id == leftProviderId }), path: currentLeftPath)
+                            leftTreeView
                         }
                         .frame(minWidth: 250)
                         
                         VStack(spacing: 0) {
-                            PaneHeader(title: "Destination", provider: settings.availableProviders.first(where: { $0.id == destinationProviderId }), path: currentDestinationPath)
-                            destinationTreeView
+                            PaneHeader(title: "Right", provider: settings.availableProviders.first(where: { $0.id == rightProviderId }), path: currentRightPath)
+                            rightTreeView
                         }
                         .frame(minWidth: 250)
                     }
                     Divider()
-                    DashboardHeader(sourceCount: syncManager.sourceItemCount, destinationCount: syncManager.destinationItemCount, differences: syncManager.differences)
+                    DashboardHeader(leftCount: syncManager.leftItemCount, rightCount: syncManager.rightItemCount, differences: syncManager.differences)
                 }
                 if showingBottomPane {
                     bottomPaneView
@@ -301,22 +301,22 @@ struct ContentView: View {
     }
 
     private enum ActivePane {
-        case source
-        case destination
+        case left
+        case right
     }
 
     private var activePane: ActivePane? {
-        if !syncManager.selectedSourcePaths.isEmpty { return .source }
-        if !syncManager.selectedDestinationPaths.isEmpty { return .destination }
+        if !syncManager.selectedLeftPaths.isEmpty { return .left }
+        if !syncManager.selectedRightPaths.isEmpty { return .right }
         return nil
     }
 
     private var activeSelectionNodes: [FileNode] {
         switch activePane {
-        case .source?:
-            return syncManager.sourceTree.findNodes(at: syncManager.selectedSourcePaths)
-        case .destination?:
-            return syncManager.destinationTree.findNodes(at: syncManager.selectedDestinationPaths)
+        case .left?:
+            return syncManager.leftTree.findNodes(at: syncManager.selectedLeftPaths)
+        case .right?:
+            return syncManager.rightTree.findNodes(at: syncManager.selectedRightPaths)
         case nil:
             return []
         }
@@ -324,8 +324,8 @@ struct ContentView: View {
 
     private var activePanePath: String? {
         switch activePane {
-        case .source?: return currentSourcePath
-        case .destination?: return currentDestinationPath
+        case .left?: return currentLeftPath
+        case .right?: return currentRightPath
         case nil: return nil
         }
     }
@@ -358,8 +358,8 @@ struct ContentView: View {
             Button(action: {
                 let nodes = activeSelectionNodes
                 guard !nodes.isEmpty, let activePane else { return }
-                let fromSource = (activePane == .source)
-                actionHandler?.copyItems(nodes, fromSource: fromSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+                let fromLeft = (activePane == .left)
+                actionHandler?.copyItems(nodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
                 Label("Copy", systemImage: "arrow.right.doc.on.clipboard")
             }
@@ -368,9 +368,9 @@ struct ContentView: View {
             Button(action: {
                 let nodes = activeSelectionNodes
                 guard !nodes.isEmpty, let activePane else { return }
-                let fromSource = (activePane == .source)
+                let fromLeft = (activePane == .left)
                 Task {
-                    _ = await actionHandler?.moveItems(nodes, fromSource: fromSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+                    _ = await actionHandler?.moveItems(nodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }) {
                 Label("Move", systemImage: "arrow.right.square")
@@ -387,8 +387,8 @@ struct ContentView: View {
 
             Button(action: {
                 guard let node = activeSelectionNodes.first, node.isDirectory else { return }
-                let isSource = (activePane == .source)
-                actionHandler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId)
+                let isLeft = (activePane == .left)
+                actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
                 Label("Compare", systemImage: "scope")
             }
@@ -422,33 +422,33 @@ struct ContentView: View {
     }
     
     @ViewBuilder
-    private var sourceTreeView: some View {
+    private var leftTreeView: some View {
         FileTreeView(
-            tree: syncManager.sourceTree,
-            otherTree: syncManager.destinationTree,
-            isLoading: syncManager.isLoadingSourceTree,
-            currentPath: currentSourcePath,
-            selection: $syncManager.selectedSourcePaths,
-            expandedPaths: $syncManager.sourceExpandedPaths,
-            otherSelection: syncManager.selectedDestinationPaths,
-            isSource: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isSource: true, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            tree: syncManager.leftTree,
+            otherTree: syncManager.rightTree,
+            isLoading: syncManager.isLoadingLeftTree,
+            currentPath: currentLeftPath,
+            selection: $syncManager.selectedLeftPaths,
+            expandedPaths: $syncManager.leftExpandedPaths,
+            otherSelection: syncManager.selectedRightPaths,
+            isLeft: true,
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths
         )
     }
     
     @ViewBuilder
-    private var destinationTreeView: some View {
+    private var rightTreeView: some View {
         FileTreeView(
-            tree: syncManager.destinationTree, 
-            otherTree: syncManager.sourceTree,
-            isLoading: syncManager.isLoadingDestinationTree, 
-            currentPath: currentDestinationPath,
-            selection: $syncManager.selectedDestinationPaths,
-            expandedPaths: $syncManager.destExpandedPaths,
-            otherSelection: syncManager.selectedSourcePaths,
-            isSource: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isSource: false, sourceProviderId: sourceProviderId, destProviderId: destinationProviderId, forceRefreshAction: forceRefreshAction),
+            tree: syncManager.rightTree, 
+            otherTree: syncManager.leftTree,
+            isLoading: syncManager.isLoadingRightTree, 
+            currentPath: currentRightPath,
+            selection: $syncManager.selectedRightPaths,
+            expandedPaths: $syncManager.rightExpandedPaths,
+            otherSelection: syncManager.selectedLeftPaths,
+            isLeft: false,
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths
         )
     }
@@ -495,7 +495,7 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    DetailsSidebar(syncManager: syncManager, sourcePath: currentSourcePath, destPath: currentDestinationPath)
+                    DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
@@ -510,19 +510,19 @@ struct PaneActionDelegate: FileActionDelegate {
     let handler: FileActionHandler?
     let syncManager: FileSyncManager
     let settings: SettingsManager
-    let isSource: Bool
-    let sourceProviderId: String
-    let destProviderId: String
+    let isLeft: Bool
+    let leftProviderId: String
+    let rightProviderId: String
     let forceRefreshAction: () -> Void
     
     func handleRefresh() {
         forceRefreshAction()
     }
-    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
-    func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) }
+    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
+    func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleMove(_ nodes: [FileNode]) { 
         Task {
-            _ = await handler?.moveItems(nodes, fromSource: isSource, sourceProviderId: sourceProviderId, destProviderId: destProviderId) 
+            _ = await handler?.moveItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) 
         }
     }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
@@ -540,9 +540,9 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.sortOption = option 
     }
     func handleIgnore(_ nodes: [FileNode]) {
-        let rootPath = isSource ? settings.path(for: sourceProviderId) : settings.path(for: destProviderId)
+        let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
         let expandedRoot = (rootPath as NSString).expandingTildeInPath
-        let relPrefix = isSource ? syncManager.sourceRelativePath : syncManager.destRelativePath
+        let relPrefix = isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath
         
         let basePath = relPrefix.isEmpty ? expandedRoot : (expandedRoot as NSString).appendingPathComponent(relPrefix)
         

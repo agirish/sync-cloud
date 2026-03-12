@@ -34,13 +34,13 @@ public struct NavigationToolbar: View {
             
             Divider().frame(height: 20).padding(.horizontal, 8)
             
-            if !syncManager.sourceRelativePath.isEmpty || !syncManager.destRelativePath.isEmpty {
+            if !syncManager.leftRelativePath.isEmpty || !syncManager.rightRelativePath.isEmpty {
                 HStack {
                     Image(systemName: "scope")
                         .foregroundColor(.accentColor)
                     Text("Focusing on:")
                         .fontWeight(.medium)
-                    Text(syncManager.sourceRelativePath.isEmpty ? syncManager.destRelativePath : syncManager.sourceRelativePath)
+                    Text(syncManager.leftRelativePath.isEmpty ? syncManager.rightRelativePath : syncManager.leftRelativePath)
                         .italic()
                         .foregroundColor(.secondary)
                         .lineLimit(1)

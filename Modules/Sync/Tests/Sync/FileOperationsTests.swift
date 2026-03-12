@@ -189,7 +189,7 @@ import Foundation
         let node = FileNode(id: "/src/cross.txt", name: "cross.txt", isDirectory: false)
         
         // Move from source pane to destination pane
-        await manager.moveItems(nodes: [node], fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.moveItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Assert moved to dest
         #expect(mockFM.virtualDisk["/dst/cross.txt"] != nil)
@@ -209,7 +209,7 @@ import Foundation
         let node = FileNode(id: "/dst/cross2.txt", name: "cross2.txt", isDirectory: false)
         
         // Move from destination pane to source pane
-        await manager.moveItems(nodes: [node], fromSource: false, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.moveItems(nodes: [node], fromLeft: false, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Assert moved to src
         #expect(mockFM.virtualDisk["/src/cross2.txt"] != nil)

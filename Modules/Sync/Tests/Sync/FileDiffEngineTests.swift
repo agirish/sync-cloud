@@ -25,9 +25,9 @@ import Foundation
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
         
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
         
         #expect(diffs.isEmpty)
@@ -59,9 +59,9 @@ import Foundation
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
         
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
         
         // Only file2.txt should have a difference because its date diff is > 1s
@@ -90,9 +90,9 @@ import Foundation
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
         
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
         
         #expect(diffs.count == 1)
@@ -126,14 +126,14 @@ import Foundation
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
 
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
 
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "mismatch")
-        #expect(diffs.first?.action == .copyToSource)
+        #expect(diffs.first?.action == .copyToLeft)
         #expect(diffs.first?.description == "Dest item is newer (type mismatch)")
     }
 
@@ -160,14 +160,14 @@ import Foundation
         let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
 
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
 
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "mismatch")
-        #expect(diffs.first?.action == .copyToDestination)
+        #expect(diffs.first?.action == .copyToRight)
         #expect(diffs.first?.description == "Type mismatch; defaulting to the folder from Source")
     }
     
@@ -190,15 +190,15 @@ import Foundation
         #expect(srcFiles["empty_folder"]?.isDirectory == true)
         
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
         
         // Should find 1 difference (the missing directory)
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "empty_folder")
-        #expect(diffs.first?.action == .copyToDestination)
+        #expect(diffs.first?.action == .copyToRight)
     }
     
     @Test func testMissingModificationDateFallback() async throws {
@@ -221,15 +221,15 @@ import Foundation
         
         // Test that despite missing dates, the size discrepancy forces a sync
         let diffs = FileDiffEngine.computeDifferences(
-            source: srcProvider, sourceURL: URL(fileURLWithPath: "/src"),
-            destination: dstProvider, destinationURL: URL(fileURLWithPath: "/dst"),
-            sourceFilesInfo: srcFiles, destinationFilesInfo: dstFiles
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
         )
         
         #expect(diffs.count == 1)
         #expect(diffs.first?.relativePath == "nometa.txt")
         #expect(diffs.first?.description == "Sizes differ")
-        #expect(diffs.first?.action == .copyToDestination) // Defaults to source-truth on tie
+        #expect(diffs.first?.action == .copyToRight) // Defaults to source-truth on tie
     }
     
     @Test func testDeepNestedDirectorySync() async throws {

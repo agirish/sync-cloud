@@ -25,7 +25,7 @@ public class FileSyncManager: ObservableObject {
     
     /// Cached raw baseline differences from the latest scan, unfiltered.
     internal var rawDifferences: [FileDifference] = []
-    /// Array of differences calculated between the source and destination directories after a scan.
+    /// Array of differences calculated between the left and right directories after a scan.
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
@@ -39,8 +39,8 @@ public class FileSyncManager: ObservableObject {
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             prefetchedTrees.removeAll()
             // Re-sort current trees globally when option changes
-            rawSourceTree = Self.sort(nodes: rawSourceTree, by: sortOption)
-            rawDestinationTree = Self.sort(nodes: rawDestinationTree, by: sortOption)
+            rawLeftTree = Self.sort(nodes: rawLeftTree, by: sortOption)
+            rawRightTree = Self.sort(nodes: rawRightTree, by: sortOption)
             applyFilters()
         }
     }
@@ -62,22 +62,22 @@ public class FileSyncManager: ObservableObject {
         }
     }
     
-    /// Internal representation of the raw loaded file structure for the source provider.
-    internal var rawSourceTree: [FileNode] = []
-    /// Internal representation of the loaded file structure for the source provider.
-    @Published public var sourceTree: [FileNode] = []
+    /// Internal representation of the raw loaded file structure for the left provider.
+    internal var rawLeftTree: [FileNode] = []
+    /// Internal representation of the loaded file structure for the left provider.
+    @Published public var leftTree: [FileNode] = []
     
-    /// Internal representation of the raw loaded file structure for the destination provider.
-    internal var rawDestinationTree: [FileNode] = []
-    /// Internal representation of the loaded file structure for the destination provider.
-    @Published public var destinationTree: [FileNode] = []
-    @Published public var isLoadingSourceTree = false
-    @Published public var isLoadingDestinationTree = false
+    /// Internal representation of the raw loaded file structure for the right provider.
+    internal var rawRightTree: [FileNode] = []
+    /// Internal representation of the loaded file structure for the right provider.
+    @Published public var rightTree: [FileNode] = []
+    @Published public var isLoadingLeftTree = false
+    @Published public var isLoadingRightTree = false
     
-    /// Total number of recursive items found in the source directory.
-    @Published public var sourceItemCount = 0
-    /// Total number of recursive items found in the destination directory.
-    @Published public var destinationItemCount = 0
+    /// Total number of recursive items found in the left directory.
+    @Published public var leftItemCount = 0
+    /// Total number of recursive items found in the right directory.
+    @Published public var rightItemCount = 0
     
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
     @Published public var prefetchedTrees: [String: [FileNode]] = [:]
@@ -92,28 +92,28 @@ public class FileSyncManager: ObservableObject {
     @Published public var currentError: String? = nil
     
     // Navigation State (Relative paths from provider roots)
-    @Published public var sourceRelativePath: String = ""
-    @Published public var destRelativePath: String = ""
+    @Published public var leftRelativePath: String = ""
+    @Published public var rightRelativePath: String = ""
     
     // View State Persistence
-    @Published public var selectedSourcePaths: Set<String> = [] {
+    @Published public var selectedLeftPaths: Set<String> = [] {
         didSet {
-            // Enforce mutual exclusivity: a non-empty source selection clears any destination selection.
-            if !selectedSourcePaths.isEmpty && !selectedDestinationPaths.isEmpty {
-                selectedDestinationPaths = []
+            // Enforce mutual exclusivity: a non-empty left selection clears any right selection.
+            if !selectedLeftPaths.isEmpty && !selectedRightPaths.isEmpty {
+                selectedRightPaths = []
             }
         }
     }
-    @Published public var selectedDestinationPaths: Set<String> = [] {
+    @Published public var selectedRightPaths: Set<String> = [] {
         didSet {
-            // Enforce mutual exclusivity: a non-empty destination selection clears any source selection.
-            if !selectedDestinationPaths.isEmpty && !selectedSourcePaths.isEmpty {
-                selectedSourcePaths = []
+            // Enforce mutual exclusivity: a non-empty right selection clears any left selection.
+            if !selectedRightPaths.isEmpty && !selectedLeftPaths.isEmpty {
+                selectedLeftPaths = []
             }
         }
     }
-    @Published public var sourceExpandedPaths: Set<String> = []
-    @Published public var destExpandedPaths: Set<String> = []
+    @Published public var leftExpandedPaths: Set<String> = []
+    @Published public var rightExpandedPaths: Set<String> = []
     
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
@@ -130,16 +130,16 @@ public class FileSyncManager: ObservableObject {
     private var fileOperationTask: Task<Void, Swift.Error> = Task {}
 
     struct ScanRequest: Sendable {
-        let source: CloudProvider
-        let sourcePath: String
-        let destination: CloudProvider
-        let destinationPath: String
+        let left: CloudProvider
+        let leftPath: String
+        let right: CloudProvider
+        let rightPath: String
         let generation: Int
     }
     
     // Internal task tracking for re-entrancy protection
-    internal var activeLoadSourceTask: Task<Void, Never>?
-    internal var activeLoadDestTask: Task<Void, Never>?
+    internal var activeLoadLeftTask: Task<Void, Never>?
+    internal var activeLoadRightTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
     private var hasPendingSelectionPrune = false
     var scanRequestGeneration = 0
@@ -182,10 +182,10 @@ public class FileSyncManager: ObservableObject {
     /// Instantly recalculates the visible trees and differences from the cached raw arrays
     /// based on the current filtering options (e.g. `showHiddenFiles`).
     public func applyFilters() {
-        self.sourceTree = Self.filterTree(rawSourceTree, showHidden: showHiddenFiles)
-        self.destinationTree = Self.filterTree(rawDestinationTree, showHidden: showHiddenFiles)
-        self.sourceItemCount = countItems(in: self.sourceTree)
-        self.destinationItemCount = countItems(in: self.destinationTree)
+        self.leftTree = Self.filterTree(rawLeftTree, showHidden: showHiddenFiles)
+        self.rightTree = Self.filterTree(rawRightTree, showHidden: showHiddenFiles)
+        self.leftItemCount = countItems(in: self.leftTree)
+        self.rightItemCount = countItems(in: self.rightTree)
         
         var filteredDifferences = rawDifferences
         if !showHiddenFiles {
@@ -230,7 +230,7 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Navigates through the navigational history across both panes.
-    public var history: [(source: String, dest: String)] = [("", "")]
+    public var history: [(left: String, right: String)] = [("", "")]
     /// Current index in the navigation history stack.
     public var historyIndex: Int = 0
     
@@ -241,7 +241,7 @@ public class FileSyncManager: ObservableObject {
     
     // Navigation and Scanning methods moved to extensions
     
-    /// Synchronizes a specific file difference between source and destination.
+    /// Synchronizes a specific file difference between left and right.
     /// Marks the difference as `isSyncing` and enqueues a safe copy or move operation.
     /// - Parameters:
     ///   - difference: The model representing the discrepancy to resolve.
@@ -259,12 +259,12 @@ public class FileSyncManager: ObservableObject {
                 let fromURL: URL
                 let toURL: URL
                 
-                if difference.action == .copyToDestination {
-                    fromURL = URL(fileURLWithPath: difference.sourceItemPath)
-                    toURL = URL(fileURLWithPath: difference.destinationItemPath)
+                if difference.action == .copyToRight {
+                    fromURL = URL(fileURLWithPath: difference.leftItemPath)
+                    toURL = URL(fileURLWithPath: difference.rightItemPath)
                 } else {
-                    fromURL = URL(fileURLWithPath: difference.destinationItemPath)
-                    toURL = URL(fileURLWithPath: difference.sourceItemPath)
+                    fromURL = URL(fileURLWithPath: difference.rightItemPath)
+                    toURL = URL(fileURLWithPath: difference.leftItemPath)
                 }
                 
                 try activeFM.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -313,20 +313,20 @@ public class FileSyncManager: ObservableObject {
     /// Prunes the selection sets to remove any paths that are no longer present in the trees.
     /// This prevents "ghost" selection markers when files are moved or deleted.
     public func pruneSelection() {
-        var allSourcePaths = Set<String>()
-        var allDestPaths = Set<String>()
+        var allLeftPaths = Set<String>()
+        var allRightPaths = Set<String>()
         
-        collectPaths(in: sourceTree, into: &allSourcePaths)
-        collectPaths(in: destinationTree, into: &allDestPaths)
+        collectPaths(in: leftTree, into: &allLeftPaths)
+        collectPaths(in: rightTree, into: &allRightPaths)
         
-        let prunedSource = selectedSourcePaths.filter { allSourcePaths.contains($0) }
-        let prunedDest = selectedDestinationPaths.filter { allDestPaths.contains($0) }
+        let prunedLeft = selectedLeftPaths.filter { allLeftPaths.contains($0) }
+        let prunedRight = selectedRightPaths.filter { allRightPaths.contains($0) }
         
-        if prunedSource != selectedSourcePaths {
-            selectedSourcePaths = prunedSource
+        if prunedLeft != selectedLeftPaths {
+            selectedLeftPaths = prunedLeft
         }
-        if prunedDest != selectedDestinationPaths {
-            selectedDestinationPaths = prunedDest
+        if prunedRight != selectedRightPaths {
+            selectedRightPaths = prunedRight
         }
     }
 

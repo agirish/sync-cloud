@@ -30,23 +30,23 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let manager = FileSyncManager()
         
         // 1. Simulate active state
-        manager.selectedSourcePaths = ["/src/a.txt"]
-        manager.selectedDestinationPaths = ["/dst/b.txt"]
-        manager.sourceRelativePath = "subfolder"
-        manager.destRelativePath = "otherfolder"
-        manager.sourceExpandedPaths = ["/src/folder"]
+        manager.selectedLeftPaths = ["/src/a.txt"]
+        manager.selectedRightPaths = ["/dst/b.txt"]
+        manager.leftRelativePath = "subfolder"
+        manager.rightRelativePath = "otherfolder"
+        manager.leftExpandedPaths = ["/src/folder"]
         
-        // 2. This simulates what the ContentView .onChange(of: sourceProviderId) does
-        manager.selectedSourcePaths = []
-        manager.sourceRelativePath = ""
+        // 2. This simulates what the ContentView .onChange(of: leftProviderId) does
+        manager.selectedLeftPaths = []
+        manager.leftRelativePath = ""
         manager.resetNavigation()
         
         // 3. Verify specifically the navigation reset effects
-        #expect(manager.selectedSourcePaths.isEmpty)
-        #expect(manager.sourceRelativePath.isEmpty)
-        #expect(manager.sourceExpandedPaths.isEmpty)
-        #expect(manager.destExpandedPaths.isEmpty)
-        #expect(manager.destExpandedPaths.isEmpty)
+        #expect(manager.selectedLeftPaths.isEmpty)
+        #expect(manager.leftRelativePath.isEmpty)
+        #expect(manager.leftExpandedPaths.isEmpty)
+        #expect(manager.rightExpandedPaths.isEmpty)
+        #expect(manager.rightExpandedPaths.isEmpty)
         #expect(manager.history.count == 1)
     }
 
@@ -58,13 +58,13 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
         let resolved = ContentView.resolvedProviderSelection(
             providers: providers,
-            currentSourceId: "iCloud",
-            currentDestinationId: "iCloud",
+            currentLeftId: "iCloud",
+            currentRightId: "iCloud",
             preferDistinctPair: true
         )
 
-        #expect(resolved?.sourceId == "iCloud")
-        #expect(resolved?.destinationId == "oneDrive")
+        #expect(resolved?.leftId == "iCloud")
+        #expect(resolved?.rightId == "oneDrive")
     }
 
     @Test func testResolvedProviderSelectionPreservesExplicitSameProviderOutsideBootstrap() async throws {
@@ -75,12 +75,12 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
         let resolved = ContentView.resolvedProviderSelection(
             providers: providers,
-            currentSourceId: "iCloud",
-            currentDestinationId: "iCloud",
+            currentLeftId: "iCloud",
+            currentRightId: "iCloud",
             preferDistinctPair: false
         )
 
-        #expect(resolved?.sourceId == "iCloud")
-        #expect(resolved?.destinationId == "iCloud")
+        #expect(resolved?.leftId == "iCloud")
+        #expect(resolved?.rightId == "iCloud")
     }
 }

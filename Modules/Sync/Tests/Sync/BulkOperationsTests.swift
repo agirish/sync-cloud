@@ -23,7 +23,7 @@ import Foundation
         // User selects BOTH the folder and the file inside it
         let selection = [folderNode, fileNode]
         
-        await manager.copyItems(nodes: selection, fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.copyItems(nodes: selection, fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Assert that the copy was performed, and specifically check if pruneNestedNodes worked
         // If pruning failed, we might have seen redundant copies or errors (though copyItem would throw if dst exists)
@@ -70,7 +70,7 @@ import Foundation
         // Mock resolver to always "Keep Both"
         manager.collisionResolver = { _, _ in .keepBoth }
         
-        await manager.copyItems(nodes: [node], fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Verify both exist at destination (original and unique one)
         #expect(mockFM.virtualDisk["/dst/report.pdf"] != nil)
@@ -93,7 +93,7 @@ import Foundation
         // Mock resolver to "Replace"
         manager.collisionResolver = { _, _ in .replace }
         
-        await manager.copyItems(nodes: [node], fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Verify replaced (size should match source)
         let attrs = try mockFM.attributesOfItem(atPath: "/dst/data.csv")
@@ -116,7 +116,7 @@ import Foundation
         // Mock resolver to "Skip"
         manager.collisionResolver = { _, _ in .skip }
         
-        await manager.copyItems(nodes: [node], fromSource: true, sourceRoot: "/src", destinationRoot: "/dst", fileManager: mockFM)
+        await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
         // Verify original destination remains and nothing was copied
         let attrs = try mockFM.attributesOfItem(atPath: "/dst/old.txt")

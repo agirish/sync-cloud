@@ -5,23 +5,23 @@ import SwiftUI
 import Sync
 
 /// The left-most navigation pane in the application split view.
-/// Allows users to independently select the driving CloudProvider mapping for both the Source and Destination synchronization trees.
+/// Allows users to independently select the driving CloudProvider mapping for both the Left and Right synchronization trees.
 public struct ProviderSidebar: View {
     @ObservedObject public var settings: SettingsManager
-    @Binding public var sourceProviderId: String
-    @Binding public var destinationProviderId: String
+    @Binding public var leftProviderId: String
+    @Binding public var rightProviderId: String
     
-    public init(settings: SettingsManager, sourceProviderId: Binding<String>, destinationProviderId: Binding<String>) {
+    public init(settings: SettingsManager, leftProviderId: Binding<String>, rightProviderId: Binding<String>) {
         self.settings = settings
-        self._sourceProviderId = sourceProviderId
-        self._destinationProviderId = destinationProviderId
+        self._leftProviderId = leftProviderId
+        self._rightProviderId = rightProviderId
     }
     
     public var body: some View {
         List {
-            Section("Source Provider") {
+            Section("Left") {
                 ForEach(settings.availableProviders) { provider in
-                    Button(action: { sourceProviderId = provider.id }) {
+                    Button(action: { leftProviderId = provider.id }) {
                         HStack {
                             Image(provider.imageName)
                                 .resizable()
@@ -29,7 +29,7 @@ public struct ProviderSidebar: View {
                                 .frame(width: 20)
                             Text(provider.displayName)
                             Spacer()
-                            if sourceProviderId == provider.id {
+                            if leftProviderId == provider.id {
                                 Image(systemName: "checkmark")
                                     .foregroundColor(.accentColor)
                             }
@@ -41,9 +41,9 @@ public struct ProviderSidebar: View {
                 }
             }
             
-            Section("Destination Provider") {
+            Section("Right") {
                 ForEach(settings.availableProviders) { provider in
-                    Button(action: { destinationProviderId = provider.id }) {
+                    Button(action: { rightProviderId = provider.id }) {
                         HStack {
                             Image(provider.imageName)
                                 .resizable()
@@ -51,7 +51,7 @@ public struct ProviderSidebar: View {
                                 .frame(width: 20)
                             Text(provider.displayName)
                             Spacer()
-                            if destinationProviderId == provider.id {
+                            if rightProviderId == provider.id {
                                 Image(systemName: "checkmark")
                                     .foregroundColor(.accentColor)
                             }

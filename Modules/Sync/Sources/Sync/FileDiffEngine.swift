@@ -18,26 +18,26 @@ public struct FileDiffEngine {
     }
 
     private static func resolveTypeMismatch(
-        source: FileInfo,
-        sourceProvider: CloudProvider,
-        destination: FileInfo,
-        destinationProvider: CloudProvider
+        left: FileInfo,
+        leftProvider: CloudProvider,
+        right: FileInfo,
+        rightProvider: CloudProvider
     ) -> (action: FileDifference.SyncAction, description: String) {
-        let sourceDate = source.modificationDate ?? Date.distantPast
-        let destinationDate = destination.modificationDate ?? Date.distantPast
+        let leftDate = left.modificationDate ?? Date.distantPast
+        let rightDate = right.modificationDate ?? Date.distantPast
 
-        if abs(sourceDate.timeIntervalSince(destinationDate)) > 1 {
-            if sourceDate > destinationDate {
-                return (.copyToDestination, "\(sourceProvider.displayName) item is newer (type mismatch)")
+        if abs(leftDate.timeIntervalSince(rightDate)) > 1 {
+            if leftDate > rightDate {
+                return (.copyToRight, "\(leftProvider.displayName) item is newer (type mismatch)")
             }
-            return (.copyToSource, "\(destinationProvider.displayName) item is newer (type mismatch)")
+            return (.copyToLeft, "\(rightProvider.displayName) item is newer (type mismatch)")
         }
 
-        if source.isDirectory {
-            return (.copyToDestination, "Type mismatch; defaulting to the folder from \(sourceProvider.displayName)")
+        if left.isDirectory {
+            return (.copyToRight, "Type mismatch; defaulting to the folder from \(leftProvider.displayName)")
         }
 
-        return (.copyToSource, "Type mismatch; defaulting to the folder from \(destinationProvider.displayName)")
+        return (.copyToLeft, "Type mismatch; defaulting to the folder from \(rightProvider.displayName)")
     }
     
     /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
@@ -108,41 +108,41 @@ public struct FileDiffEngine {
         return result
     }
     
-    /// Computes the exact synchronization differences between Source and Destination file sets.
+    /// Computes the exact synchronization differences between Left and Right file sets.
     /// Resolves discrepancies by comparing modification dates and file sizes.
     /// - Parameters:
-    ///   - source: The source cloud provider model.
-    ///   - sourceURL: The absolute URL to the source root.
-    ///   - destination: The destination cloud provider model.
-    ///   - destinationURL: The absolute URL to the destination root.
-    ///   - sourceFilesInfo: Pre-scanned metadata for the source pane.
-    ///   - destinationFilesInfo: Pre-scanned metadata for the destination pane.
+    ///   - left: The left cloud provider model.
+    ///   - leftURL: The absolute URL to the left root.
+    ///   - right: The right cloud provider model.
+    ///   - rightURL: The absolute URL to the right root.
+    ///   - leftFilesInfo: Pre-scanned metadata for the left pane.
+    ///   - rightFilesInfo: Pre-scanned metadata for the right pane.
     /// - Returns: A sorted list of `FileDifference` objects ready for UI display and synchronization.
     public static func computeDifferences(
-        source: CloudProvider,
-        sourceURL: URL,
-        destination: CloudProvider,
-        destinationURL: URL,
-        sourceFilesInfo: [String: FileInfo],
-        destinationFilesInfo: [String: FileInfo]
+        left: CloudProvider,
+        leftURL: URL,
+        right: CloudProvider,
+        rightURL: URL,
+        leftFilesInfo: [String: FileInfo],
+        rightFilesInfo: [String: FileInfo]
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
         
-        // 1. Files in source but not in destination (or compare if exists)
-        for (relativePath, sourceFile) in sourceFilesInfo {
-            if let destFile = destinationFilesInfo[relativePath] {
+        // 1. Files on left but not on right (or compare if exists)
+        for (relativePath, leftFile) in leftFilesInfo {
+            if let rightFile = rightFilesInfo[relativePath] {
                 // exists in both, compare dates and sizes in RAM
-                if sourceFile.isDirectory != destFile.isDirectory {
+                if leftFile.isDirectory != rightFile.isDirectory {
                     let resolution = resolveTypeMismatch(
-                        source: sourceFile,
-                        sourceProvider: source,
-                        destination: destFile,
-                        destinationProvider: destination
+                        left: leftFile,
+                        leftProvider: left,
+                        right: rightFile,
+                        rightProvider: right
                     )
                     diffs.append(FileDifference(
                         relativePath: relativePath,
-                        sourceItemPath: sourceFile.url.path,
-                        destinationItemPath: destFile.url.path,
+                        leftItemPath: leftFile.url.path,
+                        rightItemPath: rightFile.url.path,
                         type: .differentDates,
                         action: resolution.action,
                         description: resolution.description
@@ -150,78 +150,78 @@ public struct FileDiffEngine {
                     continue
                 }
 
-                if sourceFile.isDirectory { continue } // Folders both exist, no "difference" in content but recursive scan will handle children
+                if leftFile.isDirectory { continue } // Folders both exist, no "difference" in content but recursive scan will handle children
                 
-                let sourceDate = sourceFile.modificationDate
-                let destDate = destFile.modificationDate
+                let leftDate = leftFile.modificationDate
+                let rightDate = rightFile.modificationDate
                 
                 let dateDiffers: Bool
-                if let sD = sourceDate, let dD = destDate {
-                    dateDiffers = abs(sD.timeIntervalSince(dD)) > 1
+                if let lD = leftDate, let rD = rightDate {
+                    dateDiffers = abs(lD.timeIntervalSince(rD)) > 1
                 } else {
                     dateDiffers = false // Can't reliably compare dates, fallback to size
                 }
                 
-                let sizeDiffers = (sourceFile.fileSize != destFile.fileSize) && (sourceFile.fileSize != nil || destFile.fileSize != nil)
+                let sizeDiffers = (leftFile.fileSize != rightFile.fileSize) && (leftFile.fileSize != nil || rightFile.fileSize != nil)
                 
                 if dateDiffers || sizeDiffers { // 1 second tolerance or size mismatch
-                    let sourceIsNewer = (sourceDate ?? Date.distantPast) > (destDate ?? Date.distantPast)
+                    let leftIsNewer = (leftDate ?? Date.distantPast) > (rightDate ?? Date.distantPast)
                     
-                    if sourceIsNewer || (sizeDiffers && !dateDiffers && sourceDate == nil && destDate == nil) {
+                    if leftIsNewer || (sizeDiffers && !dateDiffers && leftDate == nil && rightDate == nil) {
                         diffs.append(FileDifference(
                             relativePath: relativePath,
-                            sourceItemPath: sourceFile.url.path,
-                            destinationItemPath: destFile.url.path,
+                            leftItemPath: leftFile.url.path,
+                            rightItemPath: rightFile.url.path,
                             type: .differentDates,
-                            action: .copyToDestination,
-                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(source.displayName) file is newer"
+                            action: .copyToRight,
+                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer"
                         ))
-                    } else if !sourceIsNewer && dateDiffers {
+                    } else if !leftIsNewer && dateDiffers {
                         diffs.append(FileDifference(
                             relativePath: relativePath,
-                            sourceItemPath: sourceFile.url.path,
-                            destinationItemPath: destFile.url.path,
+                            leftItemPath: leftFile.url.path,
+                            rightItemPath: rightFile.url.path,
                             type: .differentDates,
-                            action: .copyToSource,
-                            description: "\(destination.displayName) file is newer"
+                            action: .copyToLeft,
+                            description: "\(right.displayName) file is newer"
                         ))
                     } else {
-                        // Fallback if dates are identical/missing but sizes differ: default to source as truth
+                        // Fallback if dates are identical/missing but sizes differ: default to left as truth
                         diffs.append(FileDifference(
                             relativePath: relativePath,
-                            sourceItemPath: sourceFile.url.path,
-                            destinationItemPath: destFile.url.path,
+                            leftItemPath: leftFile.url.path,
+                            rightItemPath: rightFile.url.path,
                             type: .differentDates,
-                            action: .copyToDestination,
+                            action: .copyToRight,
                             description: "Sizes differ"
                         ))
                     }
                 }
             } else {
-                // missing in destination
-                let destExpectedPath = destinationURL.appendingPathComponent(relativePath).path
+                // missing on right
+                let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
-                    sourceItemPath: sourceFile.url.path,
-                    destinationItemPath: destExpectedPath,
-                    type: .missingInDestination,
-                    action: .copyToDestination,
-                    description: sourceFile.isDirectory ? "Folder missing in \(destination.displayName)" : "Missing in \(destination.displayName)"
+                    leftItemPath: leftFile.url.path,
+                    rightItemPath: rightExpectedPath,
+                    type: .missingOnRight,
+                    action: .copyToRight,
+                    description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))"
                 ))
             }
         }
         
-        // 2. Files in destination but not in source
-        for (relativePath, destFile) in destinationFilesInfo {
-            if sourceFilesInfo[relativePath] == nil {
-                let sourceExpectedPath = sourceURL.appendingPathComponent(relativePath).path
+        // 2. Files on right but not on left
+        for (relativePath, rightFile) in rightFilesInfo {
+            if leftFilesInfo[relativePath] == nil {
+                let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
-                    sourceItemPath: sourceExpectedPath,
-                    destinationItemPath: destFile.url.path,
-                    type: .missingInSource,
-                    action: .copyToSource,
-                    description: destFile.isDirectory ? "Folder missing in \(source.displayName)" : "Missing in \(source.displayName)"
+                    leftItemPath: leftExpectedPath,
+                    rightItemPath: rightFile.url.path,
+                    type: .missingOnLeft,
+                    action: .copyToLeft,
+                    description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))"
                 ))
             }
         }
