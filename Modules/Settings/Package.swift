@@ -9,15 +9,16 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Sync"),
-        .package(path: "../Events")
+        .package(path: "../Events"),
+        .package(path: "../Design")
     ],
     targets: [
         .target(
             name: "Settings",
-            dependencies: ["Sync", "Events"]),
+            dependencies: ["Sync", "Events", "Design"]),
         .testTarget(
             name: "SettingsTests",
-            dependencies: ["Settings", "Sync"],
+            dependencies: ["Design", "Sync"],
             path: "Tests/Settings")
     ]
 )

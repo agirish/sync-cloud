@@ -3,30 +3,13 @@ import FileExplorer
 import Events
 import SwiftUI
 import Sync
-
-private struct AdaptiveGlass: ViewModifier {
-    let cornerRadius: CGFloat
-    let intensity: Double
-    let baseMaterial: Material
-    
-    func body(content: Content) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
-        } else {
-            content
-                .background(baseMaterial.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-    }
-}
+import Design
 
 /// Toolbar above the two file panes: back/forward navigation, current folder context, hidden-files toggle.
 public struct NavigationToolbar: View {
     @ObservedObject public var syncManager: FileSyncManager
     public let refreshAction: () -> Void
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
         self.syncManager = syncManager

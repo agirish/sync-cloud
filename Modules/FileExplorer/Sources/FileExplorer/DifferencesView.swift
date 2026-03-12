@@ -2,24 +2,7 @@ import Events
 import SwiftUI
 import Sync
 import AppKit
-
-private struct AdaptiveGlass: ViewModifier {
-    let cornerRadius: CGFloat
-    let intensity: Double
-    let baseMaterial: Material
-    
-    func body(content: Content) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
-        } else {
-            content
-                .background(baseMaterial.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-    }
-}
+import Design
 
 /// Tracks Shift/Command so the differences list can offer “Move” instead of “Copy” when a modifier is held.
 @MainActor
@@ -52,7 +35,7 @@ final class ModifierTracker: ObservableObject {
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     public init(syncManager: FileSyncManager) {
         self.syncManager = syncManager

@@ -2,6 +2,7 @@ import Events
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
+import Design
 
 /// Core business logic for the two-pane file comparison and sync engine.
 /// Holds in-memory trees (`FileNode`) for the left and right panes, runs differential scans,
@@ -14,7 +15,7 @@ public class FileSyncManager: ObservableObject {
     /// A closure that resolves naming collisions during file operations.
     /// In production, this typically shows an NSAlert. In tests, it can be mocked to return specific resolutions.
     public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { fileName, isMove in
-        return promptForCollision(fileName: fileName, isMove: isMove)
+        return NativeAlerts.promptForCollision(fileName: fileName, isMove: isMove)
     }
     
     /// Initializes a new FileSyncManager with a specific file manager.

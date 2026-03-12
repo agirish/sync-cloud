@@ -9,12 +9,13 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../Sync"),
-        .package(path: "../Events")
+        .package(path: "../Events"),
+        .package(path: "../Design")
     ],
     targets: [
         .target(
             name: "FileExplorer",
-            dependencies: ["Sync", "Events"]),
+            dependencies: ["Sync", "Events", "Design"]),
         .testTarget(
             name: "FileExplorerTests",
             dependencies: ["FileExplorer", "Sync"],

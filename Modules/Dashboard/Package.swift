@@ -11,12 +11,13 @@ let package = Package(
         .package(path: "../Sync"),
         .package(path: "../Events"),
         .package(path: "../FileExplorer"),
-        .package(path: "../Settings")
+        .package(path: "../Settings"),
+        .package(path: "../Design")
     ],
     targets: [
         .target(
             name: "Dashboard",
-            dependencies: ["Sync", "Events", "FileExplorer", "Settings"]),
+            dependencies: ["Sync", "Events", "FileExplorer", "Settings", "Design"]),
         .testTarget(
             name: "DashboardTests",
             dependencies: ["Dashboard", "Sync"],

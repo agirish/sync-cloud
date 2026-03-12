@@ -4,27 +4,27 @@ import SwiftUI
 // Uses materials + rounded corners + soft shadows on macOS 15.
 // When targeting macOS 26+, consider switching to .glassEffect() for native Liquid Glass.
 
-enum LiquidGlass {
+public enum LiquidGlass {
     /// Corner radius for cards and floating panels.
-    static let cardCornerRadius: CGFloat = 14
+    public static let cardCornerRadius: CGFloat = 14
     /// Corner radius for smaller elements (badges, buttons, inputs).
-    static let smallCornerRadius: CGFloat = 10
+    public static let smallCornerRadius: CGFloat = 10
     /// Corner radius for large hero areas (banners, headers).
-    static let bannerCornerRadius: CGFloat = 16
+    public static let bannerCornerRadius: CGFloat = 16
     
     /// Soft shadow for glass cards to add depth without heaviness.
-    static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))
+    public static let cardShadow = (color: Color.black.opacity(0.06), radius: CGFloat(12), x: CGFloat(0), y: CGFloat(4))
     /// Lighter shadow for inline elements.
-    static let subtleShadow = (color: Color.black.opacity(0.04), radius: CGFloat(6), x: CGFloat(0), y: CGFloat(2))
+    public static let subtleShadow = (color: Color.black.opacity(0.04), radius: CGFloat(6), x: CGFloat(0), y: CGFloat(2))
     
     /// Global user-tunable intensity, stored in UserDefaults.
     /// 0.0 = very subtle (less glass), 1.0 = very glassy (more transparency).
-    static let intensityKey = "liquidGlassIntensity"
+    public static let intensityKey = "liquidGlassIntensity"
 }
 
 // MARK: - View Extensions
 
-extension View {
+public extension View {
     /// Applies an app-level background that makes Liquid Glass visible by providing subtle color/content behind it.
     @ViewBuilder
     func liquidGlassAppBackground(intensity: Double) -> some View {
@@ -88,5 +88,29 @@ extension View {
     /// Rounded continuous corner clip only (no shadow), for use inside already-shadowed containers.
     func glassClip() -> some View {
         self.clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+    }
+}
+
+public struct AdaptiveGlass: ViewModifier {
+    public let cornerRadius: CGFloat
+    public let intensity: Double
+    public let baseMaterial: Material
+    
+    public init(cornerRadius: CGFloat, intensity: Double, baseMaterial: Material) {
+        self.cornerRadius = cornerRadius
+        self.intensity = intensity
+        self.baseMaterial = baseMaterial
+    }
+    
+    public func body(content: Content) -> some View {
+        let t = max(0.0, min(1.0, intensity))
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(baseMaterial.opacity(0.55 + 0.35 * t))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
     }
 }

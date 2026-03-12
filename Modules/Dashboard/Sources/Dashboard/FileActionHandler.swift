@@ -3,6 +3,7 @@ import SwiftUI
 import Sync
 import Settings
 import Events
+import Design
 
 /// Handles file and folder actions from the UI (copy, move, delete, rename, focus, paste).
 /// Coordinates between `FileSyncManager`, `SettingsManager`, and system APIs (Finder, alerts).

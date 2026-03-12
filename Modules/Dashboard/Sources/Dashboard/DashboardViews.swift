@@ -3,31 +3,14 @@ import FileExplorer
 import Events
 import SwiftUI
 import Sync
-
-private struct AdaptiveGlass: ViewModifier {
-    let cornerRadius: CGFloat
-    let intensity: Double
-    let baseMaterial: Material
-    
-    func body(content: Content) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
-        } else {
-            content
-                .background(baseMaterial.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-    }
-}
+import Design
 
 /// Status bar showing item counts for the left and right panes and the number of differences.
 public struct DashboardHeader: View {
     public let leftCount: Int
     public let rightCount: Int
     public let differences: [FileDifference]
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     public init(leftCount: Int, rightCount: Int, differences: [FileDifference]) {
         self.leftCount = leftCount
@@ -86,7 +69,7 @@ public struct PaneHeader: View {
     public let title: String
     public let provider: CloudProvider?
     public let path: String
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
 
     public init(title: String, provider: CloudProvider?, path: String) {
         self.title = title

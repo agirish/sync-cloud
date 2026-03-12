@@ -1,22 +1,5 @@
 import SwiftUI
-
-private struct AdaptiveGlass: ViewModifier {
-    let cornerRadius: CGFloat
-    let intensity: Double
-    let baseMaterial: Material
-    
-    func body(content: Content) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
-            content
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
-        } else {
-            content
-                .background(baseMaterial.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        }
-    }
-}
+import Design
 
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 public struct LogViewer: View {
@@ -26,7 +9,7 @@ public struct LogViewer: View {
     
     @State private var selectedLevel: LogLevel? = nil // nil means show all
     @State private var searchText: String = ""
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     var filteredEntries: [LogEntry] {
         var result = logger.entries

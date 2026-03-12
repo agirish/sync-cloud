@@ -2,13 +2,14 @@ import Events
 import Foundation
 import SwiftUI
 import Sync
+import Design
 
 /// An overlay window allowing users to customize CloudProvider synchronization paths.
 public struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: SettingsManager
     // Stored in UserDefaults; MacApp reads the same key to drive Liquid Glass intensity.
-    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     public init() {}
     
@@ -230,43 +231,4 @@ struct ProviderCard: View {
     }
 }
 
-/// A tiny visual indicator showing whether a given String path actually exists as a directory on disk.
-struct StatusBadge: View {
-    let isValid: Bool
-    
-    var body: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(isValid ? Color.green : Color.red)
-                .frame(width: 6, height: 6)
-            
-            Text(isValid ? "Valid Path" : "Invalid Path")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isValid ? .green : .red)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background((isValid ? Color.green : Color.red).opacity(0.12))
-        .clipShape(Capsule())
-    }
-}
 
-// Utility view for blur effects
-/// A SwiftUI bridge to `NSVisualEffectView` allowing native macOS vibrancy and background blurring.
-struct VisualEffectView: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
-    
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
-    }
-}

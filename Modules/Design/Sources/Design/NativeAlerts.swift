@@ -146,4 +146,34 @@ public struct NativeAlerts {
         
         return alert.runModal() == .alertFirstButtonReturn
     }
+    /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
+    public static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
+        let alert = NSAlert()
+        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
+        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        
+        // Buttons added right to left.
+        alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
+        alert.addButton(withTitle: "Skip")      // Second added (Middle)
+        alert.addButton(withTitle: "Replace")   // Third added (Leftmost)
+        
+        let response = alert.runModal()
+        switch response {
+        case .alertFirstButtonReturn:
+            return .keepBoth
+        case .alertSecondButtonReturn:
+            return .skip
+        case .alertThirdButtonReturn:
+            return .replace
+        default:
+            return .skip
+        }
+    }
+}
+
+/// Options for resolving file naming collisions during transfers.
+public enum CollisionResolution: Sendable {
+    case replace
+    case keepBoth
+    case skip
 }

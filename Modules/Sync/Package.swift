@@ -11,12 +11,13 @@ let package = Package(
         .library(name: "Sync", targets: ["Sync"]),
     ],
     dependencies: [
-        .package(path: "../Events")
+        .package(path: "../Events"),
+        .package(path: "../Design")
     ],
     targets: [
         .target(
             name: "Sync",
-            dependencies: ["Events"]
+            dependencies: ["Events", "Design"]
         ),
         .testTarget(
             name: "SyncTests",

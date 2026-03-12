@@ -9,7 +9,7 @@
 /* Begin PBXBuildFile section */
 		0D8B2D2C2DE9AF39E8817975 /* Sync in Frameworks */ = {isa = PBXBuildFile; productRef = 39D41E0AC7D2218F445DB841 /* Sync */; };
 		10646B98D1D159C076429036 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BD04B885A6E5B2F79FBC29F /* ContentView.swift */; };
-		7A8B9C0D1E2F3A4B5C6D7E81 /* LiquidGlassStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A8B9C0D1E2F3A4B5C6D7E80 /* LiquidGlassStyle.swift */; };
+		D3519F1A2EE70CFD3D4BF104 /* Design in Frameworks */ = {isa = PBXBuildFile; productRef = D3519E1A2EE70CFD3D4BF104 /* Design */; };
 		1339472D59A37891FF82903A /* onedrive.png in Resources */ = {isa = PBXBuildFile; fileRef = 633A97B1D60E30053D74E73C /* onedrive.png */; };
 		29BD2F097CD16F4898EA2B41 /* Entitlements.plist in Resources */ = {isa = PBXBuildFile; fileRef = A87C284D34C60D71BA0ADC83 /* Entitlements.plist */; };
 		33AEB539C615F6FC9B55A269 /* Dashboard in Frameworks */ = {isa = PBXBuildFile; productRef = 75B049F5AD04670F39EECE66 /* Dashboard */; };
@@ -48,7 +48,7 @@
 		249BB03C6B915A11D8A07DC2 /* FileExplorer */ = {isa = PBXFileReference; lastKnownFileType = folder; name = FileExplorer; path = Modules/FileExplorer; sourceTree = SOURCE_ROOT; };
 		256A8AE43BF68EC1733BA4BB /* dropbox.svg */ = {isa = PBXFileReference; path = dropbox.svg; sourceTree = "<group>"; };
 		5BD04B885A6E5B2F79FBC29F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		7A8B9C0D1E2F3A4B5C6D7E80 /* LiquidGlassStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiquidGlassStyle.swift; sourceTree = "<group>"; };
+		D3519B1A2EE70CFD3D4BF104 /* Design */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Design; path = Modules/Design; sourceTree = SOURCE_ROOT; };
 		5DCC923FE4C3DB92B9F3C21F /* link_sources.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = link_sources.rb; sourceTree = "<group>"; };
 		617FAC2D93B622D15FEAE7ED /* onedrive.svg */ = {isa = PBXFileReference; path = onedrive.svg; sourceTree = "<group>"; };
 		633A97B1D60E30053D74E73C /* onedrive.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = onedrive.png; sourceTree = "<group>"; };
@@ -79,6 +79,7 @@
 				E2F577C62FBA38918A5C6FCD /* Settings in Frameworks */,
 				4E2E97CED41A0BF88239162B /* FileExplorer in Frameworks */,
 				33AEB539C615F6FC9B55A269 /* Dashboard in Frameworks */,
+				D3519F1A2EE70CFD3D4BF104 /* Design in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +99,7 @@
 			isa = PBXGroup;
 			children = (
 				170F1B4A0B84D2D5970A04A4 /* Dashboard */,
+				D3519B1A2EE70CFD3D4BF104 /* Design */,
 				D9EC3A871C96FBADC3E1B909 /* Events */,
 				249BB03C6B915A11D8A07DC2 /* FileExplorer */,
 				C5488F34D4662728825C883A /* Settings */,
@@ -124,7 +126,6 @@
 				5BD04B885A6E5B2F79FBC29F /* ContentView.swift */,
 				A87C284D34C60D71BA0ADC83 /* Entitlements.plist */,
 				A936CE0A6225955E746D2CE8 /* Info.plist */,
-				7A8B9C0D1E2F3A4B5C6D7E80 /* LiquidGlassStyle.swift */,
 				8FE5F4DECF59509F7C87AD52 /* SyncCloudApp.swift */,
 				F1A882B42A0FB20D7C03266E /* Resources */,
 			);
@@ -173,6 +174,7 @@
 			);
 			name = SyncCloud;
 			packageProductDependencies = (
+				D3519E1A2EE70CFD3D4BF104 /* Design */,
 				39D41E0AC7D2218F445DB841 /* Sync */,
 				683359F37E9FCD86C6F0CB9B /* Events */,
 				22A2504123F7462DA6649376 /* Settings */,
@@ -224,6 +226,7 @@
 			mainGroup = FB6628FEB50DBD7D836C433A;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				D3519C1A2EE70CFD4D4BF104 /* XCLocalSwiftPackageReference "Modules/DesignSystem" */,
 				2CD19BF029870CFD3D4BF104 /* XCLocalSwiftPackageReference "Modules/Dashboard" */,
 				7ECD0AA3B0C193CF6DF58432 /* XCLocalSwiftPackageReference "Modules/Events" */,
 				AEEC40863BF905104595698B /* XCLocalSwiftPackageReference "Modules/FileExplorer" */,
@@ -284,7 +287,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				10646B98D1D159C076429036 /* ContentView.swift in Sources */,
-				7A8B9C0D1E2F3A4B5C6D7E81 /* LiquidGlassStyle.swift in Sources */,
 				65F05D9944242FAF2626DF7E /* SyncCloudApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -544,6 +546,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Modules/Settings;
 		};
+		D3519C1A2EE70CFD4D4BF104 /* XCLocalSwiftPackageReference "Modules/Design" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Modules/Design;
+		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -566,6 +572,10 @@
 		75B049F5AD04670F39EECE66 /* Dashboard */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = Dashboard;
+		};
+		D3519E1A2EE70CFD3D4BF104 /* Design */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = Design;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

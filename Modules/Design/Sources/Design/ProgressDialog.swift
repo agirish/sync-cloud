@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A native-looking progress dialog for file operations.
 /// Observes an `NSProgress` object to display a progress bar, title, and current item name.
-public struct ProgressDialogView: View {
+public struct ProgressDialog: View {
     public var progress: Progress
     
     public init(progress: Progress) {

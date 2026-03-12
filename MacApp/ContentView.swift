@@ -5,6 +5,7 @@ import Settings
 import FileExplorer
 import Dashboard
 import QuickLook
+import Design
 
 /// Main window content: provider sidebar, two file panes (left/right), toolbar, and bottom tab (Differences / Details).
 struct ContentView: View {
@@ -272,7 +273,7 @@ struct ContentView: View {
                     Color.black.opacity(0.1)
                         .edgesIgnoringSafeArea(.all)
                     
-                    ProgressDialogView(progress: progress)
+                    ProgressDialog(progress: progress)
                         .padding()
                         .transition(AnyTransition.move(edge: Edge.top).combined(with: AnyTransition.opacity))
                 }

@@ -7,8 +7,16 @@ let package = Package(
     products: [
         .library(name: "Events", targets: ["Events"]),
     ],
+    dependencies: [
+        .package(path: "../Design")
+    ],
     targets: [
-        .target(name: "Events"),
+        .target(
+            name: "Events",
+            dependencies: [
+                .product(name: "Design", package: "Design")
+            ]
+        ),
         .testTarget(
             name: "EventsTests",
             dependencies: ["Events"],

@@ -1,6 +1,7 @@
 import Events
 import Foundation
 import AppKit
+import Design
 
 extension FileSyncManager {
 
@@ -40,37 +41,6 @@ extension FileSyncManager {
         }
     }
     
-    // MARK: - Collision Resolution
-    
-    public enum CollisionResolution: Sendable {
-        case replace
-        case keepBoth
-        case skip
-    }
-    
-    @MainActor
-    public static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
-        let alert = NSAlert()
-        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
-        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
-        
-        // Buttons added right to left.
-        alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
-        alert.addButton(withTitle: "Skip")      // Second added (Middle)
-        alert.addButton(withTitle: "Replace")   // Third added (Leftmost)
-        
-        let response = alert.runModal()
-        switch response {
-        case .alertFirstButtonReturn:
-            return .keepBoth
-        case .alertSecondButtonReturn:
-            return .skip
-        case .alertThirdButtonReturn:
-            return .replace
-        default:
-            return .skip
-        }
-    }
     
     private nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
         let directory = url.deletingLastPathComponent()
@@ -273,7 +243,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { self.collisionResolver(tName, false) }
+                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -367,7 +337,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { self.collisionResolver(tName, true) }
+                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -450,7 +420,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { self.collisionResolver(tName, false) }
+                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -532,7 +502,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { self.collisionResolver(tName, true) }
+                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
