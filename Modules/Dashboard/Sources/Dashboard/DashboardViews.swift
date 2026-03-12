@@ -55,34 +55,37 @@ struct DashboardMetric: View {
     }
 }
 
-/// Header above each file tree pane: pane title (Left/Right), provider icon/name, and current path.
+/// Header above each file tree pane: provider logo and name on the left, current path below.
 public struct PaneHeader: View {
     public let title: String
     public let provider: CloudProvider?
     public let path: String
-    
+
     public init(title: String, provider: CloudProvider?, path: String) {
         self.title = title
         self.provider = provider
         self.path = path
     }
-    
+
     public var body: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text(title)
-                    .font(.headline)
-                Spacer()
+        VStack(spacing: 6) {
+            HStack(spacing: 10) {
                 if let provider = provider {
-                    HStack {
-                        Image(provider.imageName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 16, height: 16)
-                        Text(provider.displayName)
-                    }
-                    .font(.subheadline)
+                    Image(provider.imageName)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 28, height: 28)
+                    Text(provider.displayName)
+                        .font(.headline)
+                } else {
+                    Image(systemName: "folder")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text(title)
+                        .font(.headline)
+                        .foregroundColor(.secondary)
                 }
+                Spacer(minLength: 0)
             }
             HStack {
                 Text(path)
@@ -90,7 +93,7 @@ public struct PaneHeader: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
         .padding(10)
