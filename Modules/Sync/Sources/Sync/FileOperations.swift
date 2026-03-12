@@ -218,7 +218,7 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
-            guard let self else { return ([], []) }
+            guard let self = self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
@@ -312,7 +312,7 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
-            guard let self else { return ([], []) }
+            guard let self = self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
@@ -403,7 +403,7 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
-            guard let self else { return ([], []) }
+            guard let self = self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
             
@@ -485,7 +485,7 @@ extension FileSyncManager {
         }
         
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
-            guard let self else { return ([], []) }
+            guard let self = self else { return ([], []) }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
             
@@ -610,7 +610,7 @@ extension FileSyncManager {
     /// Permanently deletes files or directories from disk.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
         let result = await enqueueFileOperation { [weak self] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
-            guard let self else { return ([], []) }
+            guard let self = self else { return ([], []) }
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
             var trashFailures: [URL] = []

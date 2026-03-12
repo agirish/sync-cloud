@@ -77,7 +77,7 @@ public struct SettingsView: View {
             Divider()
                 .opacity(0.6)
         }
-        .background(.ultraThinMaterial.opacity(0.8))
+        .glassBarStyle(intensity: glassIntensity)
     }
     
     private var footer: some View {
@@ -94,7 +94,7 @@ public struct SettingsView: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding(28)
-        .background(.ultraThinMaterial.opacity(0.8))
+        .glassBarStyle(intensity: glassIntensity)
     }
 }
 
@@ -103,13 +103,14 @@ struct ProviderCard: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {
                 // Icon and Name
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                         .fill(.regularMaterial)
                         .frame(width: 52, height: 52)
                     
@@ -176,13 +177,11 @@ struct ProviderCard: View {
             }
         }
         .padding(24)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.05), radius: 12, y: 4)
         .onAppear {
             draftPath = provider.path
         }

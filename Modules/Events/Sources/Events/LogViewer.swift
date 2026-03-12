@@ -58,7 +58,7 @@ public struct LogViewer: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+            .glassBarStyle(intensity: glassIntensity)
             
             Divider()
                 .opacity(0.6)
@@ -80,7 +80,7 @@ public struct LogViewer: View {
                 }
             }
             .padding(12)
-            .modifier(AdaptiveGlass(cornerRadius: 10, intensity: glassIntensity, baseMaterial: .regularMaterial))
+            .glassBarStyle(intensity: glassIntensity)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             

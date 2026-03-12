@@ -72,8 +72,8 @@ struct ContentView: View {
         } detail: {
             mainContentView
                 .frame(minWidth: 600)
-        .toolbar {
-            ToolbarItemGroup(placement: .navigation) {
+                .toolbar {
+                    ToolbarItemGroup(placement: .navigation) {
                         ControlGroup {
                             Button(action: forceRefreshAction) {
                                 Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
@@ -344,7 +344,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .glassCardStyle(material: .ultraThickMaterial)
+        .glassCardStyle(material: .ultraThickMaterial, intensity: glassIntensity)
     }
 
     @ViewBuilder
@@ -417,8 +417,7 @@ struct ContentView: View {
         .buttonStyle(.bordered)
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous))
+        .glassBarStyle(intensity: glassIntensity)
     }
     
     @ViewBuilder
@@ -511,12 +510,11 @@ struct ContentView: View {
             }
             .background(.regularMaterial.opacity(0.4))
         }
-        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+        .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
         .overlay(
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.04), radius: 8, y: -2)
     }
 }
     

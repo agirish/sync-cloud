@@ -78,6 +78,6 @@ public struct NavigationToolbar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
-        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+        .glassBarStyle(intensity: glassIntensity)
     }
 }

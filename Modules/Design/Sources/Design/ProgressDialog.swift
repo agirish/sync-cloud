@@ -48,8 +48,13 @@ public struct ProgressDialog: View {
             .padding(20)
             .frame(width: 360)
             .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .shadow(color: .black.opacity(0.08), radius: 20, y: 8)
+            .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+            .shadow(
+                color: LiquidGlass.cardShadow.color,
+                radius: LiquidGlass.cardShadow.radius,
+                x: LiquidGlass.cardShadow.x,
+                y: LiquidGlass.cardShadow.y
+            )
         }
     }
 }

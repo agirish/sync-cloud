@@ -53,7 +53,7 @@ public struct DifferencesView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+            .glassBarStyle(intensity: glassIntensity)
             
             Divider()
                 .opacity(0.6)
@@ -137,12 +137,11 @@ struct DifferenceRow: View {
             .disabled(difference.isSyncing)
         }
         .padding(14)
-        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+        .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
     }
     
     @ViewBuilder

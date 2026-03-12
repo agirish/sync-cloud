@@ -34,7 +34,7 @@ public struct DashboardHeader: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+        .glassBarStyle(intensity: glassIntensity)
     }
 }
 
@@ -108,6 +108,6 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .ultraThinMaterial))
+        .glassBarStyle(intensity: glassIntensity)
     }
 }

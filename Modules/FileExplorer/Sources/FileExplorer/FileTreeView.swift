@@ -1,3 +1,4 @@
+import Design
 import Events
 import SwiftUI
 import Sync
@@ -78,8 +79,13 @@ public struct FileTreeView: View {
                     ProgressView("Scanning Directory...")
                         .padding(16)
                         .background(.regularMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
+                        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+                        .shadow(
+                            color: LiquidGlass.subtleShadow.color,
+                            radius: LiquidGlass.subtleShadow.radius,
+                            x: LiquidGlass.subtleShadow.x,
+                            y: LiquidGlass.subtleShadow.y
+                        )
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "folder.badge.questionmark")
