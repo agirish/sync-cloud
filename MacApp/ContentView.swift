@@ -24,6 +24,8 @@ struct ContentView: View {
     @State private var showingBottomPane: Bool = true
     @State private var isBootstrappingProviders: Bool = true
     
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    
     /// Represents the available tabs in the integrated bottom workspace.
     enum BottomTab: String, CaseIterable {
         /// Displays differential scanning results and sync actions.
@@ -105,7 +107,7 @@ struct ContentView: View {
             .keyboardShortcut(.space, modifiers: [])
             .opacity(0)
         )
-        .background(Color(NSColor.windowBackgroundColor))
+        .liquidGlassAppBackground(intensity: glassIntensity)
         .sheet(isPresented: $showingSettings) {
             SettingsView()
                 .environmentObject(settings)
@@ -330,19 +332,18 @@ struct ContentView: View {
     /// Lightweight in-app banner used for bulk operation completion notifications.
     @ViewBuilder
     private func OperationBannerView(message: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(.green)
+                .font(.title3)
+                .foregroundStyle(.green)
             Text(message)
-                .font(.subheadline)
-                .foregroundColor(.primary)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(.ultraThickMaterial)
-        .cornerRadius(10)
-        .shadow(radius: 4)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .glassCardStyle(material: .ultraThickMaterial)
     }
 
     @ViewBuilder
@@ -413,9 +414,10 @@ struct ContentView: View {
             Spacer()
         }
         .buttonStyle(.bordered)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous))
     }
     
     @ViewBuilder
@@ -462,32 +464,42 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 200)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .frame(width: 220)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 
                 Spacer()
             }
-            .background(Color(NSColor.windowBackgroundColor))
+            .background(.ultraThinMaterial)
             
             Divider()
+                .opacity(0.6)
             
             ZStack {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
                         DifferencesView(syncManager: syncManager)
                     } else if syncManager.hasScanned {
-                        VStack {
-                            Image(systemName: "checkmark.seal.fill").font(.system(size: 40)).foregroundColor(.green).padding(.bottom, 8)
-                            Text("Everything is in sync").font(.headline)
-                            Text("No differences found between focused directories.").font(.subheadline).foregroundColor(.secondary)
+                        VStack(spacing: 12) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 44))
+                                .foregroundStyle(.green)
+                            Text("Everything is in sync")
+                                .font(.title3.weight(.semibold))
+                            Text("No differences found between focused directories.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(NSColor.textBackgroundColor).opacity(0.5))
+                        .background(.regularMaterial.opacity(0.5))
                     } else {
-                        VStack {
-                            Text("No Scan Performed").font(.headline).foregroundColor(.secondary)
-                            Text("Click Scan to compare directories.").font(.subheadline).foregroundColor(.secondary)
+                        VStack(spacing: 8) {
+                            Text("No Scan Performed")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            Text("Click Scan to compare directories.")
+                                .font(.subheadline)
+                                .foregroundStyle(.tertiary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -496,7 +508,14 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            .background(.regularMaterial.opacity(0.4))
         }
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.04), radius: 8, y: -2)
     }
 }
     

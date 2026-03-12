@@ -76,16 +76,18 @@ public struct FileTreeView: View {
             if tree.isEmpty {
                 if isLoading {
                     ProgressView("Scanning Directory...")
-                        .padding()
-                        .background(.ultraThinMaterial)
-                        .cornerRadius(8)
+                        .padding(16)
+                        .background(.regularMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .shadow(color: .black.opacity(0.04), radius: 8, y: 2)
                 } else {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         Image(systemName: "folder.badge.questionmark")
                             .font(.largeTitle)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                         Text("Directory is empty or invalid")
-                            .foregroundColor(.secondary)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     }
                 }
             } else if isLoading {
@@ -96,10 +98,10 @@ public struct FileTreeView: View {
                         Spacer()
                         ProgressView()
                             .controlSize(.small)
-                            .padding(8)
-                            .background(.ultraThinMaterial)
-                            .cornerRadius(8)
-                            .padding(16)
+                            .padding(12)
+                            .background(.regularMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .padding(20)
                     }
                 }
             }
@@ -248,16 +250,18 @@ struct FileRowView: View {
     let isIgnored: Bool
     
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
-                .foregroundColor(node.isDirectory ? .blue : .secondary)
+                .font(.body)
+                .foregroundStyle(node.isDirectory ? .blue : .secondary)
+                .symbolRenderingMode(.hierarchical)
             Text(node.name)
                 .font(.system(.body, design: .rounded))
                 .strikethrough(isIgnored, color: .secondary)
-                .foregroundColor(isIgnored ? .secondary : .primary)
+                .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 }

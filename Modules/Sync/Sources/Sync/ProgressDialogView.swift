@@ -45,11 +45,11 @@ public struct ProgressDialogView: View {
                     .controlSize(.small)
                 }
             }
-            .padding()
-            .frame(width: 350)
-            .background(.ultraThinMaterial)
-            .cornerRadius(10)
-            .shadow(radius: 10)
+            .padding(20)
+            .frame(width: 360)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .shadow(color: .black.opacity(0.08), radius: 20, y: 8)
         }
     }
 }

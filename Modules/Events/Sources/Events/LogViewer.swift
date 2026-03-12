@@ -1,5 +1,23 @@
 import SwiftUI
 
+private struct AdaptiveGlass: ViewModifier {
+    let cornerRadius: CGFloat
+    let intensity: Double
+    let baseMaterial: Material
+    
+    func body(content: Content) -> some View {
+        let t = max(0.0, min(1.0, intensity))
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(baseMaterial.opacity(0.55 + 0.35 * t))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+}
+
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 public struct LogViewer: View {
     @ObservedObject public var logger = Logger.shared
@@ -8,6 +26,7 @@ public struct LogViewer: View {
     
     @State private var selectedLevel: LogLevel? = nil // nil means show all
     @State private var searchText: String = ""
+    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
     
     var filteredEntries: [LogEntry] {
         var result = logger.entries
@@ -29,7 +48,7 @@ public struct LogViewer: View {
             // Toolbar Area
             HStack {
                 Text("Activity Log")
-                    .font(.headline)
+                    .font(.headline.weight(.semibold))
                 Spacer()
                 
                 Picker("Level", selection: $selectedLevel) {
@@ -40,53 +59,58 @@ public struct LogViewer: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 130)
+                .frame(width: 140)
                 
                 Button(action: { logger.clearLogs() }) {
                     Image(systemName: "trash")
                 }
+                .buttonStyle(.bordered)
                 .help("Clear Logs")
                 
                 Button(action: { logger.openLogFile() }) {
                     Image(systemName: "doc.text")
                 }
+                .buttonStyle(.bordered)
                 .help("Open in Console/TextEdit")
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
             
             Divider()
+                .opacity(0.6)
             
             // Search Bar
-            HStack {
+            HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
                 TextField("Filter logs...", text: $searchText)
                     .textFieldStyle(.plain)
                 
                 if !searchText.isEmpty {
                     Button(action: { searchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(8)
-            .background(Color(NSColor.textBackgroundColor))
-            .cornerRadius(6)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(12)
+            .modifier(AdaptiveGlass(cornerRadius: 10, intensity: glassIntensity, baseMaterial: .regularMaterial))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             
             Divider()
+                .opacity(0.6)
             
             // Log List
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 4) {
+                LazyVStack(alignment: .leading, spacing: 6) {
                     if filteredEntries.isEmpty {
                         Text("No log activity.")
                             .font(.callout)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 40)
                     } else {
@@ -95,11 +119,11 @@ public struct LogViewer: View {
                         }
                     }
                 }
-                .padding()
+                .padding(16)
             }
-            .background(.ultraThinMaterial)
+            .background(.regularMaterial.opacity(0.5))
         }
-        .frame(minWidth: 350)
+        .frame(minWidth: 380)
     }
 }
 
@@ -108,34 +132,35 @@ private struct LogEntryRow: View {
     let entry: LogEntry
     
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: entry.level.icon)
-                .foregroundColor(entry.level.color)
-                .frame(width: 16)
+                .font(.caption)
+                .foregroundStyle(entry.level.color)
+                .frame(width: 18)
                 .padding(.top, 2)
             
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
                     Text(entry.level.rawValue)
-                        .font(.caption2.bold())
-                        .foregroundColor(entry.level.color)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(entry.level.color.opacity(0.2))
-                        .cornerRadius(4)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(entry.level.color)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(entry.level.color.opacity(0.15))
+                        .clipShape(Capsule())
                     
                     Text(timeString(from: entry.timestamp))
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Text(entry.message)
                     .font(.system(.subheadline, design: .monospaced))
-                    .textSelection(.enabled) // Allow user to copy traces
+                    .textSelection(.enabled)
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
     }
     
     private func timeString(from date: Date) -> String {

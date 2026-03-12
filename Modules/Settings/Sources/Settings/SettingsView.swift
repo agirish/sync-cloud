@@ -7,6 +7,8 @@ import Sync
 public struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: SettingsManager
+    // Stored in UserDefaults; MacApp reads the same key to drive Liquid Glass intensity.
+    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
     
     public init() {}
     
@@ -28,14 +30,14 @@ public struct SettingsView: View {
             footer
         }
         .frame(width: 800, height: 500)
-        .background(VisualEffectView(material: .sidebar, blendingMode: .behindWindow))
+        .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
     }
     
     private var header: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             HStack {
                 Text("Settings")
-                    .font(.system(size: 24, weight: .bold))
+                    .font(.system(size: 26, weight: .semibold))
                 Spacer()
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
@@ -45,18 +47,36 @@ public struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
             
             Text("Configure your cloud storage root directories for synchronization.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 16)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 14)
+            
+            HStack(spacing: 12) {
+                Text("Glass")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                
+                Slider(value: $glassIntensity, in: 0.0...1.0)
+                    .controlSize(.small)
+                
+                Text("\(Int(glassIntensity * 100))%")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 44, alignment: .trailing)
+            }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 10)
             
             Divider()
+                .opacity(0.6)
         }
+        .background(.ultraThinMaterial.opacity(0.8))
     }
     
     private var footer: some View {
@@ -72,7 +92,8 @@ public struct SettingsView: View {
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
         }
-        .padding(24)
+        .padding(28)
+        .background(.ultraThinMaterial.opacity(0.8))
     }
 }
 
@@ -83,13 +104,13 @@ struct ProviderCard: View {
     @State private var draftPath: String = ""
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 18) {
             HStack(spacing: 16) {
                 // Icon and Name
                 ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.white.opacity(0.1))
-                        .frame(width: 48, height: 48)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.regularMaterial)
+                        .frame(width: 52, height: 52)
                     
                     Image(provider.imageName)
                         .resizable()
@@ -100,7 +121,7 @@ struct ProviderCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
                         Text(provider.displayName)
-                            .font(.headline)
+                            .font(.headline.weight(.semibold))
                         
                         StatusBadge(isValid: isPathValid)
                     }
@@ -112,77 +133,55 @@ struct ProviderCard: View {
                 
                 Spacer()
                 
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button(action: { resetToDefault() }) {
                         Label("Reset", systemImage: "arrow.counterclockwise")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                    .padding(6)
-                    .background(.white.opacity(0.05))
-                    .cornerRadius(6)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                     
                     Button(action: { openInFinder() }) {
                         Label("Show in Finder", systemImage: "arrow.right.circle")
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                    .padding(6)
-                    .background(.white.opacity(0.05))
-                    .cornerRadius(6)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
             }
             
             // Path Input Area
             HStack(spacing: 12) {
                 TextField("Synchronized Path", text: $draftPath)
-                .textFieldStyle(.plain)
-                .font(.system(.body, design: .monospaced))
-                .padding(10)
-                .background(.black.opacity(0.2))
-                .cornerRadius(8)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(.white.opacity(0.1), lineWidth: 1)
-                )
-                .onSubmit { commitPath() }
+                    .textFieldStyle(.plain)
+                    .font(.system(.body, design: .monospaced))
+                    .padding(12)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
+                    )
+                    .onSubmit { commitPath() }
                 
                 Button(action: { commitPath() }) {
                     Text("Save")
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(draftPath == provider.path ? Color.secondary.opacity(0.25) : Color.accentColor)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
                 .disabled(draftPath == provider.path)
                 
                 Button(action: { selectDirectory() }) {
-                    HStack {
-                        Image(systemName: "folder.badge.plus")
-                        Text("Browse...")
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.accentColor)
-                    .foregroundColor(.white)
-                    .cornerRadius(8)
+                    Label("Browse...", systemImage: "folder.badge.plus")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.bordered)
             }
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.white.opacity(0.03))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(.white.opacity(0.07), lineWidth: 1)
-                )
+        .padding(24)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
+        .shadow(color: .black.opacity(0.05), radius: 12, y: 4)
         .onAppear {
             draftPath = provider.path
         }
@@ -236,19 +235,19 @@ struct StatusBadge: View {
     let isValid: Bool
     
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             Circle()
                 .fill(isValid ? Color.green : Color.red)
                 .frame(width: 6, height: 6)
             
             Text(isValid ? "Valid Path" : "Invalid Path")
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(isValid ? .green : .red)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background((isValid ? Color.green : Color.red).opacity(0.1))
-        .cornerRadius(20)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background((isValid ? Color.green : Color.red).opacity(0.12))
+        .clipShape(Capsule())
     }
 }
 

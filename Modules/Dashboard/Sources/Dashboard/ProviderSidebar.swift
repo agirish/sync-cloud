@@ -17,52 +17,49 @@ public struct ProviderSidebar: View {
     }
     
     public var body: some View {
-        List {
-            Section("Left") {
-                ForEach(settings.availableProviders) { provider in
-                    Button(action: { leftProviderId = provider.id }) {
-                        HStack {
-                            Image(provider.imageName)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 20)
-                            Text(provider.displayName)
-                            Spacer()
-                            if leftProviderId == provider.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
+        let providers = settings.availableProviders
+        return List {
+            Group {
+                Section("Left") {
+                    ForEach(providers, id: \.id) { provider in
+                        Button(action: { leftProviderId = provider.id }) {
+                            providerCell(provider: provider, isSelected: leftProviderId == provider.id)
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 4)
                 }
-            }
-            
-            Section("Right") {
-                ForEach(settings.availableProviders) { provider in
-                    Button(action: { rightProviderId = provider.id }) {
-                        HStack {
-                            Image(provider.imageName)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: 20)
-                            Text(provider.displayName)
-                            Spacer()
-                            if rightProviderId == provider.id {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.accentColor)
-                            }
+                Section("Right") {
+                    ForEach(providers, id: \.id) { provider in
+                        Button(action: { rightProviderId = provider.id }) {
+                            providerCell(provider: provider, isSelected: rightProviderId == provider.id)
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 4)
                 }
             }
         }
+        .listStyle(.sidebar)
         .navigationTitle("Providers")
-        .frame(minWidth: 200)
+        .frame(minWidth: 220)
+    }
+
+    @ViewBuilder
+    private func providerCell(provider: CloudProvider, isSelected: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(provider.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 22, height: 22)
+            Text(provider.displayName)
+                .font(.body.weight(.medium))
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+        .contentShape(Rectangle())
+        .padding(.vertical, 6)
     }
 }

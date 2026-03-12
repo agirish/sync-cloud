@@ -162,11 +162,11 @@ public struct DetailsSidebar: View {
             }
         }
         }
-        .padding()
+        .padding(20)
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity)
-        .background(Color(NSColor.textBackgroundColor).opacity(0.3))
+        .background(.regularMaterial.opacity(0.5))
         .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
         .task(id: activePath) {

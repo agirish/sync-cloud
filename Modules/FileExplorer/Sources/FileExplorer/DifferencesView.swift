@@ -3,6 +3,24 @@ import SwiftUI
 import Sync
 import AppKit
 
+private struct AdaptiveGlass: ViewModifier {
+    let cornerRadius: CGFloat
+    let intensity: Double
+    let baseMaterial: Material
+    
+    func body(content: Content) -> some View {
+        let t = max(0.0, min(1.0, intensity))
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(baseMaterial.opacity(0.55 + 0.35 * t))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+}
+
 /// Tracks Shift/Command so the differences list can offer “Move” instead of “Copy” when a modifier is held.
 @MainActor
 final class ModifierTracker: ObservableObject {
@@ -34,6 +52,7 @@ final class ModifierTracker: ObservableObject {
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
+    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
     
     public init(syncManager: FileSyncManager) {
         self.syncManager = syncManager
@@ -43,33 +62,37 @@ public struct DifferencesView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Differences Found")
-                    .font(.headline)
+                    .font(.headline.weight(.semibold))
                 Spacer()
                 Text("\(syncManager.differences.count) files")
-                    .foregroundColor(.secondary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
             
             Divider()
+                .opacity(0.6)
             
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 10) {
                     ForEach(syncManager.differences, id: \.id) { difference in
                         DifferenceRow(
                             difference: difference,
                             isMove: modifierTracker.isMoveModifierPressed
+                            , glassIntensity: glassIntensity
                         ) { isMove in
                             Task {
                                 await syncManager.syncFile(difference, isMove: isMove)
                             }
                         }
-                        .transition(.slide)
+                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
                     }
                 }
-                .padding()
+                .padding(16)
             }
-            .background(.ultraThinMaterial)
+            .background(.regularMaterial.opacity(0.5))
         }
     }
 }
@@ -78,14 +101,16 @@ public struct DifferencesView: View {
 struct DifferenceRow: View {
     let difference: FileDifference
     let isMove: Bool
+    let glassIntensity: Double
     let onSync: (Bool) -> Void
     
     var body: some View {
         HStack(spacing: 16) {
             // Icon
             iconForDifference(difference)
-                .font(.system(size: 24))
-                .foregroundColor(colorForDifference(difference))
+                .font(.system(size: 22))
+                .foregroundStyle(colorForDifference(difference))
+                .symbolRenderingMode(.hierarchical)
                 .frame(width: 32)
             
             // File Info
@@ -94,15 +119,15 @@ struct DifferenceRow: View {
                 if parts.count > 1 {
                     Text(parts.dropLast().joined(separator: " / "))
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
                 
                 Text(parts.last ?? "")
-                    .fontWeight(.medium)
+                    .font(.body.weight(.medium))
                 
                 Text(difference.description)
                     .font(.caption)
-                    .foregroundColor(colorForDifference(difference))
+                    .foregroundStyle(colorForDifference(difference))
             }
             
             Spacer()
@@ -128,10 +153,13 @@ struct DifferenceRow: View {
             .tint(difference.action == .copyToRight ? .blue : .purple)
             .disabled(difference.isSyncing)
         }
-        .padding()
-        .background(Color(NSColor.controlBackgroundColor))
-        .cornerRadius(10)
-        .shadow(color: Color.black.opacity(0.1), radius: 2, x: 0, y: 1)
+        .padding(14)
+        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.05), radius: 6, y: 2)
     }
     
     @ViewBuilder

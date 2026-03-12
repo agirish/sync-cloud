@@ -4,10 +4,29 @@ import Events
 import SwiftUI
 import Sync
 
+private struct AdaptiveGlass: ViewModifier {
+    let cornerRadius: CGFloat
+    let intensity: Double
+    let baseMaterial: Material
+    
+    func body(content: Content) -> some View {
+        let t = max(0.0, min(1.0, intensity))
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            content
+                .background(baseMaterial.opacity(0.55 + 0.35 * t))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        }
+    }
+}
+
 /// Toolbar above the two file panes: back/forward navigation, current folder context, hidden-files toggle.
 public struct NavigationToolbar: View {
     @ObservedObject public var syncManager: FileSyncManager
     public let refreshAction: () -> Void
+    @AppStorage("liquidGlassIntensity") private var glassIntensity: Double = 0.65
     
     public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
         self.syncManager = syncManager
@@ -31,7 +50,10 @@ public struct NavigationToolbar: View {
             }
             .buttonStyle(.bordered)
             
-            Divider().frame(height: 20).padding(.horizontal, 8)
+            Rectangle()
+                .fill(.quaternary)
+                .frame(width: 1, height: 20)
+                .padding(.horizontal, 8)
             
             if !syncManager.leftRelativePath.isEmpty || !syncManager.rightRelativePath.isEmpty {
                 HStack {
@@ -71,8 +93,8 @@ public struct NavigationToolbar: View {
                 refreshAction()
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .modifier(AdaptiveGlass(cornerRadius: 12, intensity: glassIntensity, baseMaterial: .regularMaterial))
     }
 }
