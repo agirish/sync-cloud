@@ -1,6 +1,7 @@
 import SwiftUI
 import Sync
 import Events
+import Settings
 import AppIntents
 
 // Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
@@ -13,11 +14,13 @@ private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager: FileSyncManager
+    @StateObject private var settings: SettingsManager
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
         let manager = FileSyncManager()
         _syncManager = StateObject(wrappedValue: manager)
+        _settings = StateObject(wrappedValue: SettingsManager())
         // CRITICAL: Linking the manager to the delegate during init ensures 
         // the termination guard is active even if the app is quit immediately.
         appDelegate.syncManager = manager
@@ -31,6 +34,7 @@ struct SyncCloudApp: App {
             } else {
                 ContentView(syncManager: syncManager)
                     .environmentObject(Logger.shared)
+                    .environmentObject(settings)
             }
         }
         .windowStyle(.hiddenTitleBar)
@@ -42,6 +46,16 @@ struct SyncCloudApp: App {
             } else {
                 LogViewer()
                     .environmentObject(Logger.shared)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        
+        Window("Settings", id: "settings") {
+            if isRunningTests {
+                Color.clear
+            } else {
+                SettingsView()
+                    .environmentObject(settings)
             }
         }
         .windowResizability(.contentMinSize)

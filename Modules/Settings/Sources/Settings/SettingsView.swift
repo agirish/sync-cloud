@@ -4,12 +4,14 @@ import SwiftUI
 import Sync
 import Design
 
-/// An overlay window allowing users to customize CloudProvider synchronization paths.
+/// An overlay window allowing users to customize CloudProvider synchronization paths and app preferences.
 public struct SettingsView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: SettingsManager
-    // Stored in UserDefaults; MacApp reads the same key to drive Liquid Glass intensity.
+    @State private var isRefreshingProviders = false
+    // Stored in UserDefaults; MacApp reads the same keys for Liquid Glass appearance.
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     
     public init() {}
     
@@ -18,19 +20,19 @@ public struct SettingsView: View {
             header
             
             ScrollView {
-                VStack(spacing: 16) {
-                    ForEach(settings.availableProviders) { provider in
-                        ProviderCard(provider: provider)
-                    }
+                VStack(alignment: .leading, spacing: 24) {
+                    appearanceSection
+                    cloudStorageSection
                 }
-                .padding()
+                .padding(24)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             
             Divider()
             
             footer
         }
-        .frame(width: 800, height: 500)
+        .frame(minWidth: 520, maxWidth: .infinity, minHeight: 420, maxHeight: .infinity)
         .background(VisualEffectView(material: .hudWindow, blendingMode: .behindWindow))
     }
     
@@ -40,39 +42,16 @@ public struct SettingsView: View {
                 Text("Settings")
                     .font(.system(size: 26, weight: .semibold))
                 Spacer()
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title2)
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
             }
             .padding(.horizontal, 28)
             .padding(.top, 28)
             
-            Text("Configure your cloud storage root directories for synchronization.")
+            Text("Configure appearance and cloud storage roots for synchronization.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 28)
                 .padding(.bottom, 14)
-            
-            HStack(spacing: 12) {
-                Text("Glass")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                
-                Slider(value: $glassIntensity, in: 0.0...1.0)
-                    .controlSize(.small)
-                
-                Text("\(Int(glassIntensity * 100))%")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 44, alignment: .trailing)
-            }
-            .padding(.horizontal, 28)
-            .padding(.bottom, 10)
             
             Divider()
                 .opacity(0.6)
@@ -80,21 +59,166 @@ public struct SettingsView: View {
         .glassBarStyle(intensity: glassIntensity)
     }
     
-    private var footer: some View {
-        HStack {
-            Text("Tip: Default roots are automatically discovered in ~/Library/CloudStorage")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("Done") {
-                dismiss()
+    private var selectedHue: LiquidGlassHue {
+        LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
+    }
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionLabel("Appearance")
+
+            // Color / hue selector
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Accent color")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    ForEach(LiquidGlassHue.allCases) { hue in
+                        HueOptionView(
+                            hue: hue,
+                            isSelected: selectedHue == hue,
+                            action: { selectedHueRaw = hue.rawValue }
+                        )
+                    }
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
+            .padding(16)
+            .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
+            .overlay(
+                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+            )
+
+            // Glass intensity slider
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Glass effect")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Slider(value: $glassIntensity, in: 0.0...1.0)
+                        .controlSize(.regular)
+                    Text("\(Int(glassIntensity * 100))%")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+            }
+            .padding(16)
+            .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
+            .overlay(
+                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+            )
         }
-        .padding(28)
+    }
+    
+    private var cloudStorageSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                sectionLabel("Cloud storage")
+                Spacer()
+                Button(action: refreshProviders) {
+                    Label(
+                        isRefreshingProviders ? "Refreshing…" : "Refresh providers",
+                        systemImage: "arrow.clockwise"
+                    )
+                    .disabled(isRefreshingProviders)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+            
+            Text("Set the root folder for each provider. Defaults are discovered from ~/Library/CloudStorage.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            
+            VStack(spacing: 12) {
+                ForEach(settings.availableProviders) { provider in
+                    ProviderCard(provider: provider)
+                }
+            }
+        }
+    }
+    
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .textCase(.uppercase)
+            .tracking(0.6)
+    }
+    
+    private func refreshProviders() {
+        guard !isRefreshingProviders else { return }
+        isRefreshingProviders = true
+        Task {
+            await settings.discoverProviders()
+            await MainActor.run { isRefreshingProviders = false }
+        }
+    }
+    
+    private var footer: some View {
+        VStack(spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Tip: Use Browse or Reset to change paths. Default roots come from ~/Library/CloudStorage.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                        Text("SyncCloud \(version)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 20)
+        }
         .glassBarStyle(intensity: glassIntensity)
+    }
+}
+
+/// A selectable hue option for the liquid glass accent color.
+private struct HueOptionView: View {
+    let hue: LiquidGlassHue
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(hue.accentColor)
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Circle()
+                                .strokeBorder(isSelected ? Color.primary.opacity(0.4) : .clear, lineWidth: 2.5)
+                        )
+                        .shadow(color: hue.accentColor.opacity(0.4), radius: isSelected ? 6 : 2)
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.35), radius: 0.5, x: 0, y: 0.5)
+                    }
+                }
+                Text(hue.displayName)
+                    .font(.caption2.weight(isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+            }
+            .frame(width: 64)
+            .padding(.vertical, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

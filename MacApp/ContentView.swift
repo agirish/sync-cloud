@@ -10,7 +10,7 @@ import Design
 /// Main window content: provider sidebar, two file panes (left/right), toolbar, and bottom tab (Differences / Details).
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
-    @StateObject private var settings = SettingsManager()
+    @EnvironmentObject var settings: SettingsManager
     
     @State private var leftProviderId: String = "iCloud"
     @State private var rightProviderId: String = "iCloud"
@@ -19,13 +19,13 @@ struct ContentView: View {
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
     
-    @State private var showingSettings = false
     @State private var actionHandler: FileActionHandler?
     @State private var quickLookURL: URL? = nil
     @State private var showingBottomPane: Bool = true
     @State private var isBootstrappingProviders: Bool = true
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     
     /// Represents the available tabs in the integrated bottom workspace.
     enum BottomTab: String, CaseIterable {
@@ -91,7 +91,7 @@ struct ContentView: View {
                                 Label("Logs", systemImage: "list.bullet.rectangle")
                             }
                             
-                            Button(action: { showingSettings = true }) {
+                            Button(action: { openWindow(id: "settings") }) {
                                 Label("Settings", systemImage: "gear")
                             }
                         }
@@ -108,11 +108,7 @@ struct ContentView: View {
             .keyboardShortcut(.space, modifiers: [])
             .opacity(0)
         )
-        .liquidGlassAppBackground(intensity: glassIntensity)
-        .sheet(isPresented: $showingSettings) {
-            SettingsView()
-                .environmentObject(settings)
-        }
+        .liquidGlassAppBackground(intensity: glassIntensity, hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
         .alert("Error", isPresented: Binding(
             get: { syncManager.currentError != nil },
             set: { _ in syncManager.currentError = nil }
@@ -351,6 +347,15 @@ struct ContentView: View {
     private var paneActionBar: some View {
         HStack(spacing: 10) {
             Button(action: {
+                guard let node = activeSelectionNodes.first, node.isDirectory else { return }
+                let isLeft = (activePane == .left)
+                actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+            }) {
+                Label("Compare", systemImage: "scope")
+            }
+            .disabled(activeSelectionNodes.count != 1 || !activeSelectionNodes[0].isDirectory)
+
+            Button(action: {
                 let nodes = activeSelectionNodes
                 guard !nodes.isEmpty, let activePane else { return }
                 let fromLeft = (activePane == .left)
@@ -379,15 +384,6 @@ struct ContentView: View {
                 Label("New Folder", systemImage: "folder.badge.plus")
             }
             .disabled(activePane == nil)
-
-            Button(action: {
-                guard let node = activeSelectionNodes.first, node.isDirectory else { return }
-                let isLeft = (activePane == .left)
-                actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }) {
-                Label("Compare", systemImage: "scope")
-            }
-            .disabled(activeSelectionNodes.count != 1 || !activeSelectionNodes[0].isDirectory)
 
             Button(role: .destructive, action: {
                 let nodes = activeSelectionNodes
@@ -466,6 +462,8 @@ struct ContentView: View {
                 
                 Spacer()
             }
+            .frame(height: 44)
+            .layoutPriority(1)
             .background(.ultraThinMaterial)
             
             Divider()
@@ -475,6 +473,7 @@ struct ContentView: View {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
                         DifferencesView(syncManager: syncManager)
+                            .frame(minHeight: 0)
                     } else if syncManager.hasScanned {
                         VStack(spacing: 12) {
                             Image(systemName: "checkmark.seal.fill")
@@ -502,8 +501,10 @@ struct ContentView: View {
                 } else {
                     DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(minHeight: 0)
                 }
             }
+            .frame(minHeight: 0)
             .background(.regularMaterial.opacity(0.4))
         }
         .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
