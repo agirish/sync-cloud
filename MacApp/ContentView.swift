@@ -350,10 +350,6 @@ struct ContentView: View {
     @ViewBuilder
     private var paneActionBar: some View {
         HStack(spacing: 10) {
-            Button(action: forceRefreshAction) {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-
             Button(action: {
                 let nodes = activeSelectionNodes
                 guard !nodes.isEmpty, let activePane else { return }
