@@ -42,7 +42,7 @@ extension FileSyncManager {
     }
     
     
-    private nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
+    nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension

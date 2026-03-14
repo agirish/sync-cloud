@@ -248,6 +248,7 @@ public class FileSyncManager: ObservableObject {
     // Navigation and Scanning methods moved to extensions
     
     /// Resolves one difference by copying or moving the file between the two panes.
+    /// If the destination already exists, prompts for Replace / Keep Both / Skip before overwriting.
     /// - Parameters:
     ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
@@ -259,29 +260,46 @@ public class FileSyncManager: ObservableObject {
             differences[index].isSyncing = true
         }
         
+        let fromURL: URL
+        var toURL: URL
+        if difference.action == .copyToRight {
+            fromURL = URL(fileURLWithPath: difference.leftItemPath)
+            toURL = URL(fileURLWithPath: difference.rightItemPath)
+        } else {
+            fromURL = URL(fileURLWithPath: difference.rightItemPath)
+            toURL = URL(fileURLWithPath: difference.leftItemPath)
+        }
+        
+        // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
+        if activeFM.fileExists(atPath: toURL.path) {
+            let fileName = toURL.lastPathComponent
+            let resolution = collisionResolver(fileName, isMove)
+            switch resolution {
+            case .skip:
+                if let index = differences.firstIndex(where: { $0.id == difference.id }) {
+                    differences[index].isSyncing = false
+                }
+                return
+            case .keepBoth:
+                toURL = Self.generateUniqueURL(for: toURL, fileManager: activeFM)
+            case .replace:
+                break
+            }
+        }
+        
+        let resolvedToURL = toURL
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, from: URL?, to: URL?) in
             do {
-                let fromURL: URL
-                let toURL: URL
-                
-                if difference.action == .copyToRight {
-                    fromURL = URL(fileURLWithPath: difference.leftItemPath)
-                    toURL = URL(fileURLWithPath: difference.rightItemPath)
-                } else {
-                    fromURL = URL(fileURLWithPath: difference.rightItemPath)
-                    toURL = URL(fileURLWithPath: difference.leftItemPath)
-                }
-                
-                try activeFM.createDirectory(at: toURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try activeFM.createDirectory(at: resolvedToURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                 
                 let trashed: URL?
                 if isMove {
-                    trashed = try Self.safeMoveItem(at: fromURL, to: toURL, fileManager: activeFM)
+                    trashed = try Self.safeMoveItem(at: fromURL, to: resolvedToURL, fileManager: activeFM)
                 } else {
-                    trashed = try Self.safeCopyItem(at: fromURL, to: toURL, fileManager: activeFM)
+                    trashed = try Self.safeCopyItem(at: fromURL, to: resolvedToURL, fileManager: activeFM)
                 }
                 
-                return (nil, trashed, fromURL, toURL)
+                return (nil, trashed, fromURL, resolvedToURL)
                 
             } catch {
                 return (error, nil, nil, nil)
