@@ -108,61 +108,64 @@ public struct DetailsSidebar: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                if let data = metadata {
-                    // Icon Header
-                    VStack {
-                    Image(nsImage: NSWorkspace.shared.icon(forFile: data.path))
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 80, height: 80)
-                        .padding(.top, 16)
-                    Spacer()
+        ScrollView(.vertical, showsIndicators: true) {
+            VStack(spacing: 0) {
+                HStack(alignment: .top) {
+                    if let data = metadata {
+                        // Icon Header
+                        VStack {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: data.path))
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 80, height: 80)
+                                .padding(.top, 16)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: 120)
+                        
+                        // Metadata Table
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(data.name)
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .padding(.top, 10)
+                            
+                            Divider()
+                            
+                            metadataRow(label: "Kind:", value: data.kind)
+                            metadataRow(label: "Size:", value: displaySize)
+                            metadataRow(label: "Where:", value: data.path)
+                            
+                            Divider()
+                            
+                            metadataRow(label: "Created:", value: data.creationDate)
+                            metadataRow(label: "Modified:", value: data.modificationDate)
+                            
+                            Divider()
+                            
+                            metadataRow(label: "Permissions:", value: data.permissions)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 20)
+                        
+                        Spacer(minLength: 0)
+                    } else {
+                        VStack {
+                            Spacer(minLength: 0)
+                            Text("No item selected or item is unavailable.")
+                                .foregroundColor(.secondary)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(minHeight: 120)
+                    }
                 }
-                .frame(width: 120)
-                
-                // Metadata Table
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(data.name)
-                        .font(.title2)
-                        .fontWeight(.semibold)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .padding(.top, 10)
-                    
-                    Divider()
-                    
-                    metadataRow(label: "Kind:", value: data.kind)
-                    metadataRow(label: "Size:", value: displaySize)
-                    metadataRow(label: "Where:", value: data.path)
-                    
-                    Divider()
-                    
-                    metadataRow(label: "Created:", value: data.creationDate)
-                    metadataRow(label: "Modified:", value: data.modificationDate)
-                    
-                    Divider()
-                    
-                    metadataRow(label: "Permissions:", value: data.permissions)
-                    
-                    Spacer()
-                }
-                .padding(.trailing, 20)
-                
-                Spacer()
-            } else {
-                VStack {
-                    Spacer()
-                    Text("No item selected or item is unavailable.")
-                        .foregroundColor(.secondary)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
             }
+            .padding(20)
         }
-        }
-        .padding(20)
+        .frame(minHeight: 0)
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity)
