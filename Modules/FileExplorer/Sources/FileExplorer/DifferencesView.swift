@@ -41,15 +41,51 @@ public struct DifferencesView: View {
         self.syncManager = syncManager
     }
     
+    private var copyToRightCount: Int {
+        syncManager.differences.filter { $0.action == .copyToRight }.count
+    }
+    private var copyToLeftCount: Int {
+        syncManager.differences.filter { $0.action == .copyToLeft }.count
+    }
+    private var anySyncing: Bool {
+        syncManager.differences.contains { $0.isSyncing }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Differences Found")
                     .font(.headline.weight(.semibold))
                 Spacer()
-                Text("\(syncManager.differences.count) files")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("\(syncManager.differences.count) files")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if copyToRightCount > 0 || copyToLeftCount > 0 {
+                        Button {
+                            let isMove = modifierTracker.isMoveModifierPressed
+                            Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove) }
+                        } label: {
+                            Label(
+                                modifierTracker.isMoveModifierPressed ? "Move \(copyToRightCount) to Right" : "Copy \(copyToRightCount) to Right",
+                                systemImage: "arrow.right.circle"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(copyToRightCount == 0 || anySyncing)
+                        Button {
+                            let isMove = modifierTracker.isMoveModifierPressed
+                            Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove) }
+                        } label: {
+                            Label(
+                                modifierTracker.isMoveModifierPressed ? "Move \(copyToLeftCount) to Left" : "Copy \(copyToLeftCount) to Left",
+                                systemImage: "arrow.left.circle"
+                            )
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(copyToLeftCount == 0 || anySyncing)
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)

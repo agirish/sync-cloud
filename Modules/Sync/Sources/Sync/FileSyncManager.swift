@@ -331,7 +331,17 @@ public class FileSyncManager: ObservableObject {
             differences.removeAll { $0.id == difference.id }
         }
     }
-    
+
+    /// Resolves all differences in one direction by copying or moving each matching item (same behavior as per-file sync, including collision prompts).
+    /// - Parameters:
+    ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
+    ///   - isMove: If true, moves each file; otherwise copies.
+    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false) async {
+        let toSync = differences.filter { $0.action == direction }
+        for difference in toSync {
+            await syncFile(difference, isMove: isMove)
+        }
+    }
 
     /// Removes selected paths that no longer exist in the trees (e.g. after move/delete) to avoid ghost selection.
     public func pruneSelection() {
