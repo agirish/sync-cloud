@@ -390,11 +390,13 @@ struct ContentView: View {
             .disabled(activeSelectionNodes.isEmpty)
 
             Menu {
-                Button("Name") { syncManager.sortOption = .name }
-                Button("Kind") { syncManager.sortOption = .kind }
-                Button("Date Modified") { syncManager.sortOption = .dateModified }
-                Button("Size") { syncManager.sortOption = .size }
-                Button("Tags") { syncManager.sortOption = .tags }
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Button {
+                        syncManager.sortOption = option
+                    } label: {
+                        Label(option.rawValue, systemImage: syncManager.sortOption == option ? "checkmark" : "")
+                    }
+                }
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }

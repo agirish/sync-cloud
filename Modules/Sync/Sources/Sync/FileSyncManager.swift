@@ -107,17 +107,21 @@ public class FileSyncManager: ObservableObject {
     /// Paths currently selected in the left pane (at most one pane has selection at a time).
     @Published public var selectedLeftPaths: Set<String> = [] {
         didSet {
-            // Enforce mutual exclusivity: a non-empty left selection clears any right selection.
+            // Enforce mutual exclusivity: defer so we don't publish from within a view update.
             if !selectedLeftPaths.isEmpty && !selectedRightPaths.isEmpty {
-                selectedRightPaths = []
+                DispatchQueue.main.async { [weak self] in
+                    self?.selectedRightPaths = []
+                }
             }
         }
     }
     @Published public var selectedRightPaths: Set<String> = [] {
         didSet {
-            // Enforce mutual exclusivity: a non-empty right selection clears any left selection.
+            // Enforce mutual exclusivity: defer so we don't publish from within a view update.
             if !selectedRightPaths.isEmpty && !selectedLeftPaths.isEmpty {
-                selectedLeftPaths = []
+                DispatchQueue.main.async { [weak self] in
+                    self?.selectedLeftPaths = []
+                }
             }
         }
     }
