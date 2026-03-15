@@ -169,6 +169,39 @@ public struct NativeAlerts {
             return .skip
         }
     }
+
+    /// Presents a collision resolution alert with an "Apply to all" option for bulk sync.
+    /// - Returns: The chosen resolution and whether to apply it to all remaining conflicts in this bulk run.
+    public static func promptForCollisionWithApplyToAll(fileName: String, isMove: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) {
+        let alert = NSAlert()
+        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
+        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        
+        let checkbox = NSButton(checkboxWithTitle: "Apply to all for remaining conflicts", target: nil, action: nil)
+        checkbox.state = .off
+        checkbox.sizeToFit()
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: max(checkbox.frame.width, 280), height: checkbox.frame.height + 4))
+        checkbox.frame.origin = CGPoint(x: 0, y: 0)
+        accessory.addSubview(checkbox)
+        alert.accessoryView = accessory
+        
+        alert.addButton(withTitle: "Keep Both")
+        alert.addButton(withTitle: "Skip")
+        alert.addButton(withTitle: "Replace")
+        
+        let response = alert.runModal()
+        let applyToAll = checkbox.state == .on
+        switch response {
+        case .alertFirstButtonReturn:
+            return (.keepBoth, applyToAll)
+        case .alertSecondButtonReturn:
+            return (.skip, applyToAll)
+        case .alertThirdButtonReturn:
+            return (.replace, applyToAll)
+        default:
+            return (.skip, applyToAll)
+        }
+    }
 }
 
 /// Options for resolving file naming collisions during transfers.

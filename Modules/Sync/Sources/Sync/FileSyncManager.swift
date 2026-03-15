@@ -94,6 +94,11 @@ public class FileSyncManager: ObservableObject {
     /// Last error message from a file operation (cleared when user dismisses the alert).
     @Published public var currentError: String? = nil
 
+    /// When non-nil, a bulk sync is in progress: (completed count, total count). Used for progress indicator.
+    @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
+    /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
+    internal var bulkApplyToAllResolution: CollisionResolution?
+
     /// Current subfolder path relative to the left pane root (empty = root).
     @Published public var leftRelativePath: String = ""
     /// Current subfolder path relative to the right pane root (empty = root).
@@ -252,8 +257,9 @@ public class FileSyncManager: ObservableObject {
     /// - Parameters:
     ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
+    ///   - isBulkSync: When true, uses "Apply to all" flow and cached resolution when set.
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
-    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async {
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, isBulkSync: Bool = false, fileManager: FileManaging? = nil) async {
         let activeFM = fileManager ?? self.fileManager
         // Find the difference in our array and mark it as syncing
         if let index = differences.firstIndex(where: { $0.id == difference.id }) {
@@ -273,7 +279,16 @@ public class FileSyncManager: ObservableObject {
         // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
         if activeFM.fileExists(atPath: toURL.path) {
             let fileName = toURL.lastPathComponent
-            let resolution = collisionResolver(fileName, isMove)
+            let resolution: CollisionResolution
+            if isBulkSync, let cached = bulkApplyToAllResolution {
+                resolution = cached
+            } else if isBulkSync {
+                let (res, applyToAll) = NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+                if applyToAll { bulkApplyToAllResolution = res }
+                resolution = res
+            } else {
+                resolution = collisionResolver(fileName, isMove)
+            }
             switch resolution {
             case .skip:
                 if let index = differences.firstIndex(where: { $0.id == difference.id }) {
@@ -332,14 +347,26 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Resolves all differences in one direction by copying or moving each matching item (same behavior as per-file sync, including collision prompts).
+    /// Resolves all differences in one direction by copying or moving each matching item (same behavior as per-file sync; collisions show "Apply to all" when applicable).
     /// - Parameters:
     ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
     ///   - isMove: If true, moves each file; otherwise copies.
     public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false) async {
         let toSync = differences.filter { $0.action == direction }
+        let total = toSync.count
+        guard total > 0 else { return }
+        bulkApplyToAllResolution = nil
+        bulkSyncProgress = (0, total)
+        defer {
+            bulkSyncProgress = nil
+            bulkApplyToAllResolution = nil
+        }
+        var completed = 0
         for difference in toSync {
-            await syncFile(difference, isMove: isMove)
+            await syncFile(difference, isMove: isMove, isBulkSync: true)
+            completed += 1
+            // Count includes skipped items (progress = "processed", not "synced")
+            bulkSyncProgress = (completed, total)
         }
     }
 

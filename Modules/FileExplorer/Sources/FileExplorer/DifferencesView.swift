@@ -50,6 +50,9 @@ public struct DifferencesView: View {
     private var anySyncing: Bool {
         syncManager.differences.contains { $0.isSyncing }
     }
+    private var isBulkSyncing: Bool {
+        syncManager.bulkSyncProgress != nil
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -72,7 +75,7 @@ public struct DifferencesView: View {
                             )
                         }
                         .buttonStyle(.bordered)
-                        .disabled(copyToRightCount == 0 || anySyncing)
+                        .disabled(copyToRightCount == 0 || anySyncing || isBulkSyncing)
                         Button {
                             let isMove = modifierTracker.isMoveModifierPressed
                             Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove) }
@@ -83,13 +86,28 @@ public struct DifferencesView: View {
                             )
                         }
                         .buttonStyle(.bordered)
-                        .disabled(copyToLeftCount == 0 || anySyncing)
+                        .disabled(copyToLeftCount == 0 || anySyncing || isBulkSyncing)
                     }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .glassBarStyle(intensity: glassIntensity)
+
+            if let progress = syncManager.bulkSyncProgress {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Syncing \(progress.completed) of \(progress.total)...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                        .progressViewStyle(.linear)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+            }
             
             Divider()
                 .opacity(0.6)
