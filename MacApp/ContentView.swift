@@ -36,6 +36,8 @@ struct ContentView: View {
     }
     @State private var selectedBottomTab: BottomTab = .differences
 
+    private static let bannerAutoDismissNanoseconds: UInt64 = 5_000_000_000 // 5 seconds
+
     /// Resolves the left and right provider IDs from the current list (e.g. after provider list changes or bootstrap).
     /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a different provider for the right.
     /// - Returns: `(leftId, rightId)` or `nil` if there are no providers.
@@ -138,7 +140,6 @@ struct ContentView: View {
                 }
                 
                 if !settings.availableProviders.isEmpty {
-                    try? await Task.sleep(nanoseconds: 10_000_000)
                     refreshAction()
                 }
                 isBootstrappingProviders = false
@@ -157,20 +158,10 @@ struct ContentView: View {
             refreshAction()
         }
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
-            guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                guard showingBottomPane else { return }
-                selectedBottomTab = .details
-            }
+            switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
         }
         .onChange(of: syncManager.selectedRightPaths) { _, paths in
-            guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 10_000_000)
-                guard showingBottomPane else { return }
-                selectedBottomTab = .details
-            }
+            switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
         }
         .onChange(of: settings.availableProviders) { _, _ in
             Task {
@@ -192,6 +183,12 @@ struct ContentView: View {
         let root = (settings.path(for: rightProviderId) as NSString).expandingTildeInPath
         if syncManager.rightRelativePath.isEmpty { return root }
         return (root as NSString).appendingPathComponent(syncManager.rightRelativePath)
+    }
+
+    /// When user selects items in a pane and the bottom pane is on Differences, switch to Details tab.
+    private func switchToDetailsTabIfNeeded(whenSelectionChanges paths: Set<String>) {
+        guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
+        selectedBottomTab = .details
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -286,7 +283,7 @@ struct ContentView: View {
         .onChange(of: syncManager.bannerMessage) { _, newValue in
             guard let current = newValue else { return }
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                try? await Task.sleep(nanoseconds: Self.bannerAutoDismissNanoseconds)
                 if syncManager.bannerMessage == current {
                     syncManager.bannerMessage = nil
                 }

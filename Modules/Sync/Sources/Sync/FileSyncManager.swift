@@ -352,14 +352,12 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Defers selection pruning to the next MainActor turn to avoid reentrant list delegate mutations.
+    /// Defers selection pruning to the next run loop to avoid reentrant list delegate mutations.
     func scheduleSelectionPrune() {
         guard !hasPendingSelectionPrune else { return }
         hasPendingSelectionPrune = true
-        Task { @MainActor [weak self] in
+        DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            // Defer to the next run-loop cycle to avoid NSTableView delegate reentrancy.
-            try? await Task.sleep(nanoseconds: 10_000_000)
             self.hasPendingSelectionPrune = false
             self.pruneSelection()
         }
