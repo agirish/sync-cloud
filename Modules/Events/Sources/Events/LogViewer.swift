@@ -7,7 +7,7 @@ public struct LogViewer: View {
     
     public init() {}
     
-    @State private var selectedLevel: LogLevel? = nil // nil means show all
+    @State private var selectedLevel: LogLevel? = .info // default view: INFO (nil = show all)
     @State private var searchText: String = ""
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     

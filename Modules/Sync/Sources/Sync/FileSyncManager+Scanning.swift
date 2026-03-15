@@ -166,6 +166,7 @@ extension FileSyncManager {
 
     private func executeScan(_ request: ScanRequest) async {
         isScanning = true
+        Logger.shared.info("Internal scan comparing \(request.left.displayName) and \(request.right.displayName)")
 
         let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
             do {

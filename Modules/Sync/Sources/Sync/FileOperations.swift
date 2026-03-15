@@ -334,6 +334,9 @@ extension FileSyncManager {
                 var targetURL = URL(fileURLWithPath: targetPath)
                 
                 if sourceURL == targetURL {
+                    _ = await MainActor.run {
+                        Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
+                    }
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent

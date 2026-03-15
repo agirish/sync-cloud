@@ -215,11 +215,9 @@ struct ContentView: View {
     /// Reloads both pane trees and runs a diff scan (with re-entrancy and cancellation handled by the manager).
     private func refreshAction() {
         guard let leftProvider = settings.availableProviders.first(where: { $0.id == leftProviderId }),
-              let rightProvider = settings.availableProviders.first(where: { $0.id == rightProviderId }) else { 
-            return 
+              let rightProvider = settings.availableProviders.first(where: { $0.id == rightProviderId }) else {
+            return
         }
-        
-        Logger.shared.info("Internal scan comparing \(leftProvider.displayName) and \(rightProvider.displayName)")
         Task {
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider)
         }
