@@ -198,6 +198,8 @@ extension FileSyncManager {
         let isLatestRequest = request.generation == scanRequestGeneration
         if !Task.isCancelled, isLatestRequest, let results = newDifferences {
             self.rawDifferences = results
+            self.lastRightProviderType = request.right.type
+            self.verifiedSameDifferenceIds.removeAll()
             self.applyFilters()
             hasScanned = true
             

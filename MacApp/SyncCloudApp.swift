@@ -21,9 +21,10 @@ struct SyncCloudApp: App {
         let manager = FileSyncManager()
         _syncManager = StateObject(wrappedValue: manager)
         _settings = StateObject(wrappedValue: SettingsManager())
-        // CRITICAL: Linking the manager to the delegate during init ensures 
-        // the termination guard is active even if the app is quit immediately.
+        // CRITICAL: Link the manager to the delegate so the termination guard is active.
+        // Use both instance and static ref so the delegate always has the manager on every quit attempt.
         appDelegate.syncManager = manager
+        SyncCloudAppDelegate.sharedSyncManager = manager
     }
     
     var body: some Scene {
@@ -68,8 +69,12 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Reference to the shared sync manager for checking active operations.
     var syncManager: FileSyncManager?
     
+    /// Static reference so the delegate always has the current manager even if the App struct is recreated.
+    static weak var sharedSyncManager: FileSyncManager?
+    
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let manager = syncManager, manager.activeFileOperationsCount > 0 else {
+        let manager = syncManager ?? Self.sharedSyncManager
+        guard let manager, manager.activeFileOperationsCount > 0 else {
             return .terminateNow
         }
         

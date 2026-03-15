@@ -22,6 +22,7 @@ public struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     appearanceSection
+                    differencesSection
                     cloudStorageSection
                 }
                 .padding(24)
@@ -103,6 +104,29 @@ public struct SettingsView: View {
                         .frame(width: 36, alignment: .trailing)
                 }
             }
+            .padding(16)
+            .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
+            .overlay(
+                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+            )
+        }
+    }
+
+    private var differencesSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionLabel("Differences")
+
+            Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Ignore \"newer on Google Drive\" when same size")
+                        .font(.subheadline.weight(.medium))
+                    Text("Hides differences where only the date changed (right side newer, same size). Reduces noise when Google Drive overwrites file dates.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
             .padding(16)
             .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
             .overlay(

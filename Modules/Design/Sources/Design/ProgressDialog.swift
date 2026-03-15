@@ -1,42 +1,52 @@
 import SwiftUI
 
 /// A native-looking progress dialog for file operations.
-/// Observes an `NSProgress` object to display a progress bar, title, and current item name.
+/// Shows a single title, progress bar, count (e.g. "3,336 of 7,363"), optional current item, and Cancel.
 public struct ProgressDialog: View {
     public var progress: Progress
-    
+
     public init(progress: Progress) {
         self.progress = progress
     }
-    
+
     public var body: some View {
-        // We use a local state to trigger refreshes since Progress isn't an ObservableObject
+        // Refresh periodically since Progress isn't ObservableObject
         TimelineView(.periodic(from: .now, by: 0.1)) { _ in
-            VStack(alignment: .leading, spacing: 12) {
+            let completed = progress.completedUnitCount
+            let total = progress.totalUnitCount
+            let totalDouble = total > 0 ? Double(total) : 1.0
+
+            VStack(alignment: .leading, spacing: 14) {
+                // Single title row: description + close
                 HStack {
-                    Text(progress.localizedDescription ?? "Processing...")
+                    Text(progress.localizedDescription ?? "Processing…")
                         .font(.headline)
                     Spacer()
-                    Button(action: {
-                        progress.cancel()
-                    }) {
+                    Button(action: { progress.cancel() }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
                 }
-                
-                ProgressView(progress)
+
+                // Progress bar (value-based to avoid duplicate labels)
+                ProgressView(value: total > 0 ? Double(completed) / totalDouble : nil, total: 1.0)
                     .progressViewStyle(.linear)
-                
+
+                // Single count line, e.g. "3,336 of 7,363"
+                Text(formattedCount(completed: completed, total: total))
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                // Optional: current file name when set
                 if let additional = progress.localizedAdditionalDescription, !additional.isEmpty {
                     Text(additional)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                
+
                 HStack {
                     Spacer()
                     Button("Cancel") {
@@ -56,5 +66,13 @@ public struct ProgressDialog: View {
                 y: LiquidGlass.cardShadow.y
             )
         }
+    }
+
+    private func formattedCount(completed: Int64, total: Int64) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        let c = formatter.string(from: NSNumber(value: completed)) ?? "\(completed)"
+        let t = formatter.string(from: NSNumber(value: total)) ?? "\(total)"
+        return "\(c) of \(t)"
     }
 }

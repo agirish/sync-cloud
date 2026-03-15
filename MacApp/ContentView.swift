@@ -12,8 +12,8 @@ struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
     
-    @State private var leftProviderId: String = "iCloud"
-    @State private var rightProviderId: String = "iCloud"
+    @AppStorage("selectedLeftProviderId") private var leftProviderId: String = "iCloud"
+    @AppStorage("selectedRightProviderId") private var rightProviderId: String = "iCloud"
     @State private var isScanning = false
     
     @Environment(\.undoManager) private var undoManager
@@ -130,6 +130,7 @@ struct ContentView: View {
         .onAppear {
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
+            syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
             Task { @MainActor in
                 await settings.discoverProviders()
                 applyProviderSelection(preferDistinctPair: true)
@@ -171,18 +172,25 @@ struct ContentView: View {
             guard !isBootstrappingProviders else { return }
             refreshAction()
         }
+        .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
+            syncManager.ignoreGoogleDriveNewerDateOnly = new
+        }
     }
     
+    /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
     private var currentLeftPath: String {
         let root = (settings.path(for: leftProviderId) as NSString).expandingTildeInPath
-        if syncManager.leftRelativePath.isEmpty { return root }
-        return (root as NSString).appendingPathComponent(syncManager.leftRelativePath)
+        let rel = syncManager.leftRelativePath
+        guard !rel.isEmpty, !rel.hasPrefix("/") else { return root }
+        return (root as NSString).appendingPathComponent(rel)
     }
     
+    /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
     private var currentRightPath: String {
         let root = (settings.path(for: rightProviderId) as NSString).expandingTildeInPath
-        if syncManager.rightRelativePath.isEmpty { return root }
-        return (root as NSString).appendingPathComponent(syncManager.rightRelativePath)
+        let rel = syncManager.rightRelativePath
+        guard !rel.isEmpty, !rel.hasPrefix("/") else { return root }
+        return (root as NSString).appendingPathComponent(rel)
     }
 
     /// When user selects items in a pane and the bottom pane is on Differences, switch to Details tab.

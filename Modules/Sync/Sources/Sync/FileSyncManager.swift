@@ -26,7 +26,15 @@ public class FileSyncManager: ObservableObject {
     
     /// Cached differences from the latest scan before applying hidden/ignored filters.
     internal var rawDifferences: [FileDifference] = []
-    /// Filtered list of differences between the left and right panes (respects `showHiddenFiles` and `ignoredPaths`).
+    /// IDs of differences that were verified as same content via checksum; these are hidden from the list until next scan.
+    internal var verifiedSameDifferenceIds: Set<UUID> = []
+    /// ID of the difference currently being verified (for UI spinner).
+    @Published public var verifyingDifferenceId: UUID?
+    /// When non-nil, a "Verify All" run is in progress: (completed count, total count).
+    @Published public var verifyAllProgress: (completed: Int, total: Int)?
+    /// After Verify All completes, the list of differences that verified identical; UI shows dialog to copy left→right. Cleared when user copies or cancels.
+    @Published public var verifiedIdenticalForCopy: [FileDifference]?
+    /// Filtered list of differences between the left and right panes (respects `showHiddenFiles`, `ignoredPaths`, and `verifiedSameDifferenceIds`).
     @Published public var differences: [FileDifference] = []
     /// Indicates whether a deep structure scan is currently in progress.
     @Published public var isScanning = false
@@ -62,6 +70,16 @@ public class FileSyncManager: ObservableObject {
             applyFilters()
         }
     }
+
+    /// When true, differences that are only "right newer, same size" are hidden when the right pane is Google Drive (avoids noise from Drive overwriting file dates). Set by the app from persisted settings.
+    @Published public var ignoreGoogleDriveNewerDateOnly: Bool = false {
+        didSet {
+            guard ignoreGoogleDriveNewerDateOnly != oldValue else { return }
+            applyFilters()
+        }
+    }
+    /// Provider type of the right pane from the last scan; used with ignoreGoogleDriveNewerDateOnly to filter differences.
+    internal var lastRightProviderType: CloudProvider.ProviderType?
     
     /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []
@@ -211,9 +229,224 @@ public class FileSyncManager: ObservableObject {
                 !Self.isIgnoredPath(diff.relativePath, ignored: ignoredPaths)
             }
         }
+        filteredDifferences = filteredDifferences.filter { !verifiedSameDifferenceIds.contains($0.id) }
+        if ignoreGoogleDriveNewerDateOnly, lastRightProviderType == .googleDrive {
+            filteredDifferences = filteredDifferences.filter { diff in
+                // Hide "right is newer, same size" only (Drive date noise)
+                if diff.type == .differentDates, diff.sizesMatch, diff.action == .copyToLeft {
+                    return false
+                }
+                return true
+            }
+        }
         self.differences = filteredDifferences
     }
-    
+
+    /// Verifies whether the two sides of a "newer / different dates" difference have the same content via checksum.
+    /// Only applicable when both sides are regular files with matching size; directories and files over 100 MB are skipped.
+    /// If content matches, the difference is hidden from the list until the next scan.
+    /// - Parameter difference: A difference with type `differentDates` (and ideally `sizesMatch`).
+    /// - Returns: `true` if content is identical and the difference was hidden; `false` if content differs or verification failed.
+    public func verifyWithChecksum(_ difference: FileDifference) async -> Bool {
+        guard difference.type == .differentDates else { return false }
+        verifyingDifferenceId = difference.id
+        defer { verifyingDifferenceId = nil }
+        let same = await FileContentVerifier.filesHaveSameContent(
+            leftPath: difference.leftItemPath,
+            rightPath: difference.rightItemPath,
+            fileManager: fileManager
+        )
+        guard same == true else {
+            if same == false {
+                currentError = "Content differs — files are not identical."
+            } else {
+                currentError = "Could not verify (file may be a folder, missing, or over 100 MB)."
+            }
+            return false
+        }
+        verifiedSameDifferenceIds.insert(difference.id)
+        applyFilters()
+        bannerMessage = "Verified identical — hidden from list"
+        return true
+    }
+
+    /// Differences that qualify for checksum verification (different dates but same size; files only).
+    private var verifiableDifferences: [FileDifference] {
+        differences.filter { $0.type == .differentDates && $0.sizesMatch }
+    }
+
+    /// Runs checksum verification on all differences that meet the Verify criteria (newer/older but same size).
+    /// Runs up to 4 verifications in parallel. Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
+    public func verifyAllWithChecksum() async {
+        let toVerify = verifiableDifferences
+        guard !toVerify.isEmpty else { return }
+
+        let progress = Progress(totalUnitCount: Int64(toVerify.count))
+        progress.localizedDescription = "Verifying \(toVerify.count) files"
+        progress.isCancellable = true
+        activeProgress = progress
+        verifyAllProgress = (0, toVerify.count)
+        verifyingDifferenceId = nil
+
+        defer {
+            verifyAllProgress = nil
+            activeProgress = nil
+        }
+
+        let activeFM = fileManager
+        let queue = VerifyWorkQueue(items: toVerify)
+        let collector = VerifyResultsCollector()
+        let counter = BulkSyncCompletedCounter(total: toVerify.count)
+        let weakRef = WeakSyncManagerRef(self)
+        let progressRef = BulkSyncProgressRef(progress)
+        let totalCount = toVerify.count
+        let concurrency = min(4, max(1, toVerify.count))
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<concurrency {
+                group.addTask {
+                    while !progressRef.progress.isCancelled, let diff = await queue.next() {
+                        let same = await FileContentVerifier.filesHaveSameContent(
+                            leftPath: diff.leftItemPath,
+                            rightPath: diff.rightItemPath,
+                            fileManager: activeFM
+                        )
+                        if same == true {
+                            await collector.addIdentical(diff)
+                        } else if same == false {
+                            await collector.addDiffered()
+                        } else {
+                            await collector.addSkipped()
+                        }
+                        let completed = await counter.increment()
+                        progressRef.progress.completedUnitCount = Int64(completed)
+                        await MainActor.run {
+                            weakRef.value?.verifyAllProgress = (completed, totalCount)
+                        }
+                    }
+                }
+            }
+        }
+
+        let (verifiedIdentical, differed, skipped) = await collector.get()
+        if !verifiedIdentical.isEmpty {
+            verifiedIdenticalForCopy = verifiedIdentical
+        }
+        var parts: [String] = []
+        if !verifiedIdentical.isEmpty { parts.append("\(verifiedIdentical.count) identical") }
+        if differed > 0 { parts.append("\(differed) differed") }
+        if skipped > 0 { parts.append("\(skipped) skipped") }
+        if progress.isCancelled {
+            bannerMessage = "Verify All cancelled"
+        } else {
+            bannerMessage = parts.isEmpty ? nil : "Verify All: " + parts.joined(separator: "; ")
+        }
+    }
+
+    /// Dismisses the "copy verified" dialog without copying; hides the verified identical items from the list.
+    public func dismissVerifiedCopyDialogWithoutCopy() {
+        guard let list = verifiedIdenticalForCopy else { return }
+        for diff in list {
+            verifiedSameDifferenceIds.insert(diff.id)
+        }
+        verifiedIdenticalForCopy = nil
+        applyFilters()
+    }
+
+    /// Bulk copy the given differences from left to right (overwrites if exists). No per-file confirmation; 2–4 concurrent copies.
+    private func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
+        let total = toCopy.count
+        guard total > 0 else { return }
+
+        let progress = Progress(totalUnitCount: Int64(total))
+        progress.localizedDescription = "Copying \(total) files to match dates"
+        progress.isCancellable = true
+        activeProgress = progress
+
+        for i in differences.indices where toCopy.contains(where: { $0.id == differences[i].id }) {
+            differences[i].isSyncing = true
+        }
+        bulkSyncProgress = (0, total)
+
+        // Yield so the progress overlay can render before we block on the copy work.
+        await MainActor.run { }
+
+        defer {
+            bulkSyncProgress = nil
+            activeProgress = nil
+            for i in differences.indices where toCopy.contains(where: { $0.id == differences[i].id }) {
+                differences[i].isSyncing = false
+            }
+        }
+
+        let activeFM = fileManager
+        let workList: [(FileDifference, URL, URL, Bool)] = toCopy.map { diff in
+            (diff, URL(fileURLWithPath: diff.leftItemPath), URL(fileURLWithPath: diff.rightItemPath), false)
+        }
+
+        let progressRef = BulkSyncProgressRef(progress)
+        let weakRef = WeakSyncManagerRef(self)
+        let totalCount = total
+        let counter = BulkSyncCompletedCounter(total: totalCount)
+
+        let result = await enqueueFileOperation { () -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) in
+            let queue = BulkSyncWorkQueue(items: workList)
+            let collector = BulkSyncResultsCollector()
+            let concurrency = min(4, max(2, workList.count))
+
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<concurrency {
+                    group.addTask {
+                        while !progressRef.progress.isCancelled {
+                            guard let (diff, fromURL, toURL, isMove) = await queue.next() else { break }
+                            do {
+                                let syncResult = try FileSyncManager.performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: activeFM)
+                                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
+                            } catch {
+                                await collector.addFailure(diff, error)
+                            }
+                            let completed = await counter.increment()
+                            progressRef.progress.completedUnitCount = Int64(completed)
+                            await MainActor.run {
+                                weakRef.value?.bulkSyncProgress = (completed, totalCount)
+                            }
+                        }
+                    }
+                }
+            }
+
+            return await collector.get()
+        }
+
+        for (diff, (trashed, from, to)) in result.successes {
+            let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
+            let initialResolver = AsyncValueResolver<[CopyItemState]>()
+            Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
+            registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+            differences.removeAll { $0.id == diff.id }
+        }
+        for (diff, error) in result.failures {
+            let msg = "Error copying file \(diff.relativePath): \(error.localizedDescription)"
+            currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+            if let index = differences.firstIndex(where: { $0.id == diff.id }) {
+                differences[index].isSyncing = false
+            }
+        }
+        if !result.failures.isEmpty {
+            bannerMessage = "\(result.successes.count) copied; \(result.failures.count) failed"
+        } else if !result.successes.isEmpty {
+            bannerMessage = "\(result.successes.count) files copied — dates matched"
+        }
+    }
+
+    /// Copies the verified-identical list left→right (no confirmation, overwrites). Call after user confirms in the dialog.
+    public func bulkCopyVerifiedIdenticalLeftToRight() async {
+        guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return }
+        verifiedIdenticalForCopy = nil
+        await bulkCopyDifferencesLeftToRight(list)
+    }
+
     /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.
     nonisolated static func filterTree(_ nodes: [FileNode], showHidden: Bool) -> [FileNode] {
         if showHidden { return nodes }
@@ -309,7 +542,7 @@ public class FileSyncManager: ObservableObject {
         let resolvedToURL = toURL
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, from: URL?, to: URL?) in
             do {
-                try activeFM.createDirectory(at: resolvedToURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Self.ensureParentDirectoryExists(for: resolvedToURL, fileManager: activeFM)
                 
                 let trashed: URL?
                 if isMove {
@@ -352,25 +585,126 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// Resolves all differences in one direction by copying or moving each matching item (same behavior as per-file sync; collisions show "Apply to all" when applicable).
+    /// Runs up to 4 file operations in parallel. Cancellation completes the current file then stops before starting new ones.
     /// - Parameters:
     ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
     ///   - isMove: If true, moves each file; otherwise copies.
-    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false) async {
-        let toSync = differences.filter { $0.action == direction }
+    ///   - subset: When non-nil, only differences in this array are considered (e.g. the currently filtered list). When nil, uses the full `differences` array.
+    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil) async {
+        let source = subset ?? differences
+        let toSync = source.filter { $0.action == direction }
         let total = toSync.count
         guard total > 0 else { return }
         bulkApplyToAllResolution = nil
-        bulkSyncProgress = (0, total)
+
+        let progress = Progress(totalUnitCount: Int64(total))
+        progress.localizedDescription = "Syncing \(total) files"
+        progress.isCancellable = true
+        activeProgress = progress
+
+        for i in differences.indices where toSync.contains(where: { $0.id == differences[i].id }) {
+            differences[i].isSyncing = true
+        }
+
         defer {
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
+            activeProgress = nil
+            for i in differences.indices where toSync.contains(where: { $0.id == differences[i].id }) {
+                differences[i].isSyncing = false
+            }
         }
-        var completed = 0
+
+        let activeFM = fileManager
+        var preparedList: [(FileDifference, URL, URL, Bool)] = []
         for difference in toSync {
-            await syncFile(difference, isMove: isMove, isBulkSync: true)
-            completed += 1
-            // Count includes skipped items (progress = "processed", not "synced")
-            bulkSyncProgress = (completed, total)
+            if progress.isCancelled { break }
+            let fromURL: URL
+            var toURL: URL
+            if difference.action == .copyToRight {
+                fromURL = URL(fileURLWithPath: difference.leftItemPath)
+                toURL = URL(fileURLWithPath: difference.rightItemPath)
+            } else {
+                fromURL = URL(fileURLWithPath: difference.rightItemPath)
+                toURL = URL(fileURLWithPath: difference.leftItemPath)
+            }
+            if activeFM.fileExists(atPath: toURL.path) {
+                let fileName = toURL.lastPathComponent
+                let resolution: CollisionResolution
+                if let cached = bulkApplyToAllResolution {
+                    resolution = cached
+                } else {
+                    let (res, applyToAll) = NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+                    if applyToAll { bulkApplyToAllResolution = res }
+                    resolution = res
+                }
+                switch resolution {
+                case .skip:
+                    continue
+                case .keepBoth:
+                    toURL = Self.generateUniqueURL(for: toURL, fileManager: activeFM)
+                case .replace:
+                    break
+                }
+            }
+            preparedList.append((difference, fromURL, toURL, isMove))
+        }
+
+        bulkSyncProgress = (0, total)
+        let progressRef = BulkSyncProgressRef(progress)
+        let weakRef = WeakSyncManagerRef(self)
+        let totalCount = total
+        let counter = BulkSyncCompletedCounter(total: totalCount)
+        let workList = preparedList
+
+        let result = await enqueueFileOperation { () -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) in
+            let queue = BulkSyncWorkQueue(items: workList)
+            let collector = BulkSyncResultsCollector()
+
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<4 {
+                    group.addTask {
+                        while !progressRef.progress.isCancelled {
+                            guard let (diff, fromURL, toURL, isMove) = await queue.next() else { break }
+                            do {
+                                let syncResult = try FileSyncManager.performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: activeFM)
+                                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
+                            } catch {
+                                await collector.addFailure(diff, error)
+                            }
+                            let completed = await counter.increment()
+                            progressRef.progress.completedUnitCount = Int64(completed)
+                            await MainActor.run {
+                                weakRef.value?.bulkSyncProgress = (completed, totalCount)
+                            }
+                        }
+                    }
+                }
+            }
+
+            return await collector.get()
+        }
+
+        for (diff, (trashed, from, to)) in result.successes {
+            let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
+            if isMove {
+                let initialResolver = AsyncValueResolver<[MoveItemState]>()
+                Task { await initialResolver.resolve([(from: from, to: to, overwritten: trashed)]) }
+                registerMoveUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+            } else {
+                let initialResolver = AsyncValueResolver<[CopyItemState]>()
+                Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
+                registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+            }
+            differences.removeAll { $0.id == diff.id }
+        }
+        for (diff, error) in result.failures {
+            let msg = "Error syncing file \(diff.relativePath): \(error.localizedDescription)"
+            currentError = msg
+            Logger.shared.error(msg, showAlert: false)
+            if let index = differences.firstIndex(where: { $0.id == diff.id }) {
+                differences[index].isSyncing = false
+            }
         }
     }
 
@@ -414,6 +748,80 @@ public class FileSyncManager: ObservableObject {
     }
 
     // Implementations moved to FileOperations.swift
-    
+
     // Diff algorithms moved to FileDiffEngine.swift
+}
+
+// MARK: - Bulk sync helpers (Sendable-safe refs and actors for parallel workers)
+
+private final class BulkSyncProgressRef: @unchecked Sendable {
+    let progress: Progress
+    init(_ progress: Progress) { self.progress = progress }
+}
+
+private final class WeakSyncManagerRef: @unchecked Sendable {
+    weak var value: FileSyncManager?
+    init(_ value: FileSyncManager?) { self.value = value }
+}
+
+private actor BulkSyncWorkQueue {
+    private let items: [(FileDifference, URL, URL, Bool)]
+    private var index: Int = 0
+    init(items: [(FileDifference, URL, URL, Bool)]) { self.items = items }
+    func next() -> (FileDifference, URL, URL, Bool)? {
+        guard index < items.count else { return nil }
+        defer { index += 1 }
+        return items[index]
+    }
+}
+
+private actor BulkSyncResultsCollector {
+    private var successes: [(FileDifference, (URL?, URL, URL))] = []
+    private var failures: [(FileDifference, Error)] = []
+    func addSuccess(_ diff: FileDifference, _ result: (URL?, URL, URL)) {
+        successes.append((diff, result))
+    }
+    func addFailure(_ diff: FileDifference, _ error: Error) {
+        failures.append((diff, error))
+    }
+    func get() -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) {
+        (successes, failures)
+    }
+}
+
+private actor BulkSyncCompletedCounter {
+    private var completed: Int = 0
+    private let total: Int
+    init(total: Int) { self.total = total }
+    func increment() -> Int {
+        completed += 1
+        return completed
+    }
+}
+
+// MARK: - Verify-all parallel workers
+
+private actor VerifyWorkQueue {
+    private let items: [FileDifference]
+    private var index: Int = 0
+    init(items: [FileDifference]) { self.items = items }
+    func next() -> FileDifference? {
+        guard index < items.count else { return nil }
+        defer { index += 1 }
+        return items[index]
+    }
+}
+
+private actor VerifyResultsCollector {
+    private var verifiedIdentical: [FileDifference] = []
+    private var differed: Int = 0
+    private var skipped: Int = 0
+    func addIdentical(_ diff: FileDifference) {
+        verifiedIdentical.append(diff)
+    }
+    func addDiffered() { differed += 1 }
+    func addSkipped() { skipped += 1 }
+    func get() -> (verifiedIdentical: [FileDifference], differed: Int, skipped: Int) {
+        (verifiedIdentical, differed, skipped)
+    }
 }

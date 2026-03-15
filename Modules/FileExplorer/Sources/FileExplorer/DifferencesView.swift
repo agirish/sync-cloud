@@ -4,6 +4,25 @@ import Sync
 import AppKit
 import Design
 
+/// Filter for the differences list (by type / side).
+public enum DifferenceFilter: String, CaseIterable {
+    case all = "All"
+    case missingOnLeft = "Missing on left"
+    case missingOnRight = "Missing on right"
+    case changedCopyToRight = "Changed (left newer)"
+    case changedCopyToLeft = "Changed (right newer)"
+
+    func matches(_ diff: FileDifference) -> Bool {
+        switch self {
+        case .all: return true
+        case .missingOnLeft: return diff.type == .missingOnLeft
+        case .missingOnRight: return diff.type == .missingOnRight
+        case .changedCopyToRight: return diff.type == .differentDates && diff.action == .copyToRight
+        case .changedCopyToLeft: return diff.type == .differentDates && diff.action == .copyToLeft
+        }
+    }
+}
+
 /// Tracks Shift/Command so the differences list can offer “Move” instead of “Copy” when a modifier is held.
 @MainActor
 final class ModifierTracker: ObservableObject {
@@ -36,22 +55,35 @@ public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
-    
+    @State private var selectedFilter: DifferenceFilter = .all
     public init(syncManager: FileSyncManager) {
         self.syncManager = syncManager
     }
-    
+
+    private var filteredDifferences: [FileDifference] {
+        syncManager.differences.filter { selectedFilter.matches($0) }
+    }
+
     private var copyToRightCount: Int {
-        syncManager.differences.filter { $0.action == .copyToRight }.count
+        filteredDifferences.filter { $0.action == .copyToRight }.count
     }
     private var copyToLeftCount: Int {
-        syncManager.differences.filter { $0.action == .copyToLeft }.count
+        filteredDifferences.filter { $0.action == .copyToLeft }.count
     }
     private var anySyncing: Bool {
         syncManager.differences.contains { $0.isSyncing }
     }
     private var isBulkSyncing: Bool {
         syncManager.bulkSyncProgress != nil
+    }
+    private var verifiableCount: Int {
+        syncManager.differences.filter { $0.type == .differentDates && $0.sizesMatch }.count
+    }
+    private var isVerifyAllInProgress: Bool {
+        syncManager.verifyAllProgress != nil
+    }
+    private var verifiedIdenticalCount: Int {
+        syncManager.verifiedIdenticalForCopy?.count ?? 0
     }
 
     public var body: some View {
@@ -61,13 +93,35 @@ public struct DifferencesView: View {
                     .font(.headline.weight(.semibold))
                 Spacer()
                 HStack(spacing: 10) {
-                    Text("\(syncManager.differences.count) files")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Menu {
+                        ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                            Button {
+                                selectedFilter = filter
+                            } label: {
+                                if selectedFilter == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(filter.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label(selectedFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                    if selectedFilter == .all {
+                        Text("\(syncManager.differences.count) files")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("\(filteredDifferences.count) of \(syncManager.differences.count) files")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                     if copyToRightCount > 0 || copyToLeftCount > 0 {
                         Button {
                             let isMove = modifierTracker.isMoveModifierPressed
-                            Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove) }
+                            Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: filteredDifferences) }
                         } label: {
                             Label(
                                 modifierTracker.isMoveModifierPressed ? "Move \(copyToRightCount) to Right" : "Copy \(copyToRightCount) to Right",
@@ -78,7 +132,7 @@ public struct DifferencesView: View {
                         .disabled(copyToRightCount == 0 || anySyncing || isBulkSyncing)
                         Button {
                             let isMove = modifierTracker.isMoveModifierPressed
-                            Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove) }
+                            Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: filteredDifferences) }
                         } label: {
                             Label(
                                 modifierTracker.isMoveModifierPressed ? "Move \(copyToLeftCount) to Left" : "Copy \(copyToLeftCount) to Left",
@@ -88,19 +142,35 @@ public struct DifferencesView: View {
                         .buttonStyle(.bordered)
                         .disabled(copyToLeftCount == 0 || anySyncing || isBulkSyncing)
                     }
+                    if verifiableCount > 0 {
+                        Button {
+                            Task { await syncManager.verifyAllWithChecksum() }
+                        } label: {
+                            Label("Verify All (\(verifiableCount))", systemImage: "checkmark.shield")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                    }
                 }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .glassBarStyle(intensity: glassIntensity)
 
-            if let progress = syncManager.bulkSyncProgress {
+            if let progress = syncManager.verifyAllProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
-                        Text("Syncing \(progress.completed) of \(progress.total)...")
+                        Text("Verifying \(progress.completed) of \(progress.total)...")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
+                        if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
+                            Button("Cancel") {
+                                activeProgress.cancel()
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                        }
                     }
                     ProgressView(value: Double(progress.completed), total: Double(progress.total))
                         .progressViewStyle(.linear)
@@ -108,17 +178,45 @@ public struct DifferencesView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
             }
-            
+            if let progress = syncManager.bulkSyncProgress {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Syncing \(progress.completed) of \(progress.total)...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
+                            Button("Cancel") {
+                                activeProgress.cancel()
+                            }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                        }
+                    }
+                    ProgressView(value: Double(progress.completed), total: Double(progress.total))
+                        .progressViewStyle(.linear)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+            }
             Divider()
                 .opacity(0.6)
             
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    ForEach(syncManager.differences, id: \.id) { difference in
+                    if selectedFilter != .all && filteredDifferences.isEmpty {
+                        Text("No items match the current filter.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 24)
+                    }
+                    ForEach(filteredDifferences, id: \.id) { difference in
                         DifferenceRow(
                             difference: difference,
-                            isMove: modifierTracker.isMoveModifierPressed
-                            , glassIntensity: glassIntensity
+                            syncManager: syncManager,
+                            isMove: modifierTracker.isMoveModifierPressed,
+                            glassIntensity: glassIntensity
                         ) { isMove in
                             Task {
                                 await syncManager.syncFile(difference, isMove: isMove)
@@ -131,16 +229,35 @@ public struct DifferencesView: View {
             }
             .background(.regularMaterial.opacity(0.5))
         }
+        .confirmationDialog("Copy to Match Dates", isPresented: Binding(
+            get: { syncManager.verifiedIdenticalForCopy != nil },
+            set: { if !$0 { syncManager.dismissVerifiedCopyDialogWithoutCopy() } }
+        )) {
+            Button("Copy Left to Right") {
+                Task { await syncManager.bulkCopyVerifiedIdenticalLeftToRight() }
+            }
+            Button("Cancel", role: .cancel) {
+                syncManager.dismissVerifiedCopyDialogWithoutCopy()
+            }
+        } message: {
+            Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all left to right to match dates. No per-file confirmation.")
+        }
     }
 }
 
-/// One row in the differences list: icon, path, description, and a button to sync (copy or move) the item.
+/// One row in the differences list: icon, path, description, sync button, and optional "Verify" (checksum) when same size.
 struct DifferenceRow: View {
     let difference: FileDifference
+    @ObservedObject var syncManager: FileSyncManager
     let isMove: Bool
     let glassIntensity: Double
     let onSync: (Bool) -> Void
-    
+
+    private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
+    private var canVerify: Bool {
+        difference.type == .differentDates && difference.sizesMatch && !difference.isSyncing && !isVerifying && syncManager.verifyAllProgress == nil
+    }
+
     var body: some View {
         HStack(spacing: 16) {
             // Icon
@@ -168,6 +285,23 @@ struct DifferenceRow: View {
             }
             
             Spacer()
+            
+            // Verify with checksum (when "newer" but same size)
+            if canVerify {
+                Button {
+                    Task { _ = await syncManager.verifyWithChecksum(difference) }
+                } label: {
+                    if isVerifying {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .frame(width: 20, height: 20)
+                    } else {
+                        Label("Verify", systemImage: "checkmark.shield")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isVerifying)
+            }
             
             // Sync Action
             Button(action: { onSync(isMove) }) {

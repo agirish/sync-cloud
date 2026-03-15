@@ -15,6 +15,8 @@ extension FileSyncManager {
     enum FileOperationError: LocalizedError {
         case identicalSourceAndDestination
         case nestingViolation
+        /// Parent of destination exists as a file (e.g. cloud placeholder); sync the parent folder first.
+        case parentExistsAsFile(parentName: String)
 
         var errorDescription: String? {
             switch self {
@@ -22,6 +24,8 @@ extension FileSyncManager {
                 return "The two paths are the same."
             case .nestingViolation:
                 return "Cannot move or copy a directory into itself or its subdirectories."
+            case .parentExistsAsFile(let parentName):
+                return "A file named \"\(parentName)\" already exists on the destination. Sync the parent folder first (use Replace) to replace it with the package, then sync this item."
             }
         }
     }
@@ -192,6 +196,41 @@ extension FileSyncManager {
         return finalizeBackup(backup, fileManager: fileManager)
     }
     
+    /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
+    /// Call before copying into a path like `.../Package.pages-tef/Previews` so we don't fail with "file already exists".
+    nonisolated static func ensureParentDirectoryExists(
+        for destinationURL: URL,
+        fileManager: FileManaging
+    ) throws {
+        let parentURL = destinationURL.deletingLastPathComponent()
+        var isDir: ObjCBool = false
+        if fileManager.fileExists(atPath: parentURL.path, isDirectory: &isDir) {
+            if !isDir.boolValue {
+                throw FileOperationError.parentExistsAsFile(parentName: parentURL.lastPathComponent)
+            }
+            return
+        }
+        try fileManager.createDirectory(at: parentURL, withIntermediateDirectories: true)
+    }
+
+    /// Performs only the file I/O for a single sync (create directory + copy or move).
+    /// Used by bulk sync to run multiple operations in parallel without going through the serial queue per file.
+    /// - Returns: On success, (nil, trashed, from, to). On failure, (error, nil, nil, nil).
+    public nonisolated static func performFileSyncIO(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        isMove: Bool,
+        fileManager: FileManaging = FileManager.default
+    ) throws -> (trashed: URL?, from: URL, to: URL) {
+        try ensureParentDirectoryExists(for: destinationURL, fileManager: fileManager)
+        let trashed: URL?
+        if isMove {
+            trashed = try safeMoveItem(at: sourceURL, to: destinationURL, fileManager: fileManager)
+        } else {
+            trashed = try safeCopyItem(at: sourceURL, to: destinationURL, fileManager: fileManager)
+        }
+        return (trashed, sourceURL, destinationURL)
+    }
     
     private nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL) -> Bool {
         return source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&
@@ -253,7 +292,7 @@ extension FileSyncManager {
                 
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
                     let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
                 } catch {
@@ -350,7 +389,7 @@ extension FileSyncManager {
                 
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
                     let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
                 } catch {
@@ -433,7 +472,7 @@ extension FileSyncManager {
                 
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
                     let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
                 } catch {
@@ -515,7 +554,7 @@ extension FileSyncManager {
                 
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
                     let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
                     targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
                 } catch {

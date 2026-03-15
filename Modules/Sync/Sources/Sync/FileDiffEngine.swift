@@ -144,7 +144,9 @@ public struct FileDiffEngine {
                         rightItemPath: rightFile.url.path,
                         type: .differentDates,
                         action: resolution.action,
-                        description: resolution.description
+                        description: resolution.description,
+                        leftFileSize: leftFile.fileSize,
+                        rightFileSize: rightFile.fileSize
                     ))
                     continue
                 }
@@ -173,7 +175,9 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToRight,
-                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer"
+                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer",
+                            leftFileSize: leftFile.fileSize,
+                            rightFileSize: rightFile.fileSize
                         ))
                     } else if !leftIsNewer && dateDiffers {
                         diffs.append(FileDifference(
@@ -182,7 +186,9 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToLeft,
-                            description: "\(right.displayName) file is newer"
+                            description: "\(right.displayName) file is newer",
+                            leftFileSize: leftFile.fileSize,
+                            rightFileSize: rightFile.fileSize
                         ))
                     } else {
                         // Fallback if dates are identical/missing but sizes differ: default to left as truth
@@ -192,7 +198,9 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToRight,
-                            description: "Sizes differ"
+                            description: "Sizes differ",
+                            leftFileSize: leftFile.fileSize,
+                            rightFileSize: rightFile.fileSize
                         ))
                     }
                 }

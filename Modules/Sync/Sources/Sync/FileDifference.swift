@@ -19,8 +19,18 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
     public let description: String
     /// Whether a sync for this item is currently in progress.
     public var isSyncing: Bool = false
+    /// File size on the left side (bytes). Used to show "Verify with checksum" when same as right.
+    public let leftFileSize: Int?
+    /// File size on the right side (bytes).
+    public let rightFileSize: Int?
     
-    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false) {
+    /// True when both sides report the same file size (and both are non-nil). Use for optional checksum verification.
+    public var sizesMatch: Bool {
+        guard let l = leftFileSize, let r = rightFileSize else { return false }
+        return l == r
+    }
+    
+    public init(id: UUID = UUID(), relativePath: String, leftItemPath: String, rightItemPath: String, type: DifferenceType, action: SyncAction, description: String, isSyncing: Bool = false, leftFileSize: Int? = nil, rightFileSize: Int? = nil) {
         self.id = id
         self.relativePath = relativePath
         self.leftItemPath = leftItemPath
@@ -29,6 +39,8 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         self.action = action
         self.description = description
         self.isSyncing = isSyncing
+        self.leftFileSize = leftFileSize
+        self.rightFileSize = rightFileSize
     }
     
     /// Describes how the two panes differ for this path.

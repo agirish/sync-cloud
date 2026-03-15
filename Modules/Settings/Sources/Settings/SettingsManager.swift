@@ -16,8 +16,17 @@ public class SettingsManager: ObservableObject {
     
     private let userDefaults = UserDefaults.standard
     private let overrideKeyPrefix = "path_override_"
-    
+    private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
+
+    /// When true, the Differences pane hides "right is newer" items when right is Google Drive and sizes match (avoids noise from Drive overwriting file dates).
+    @Published public var ignoreGoogleDriveNewerDateOnly: Bool {
+        didSet {
+            userDefaults.set(ignoreGoogleDriveNewerDateOnly, forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
+        }
+    }
+
     public init() {
+        self.ignoreGoogleDriveNewerDateOnly = UserDefaults.standard.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
         // Initialize with default iCloud provider to allow app to start immediately
         let iCloudDefaultPath = (NSString(string: "~/Documents")).expandingTildeInPath
         self.availableProviders = [
