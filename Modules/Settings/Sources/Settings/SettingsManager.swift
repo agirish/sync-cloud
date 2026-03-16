@@ -113,7 +113,14 @@ public class SettingsManager: ObservableObject {
                     }
                 }
             }
-            return found
+            // Sort so related providers are together: iCloud, then OneDrive, then Google Drive, then Dropbox; within each group by displayName.
+            let typeOrder: [CloudProvider.ProviderType] = [.iCloud, .oneDrive, .googleDrive, .dropBox]
+            return found.sorted { a, b in
+                let aIndex = typeOrder.firstIndex(of: a.type) ?? typeOrder.count
+                let bIndex = typeOrder.firstIndex(of: b.type) ?? typeOrder.count
+                if aIndex != bIndex { return aIndex < bIndex }
+                return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
+            }
         }.value
         
         // Apply overrides back on the Main Actor
