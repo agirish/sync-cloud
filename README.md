@@ -1,27 +1,39 @@
 # SyncCloud
 
-A macOS application for synchronizing documents between two directories. This app helps you keep your documents in sync by identifying differences and allowing you to copy files to maintain consistency.
+A macOS application (GUI) and a command line tool (CLI) for comparing and synchronizing two directories. SyncCloud identifies differences and helps you copy files to keep folders consistent.
 
 ## Features
 
-- **Directory Comparison**: Compare two directories to find differences in file content
-- **Smart Detection**: Identifies files that are:
-  - Missing in destination directory
-  - Missing in source directory  
-  - Have different modification dates
-- **One-Click Sync**: Copy individual files with a single click
-- **Modern UI**: Clean, native macOS interface with SwiftUI
-- **File Browser**: Browse and select directories through the native file picker
+- **Two-pane comparison (GUI)**: Browse left/right trees and review differences
+- **Smart detection**: Finds items that are missing on one side, or differ by date/size
+- **Sync actions**: Copy individual items (and bulk-sync in the GUI)
+- **Cloud provider discovery**: Detects common providers from `~/Library/CloudStorage`
+- **CLI for power users**: A `git`-style `synccloud` command for scan/sync workflows
 
-## Default Directories
+## Versions
 
-The app defaults to:
-- **Source**: `~/OneDrive/Documents`
-- **Destination**: `~/Data/Documents`
+- **GUI (macOS app)**: SwiftUI application in `MacApp/` (built with Xcode)
+- **CLI (`synccloud`)**: Swift command line tool in `SyncCloudCLI/` (built with SwiftPM)
 
-You can change these paths using the text fields or browse buttons.
+## CLI quick start
 
-## How to Use
+See the full CLI docs in `SyncCloudCLI/README.md`.
+
+```bash
+cd SyncCloudCLI
+swift build
+
+# Discover providers (optional)
+swift run synccloud providers
+
+# Scan two folders
+swift run synccloud scan -L ~/OneDrive/Documents -R ~/Data/Documents
+
+# Sync (prompts unless --yes)
+swift run synccloud sync -L ~/OneDrive/Documents -R ~/Data/Documents --direction to-right --yes
+```
+
+## GUI quick start (macOS app)
 
 1. **Set Directories**: Enter or browse to select your source and destination directories
 2. **Scan for Differences**: Click "Scan for Differences" to analyze the directories
@@ -31,9 +43,10 @@ You can change these paths using the text fields or browse buttons.
 ## Requirements
 
 - macOS 14.0 or later
-- Xcode 15.0 or later (for building)
+- Xcode 15.0 or later (for building the GUI app)
+- Swift 5.9+ (for building the CLI)
 
-## Building the Project
+## Building (GUI app)
 
 1. Open `SyncCloud.xcodeproj` in Xcode
 2. Select your target device (Mac)
@@ -46,15 +59,16 @@ SyncCloud/
 ├── MacApp/
 │   ├── SyncCloudApp.swift          # Main app entry point
 │   ├── ContentView.swift           # Main UI view
-│   ├── FileSyncManager.swift       # Core sync logic
 │   ├── Info.plist                  # App configuration
 │   └── Entitlements.plist          # App permissions
+├── Modules/                        # Shared modules (Sync, Settings, Events, ...)
+├── SyncCloudCLI/                   # SwiftPM CLI tool (synccloud)
 └── README.md                       # This file
 ```
 
 ## Permissions
 
-The app requires file system access to:
+The GUI app requires file system access to:
 - Read files from source and destination directories
 - Write files to destination directories
 - Access user-selected directories
