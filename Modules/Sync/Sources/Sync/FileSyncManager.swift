@@ -463,7 +463,7 @@ public class FileSyncManager: ObservableObject {
         return filtered
     }
     
-    nonisolated static func isIgnoredPath(_ path: String, ignored: Set<String>) -> Bool {
+    public nonisolated static func isIgnoredPath(_ path: String, ignored: Set<String>) -> Bool {
         for ignoredPath in ignored {
             if path == ignoredPath || path.hasPrefix(ignoredPath + "/") {
                 return true
@@ -472,7 +472,7 @@ public class FileSyncManager: ObservableObject {
         return false
     }
     
-    nonisolated static func isHiddenPath(_ path: String) -> Bool {
+    public nonisolated static func isHiddenPath(_ path: String) -> Bool {
         let components = path.components(separatedBy: "/")
         return components.contains { $0.hasPrefix(".") }
     }

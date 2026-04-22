@@ -46,7 +46,7 @@ extension FileSyncManager {
     }
     
     
-    nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
+    public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension
@@ -198,7 +198,7 @@ extension FileSyncManager {
     
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
     /// Call before copying into a path like `.../Package.pages-tef/Previews` so we don't fail with "file already exists".
-    nonisolated static func ensureParentDirectoryExists(
+    public nonisolated static func ensureParentDirectoryExists(
         for destinationURL: URL,
         fileManager: FileManaging
     ) throws {

@@ -1,11 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 
 import PackageDescription
 
 let package = Package(
     name: "SyncCloudCLI",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         .executable(
@@ -14,6 +14,9 @@ let package = Package(
         )
     ],
     dependencies: [
+        .package(path: "../Modules/Sync"),
+        .package(path: "../Modules/Settings"),
+        .package(path: "../Modules/Events"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0")
     ],
     targets: [

@@ -8,7 +8,7 @@ import Events
 
 @main
 struct SyncCloudCommand: AsyncParsableCommand {
-    static var configuration = CommandConfiguration(
+    static let configuration = CommandConfiguration(
         commandName: "synccloud",
         abstract: "Command line interface for SyncCloud.",
         discussion: """
@@ -25,22 +25,18 @@ struct SyncCloudCommand: AsyncParsableCommand {
 
 // MARK: - Shared helpers
 
-extension FileDifference.DifferenceType: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case .missingOnRight: return "missing-on-right"
-        case .missingOnLeft: return "missing-on-left"
-        case .differentDates: return "different"
-        }
+private func diffTypeString(_ type: FileDifference.DifferenceType) -> String {
+    switch type {
+    case .missingOnRight: return "missing-on-right"
+    case .missingOnLeft: return "missing-on-left"
+    case .differentDates: return "different"
     }
 }
 
-extension FileDifference.SyncAction: CustomStringConvertible {
-    public var description: String {
-        switch self {
-        case .copyToRight: return "copy-to-right"
-        case .copyToLeft: return "copy-to-left"
-        }
+private func diffActionString(_ action: FileDifference.SyncAction) -> String {
+    switch action {
+    case .copyToRight: return "copy-to-right"
+    case .copyToLeft: return "copy-to-left"
     }
 }
 
@@ -55,13 +51,13 @@ private struct DiffSummary: Codable {
     let rightSize: Int?
 }
 
-private enum Direction: String, ExpressibleByArgument, CaseIterable {
+enum Direction: String, ExpressibleByArgument, CaseIterable {
     case auto
     case toRight = "to-right"
     case toLeft = "to-left"
 }
 
-private enum CollisionStrategy: String, ExpressibleByArgument {
+enum CollisionStrategy: String, ExpressibleByArgument {
     case replace
     case skip
     case keepBoth = "keep-both"
@@ -81,22 +77,28 @@ private func makeProvider(id: String, display: String, path: String) -> CloudPro
     )
 }
 
+@MainActor
 private func resolveProviderOrPath(
     value: String,
     label: String,
     settings: SettingsManager
-) -> CloudProvider {
+) throws -> CloudProvider {
     if let provider = settings.availableProviders.first(where: { $0.id == value || $0.displayName == value }) {
         return provider
     }
     let expanded = expandPath(value)
+    var isDir: ObjCBool = false
+    let exists = FileManager.default.fileExists(atPath: expanded, isDirectory: &isDir)
+    if !exists {
+        throw ValidationError("Path or provider '\(value)' for \(label) could not be found.")
+    }
     return makeProvider(id: expanded, display: label, path: expanded)
 }
 
 // MARK: - scan
 
 struct Scan: AsyncParsableCommand {
-    static var configuration = CommandConfiguration(
+    static let configuration = CommandConfiguration(
         abstract: "Scan two directories and print their differences."
     )
 
@@ -109,13 +111,20 @@ struct Scan: AsyncParsableCommand {
     @Flag(name: .shortAndLong, help: "Output machine-readable JSON.")
     var json: Bool = false
 
-    @Option(name: .shortAndLong, help: "Filter by direction: \(Direction.allCases.map { $0.rawValue }.joined(separator: \", \")).")
+    @Option(name: .shortAndLong, help: "Filter by direction: auto, to-right, to-left.")
     var direction: Direction = .auto
+
+    @Flag(name: .customLong("show-hidden"), help: "Include hidden files and folders.")
+    var showHidden: Bool = false
+
+    @Option(name: .long, help: "Paths to ignore.")
+    var ignore: [String] = []
 
     func run() async throws {
         let settings = await MainActor.run { SettingsManager() }
-        let leftProvider = resolveProviderOrPath(value: left, label: "Left", settings: settings)
-        let rightProvider = resolveProviderOrPath(value: right, label: "Right", settings: settings)
+        await settings.discoverProviders()
+        let leftProvider = try await MainActor.run { try resolveProviderOrPath(value: left, label: "Left", settings: settings) }
+        let rightProvider = try await MainActor.run { try resolveProviderOrPath(value: right, label: "Right", settings: settings) }
 
         let leftURL = URL(fileURLWithPath: expandPath(leftProvider.path))
         let rightURL = URL(fileURLWithPath: expandPath(rightProvider.path))
@@ -131,6 +140,12 @@ struct Scan: AsyncParsableCommand {
             leftFilesInfo: leftInfo,
             rightFilesInfo: rightInfo
         ).filter { diff in
+            if !showHidden && FileSyncManager.isHiddenPath(diff.relativePath) {
+                return false
+            }
+            if !ignore.isEmpty && FileSyncManager.isIgnoredPath(diff.relativePath, ignored: Set(ignore)) {
+                return false
+            }
             switch direction {
             case .auto:
                 return true
@@ -147,8 +162,8 @@ struct Scan: AsyncParsableCommand {
                     relativePath: $0.relativePath,
                     leftPath: $0.leftItemPath,
                     rightPath: $0.rightItemPath,
-                    type: $0.type.description,
-                    action: $0.action.description,
+                    type: diffTypeString($0.type),
+                    action: diffActionString($0.action),
                     description: $0.description,
                     leftSize: $0.leftFileSize,
                     rightSize: $0.rightFileSize
@@ -174,8 +189,8 @@ struct Scan: AsyncParsableCommand {
             print("")
 
             for diff in diffs {
-                let type = diff.type.description
-                let action = diff.action.description
+                let type = diffTypeString(diff.type)
+                let action = diffActionString(diff.action)
                 print("- [\(type)] [\(action)] \(diff.relativePath)")
                 print("    \(diff.description)")
             }
@@ -186,7 +201,7 @@ struct Scan: AsyncParsableCommand {
 // MARK: - sync
 
 struct SyncFiles: AsyncParsableCommand {
-    static var configuration = CommandConfiguration(
+    static let configuration = CommandConfiguration(
         commandName: "sync",
         abstract: "Synchronize differences between two directories."
     )
@@ -201,15 +216,28 @@ struct SyncFiles: AsyncParsableCommand {
     var direction: Direction = .auto
 
     @Option(name: .shortAndLong, help: "Collision strategy when destination exists: replace | skip | keep-both.")
-    var strategy: CollisionStrategy = .replace
+    var strategy: CollisionStrategy = .skip
 
     @Flag(name: .shortAndLong, help: "Run without interactive confirmation.")
     var yes: Bool = false
+    
+    @Flag(name: .customLong("show-hidden"), help: "Include hidden files and folders.")
+    var showHidden: Bool = false
+
+    @Option(name: .long, help: "Paths to ignore.")
+    var ignore: [String] = []
+
+    @Flag(name: .customLong("fail-fast"), help: "Abort the synchronization immediately if any file copy fails.")
+    var failFast: Bool = false
+
+    @Flag(name: .long, help: "Verify file contents using checksums before syncing files with different dates but identical sizes.")
+    var verify: Bool = false
 
     func run() async throws {
         let settings = await MainActor.run { SettingsManager() }
-        let leftProvider = resolveProviderOrPath(value: left, label: "Left", settings: settings)
-        let rightProvider = resolveProviderOrPath(value: right, label: "Right", settings: settings)
+        await settings.discoverProviders()
+        let leftProvider = try await MainActor.run { try resolveProviderOrPath(value: left, label: "Left", settings: settings) }
+        let rightProvider = try await MainActor.run { try resolveProviderOrPath(value: right, label: "Right", settings: settings) }
 
         let leftURL = URL(fileURLWithPath: expandPath(leftProvider.path))
         let rightURL = URL(fileURLWithPath: expandPath(rightProvider.path))
@@ -226,7 +254,13 @@ struct SyncFiles: AsyncParsableCommand {
             rightFilesInfo: rightInfo
         )
 
-        let diffs: [FileDifference] = allDiffs.filter { diff in
+        var diffs: [FileDifference] = allDiffs.filter { diff in
+            if !showHidden && FileSyncManager.isHiddenPath(diff.relativePath) {
+                return false
+            }
+            if !ignore.isEmpty && FileSyncManager.isIgnoredPath(diff.relativePath, ignored: Set(ignore)) {
+                return false
+            }
             switch direction {
             case .auto:
                 return true
@@ -234,6 +268,31 @@ struct SyncFiles: AsyncParsableCommand {
                 return diff.action == .copyToRight
             case .toLeft:
                 return diff.action == .copyToLeft
+            }
+        }
+        
+        if verify {
+            print("Verifying files with matching sizes...")
+            var verifiedCount = 0
+            var i = 0
+            while i < diffs.count {
+                let diff = diffs[i]
+                if diff.type == .differentDates && diff.sizesMatch {
+                    let same = await FileContentVerifier.filesHaveSameContent(
+                        leftPath: diff.leftItemPath,
+                        rightPath: diff.rightItemPath,
+                        fileManager: FileManager.default
+                    )
+                    if same == true {
+                        diffs.remove(at: i)
+                        verifiedCount += 1
+                        continue
+                    }
+                }
+                i += 1
+            }
+            if verifiedCount > 0 {
+                print("Skipped \(verifiedCount) files that verified as identical.")
             }
         }
 
@@ -244,8 +303,8 @@ struct SyncFiles: AsyncParsableCommand {
 
         print("Planned operations (\(diffs.count)):")
         for diff in diffs {
-            let arrow = diff.action == .copyToRight ? "←" : "→"
-            print("- \(diff.relativePath) \(arrow) [\(diff.type.description)]")
+            let arrow = diff.action == .copyToRight ? "→" : "←"
+            print("- \(diff.relativePath) \(arrow) [\(diffTypeString(diff.type))]")
         }
 
         if !yes {
@@ -261,6 +320,7 @@ struct SyncFiles: AsyncParsableCommand {
         var copied = 0
         var skipped = 0
         var failed = 0
+        var skippedPaths: [String] = []
 
         for diff in diffs {
             let (sourcePath, targetPath): (String, String) = {
@@ -273,63 +333,55 @@ struct SyncFiles: AsyncParsableCommand {
             }()
 
             do {
-                var finalTarget = targetPath
+                var finalTargetURL = URL(fileURLWithPath: targetPath)
+                let sourceURL = URL(fileURLWithPath: sourcePath)
+                
                 var isDir: ObjCBool = false
-                if fm.fileExists(atPath: targetPath, isDirectory: &isDir) {
+                if fm.fileExists(atPath: finalTargetURL.path, isDirectory: &isDir) {
                     switch strategy {
                     case .skip:
                         skipped += 1
+                        skippedPaths.append(diff.relativePath)
                         continue
                     case .replace:
-                        if isDir.boolValue {
-                            try fm.removeItem(atPath: targetPath)
-                        }
+                        break // performFileSyncIO handles safe replacement
                     case .keepBoth:
-                        finalTarget = makeUniquePath(for: targetPath, fileManager: fm)
+                        finalTargetURL = FileSyncManager.generateUniqueURL(for: finalTargetURL, fileManager: fm)
                     }
                 }
 
-                let targetURL = URL(fileURLWithPath: finalTarget)
-                let parentDir = targetURL.deletingLastPathComponent().path
-                if !fm.fileExists(atPath: parentDir, isDirectory: &isDir) {
-                    try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true, attributes: nil)
-                }
-
-                try fm.copyItem(atPath: sourcePath, toPath: finalTarget)
+                _ = try FileSyncManager.performFileSyncIO(from: sourceURL, to: finalTargetURL, isMove: false, fileManager: fm)
                 copied += 1
             } catch {
                 failed += 1
-                let message = "Failed to copy \(diff.relativePath): \(error.localizedDescription)"
-                Logger.shared.error(message, showAlert: false)
+                let message = "Failed to sync \(diff.relativePath): \(error.localizedDescription)"
+                await MainActor.run { _ = Logger.shared.error(message, showAlert: false) }
                 fputs(message + "\n", stderr)
+                
+                if failFast {
+                    fputs("Aborting due to --fail-fast.\n", stderr)
+                    throw error
+                }
             }
         }
+        
+        try? await Task.sleep(nanoseconds: 100_000_000)
 
         print("")
         print("Sync complete. Copied: \(copied), Skipped: \(skipped), Failed: \(failed).")
-    }
-
-    private func makeUniquePath(for path: String, fileManager: FileManager) -> String {
-        var url = URL(fileURLWithPath: path)
-        let ext = url.pathExtension
-        var base = url.deletingPathExtension().lastPathComponent
-        var dir = url.deletingLastPathComponent()
-
-        var counter = 1
-        while fileManager.fileExists(atPath: url.path) {
-            let suffix = " copy\(counter == 1 ? "" : " \(counter)")"
-            let newBase = base + suffix
-            url = dir.appendingPathComponent(newBase).appendingPathExtension(ext)
-            counter += 1
+        if skipped > 0 {
+            print("Skipped files:")
+            for p in skippedPaths {
+                print("  \(p)")
+            }
         }
-        return url.path
     }
 }
 
 // MARK: - providers
 
 struct Providers: AsyncParsableCommand {
-    static var configuration = CommandConfiguration(
+    static let configuration = CommandConfiguration(
         commandName: "providers",
         abstract: "List discovered cloud providers and their root paths."
     )
@@ -339,13 +391,14 @@ struct Providers: AsyncParsableCommand {
         // Ensure discovery has completed at least once.
         await settings.discoverProviders()
 
-        if settings.availableProviders.isEmpty {
+        let providers = await MainActor.run { settings.availableProviders }
+        if providers.isEmpty {
             print("No providers discovered.")
             return
         }
 
         print("Discovered providers:")
-        for provider in settings.availableProviders {
+        for provider in providers {
             print("- \(provider.id)")
             print("    name : \(provider.displayName)")
             print("    type : \(provider.type.rawValue)")
