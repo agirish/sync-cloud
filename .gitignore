@@ -6,6 +6,8 @@
 xcuserdata/
 **/*.xcuserstate
 **/xcuserdata/
+# Explicit: this repo tracks parts of SyncCloud.xcodeproj; keep per-user scheme data untracked.
+SyncCloud.xcodeproj/xcuserdata/
 
 ## compatibility with Xcode 8 and earlier (ignoring not required starting Xcode 9)
 *.xcscmblueprint
