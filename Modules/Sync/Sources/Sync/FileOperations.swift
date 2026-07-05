@@ -243,6 +243,7 @@ extension FileSyncManager {
     /// - Returns: The nodes that were successfully copied (may be fewer if user skips or errors occur).
     @discardableResult
     public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let resolveCollision = collisionResolver
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         
@@ -282,7 +283,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: false) }
+                    let resolution = await MainActor.run { resolveCollision(tName, false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -337,6 +338,7 @@ extension FileSyncManager {
     /// - Returns: The nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let resolveCollision = collisionResolver
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         
@@ -379,7 +381,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: true) }
+                    let resolution = await MainActor.run { resolveCollision(tName, true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -434,6 +436,7 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully copied.
     @discardableResult
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let resolveCollision = collisionResolver
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         
@@ -462,7 +465,7 @@ extension FileSyncManager {
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: false) }
+                    let resolution = await MainActor.run { resolveCollision(tName, false) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -516,6 +519,7 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        let resolveCollision = collisionResolver
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         
@@ -544,7 +548,7 @@ extension FileSyncManager {
                     continue
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { NativeAlerts.promptForCollision(fileName: tName, isMove: true) }
+                    let resolution = await MainActor.run { resolveCollision(tName, true) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
@@ -651,6 +655,7 @@ extension FileSyncManager {
 
     /// Permanently deletes files or directories from disk.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
+        let confirmPermanentDelete = permanentDeleteConfirmer
         let result = await enqueueFileOperation { [weak self] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
             guard let strongSelf = self else { return ([], []) }
             var taskErrors: [Error] = []
@@ -698,8 +703,8 @@ extension FileSyncManager {
             }
             
             if !trashFailures.isEmpty {
-                let confirmed = await MainActor.run { 
-                    NativeAlerts.confirmPermanentDelete(itemNames: trashFailures.map { $0.lastPathComponent })
+                let confirmed = await MainActor.run {
+                    confirmPermanentDelete(trashFailures.map { $0.lastPathComponent })
                 }
                 
                 if confirmed {

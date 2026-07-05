@@ -25,17 +25,22 @@ import Foundation
         #expect(mockFM.calledCopyItem == true)
     }
     
+    @MainActor
     @Test func testDeleteItemsTriggersPermanentRemovalOnTrashFailure() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         // Simulate a network volume that doesn't support the trash bin
         mockFM.shouldFailTrash = true
-        
+
         let targetURL = URL(fileURLWithPath: "/src/data.bin")
-        
-        await FileSyncManager().deleteItems(at: [targetURL.path], fileManager: mockFM)
+
+        let manager = FileSyncManager()
+        // The trash failure asks for permanent-delete confirmation; the default confirmer is a
+        // blocking NSAlert, so mock the user confirming.
+        manager.permanentDeleteConfirmer = { _ in true }
+        await manager.deleteItems(at: [targetURL.path], fileManager: mockFM)
         
         #expect(mockFM.virtualDisk["/src/data.bin"] == nil)
         // Verify it didn't end up in the `.trashedPaths` mock stub array but was physically deleted instead
@@ -314,22 +319,23 @@ import Foundation
         let manager = FileSyncManager()
         let mockFM = MockFileManager()
         
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/folder"), withIntermediateDirectories: true)
-        
+        mockFM.virtualDisk["/src/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["file1.txt"])
         mockFM.virtualDisk["/src/folder/file1.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["file2.txt"])
         mockFM.virtualDisk["/dst/folder/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
+
         let node = FileNode(id: "/src/folder", name: "folder", isDirectory: true)
-        
-        // Copy /src/folder into /dst
-        // Expected behavior: /dst/folder already exists. safeCopyItem should handle merge or override.
-        // Current implementation uses fm.copyItem which throws if destination exists.
+
+        // /dst/folder already exists, so this hits the collision path. The resolver must be
+        // mocked: the default one presents a blocking NSAlert.
+        manager.collisionResolver = { _, _ in .replace }
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
-        
-        // In current implementation, if the destination directory exists, it might throw or handle it.
-        // Let's verify what actually happened (likely an error recorded in manager.currentError)
-        #expect(manager.currentError != nil)
+
+        // Replace semantics: the old destination directory is backed up out of the way and the
+        // source directory takes its place - file1 arrives, file2 (from the replaced dir) is gone.
+        #expect(manager.currentError == nil)
+        #expect(mockFM.virtualDisk["/dst/folder/file1.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/folder/file2.txt"] == nil)
     }
     
     // MARK: - Safe Move & Copy Rollback Logic

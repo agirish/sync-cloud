@@ -17,6 +17,18 @@ public class FileSyncManager: ObservableObject {
     public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { fileName, isMove in
         return NativeAlerts.promptForCollision(fileName: fileName, isMove: isMove)
     }
+
+    /// The bulk-sync variant of `collisionResolver`, adding an "Apply to all" choice.
+    /// In production this shows an NSAlert; tests mock it so no modal can block a headless run.
+    public var bulkCollisionResolver: @MainActor (String, Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { fileName, isMove in
+        return NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+    }
+
+    /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
+    /// In production this shows an NSAlert; tests mock it so no modal can block a headless run.
+    public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { itemNames in
+        return NativeAlerts.confirmPermanentDelete(itemNames: itemNames)
+    }
     
     /// Initializes a new FileSyncManager with a specific file manager.
     /// - Parameter fileManager: The file manager to use. Defaults to `FileManager.default`.
@@ -521,7 +533,7 @@ public class FileSyncManager: ObservableObject {
             if isBulkSync, let cached = bulkApplyToAllResolution {
                 resolution = cached
             } else if isBulkSync {
-                let (res, applyToAll) = NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+                let (res, applyToAll) = bulkCollisionResolver(fileName, isMove)
                 if applyToAll { bulkApplyToAllResolution = res }
                 resolution = res
             } else {
@@ -636,7 +648,7 @@ public class FileSyncManager: ObservableObject {
                 if let cached = bulkApplyToAllResolution {
                     resolution = cached
                 } else {
-                    let (res, applyToAll) = NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+                    let (res, applyToAll) = bulkCollisionResolver(fileName, isMove)
                     if applyToAll { bulkApplyToAllResolution = res }
                     resolution = res
                 }
