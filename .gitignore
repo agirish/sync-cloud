@@ -94,3 +94,8 @@ build_runtime/
 build_runtime_backup/
 test*.txt
 test*.swift
+
+# Claude Code
+# Machine-local settings (permissions, etc.). Shared config like .claude/settings.json
+# can still be committed if desired.
+.claude/settings.local.json
