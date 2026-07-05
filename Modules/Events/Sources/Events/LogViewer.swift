@@ -1,6 +1,25 @@
 import SwiftUI
 import Design
 
+/// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
+/// case-insensitive search, and newest-first ordering are unit-testable without `@State`.
+enum LogEntryFilter {
+    /// - Parameter level: `nil` shows all levels.
+    static func apply(_ entries: [LogEntry], level: LogLevel?, search: String) -> [LogEntry] {
+        var result = entries
+
+        if let level {
+            result = result.filter { $0.level == level }
+        }
+
+        if !search.isEmpty {
+            result = result.filter { $0.message.localizedCaseInsensitiveContains(search) }
+        }
+
+        return result.reversed() // Show newest at the top
+    }
+}
+
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 public struct LogViewer: View {
     @ObservedObject public var logger = Logger.shared
@@ -12,18 +31,7 @@ public struct LogViewer: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     var filteredEntries: [LogEntry] {
-        var result = logger.entries
-        
-        if let level = selectedLevel {
-            result = result.filter { $0.level == level }
-        }
-        
-        if !searchText.isEmpty {
-            result = result.filter { $0.message.localizedCaseInsensitiveContains(searchText) }
-        }
-        
-        // Show newest at the bottom naturally or reverse for top-down
-        return result.reversed() // Show newest at the top
+        LogEntryFilter.apply(logger.entries, level: selectedLevel, search: searchText)
     }
     
     public var body: some View {
