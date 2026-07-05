@@ -12,7 +12,7 @@ extension FileSyncManager {
     
     // MARK: - Safe Atomic Replacements
     
-    enum FileOperationError: LocalizedError {
+    enum FileOperationError: LocalizedError, Equatable {
         case identicalSourceAndDestination
         case nestingViolation
         /// Parent of destination exists as a file (e.g. cloud placeholder); sync the parent folder first.

@@ -133,12 +133,12 @@ import Foundation
         
         // Start first refresh
         let firstRefresh = Task {
-            await manager.refreshTreesAndScan(source: provider, destination: provider)
+            await manager.refreshTreesAndScan(left: provider, right: provider)
         }
         
         // Immediately start second refresh - should cancel the first
         let secondRefresh = Task {
-            await manager.refreshTreesAndScan(source: provider, destination: provider)
+            await manager.refreshTreesAndScan(left: provider, right: provider)
         }
         
         await firstRefresh.value
@@ -164,13 +164,13 @@ import Foundation
         let destination = CloudProvider(id: "dst", displayName: "Destination", imageName: "test", path: "/", type: .iCloud)
 
         let firstScan = Task {
-            await manager.scanDirectories(source: source, sourcePath: "/src1", destination: destination, destinationPath: "/dst1")
+            await manager.scanDirectories(left: source, leftPath: "/src1", right: destination, rightPath: "/dst1")
         }
 
         try await Task.sleep(nanoseconds: 10_000_000)
 
         let secondScan = Task {
-            await manager.scanDirectories(source: source, sourcePath: "/src2", destination: destination, destinationPath: "/dst2")
+            await manager.scanDirectories(left: source, leftPath: "/src2", right: destination, rightPath: "/dst2")
         }
 
         await firstScan.value

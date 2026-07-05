@@ -60,7 +60,7 @@ import Foundation
         mockFM.virtualDisk["/dst/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now], contents: nil)
         
         // Scan
-        await manager.scanDirectories(source: srcProvider, sourcePath: "/src", destination: dstProvider, destinationPath: "/dst")
+        await manager.scanDirectories(left: srcProvider, leftPath: "/src", right: dstProvider, rightPath: "/dst")
         
         // Should have 2 differences
         #expect(manager.differences.count == 2)
