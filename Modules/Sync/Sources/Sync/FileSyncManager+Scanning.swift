@@ -6,34 +6,7 @@ import UniformTypeIdentifiers
 extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
-    
-    /// Pre-loads file trees for the given providers concurrently in the background.
-    /// This populates the `prefetchedTrees` cache without blocking the UI or cancelling active tasks.
-    public func prefetch(providers: [CloudProvider]) async {
-        let sortOp = self.sortOption
-        let fm = self.fileManager
-        
-        await withTaskGroup(of: (String, [FileNode]?).self) { group in
-            for provider in providers {
-                let path = (provider.path as NSString).expandingTildeInPath
-                group.addTask {
-                    let rootURL = URL(fileURLWithPath: path)
-                    let tree = await Self.buildTree(url: rootURL, sortOption: sortOp, fileManager: fm)
-                    return (path, tree)
-                }
-            }
-            
-            for await (path, tree) in group {
-                if let tree = tree {
-                    await MainActor.run {
-                        self.prefetchedTrees[path] = tree
-                        Logger.shared.debug("Prefetched tree for \(path)")
-                    }
-                }
-            }
-        }
-    }
-    
+
     /// Loads the file tree for one pane from disk (or from prefetch cache when at root).
     /// - Parameters:
     ///   - path: Absolute path of the pane root (e.g. expanded tilde).
