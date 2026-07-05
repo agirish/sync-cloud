@@ -225,25 +225,35 @@ extension FileSyncManager {
                 let sortOption: SortOption
                 
                 func buildNode(at fullURL: URL) -> FileNode? {
-                    var isDirectory: ObjCBool = false
                     guard !Task.isCancelled else { return nil }
-                    guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDirectory) else { return nil }
-                    
+
                     let name = fullURL.lastPathComponent
-                    
+
+                    var isDirectory = false
                     var modDate: Date?
                     var size: Int?
                     var tags: [String]?
                     var kind: String?
-                    
-                    if let rv = try? fullURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
+
+                    if fileManager is FileManager {
+                        // Real filesystem: a single resourceValues fetch covers existence, type, and
+                        // metadata (the same keys the diff scan reads), avoiding a separate
+                        // fileExists stat per node.
+                        guard let rv = try? fullURL.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) else { return nil }
+                        isDirectory = rv.isDirectory ?? false
                         modDate = rv.contentModificationDate
                         size = rv.fileSize
                         tags = rv.tagNames
                         kind = rv.typeIdentifier
+                    } else {
+                        // Injected mock: resourceValues hits the real disk, so use the mock for
+                        // existence/type (metadata stays nil, as before).
+                        var isDir: ObjCBool = false
+                        guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
+                        isDirectory = isDir.boolValue
                     }
-                    
-                    if isDirectory.boolValue {
+
+                    if isDirectory {
                         let contents: [String] = {
                             if let realFm = fileManager as? FileManager {
                                 return (try? realFm.contentsOfDirectory(atPath: fullURL.path)) ?? []

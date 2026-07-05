@@ -94,8 +94,36 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         
         await manager.loadTree(path: "/src", isLeft: true)
-        
+
         #expect(manager.leftItemCount == 0)
         #expect(manager.leftTree.isEmpty)
+    }
+
+    @MainActor
+    @Test func testRealFilesystemTreeBuild() async throws {
+        // Exercises the real-FileManager buildNode path (resourceValues-based existence/type),
+        // which the mock-based tests do not cover. Mirrors testItemCountsWithNesting on disk.
+        let manager = FileSyncManager() // real FileManager
+        let fm = FileManager.default
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SyncCloudTreeTest-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // /root/file1.txt, /root/subDir, /root/subDir/file2.txt -> 3 items
+        try Data("hello".utf8).write(to: root.appendingPathComponent("file1.txt"))
+        let subDir = root.appendingPathComponent("subDir")
+        try fm.createDirectory(at: subDir, withIntermediateDirectories: true)
+        try Data("world".utf8).write(to: subDir.appendingPathComponent("file2.txt"))
+
+        await manager.loadTree(path: root.path, isLeft: true)
+
+        #expect(manager.leftItemCount == 3)
+
+        // isDirectory must be resolved correctly from resourceValues.
+        let byName = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0.isDirectory) })
+        #expect(byName["file1.txt"] == false)
+        #expect(byName["subDir"] == true)
     }
 }
