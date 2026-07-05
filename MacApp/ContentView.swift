@@ -137,7 +137,7 @@ struct ContentView: View {
                 
                 // Start prefetching in the background without blocking the initial UI load
                 Task.detached(priority: .background) {
-                    await syncManager.prefetch(providers: settings.availableProviders)
+                    await syncManager.prefetch(providers: selectedProviderPair)
                 }
                 
                 if !settings.availableProviders.isEmpty {
@@ -166,7 +166,7 @@ struct ContentView: View {
         }
         .onChange(of: settings.availableProviders) { _, _ in
             Task {
-                await syncManager.prefetch(providers: settings.availableProviders)
+                await syncManager.prefetch(providers: selectedProviderPair)
             }
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
             guard !isBootstrappingProviders else { return }
@@ -177,6 +177,16 @@ struct ContentView: View {
         }
     }
     
+    /// The providers currently shown in the two panes (deduplicated). Used to warm the prefetch
+    /// cache for just the active pair instead of every discovered provider.
+    private var selectedProviderPair: [CloudProvider] {
+        var seen = Set<String>()
+        return [leftProviderId, rightProviderId].compactMap { id in
+            guard seen.insert(id).inserted else { return nil }
+            return settings.availableProviders.first { $0.id == id }
+        }
+    }
+
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
     private var currentLeftPath: String {
         let root = (settings.path(for: leftProviderId) as NSString).expandingTildeInPath
