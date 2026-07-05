@@ -1,0 +1,56 @@
+import Testing
+import Foundation
+import Sync
+import Settings
+@testable import Dashboard
+
+/// Coverage for FileActionHandler's pure string logic: relative-path derivation in focusFolder,
+/// provider root matching (incl. the "/" prefix boundary), and AppleScript escaping.
+@Suite struct FileActionHandlerHelperTests {
+
+    @MainActor
+    @Test func testFocusFolderDerivesRelativePathFromProviderRoot() {
+        let manager = FileSyncManager()
+        let settings = SettingsManager(autoDiscover: false) // seeded iCloud provider only
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+
+        let root = settings.path(for: "iCloud")
+        let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        #expect(manager.leftRelativePath == "Projects/Sync")
+    }
+
+    @MainActor
+    @Test func testFocusFolderOnRootYieldsEmptyRelativePath() {
+        let manager = FileSyncManager()
+        let settings = SettingsManager(autoDiscover: false)
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+
+        let root = settings.path(for: "iCloud")
+        let node = FileNode(id: root, name: "root", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: false, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        #expect(manager.rightRelativePath == "")
+    }
+
+    @MainActor
+    @Test func testProviderDisplayNameMatchesRootAndRespectsBoundary() {
+        let settings = SettingsManager(autoDiscover: false)
+        let handler = FileActionHandler(syncManager: FileSyncManager(), settings: settings)
+        let root = settings.path(for: "iCloud")
+
+        // Exact root and a real subpath resolve to the provider.
+        #expect(handler.providerDisplayName(forPath: root) == "iCloud")
+        #expect(handler.providerDisplayName(forPath: "\(root)/sub/file.txt") == "iCloud")
+        // A sibling that merely shares the root as a string prefix must NOT match (the "/" boundary guard).
+        #expect(handler.providerDisplayName(forPath: "\(root)Extra") == "other pane")
+    }
+
+    @MainActor
+    @Test func testEscapeForAppleScriptEscapesBackslashThenQuote() {
+        // Backslash must be escaped before the quote, else the quote's backslash gets doubled.
+        #expect(FileActionHandler.escapeForAppleScript(#"a"b\c"#) == #"a\"b\\c"#)
+        #expect(FileActionHandler.escapeForAppleScript("plain") == "plain")
+    }
+}

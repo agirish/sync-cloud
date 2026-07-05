@@ -158,7 +158,8 @@ public class FileActionHandler {
         pasteItems(nodesToPaste, toPath: destinationPath, isCut: syncManager.clipboardIsCut)
     }
 
-    private static func escapeForAppleScript(_ raw: String) -> String {
+    // Internal (not private) so its escaping order can be unit-tested; only used by openGetInfo.
+    static func escapeForAppleScript(_ raw: String) -> String {
         raw
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
@@ -168,7 +169,8 @@ public class FileActionHandler {
         settings.availableProviders.first(where: { $0.id == id })?.displayName ?? "other pane"
     }
     
-    private func providerDisplayName(forPath path: String) -> String {
+    // Internal (not private) so the provider root-matching (incl. the "/" prefix boundary) is testable.
+    func providerDisplayName(forPath path: String) -> String {
         let expanded = (path as NSString).expandingTildeInPath
         for p in settings.availableProviders {
             let root = (p.path as NSString).expandingTildeInPath
