@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 @testable import Settings
-@testable import Sync
+import Sync
 
 @Suite struct SettingsManagerTests {
     
