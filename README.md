@@ -45,12 +45,14 @@ swift run synccloud sync -L ~/OneDrive/Documents -R ~/Data/Documents --direction
 - macOS 14.0 or later
 - Xcode 15.0 or later (for building the GUI app)
 - Swift 5.9+ (for building the CLI)
+- [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`) — the Xcode project is generated from `project.yml` and is not checked in
 
 ## Building (GUI app)
 
-1. Open `SyncCloud.xcodeproj` in Xcode
-2. Select your target device (Mac)
-3. Build and run the project (⌘+R)
+1. Generate the Xcode project: `xcodegen generate`
+2. Open the generated `SyncCloud.xcodeproj` in Xcode
+3. Select your target device (Mac)
+4. Build and run the project (⌘+R)
 
 ## File Structure
 
