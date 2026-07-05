@@ -5,175 +5,203 @@ import Foundation
 /// A RAM-only filesystem simulator built for Unit Tests.
 /// It intercepts `FileManaging` protocol endpoints to emulate standard volume constraints,
 /// read/write states, and failure behaviors without interacting with the physical local disk.
+///
+/// All virtual-disk access is guarded by a recursive lock so the mock is safe to drive from the
+/// parallel worker pools in `syncAll` / bulk verify (up to 4 concurrent operations). A recursive
+/// lock is required because `moveItem`/`trashItem` call `copyItem`/`removeItem` while already holding it.
 public final class MockFileManager: FileManaging, @unchecked Sendable {
-    
+
     public struct FileStub {
         var isDirectory: Bool
         let attributes: [FileAttributeKey: Any]?
         var contents: [String]? // Child names if directory
     }
-    
+
     // The dictionary-backed RAM virtual disk
     public var virtualDisk: [String: FileStub] = [:]
-    
+
+    private let lock = NSRecursiveLock()
+    private func sync<T>(_ body: () throws -> T) rethrows -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return try body()
+    }
+
     public init() {}
-    
+
     public func fileExists(atPath path: String) -> Bool {
-        return virtualDisk.keys.contains(path)
+        sync { virtualDisk.keys.contains(path) }
     }
-    
+
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-        if let stub = virtualDisk[path] {
-            isDirectory?.pointee = ObjCBool(stub.isDirectory)
-            return true
+        sync {
+            if let stub = virtualDisk[path] {
+                isDirectory?.pointee = ObjCBool(stub.isDirectory)
+                return true
+            }
+            return false
         }
-        return false
     }
-    
+
     public func attributesOfItem(atPath path: String) throws -> [FileAttributeKey : Any] {
-        guard let stub = virtualDisk[path] else {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+        try sync {
+            guard let stub = virtualDisk[path] else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+            }
+            var attrs = stub.attributes ?? [:]
+            attrs[.type] = stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular
+            return attrs
         }
-        var attrs = stub.attributes ?? [:]
-        attrs[.type] = stub.isDirectory ? FileAttributeType.typeDirectory : FileAttributeType.typeRegular
-        return attrs
     }
-    
+
     public func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws {
-        let path = url.path
-        if let existing = virtualDisk[path] {
-            if createIntermediates && existing.isDirectory {
-                return // Native FileManager doesn't throw if the dir already exists and createIntermediates is true
+        try sync {
+            let path = url.path
+            if let existing = virtualDisk[path] {
+                if createIntermediates && existing.isDirectory {
+                    return // Native FileManager doesn't throw if the dir already exists and createIntermediates is true
+                }
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
             }
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
+
+            // In a true mock, we'd traverse and split intermediate structures,
+            // but for generic target testing, we stub it barebones.
+            virtualDisk[path] = FileStub(isDirectory: true, attributes: attributes, contents: [])
         }
-        
-        // In a true mock, we'd traverse and split intermediate structures,
-        // but for generic target testing, we stub it barebones.
-        virtualDisk[path] = FileStub(isDirectory: true, attributes: attributes, contents: [])
     }
-    
+
     public var calledCopyItem: Bool = false
-    
+
     public func copyItem(at srcURL: URL, to dstURL: URL) throws {
-        calledCopyItem = true
-        let src = srcURL.path
-        let dst = dstURL.path
-        
-        guard let sourceData = virtualDisk[src] else {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
-        }
-        
-        if virtualDisk[dst] != nil {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
-        }
-        
-        virtualDisk[dst] = sourceData
-        
-        // Deep copy simulated contents
-        if sourceData.isDirectory, let children = sourceData.contents {
-            for child in children {
-                try? copyItem(at: srcURL.appendingPathComponent(child), to: dstURL.appendingPathComponent(child))
+        try sync {
+            calledCopyItem = true
+            let src = srcURL.path
+            let dst = dstURL.path
+
+            guard let sourceData = virtualDisk[src] else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+            }
+
+            if virtualDisk[dst] != nil {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError)
+            }
+
+            virtualDisk[dst] = sourceData
+
+            // Deep copy simulated contents
+            if sourceData.isDirectory, let children = sourceData.contents {
+                for child in children {
+                    try? copyItem(at: srcURL.appendingPathComponent(child), to: dstURL.appendingPathComponent(child))
+                }
             }
         }
     }
-    
+
     public var shouldFailMove: Bool = false
     public var shouldFailMoveOnTempRename: Bool = false
-    
+
     public func moveItem(at srcURL: URL, to dstURL: URL) throws {
-        if shouldFailMove {
-            shouldFailMove = false
-            // Emulate Cross-Device Link failure (EXDEV)
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
+        try sync {
+            if shouldFailMove {
+                shouldFailMove = false
+                // Emulate Cross-Device Link failure (EXDEV)
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
+            }
+
+            if shouldFailMoveOnTempRename && srcURL.path.contains(".tmp_") {
+                shouldFailMoveOnTempRename = false
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
+            }
+
+            // Simple mock of move (copy + delete)
+            try copyItem(at: srcURL, to: dstURL)
+            try removeItem(at: srcURL)
         }
-        
-        if shouldFailMoveOnTempRename && srcURL.path.contains(".tmp_") {
-            shouldFailMoveOnTempRename = false
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
-        }
-        
-        // Simple mock of move (copy + delete)
-        try copyItem(at: srcURL, to: dstURL)
-        try removeItem(at: srcURL)
     }
-    
+
     public var shouldFailTrash: Bool = false
     public var trashedPaths: [String] = []
     public var enumeratorDelay: TimeInterval = 0
     public var failRemovePathsOnce: Set<String> = []
-    
+
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-        if shouldFailTrash {
-            // Simulate network drive without trash bin
-            throw NSError(domain: POSIXError.errorDomain, code: Int(POSIXError.ENOTSUP.rawValue))
+        try sync {
+            if shouldFailTrash {
+                // Simulate network drive without trash bin
+                throw NSError(domain: POSIXError.errorDomain, code: Int(POSIXError.ENOTSUP.rawValue))
+            }
+
+            let path = url.path
+            guard virtualDisk[path] != nil else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+            }
+
+            // Emulate moving to ~/.Trash
+            let trashedTarget = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(url.lastPathComponent)
+
+            // Use a direct copy+remove path so injected move-failure flags continue to apply
+            // only to the operation under test, not to trash bookkeeping.
+            try copyItem(at: url, to: trashedTarget)
+            try removeItem(at: url)
+            trashedPaths.append(trashedTarget.path)
+
+            outResultingURL?.pointee = trashedTarget as NSURL
         }
-        
-        let path = url.path
-        guard virtualDisk[path] != nil else {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
-        }
-        
-        // Emulate moving to ~/.Trash
-        let trashedTarget = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(url.lastPathComponent)
-        
-        // Use a direct copy+remove path so injected move-failure flags continue to apply
-        // only to the operation under test, not to trash bookkeeping.
-        try copyItem(at: url, to: trashedTarget)
-        try removeItem(at: url)
-        trashedPaths.append(trashedTarget.path)
-        
-        outResultingURL?.pointee = trashedTarget as NSURL
     }
-    
+
     public func removeItem(at URL: URL) throws {
-        let path = URL.path
-        if failRemovePathsOnce.contains(path) {
-            failRemovePathsOnce.remove(path)
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
-        }
-        guard let sourceData = virtualDisk[path] else {
-            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
-        }
-        
-        virtualDisk.removeValue(forKey: path)
-        
-        // Deep remove
-        if sourceData.isDirectory, let children = sourceData.contents {
-            for child in children {
-                try? removeItem(at: URL.appendingPathComponent(child))
+        try sync {
+            let path = URL.path
+            if failRemovePathsOnce.contains(path) {
+                failRemovePathsOnce.remove(path)
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)
+            }
+            guard let sourceData = virtualDisk[path] else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+            }
+
+            virtualDisk.removeValue(forKey: path)
+
+            // Deep remove
+            if sourceData.isDirectory, let children = sourceData.contents {
+                for child in children {
+                    try? removeItem(at: URL.appendingPathComponent(child))
+                }
             }
         }
     }
-    
+
     public func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         if enumeratorDelay > 0 {
             Thread.sleep(forTimeInterval: enumeratorDelay)
         }
-        
-        // Build flat array of child URLs
-        var allChildren: [URL] = []
-        let root = url.path
-        
-        for (key, _) in virtualDisk {
-            if key.hasPrefix(root) && key != root {
-                let rel = String(key.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                if rel.isEmpty { continue }
-                
-                if mask.contains(.skipsSubdirectoryDescendants), rel.contains("/") {
-                    continue
+
+        // Snapshot the matching children under the lock, then hand off to the enumerator.
+        let allChildren: [URL] = sync {
+            var children: [URL] = []
+            let root = url.path
+
+            for (key, _) in virtualDisk {
+                if key.hasPrefix(root) && key != root {
+                    let rel = String(key.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    if rel.isEmpty { continue }
+
+                    if mask.contains(.skipsSubdirectoryDescendants), rel.contains("/") {
+                        continue
+                    }
+
+                    let itemURL = URL(fileURLWithPath: key)
+                    if mask.contains(.skipsHiddenFiles) && itemURL.lastPathComponent.hasPrefix(".") {
+                        continue
+                    }
+                    children.append(itemURL)
                 }
-                
-                let itemURL = URL(fileURLWithPath: key)
-                if mask.contains(.skipsHiddenFiles) && itemURL.lastPathComponent.hasPrefix(".") {
-                    continue
-                }
-                allChildren.append(itemURL)
             }
+            children.sort { $0.path < $1.path }
+            return children
         }
-        allChildren.sort { $0.path < $1.path }
-        
-        // Return a mock MockDirectoryEnumerator 
+
+        // Return a mock MockDirectoryEnumerator
         return MockEnumerator(urls: allChildren)
     }
 }
@@ -181,11 +209,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 public class MockEnumerator: FileManager.DirectoryEnumerator {
     private var urls: [URL]
     private var index = 0
-    
+
     init(urls: [URL]) {
         self.urls = urls
     }
-    
+
     public override func nextObject() -> Any? {
         if index < urls.count {
             let item = urls[index]
