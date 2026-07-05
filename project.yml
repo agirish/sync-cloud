@@ -1,6 +1,6 @@
 name: SyncCloud
 options:
-  bundleIdPrefix: com.example
+  bundleIdPrefix: com.abhishekgirish
 targets:
   SyncCloud:
     type: application
