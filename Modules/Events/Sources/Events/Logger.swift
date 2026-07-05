@@ -172,7 +172,16 @@ private final class LogFileWriter: @unchecked Sendable {
     func append(_ text: String) {
         queue.async { [weak self] in
             guard let self, let data = text.data(using: .utf8) else { return }
-            if self.handle == nil {
+            // Reopen if the file is missing - never opened, or removed/replaced externally (the open
+            // handle would otherwise write into an orphaned inode and silently lose the line). This
+            // preserves the prior open-per-line code's self-healing behavior; the fileExists stat is
+            // still far cheaper than the previous open/seek/write/close per line.
+            if self.handle == nil || !FileManager.default.fileExists(atPath: self.url.path) {
+                try? self.handle?.close()
+                self.handle = nil
+                if !FileManager.default.fileExists(atPath: self.url.path) {
+                    FileManager.default.createFile(atPath: self.url.path, contents: nil, attributes: nil)
+                }
                 self.handle = try? FileHandle(forWritingTo: self.url)
             }
             if let handle = self.handle {
