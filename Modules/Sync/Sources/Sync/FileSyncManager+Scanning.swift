@@ -239,12 +239,21 @@ extension FileSyncManager {
                         // Real filesystem: a single resourceValues fetch covers existence, type, and
                         // metadata (the same keys the diff scan reads), avoiding a separate
                         // fileExists stat per node.
-                        guard let rv = try? fullURL.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) else { return nil }
-                        isDirectory = rv.isDirectory ?? false
+                        guard let rv = try? fullURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) else { return nil }
                         modDate = rv.contentModificationDate
                         size = rv.fileSize
                         tags = rv.tagNames
                         kind = rv.typeIdentifier
+                        if rv.isSymbolicLink == true {
+                            // resourceValues reports on the link itself, not its target. Preserve the
+                            // prior fileExists behavior for symlinks: resolve to the target so linked
+                            // directories still recurse and broken links are still dropped.
+                            var isDir: ObjCBool = false
+                            guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
+                            isDirectory = isDir.boolValue
+                        } else {
+                            isDirectory = rv.isDirectory ?? false
+                        }
                     } else {
                         // Injected mock: resourceValues hits the real disk, so use the mock for
                         // existence/type (metadata stays nil, as before).

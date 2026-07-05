@@ -126,4 +126,36 @@ import Foundation
         #expect(byName["file1.txt"] == false)
         #expect(byName["subDir"] == true)
     }
+
+    @MainActor
+    @Test func testRealFilesystemSymlinkHandling() async throws {
+        // Locks in the historical symlink behavior on the real filesystem: a symlink to a
+        // directory is treated as a directory (and recurses into the target), while a broken
+        // symlink is dropped entirely.
+        let manager = FileSyncManager() // real FileManager
+        let fm = FileManager.default
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SyncCloudSymlinkTest-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let realDir = root.appendingPathComponent("realDir")
+        try fm.createDirectory(at: realDir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: realDir.appendingPathComponent("inner.txt"))
+
+        // Symlink -> directory, and a broken symlink -> nonexistent target.
+        try fm.createSymbolicLink(at: root.appendingPathComponent("linkToDir"), withDestinationURL: realDir)
+        try fm.createSymbolicLink(at: root.appendingPathComponent("broken"),
+                                  withDestinationURL: root.appendingPathComponent("does-not-exist"))
+
+        await manager.loadTree(path: root.path, isLeft: true)
+
+        let top = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0) })
+        // Symlinked directory is treated as a directory and recurses into the target's contents.
+        #expect(top["linkToDir"]?.isDirectory == true)
+        #expect(top["linkToDir"]?.children?.contains { $0.name == "inner.txt" } == true)
+        // Broken symlink is dropped.
+        #expect(top["broken"] == nil)
+    }
 }
