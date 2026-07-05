@@ -101,7 +101,7 @@ public struct FileDiffEngine {
                 }
             } catch {
                 let msg = "Error reading resource values for \(fileURL): \(error)"
-                Task { @MainActor in Logger.shared.error(msg, showAlert: false) }
+                Task { @MainActor in Logger.shared.error(msg) }
             }
         }
         

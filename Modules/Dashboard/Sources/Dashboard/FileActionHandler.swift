@@ -56,7 +56,7 @@ public class FileActionHandler {
             var error: NSDictionary?
             appleScript.executeAndReturnError(&error)
             if let err = error {
-                Logger.shared.error("Failed to open Get Info: \(err)", showAlert: false)
+                Logger.shared.error("Failed to open Get Info: \(err)")
             }
         }
     }

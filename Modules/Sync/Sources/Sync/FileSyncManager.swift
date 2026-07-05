@@ -428,7 +428,7 @@ public class FileSyncManager: ObservableObject {
         for (diff, error) in result.failures {
             let msg = "Error copying file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg
-            Logger.shared.error(msg, showAlert: false)
+            Logger.shared.error(msg)
             if let index = differences.firstIndex(where: { $0.id == diff.id }) {
                 differences[index].isSyncing = false
             }
@@ -561,7 +561,7 @@ public class FileSyncManager: ObservableObject {
         if let error = result.error {
             let msg = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
             self.currentError = msg
-            Logger.shared.error(msg, showAlert: false)
+            Logger.shared.error(msg)
             
             if let index = differences.firstIndex(where: { $0.id == difference.id }) {
                 differences[index].isSyncing = false
@@ -701,7 +701,7 @@ public class FileSyncManager: ObservableObject {
         for (diff, error) in result.failures {
             let msg = "Error syncing file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg
-            Logger.shared.error(msg, showAlert: false)
+            Logger.shared.error(msg)
             if let index = differences.firstIndex(where: { $0.id == diff.id }) {
                 differences[index].isSyncing = false
             }

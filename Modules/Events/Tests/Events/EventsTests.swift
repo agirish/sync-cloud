@@ -17,14 +17,14 @@ import Foundation
     }
     
     @MainActor
-    @Test func testLoggerErrorWithAlert() async throws {
+    @Test func testLoggerError() async throws {
         let logger = Logger.shared
         logger.clearLogs()
-        
-        await logger.error("Critical failure", showAlert: true).value
-        
+
+        await logger.error("Critical failure").value
+
         #expect(logger.entries.last?.level == .error)
-        #expect(logger.currentAlertError == "Critical failure")
+        #expect(logger.entries.last?.message.contains("Critical failure") == true)
     }
     
     @MainActor

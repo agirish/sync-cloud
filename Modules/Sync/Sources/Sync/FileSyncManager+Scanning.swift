@@ -190,7 +190,7 @@ extension FileSyncManager {
                 
             } catch {
                 let msg = "Error scanning directories: \(error)"
-                Task { @MainActor in Logger.shared.error(msg, showAlert: false) }
+                Task { @MainActor in Logger.shared.error(msg) }
                 return nil
             }
         }.value

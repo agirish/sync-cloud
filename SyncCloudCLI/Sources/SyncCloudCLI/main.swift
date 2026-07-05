@@ -355,7 +355,7 @@ struct SyncFiles: AsyncParsableCommand {
             } catch {
                 failed += 1
                 let message = "Failed to sync \(diff.relativePath): \(error.localizedDescription)"
-                await MainActor.run { _ = Logger.shared.error(message, showAlert: false) }
+                await MainActor.run { _ = Logger.shared.error(message) }
                 fputs(message + "\n", stderr)
                 
                 if failFast {

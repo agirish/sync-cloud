@@ -67,10 +67,7 @@ public class Logger: ObservableObject {
     
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
-    
-    /// A volatile string holding the latest severe error. Bound to `.alert()` modifiers to display OS-level popups.
-    @Published var currentAlertError: String? = nil
-    
+
     /// The absolute disk URL mapping to the destination log file.
     private let logFileURL: URL
     
@@ -111,36 +108,30 @@ public class Logger: ObservableObject {
     }
     
     /// Records an error trace event.
-    /// - Parameters:
-    ///   - message: The string description of the failure.
-    ///   - showAlert: If true, assigns the original message to `currentAlertError`, causing the app UI to natively display a popup alert. Defaults to true.
+    /// - Parameter message: The string description of the failure.
     @discardableResult
-    public nonisolated func error(_ message: String, showAlert: Bool = true, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
+    public nonisolated func error(_ message: String, file: String = #file, line: Int = #line, function: String = #function) -> Task<Void, Never> {
         let locationMsg = "\(message) | Location: \((file as NSString).lastPathComponent):\(line) / \(function)"
-        return log(level: .error, message: locationMsg, showAlert: showAlert, cleanMessage: message)
+        return log(level: .error, message: locationMsg)
     }
-    
+
     /// Internal abstraction formatting the memory entry and dispatching to the disk background queue.
     @discardableResult
-    private nonisolated func log(level: LogLevel, message: String, showAlert: Bool = false, cleanMessage: String? = nil) -> Task<Void, Never> {
+    private nonisolated func log(level: LogLevel, message: String) -> Task<Void, Never> {
         let entry = LogEntry(level: level, message: message)
         let logText = entry.formattedString + "\n"
 
         return Task { @MainActor in
-            self.applyLogEntry(entry, logText: logText, showAlert: showAlert, cleanMessage: cleanMessage)
+            self.applyLogEntry(entry, logText: logText)
         }
     }
 
     @MainActor
-    private func applyLogEntry(_ entry: LogEntry, logText: String, showAlert: Bool, cleanMessage: String?) {
+    private func applyLogEntry(_ entry: LogEntry, logText: String) {
         entries.append(entry)
 
         if entries.count > 1000 {
             entries.removeFirst(entries.count - 1000)
-        }
-
-        if showAlert, let clean = cleanMessage {
-            currentAlertError = clean
         }
 
         // Append to file asynchronously on background queue

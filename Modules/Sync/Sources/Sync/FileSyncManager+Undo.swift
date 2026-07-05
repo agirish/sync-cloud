@@ -195,12 +195,7 @@ actor AsyncValueResolver<T: Sendable> {
         for cont in continuations { cont.resume(returning: value) }
         continuations.removeAll()
     }
-    
-    /// Fails the resolver with a provided value (e.g. empty array or nil) to unblock waiting tasks.
-    func fail(with fallback: T) {
-        resolve(fallback)
-    }
-    
+
     func get() async -> T {
         if let value = result { return value }
         return await withCheckedContinuation { cont in
