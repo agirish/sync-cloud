@@ -223,7 +223,36 @@ extension FileSyncManager {
             struct TreeBuilder {
                 let fileManager: FileManaging
                 let sortOption: SortOption
-                
+
+                /// Keys prefetched when listing a directory so each child's resourceValues in
+                /// buildNode is a cache hit rather than a separate stat.
+                static let childKeys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]
+
+                /// Immediate children of a directory. For the real filesystem this batch-prefetches
+                /// child metadata in a single call; for injected mocks it reconstructs child URLs from
+                /// the enumerator names exactly as before.
+                func childURLs(of dirURL: URL) -> [URL] {
+                    if let realFm = fileManager as? FileManager {
+                        // Fast path: one call prefetches every child's metadata so buildNode's
+                        // resourceValues are cache hits. The URL-based API does not traverse a
+                        // symlinked directory, so fall back to the path-based listing (which follows
+                        // symlinks, as the tree always has) when it yields nothing.
+                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: Self.childKeys, options: []), !prefetched.isEmpty {
+                            return prefetched
+                        }
+                        let names = (try? realFm.contentsOfDirectory(atPath: dirURL.path)) ?? []
+                        return names.map { dirURL.appendingPathComponent($0) }
+                    } else {
+                        var urls: [URL] = []
+                        if let enumerator = fileManager.enumerator(at: dirURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
+                            for case let u as URL in enumerator {
+                                urls.append(dirURL.appendingPathComponent(u.lastPathComponent))
+                            }
+                        }
+                        return urls
+                    }
+                }
+
                 func buildNode(at fullURL: URL) -> FileNode? {
                     guard !Task.isCancelled else { return nil }
 
@@ -263,22 +292,8 @@ extension FileSyncManager {
                     }
 
                     if isDirectory {
-                        let contents: [String] = {
-                            if let realFm = fileManager as? FileManager {
-                                return (try? realFm.contentsOfDirectory(atPath: fullURL.path)) ?? []
-                            } else {
-                                var names: [String] = []
-                                if let enumerator = fileManager.enumerator(at: fullURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
-                                    for case let url as URL in enumerator {
-                                        names.append(url.lastPathComponent)
-                                    }
-                                }
-                                return names
-                            }
-                        }()
                         var children: [FileNode] = []
-                        for item in contents {
-                            let childURL = fullURL.appendingPathComponent(item)
+                        for childURL in childURLs(of: fullURL) {
                             if let childNode = buildNode(at: childURL) {
                                 children.append(childNode)
                             }
@@ -294,24 +309,11 @@ extension FileSyncManager {
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
-            
-            let contents: [String] = {
-                if let realFm = fm as? FileManager {
-                    return (try? realFm.contentsOfDirectory(atPath: url.path)) ?? []
-                } else {
-                    var names: [String] = []
-                    if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
-                        for case let u as URL in enumerator {
-                            names.append(u.lastPathComponent)
-                        }
-                    }
-                    return names
-                }
-            }()
-            await Logger.shared.debug("buildTree contents count: \(contents.count)")
+
+            let rootChildURLs = builder.childURLs(of: url)
+            await Logger.shared.debug("buildTree contents count: \(rootChildURLs.count)")
             var rootChildren: [FileNode] = []
-            for item in contents {
-                let childURL = url.appendingPathComponent(item)
+            for childURL in rootChildURLs {
                 if let childNode = builder.buildNode(at: childURL) {
                     rootChildren.append(childNode)
                 }
