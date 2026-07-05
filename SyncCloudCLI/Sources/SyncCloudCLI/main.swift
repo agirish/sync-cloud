@@ -121,7 +121,7 @@ struct Scan: AsyncParsableCommand {
     var ignore: [String] = []
 
     func run() async throws {
-        let settings = await MainActor.run { SettingsManager() }
+        let settings = await MainActor.run { SettingsManager(autoDiscover: false) }
         await settings.discoverProviders()
         let leftProvider = try await MainActor.run { try resolveProviderOrPath(value: left, label: "Left", settings: settings) }
         let rightProvider = try await MainActor.run { try resolveProviderOrPath(value: right, label: "Right", settings: settings) }
@@ -234,7 +234,7 @@ struct SyncFiles: AsyncParsableCommand {
     var verify: Bool = false
 
     func run() async throws {
-        let settings = await MainActor.run { SettingsManager() }
+        let settings = await MainActor.run { SettingsManager(autoDiscover: false) }
         await settings.discoverProviders()
         let leftProvider = try await MainActor.run { try resolveProviderOrPath(value: left, label: "Left", settings: settings) }
         let rightProvider = try await MainActor.run { try resolveProviderOrPath(value: right, label: "Right", settings: settings) }
@@ -387,7 +387,7 @@ struct Providers: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let settings = await MainActor.run { SettingsManager() }
+        let settings = await MainActor.run { SettingsManager(autoDiscover: false) }
         // Ensure discovery has completed at least once.
         await settings.discoverProviders()
 

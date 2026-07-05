@@ -21,7 +21,10 @@ public class SettingsManager: ObservableObject {
         }
     }
 
-    public init() {
+    /// - Parameter autoDiscover: When true (the app's case), kicks off provider discovery in the
+    ///   background so the UI populates on launch. Callers that discover explicitly (e.g. the CLI,
+    ///   which `await`s `discoverProviders()`) should pass false to avoid a redundant scan.
+    public init(autoDiscover: Bool = true) {
         self.ignoreGoogleDriveNewerDateOnly = UserDefaults.standard.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
         // Initialize with default iCloud provider to allow app to start immediately
         let iCloudDefaultPath = (NSString(string: "~/Documents")).expandingTildeInPath
@@ -34,9 +37,11 @@ public class SettingsManager: ObservableObject {
                 type: .iCloud
             )
         ]
-        
-        Task {
-            await discoverProviders()
+
+        if autoDiscover {
+            Task {
+                await discoverProviders()
+            }
         }
     }
     
