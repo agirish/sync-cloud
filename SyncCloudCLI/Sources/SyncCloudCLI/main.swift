@@ -364,8 +364,6 @@ struct SyncFiles: AsyncParsableCommand {
                 }
             }
         }
-        
-        try? await Task.sleep(nanoseconds: 100_000_000)
 
         print("")
         print("Sync complete. Copied: \(copied), Skipped: \(skipped), Failed: \(failed).")

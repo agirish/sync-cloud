@@ -357,13 +357,14 @@ public class FileSyncManager: ObservableObject {
     private func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
         let total = toCopy.count
         guard total > 0 else { return }
+        let toCopyIDs = Set(toCopy.map { $0.id })
 
         let progress = Progress(totalUnitCount: Int64(total))
         progress.localizedDescription = "Copying \(total) files to match dates"
         progress.isCancellable = true
         activeProgress = progress
 
-        for i in differences.indices where toCopy.contains(where: { $0.id == differences[i].id }) {
+        for i in differences.indices where toCopyIDs.contains(differences[i].id) {
             differences[i].isSyncing = true
         }
         bulkSyncProgress = (0, total)
@@ -374,7 +375,7 @@ public class FileSyncManager: ObservableObject {
         defer {
             bulkSyncProgress = nil
             activeProgress = nil
-            for i in differences.indices where toCopy.contains(where: { $0.id == differences[i].id }) {
+            for i in differences.indices where toCopyIDs.contains(differences[i].id) {
                 differences[i].isSyncing = false
             }
         }
@@ -595,6 +596,7 @@ public class FileSyncManager: ObservableObject {
         let toSync = source.filter { $0.action == direction }
         let total = toSync.count
         guard total > 0 else { return }
+        let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
 
         let progress = Progress(totalUnitCount: Int64(total))
@@ -602,7 +604,7 @@ public class FileSyncManager: ObservableObject {
         progress.isCancellable = true
         activeProgress = progress
 
-        for i in differences.indices where toSync.contains(where: { $0.id == differences[i].id }) {
+        for i in differences.indices where toSyncIDs.contains(differences[i].id) {
             differences[i].isSyncing = true
         }
 
@@ -610,7 +612,7 @@ public class FileSyncManager: ObservableObject {
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
             activeProgress = nil
-            for i in differences.indices where toSync.contains(where: { $0.id == differences[i].id }) {
+            for i in differences.indices where toSyncIDs.contains(differences[i].id) {
                 differences[i].isSyncing = false
             }
         }

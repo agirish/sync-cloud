@@ -77,17 +77,14 @@ public class Logger: ObservableObject {
     /// The absolute disk URL mapping to the destination log file.
     private let logFileURL: URL
     
-    /// A dedicated background GCD queue guaranteeing atomic log file writes without stalling the main UI thread.
-    private let fileQueue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
-    
+    /// Serializes writes to the log file on a background queue while keeping a single file handle
+    /// open, avoiding a per-line open/seek/close cycle.
+    private let logWriter: LogFileWriter
+
     private init() {
         let homeDir = (NSString(string: "~")).expandingTildeInPath
         logFileURL = URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")
-        
-        // Ensure the log file exists
-        if !FileManager.default.fileExists(atPath: logFileURL.path) {
-            FileManager.default.createFile(atPath: logFileURL.path, contents: nil, attributes: nil)
-        }
+        logWriter = LogFileWriter(url: logFileURL)
     }
     
     /// Records an informational trace event to memory and disk.
@@ -140,30 +137,64 @@ public class Logger: ObservableObject {
             entries.removeFirst(entries.count - 1000)
         }
 
-        // Append to file asynchronously on background queue
-        fileQueue.async { [url = logFileURL] in
-            guard let data = logText.data(using: .utf8) else { return }
-
-            if let fileHandle = try? FileHandle(forWritingTo: url) {
-                defer { try? fileHandle.close() }
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-            } else {
-                try? data.write(to: url, options: .atomic)
-            }
-        }
+        // Append to the log file on a background queue (reuses one open handle).
+        logWriter.append(logText)
     }
     
     /// Empties the public memory array and overwrites the local disk file with an empty sequence.
     public func clearLogs() {
         entries.removeAll()
-        fileQueue.async { [url = self.logFileURL] in
-            try? "".write(to: url, atomically: true, encoding: .utf8)
-        }
+        logWriter.clear()
     }
     
     /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
     public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)
+    }
+}
+
+/// Appends log text to a file on a dedicated serial queue, keeping one `FileHandle` open across
+/// writes instead of opening/seeking/closing per line. All handle access is confined to `queue`.
+private final class LogFileWriter: @unchecked Sendable {
+    private let url: URL
+    private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
+    private var handle: FileHandle?
+
+    init(url: URL) {
+        self.url = url
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
+        }
+        handle = try? FileHandle(forWritingTo: url)
+        _ = try? handle?.seekToEnd()
+    }
+
+    func append(_ text: String) {
+        queue.async { [weak self] in
+            guard let self, let data = text.data(using: .utf8) else { return }
+            if self.handle == nil {
+                self.handle = try? FileHandle(forWritingTo: self.url)
+            }
+            if let handle = self.handle {
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else {
+                // Fallback if the handle could not be opened (matches prior behavior).
+                try? data.write(to: self.url, options: .atomic)
+            }
+        }
+    }
+
+    /// Truncates the log file to empty, keeping the open handle valid.
+    func clear() {
+        queue.async { [weak self] in
+            guard let self else { return }
+            if let handle = self.handle {
+                try? handle.truncate(atOffset: 0)
+                try? handle.seek(toOffset: 0)
+            } else {
+                try? "".write(to: self.url, atomically: true, encoding: .utf8)
+            }
+        }
     }
 }
