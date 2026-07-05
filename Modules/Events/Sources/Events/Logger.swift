@@ -51,10 +51,16 @@ public struct LogEntry: Identifiable, Codable, Sendable {
         self.message = message
     }
     
-    var formattedString: String {
+    /// Shared timestamp formatter. Reused instead of reallocated per log line (DateFormatter is
+    /// expensive to create and is thread-safe for formatting).
+    private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        return "[\(formatter.string(from: timestamp))] [\(level.rawValue)] \(message)"
+        return formatter
+    }()
+
+    var formattedString: String {
+        return "[\(Self.timestampFormatter.string(from: timestamp))] [\(level.rawValue)] \(message)"
     }
 }
 

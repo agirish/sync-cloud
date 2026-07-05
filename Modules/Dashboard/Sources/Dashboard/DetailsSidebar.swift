@@ -14,6 +14,15 @@ public struct DetailsSidebar: View {
 
     @State private var computedDirectorySizePath: String? = nil
     @State private var computedDirectorySize: String? = nil
+
+    /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
+    /// of `metadata` (DateFormatter is expensive to construct).
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
     
     public init(syncManager: FileSyncManager, leftPath: String, rightPath: String) {
         self.syncManager = syncManager
@@ -61,11 +70,9 @@ public struct DetailsSidebar: View {
             // Dates
             let creation = attrs[.creationDate] as? Date ?? Date.distantPast
             let modification = attrs[.modificationDate] as? Date ?? Date.distantPast
-            
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateStyle = .medium
-            dateFormatter.timeStyle = .medium
-            
+
+            let dateFormatter = Self.dateFormatter
+
             // Size
             let sizeInt = attrs[.size] as? Int64 ?? 0
             let sizeStr = isDir.boolValue ? "" : ByteCountFormatter.string(fromByteCount: sizeInt, countStyle: .file)
@@ -97,8 +104,7 @@ public struct DetailsSidebar: View {
         }
     }
 
-    private var displaySize: String {
-        guard let data = metadata else { return "" }
+    private func displaySize(for data: FileMetadata) -> String {
         if !data.isDirectory { return data.size }
 
         if computedDirectorySizePath == data.path, let computedDirectorySize {
@@ -108,10 +114,12 @@ public struct DetailsSidebar: View {
     }
 
     public var body: some View {
-        ScrollView(.vertical, showsIndicators: true) {
+        // Compute metadata once per render (it hits the filesystem) and reuse it below.
+        let data = metadata
+        return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
-                    if let data = metadata {
+                    if let data {
                         // Icon Header
                         VStack {
                             Image(nsImage: NSWorkspace.shared.icon(forFile: data.path))
@@ -135,7 +143,7 @@ public struct DetailsSidebar: View {
                             Divider()
                             
                             metadataRow(label: "Kind:", value: data.kind)
-                            metadataRow(label: "Size:", value: displaySize)
+                            metadataRow(label: "Size:", value: displaySize(for: data))
                             metadataRow(label: "Where:", value: data.path)
                             
                             Divider()
@@ -173,7 +181,7 @@ public struct DetailsSidebar: View {
         .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
         .task(id: activePath) {
-            guard let data = metadata, data.isDirectory else {
+            guard let data, data.isDirectory else {
                 computedDirectorySizePath = nil
                 computedDirectorySize = nil
                 return

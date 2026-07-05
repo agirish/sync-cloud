@@ -146,9 +146,13 @@ private struct LogEntryRow: View {
         .padding(.vertical, 6)
     }
     
-    private func timeString(from date: Date) -> String {
+    private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
-        return formatter.string(from: date)
+        return formatter
+    }()
+
+    private func timeString(from date: Date) -> String {
+        return Self.timeFormatter.string(from: date)
     }
 }
