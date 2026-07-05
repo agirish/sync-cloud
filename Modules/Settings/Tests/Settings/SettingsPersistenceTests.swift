@@ -6,42 +6,40 @@ import Foundation
 /// empty-string clear path, and the ignoreGoogleDriveNewerDateOnly flag surviving a relaunch.
 ///
 /// Both assert directly against UserDefaults side effects (setPath is synchronous before its
-/// background rediscovery Task). setPath uses a provider id no other test touches so it can't race
-/// the shared "iCloud" override key; the flag test uses a unique key and restores the original.
+/// background rediscovery Task). Each test injects its own UserDefaults suite, so nothing here
+/// touches .standard or races other tests.
 @Suite struct SettingsPersistenceTests {
 
     @MainActor
     @Test func testSetPathEmptyClearsTheOverride() {
-        // Unique id -> unique override key, isolated from testPathOverrides / testResetPath.
-        let id = "UnitTest-SettingsPersistence-\(UUID().uuidString)"
-        let key = "path_override_\(id)"
-        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let key = "path_override_Dropbox"
 
-        let settings = SettingsManager(autoDiscover: false)
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
 
-        settings.setPath("/tmp/custom-root", for: id)
-        #expect(UserDefaults.standard.string(forKey: key) == "/tmp/custom-root")
+        settings.setPath("/tmp/custom-root", for: "Dropbox")
+        #expect(test.defaults.string(forKey: key) == "/tmp/custom-root")
 
         // Empty string must clear the override (removeObject), not persist "".
-        settings.setPath("", for: id)
-        #expect(UserDefaults.standard.string(forKey: key) == nil)
+        settings.setPath("", for: "Dropbox")
+        #expect(test.defaults.string(forKey: key) == nil)
     }
 
     @MainActor
     @Test func testIgnoreGoogleDriveFlagPersistsAcrossInstances() {
-        let key = "ignoreGoogleDriveNewerDateOnly"
-        let original = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let original { UserDefaults.standard.set(original, forKey: key) }
-            else { UserDefaults.standard.removeObject(forKey: key) }
+        let test = TestDefaults()
+        defer { test.wipe() }
+        func makeManager() -> SettingsManager {
+            SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
         }
 
-        let a = SettingsManager(autoDiscover: false)
+        let a = makeManager()
         a.ignoreGoogleDriveNewerDateOnly = true // didSet persists
         // A fresh instance reads the persisted value in init.
-        #expect(SettingsManager(autoDiscover: false).ignoreGoogleDriveNewerDateOnly == true)
+        #expect(makeManager().ignoreGoogleDriveNewerDateOnly == true)
 
         a.ignoreGoogleDriveNewerDateOnly = false
-        #expect(SettingsManager(autoDiscover: false).ignoreGoogleDriveNewerDateOnly == false)
+        #expect(makeManager().ignoreGoogleDriveNewerDateOnly == false)
     }
 }

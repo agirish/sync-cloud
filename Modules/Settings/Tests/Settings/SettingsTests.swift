@@ -3,9 +3,11 @@ import Testing
 
 @MainActor
 @Test func testResetPathKeepsProviderDiscoverable() async throws {
-    let settings = SettingsManager()
+    let test = TestDefaults()
+    defer { test.wipe() }
+    let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults, cloudStorageLister: { [] })
+
     settings.resetPath(for: "iCloud")
-    
-    try await Task.sleep(for: .milliseconds(100))
+    await settings.discoverProviders()
     #expect(settings.availableProviders.contains(where: { $0.id == "iCloud" }))
 }
