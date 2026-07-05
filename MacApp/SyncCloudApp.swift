@@ -20,7 +20,9 @@ struct SyncCloudApp: App {
     init() {
         let manager = FileSyncManager()
         _syncManager = StateObject(wrappedValue: manager)
-        _settings = StateObject(wrappedValue: SettingsManager())
+        // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
+        // skip the init-triggered scan here to avoid discovering providers twice on launch.
+        _settings = StateObject(wrappedValue: SettingsManager(autoDiscover: false))
         // CRITICAL: Link the manager to the delegate so the termination guard is active.
         // Use both instance and static ref so the delegate always has the manager on every quit attempt.
         appDelegate.syncManager = manager
