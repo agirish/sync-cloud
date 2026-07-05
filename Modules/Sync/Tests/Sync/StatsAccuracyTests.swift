@@ -158,4 +158,83 @@ import Foundation
         // Broken symlink is dropped.
         #expect(top["broken"] == nil)
     }
+
+    @MainActor
+    @Test func testRealFilesystemSymlinkToFile() async throws {
+        // Complements testRealFilesystemSymlinkHandling (link-to-dir / broken link): a symlink that
+        // points at a regular file must survive as a non-directory leaf. The pre-C7b fileExists path
+        // resolved this to a file, and the symlink fast-path fallback must keep doing so.
+        let manager = FileSyncManager() // real FileManager
+        let fm = FileManager.default
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SyncCloudSymlinkFileTest-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        try Data("payload".utf8).write(to: root.appendingPathComponent("realFile.txt"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("linkToFile"),
+                                  withDestinationURL: root.appendingPathComponent("realFile.txt"))
+
+        await manager.loadTree(path: root.path, isLeft: true)
+
+        let top = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0) })
+        // Symlink to a file is present and treated as a leaf, not a directory.
+        #expect(top["linkToFile"] != nil)
+        #expect(top["linkToFile"]?.isDirectory == false)
+        #expect(top["linkToFile"]?.children == nil)
+    }
+
+    @MainActor
+    @Test func testRealFilesystemMetadataPopulated() async throws {
+        // The C7b fast path folded metadata (size/date) into the single resourceValues stat that also
+        // reports existence/type. testRealFilesystemTreeBuild only checks count + isDirectory, so this
+        // locks in that fileSize and modificationDate still come back populated on the real-FS path.
+        let manager = FileSyncManager() // real FileManager
+        let fm = FileManager.default
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SyncCloudMetaTest-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let payload = Data("hello world".utf8) // 11 bytes
+        try payload.write(to: root.appendingPathComponent("sized.txt"))
+
+        await manager.loadTree(path: root.path, isLeft: true)
+
+        let node = manager.rawLeftTree.first { $0.name == "sized.txt" }
+        #expect(node?.fileSize == payload.count)
+        #expect(node?.modificationDate != nil)
+    }
+
+    @MainActor
+    @Test func testDiffReflectsFreshDiskState() async throws {
+        // Guards diff freshness (the reason C7a — deriving the diff from the cached tree instead of a
+        // fresh walk — was deliberately not done). After a tree is cached, a file added afterwards must
+        // still surface in a subsequent scan, proving the diff walks disk fresh rather than reusing the
+        // stale prefetched tree.
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        // Cache an (empty) tree for /src.
+        await manager.loadTree(path: "/src", isLeft: true)
+        #expect(manager.leftItemCount == 0)
+
+        // Add a file only after the tree cache was populated — the cache is now stale.
+        mockFM.virtualDisk["/src/added_after_cache.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        await manager.scanDirectories(left: srcProvider, leftPath: "/src", right: dstProvider, rightPath: "/dst")
+
+        // The scan reads fresh disk state, so the post-cache file is detected as a difference even
+        // though the cached tree (leftItemCount) still shows zero.
+        #expect(manager.differences.count == 1)
+        #expect(manager.leftItemCount == 0)
+    }
 }
