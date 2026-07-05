@@ -155,7 +155,10 @@ public class Logger: ObservableObject {
 
 /// Appends log text to a file on a dedicated serial queue, keeping one `FileHandle` open across
 /// writes instead of opening/seeking/closing per line. All handle access is confined to `queue`.
-private final class LogFileWriter: @unchecked Sendable {
+///
+/// Internal (not private) so the self-heal / truncate behavior can be tested directly against an
+/// injected temp-file URL; production code only ever uses it via `Logger`.
+final class LogFileWriter: @unchecked Sendable {
     private let url: URL
     private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     private var handle: FileHandle?
@@ -192,6 +195,12 @@ private final class LogFileWriter: @unchecked Sendable {
                 try? data.write(to: self.url, options: .atomic)
             }
         }
+    }
+
+    /// Blocks until every append/clear enqueued before this call has finished. Test-only barrier;
+    /// production logging never needs to wait on the background queue.
+    func flush() {
+        queue.sync {}
     }
 
     /// Truncates the log file to empty, keeping the open handle valid.
