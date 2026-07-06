@@ -51,22 +51,22 @@ import Foundation
     
     @MainActor
     @Test func testLoadTreeCancellation() async throws {
-        let manager = FileSyncManager()
         let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/file_1.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        
-        // We can't trivially race the Task in unit tests predictably without hanging.
-        // Instead, we explicitly inject the cancellation token check logic by running loadTree natively.
-        // Swift handles the task detachments internally. If it doesn't crash or hang, the architecture is sound.
+
+        // The test body runs on the main actor, so `treeTask` cannot start before cancel() below:
+        // loadTree begins already-cancelled, and the cancellation must propagate through its
+        // inner task and the detached tree walk for the load to be discarded.
         let treeTask = Task { await manager.loadTree(path: "/src", isLeft: true) }
-        
+
         // Cancel it immediately before it can recursively build
         treeTask.cancel()
         await treeTask.value
-        
-        // If cancelled perfectly before running, tree should be empty or partially populated (0 nodes ideal)
-        // Since load yields across async boundaries, it should catch the cancel
+
+        // An uncancelled load of the mock disk would populate file_1.txt; a propagated
+        // cancellation discards the (partial) walk and leaves the tree untouched.
         #expect(manager.leftTree.count == 0)
     }
 

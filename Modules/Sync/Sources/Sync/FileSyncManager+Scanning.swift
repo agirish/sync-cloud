@@ -43,14 +43,13 @@ extension FileSyncManager {
             // Slow Path: Load actively
             if isLeft { isLoadingLeftTree = true }
             else { isLoadingRightTree = true }
-            
-            // Build the tree in a detached task to ensure no Main Actor blocking
+
+            // buildTree detaches its own worker (and forwards cancellation into it),
+            // so no extra detached hop is needed here.
             let fm = self.fileManager
             let sortOp = self.sortOption
-            let tree = await Task.detached(priority: .userInitiated) {
-                return await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
-            }.value
-            
+            let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
+
             guard !Task.isCancelled else { return }
 
             if isLeft {
@@ -70,7 +69,13 @@ extension FileSyncManager {
         if isLeft { activeLoadLeftTask = task }
         else { activeLoadRightTask = task }
 
-        await task.value
+        // `task` is unstructured, so the caller's cancellation (e.g. a cancelled refresh)
+        // does not reach it on its own — forward it explicitly.
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
     
     nonisolated func countItems(in tree: [FileNode]) -> Int {
@@ -195,8 +200,11 @@ extension FileSyncManager {
     
     // MARK: - Internal Engine Operations
     
+    /// Walks the directory tree off the main actor. Cancelling the calling task aborts the walk:
+    /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —
+    /// that is what makes the `Task.isCancelled` checks inside `buildNode` effective.
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        await Task.detached(priority: .userInitiated) {
+        let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder {
                 let fileManager: FileManaging
                 let sortOption: SortOption
@@ -275,7 +283,7 @@ extension FileSyncManager {
                                 children.append(childNode)
                             }
                         }
-                        children = FileSyncManager.sort(nodes: children, by: sortOption)
+                        children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
                         return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
                     } else {
                         return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
@@ -295,22 +303,36 @@ extension FileSyncManager {
                     rootChildren.append(childNode)
                 }
             }
-            rootChildren = FileSyncManager.sort(nodes: rootChildren, by: sortOption)
+            rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
             return rootChildren
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await buildTask.value
+        } onCancel: {
+            buildTask.cancel()
+        }
     }
     
+    /// Recursively sorts a whole tree (children first, then each level). Use when re-sorting an
+    /// already-built tree, e.g. when the sort option changes.
     nonisolated static func sort(nodes: [FileNode], by option: SortOption) -> [FileNode] {
         var sorted = nodes
-        
+
         // Recursively sort children first
         for i in 0..<sorted.count {
             if let children = sorted[i].children {
                 sorted[i].children = sort(nodes: children, by: option)
             }
         }
-        
-        // Sort the current level
+
+        return sortLevel(nodes: sorted, by: option)
+    }
+
+    /// Sorts one level only, leaving children untouched. `buildNode` sorts each subtree as it is
+    /// built (bottom-up), so sorting the current level is enough there — the recursive `sort`
+    /// would re-sort every subtree once per ancestor level.
+    nonisolated static func sortLevel(nodes: [FileNode], by option: SortOption) -> [FileNode] {
+        var sorted = nodes
         sorted.sort { a, b in
             // Typically preserve folder precedence
             if a.isDirectory != b.isDirectory { return a.isDirectory }
