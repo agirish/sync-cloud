@@ -6,26 +6,26 @@ import Sync
 import Design
 
 /// Toolbar above the two file panes: back/forward navigation, current folder context, hidden-files toggle.
+/// Navigation and toggles trigger reloads through the manager itself (`refreshSubject` /
+/// `applyFilters()`), so this view takes no refresh callback.
 public struct NavigationToolbar: View {
     @ObservedObject public var syncManager: FileSyncManager
-    public let refreshAction: () -> Void
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
-    
-    public init(syncManager: FileSyncManager, refreshAction: @escaping () -> Void) {
+
+    public init(syncManager: FileSyncManager) {
         self.syncManager = syncManager
-        self.refreshAction = refreshAction
     }
-    
+
     public var body: some View {
         HStack {
             HStack(spacing: 8) {
-                Button(action: { syncManager.goBack(); refreshAction() }) {
+                Button(action: { syncManager.goBack() }) {
                     Image(systemName: "chevron.left")
                 }
                 .disabled(!syncManager.canGoBack)
                 .help("Navigate to the previous directory")
-                
-                Button(action: { syncManager.goForward(); refreshAction() }) {
+
+                Button(action: { syncManager.goForward() }) {
                     Image(systemName: "chevron.right")
                 }
                 .disabled(!syncManager.canGoForward)
@@ -54,7 +54,7 @@ public struct NavigationToolbar: View {
                 
                 Spacer()
                 
-                Button(action: { syncManager.resetNavigation(); refreshAction() }) {
+                Button(action: { syncManager.resetNavigation() }) {
                     Label("Restore Root", systemImage: "house")
                 }
                 .buttonStyle(.bordered)
@@ -66,6 +66,8 @@ public struct NavigationToolbar: View {
                 Spacer()
             }
             
+            // No refresh here: raw trees and differences already include hidden entries, and the
+            // showHiddenFiles didSet re-filters them in memory via applyFilters().
             Toggle(isOn: $syncManager.showHiddenFiles) {
                 Label("Hidden", systemImage: "eye")
             }
@@ -73,7 +75,6 @@ public struct NavigationToolbar: View {
             .help("Toggle visibility of hidden files")
             .onChange(of: syncManager.showHiddenFiles) { _, newValue in
                 Logger.shared.info("User toggled hidden files to: \(newValue)")
-                refreshAction()
             }
         }
         .padding(.horizontal, 20)

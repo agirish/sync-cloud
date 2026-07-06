@@ -143,14 +143,13 @@ struct ContentView: View {
         .onChange(of: leftProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
             Logger.shared.info("User switched left provider to \(newId)")
+            // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
             syncManager.resetNavigation()
-            refreshAction()
         }
         .onChange(of: rightProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
             Logger.shared.info("User switched right provider to \(newId)")
             syncManager.resetNavigation()
-            refreshAction()
         }
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
             switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
@@ -223,7 +222,7 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            NavigationToolbar(syncManager: syncManager, refreshAction: refreshAction)
+            NavigationToolbar(syncManager: syncManager)
             Divider()
             paneActionBar
             Divider()
