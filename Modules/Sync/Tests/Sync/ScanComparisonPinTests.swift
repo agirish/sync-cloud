@@ -130,4 +130,51 @@ import Foundation
         let topDate = try #require(files["top.txt"]?.modificationDate)
         #expect(abs(topDate.timeIntervalSince(knownDate)) < 1)
     }
+
+    /// Regression: a scan rooted at an uncanonical symlinked path (temporaryDirectory lives under
+    /// /var/..., a symlink to /private/var/...) must still key files by root-relative path. The
+    /// real enumerator yields canonical URLs, so trimming with a plain prefix check against the
+    /// uncanonical root left every key near-absolute and both panes falsely diffed as missing.
+    @Test func testGetFilesInDirectoryWithUncanonicalSymlinkedRoot() async throws {
+        let fm = FileManager.default
+        // Deliberately NOT canonicalized, unlike the test above.
+        let root = fm.temporaryDirectory.appendingPathComponent("DiffEngineSymlinkRoot-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // Precondition: the root really is behind a symlink; a canonical temp dir would make
+        // this test vacuously pass.
+        let canonicalPath = try #require(root.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
+        try #require(canonicalPath != root.path)
+
+        let nested = root.appendingPathComponent("nested")
+        try fm.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Data("hello".utf8).write(to: root.appendingPathComponent("top.txt"))
+        try Data("deep".utf8).write(to: nested.appendingPathComponent("deep.txt"))
+
+        // A second uncanonical root with identical content and dates, for the diff pin below.
+        let otherRoot = fm.temporaryDirectory.appendingPathComponent("DiffEngineSymlinkRoot-\(UUID().uuidString)")
+        try fm.createDirectory(at: otherRoot.appendingPathComponent("nested"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: otherRoot) }
+        try Data("hello".utf8).write(to: otherRoot.appendingPathComponent("top.txt"))
+        try Data("deep".utf8).write(to: otherRoot.appendingPathComponent("nested/deep.txt"))
+        for name in ["top.txt", "nested/deep.txt"] {
+            let date = Date(timeIntervalSince1970: 1_600_000_000)
+            try fm.setAttributes([.modificationDate: date], ofItemAtPath: root.appendingPathComponent(name).path)
+            try fm.setAttributes([.modificationDate: date], ofItemAtPath: otherRoot.appendingPathComponent(name).path)
+        }
+
+        let files = try FileDiffEngine.getFilesInDirectory(root)
+        #expect(Set(files.keys) == ["top.txt", "nested", "nested/deep.txt"])
+
+        // Symptom-level pin: identical content under a second uncanonical root must produce
+        // zero differences (the bug made everything missing on both sides).
+        let otherFiles = try FileDiffEngine.getFilesInDirectory(otherRoot)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: Self.left, leftURL: root,
+            right: Self.right, rightURL: otherRoot,
+            leftFilesInfo: files, rightFilesInfo: otherFiles
+        )
+        #expect(diffs.isEmpty)
+    }
 }

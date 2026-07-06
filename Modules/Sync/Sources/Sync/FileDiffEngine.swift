@@ -54,7 +54,17 @@ public struct FileDiffEngine {
         }
         
         var result: [String: FileInfo] = [:]
-        let basePath = url.path
+        var basePath = url.path
+        if fileManager is FileManager {
+            // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
+            // root given via a symlinked path (/var/..., a linked user folder) would never match the
+            // prefix trim below and every key would come back near-absolute. Canonicalize the base
+            // to match. resolvingSymlinksInPath can't be used here: it deliberately strips /private.
+            // Mock file managers echo back the URLs they were given, so they keep the raw base.
+            if let canonicalPath = try? url.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+                basePath = canonicalPath
+            }
+        }
         
         for case let fileURL as URL in enumerator {
             do {
