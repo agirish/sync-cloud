@@ -164,6 +164,11 @@ public class SettingsManager: ObservableObject {
         return sorted
     }
 
+    /// Bumped on every `discoverProviders()` pass. A refresh often leaves a provider's identity
+    /// and path unchanged, so views that cache per-path state (the validity badge) observe this
+    /// to re-check the filesystem on the user's explicit refresh gesture.
+    @Published public private(set) var providerDiscoveryCount = 0
+
     /// Scans the local filesystem's CloudStorage mounting point to detect configured provider accounts.
     /// Re-evaluates custom user overwrites and updates the `availableProviders` sequence.
     public func discoverProviders() async {
@@ -177,6 +182,7 @@ public class SettingsManager: ObservableObject {
             iCloudDefaultPath: Self.iCloudDefaultPath,
             pathOverride: { userDefaults.string(forKey: "\(Self.overrideKeyPrefix)\($0)") }
         )
+        providerDiscoveryCount += 1
     }
 
     /// Returns the active root path (either default or user-overridden) for a specific provider.

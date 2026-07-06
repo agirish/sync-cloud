@@ -208,6 +208,12 @@ public struct DetailsSidebar: View {
             // drop the memoized metadata so the next render re-stats it.
             cache.path = nil
         }
+        .onReceive(syncManager.$isScanning) { scanning in
+            // A completed scan is the "pick up external changes" gesture: the panes rebuild
+            // from fresh stats, so the memoized metadata must not survive it — the sidebar
+            // would keep showing pre-scan size/dates and contradict the trees.
+            if !scanning { cache.path = nil }
+        }
         .task(id: activePath) {
             guard let data, data.isDirectory else {
                 computedDirectorySizePath = nil

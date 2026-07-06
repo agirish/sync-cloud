@@ -234,4 +234,27 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
         #expect(counter.count == 1)
     }
+
+    /// Every discovery pass must bump `providerDiscoveryCount`, even when it changes no provider:
+    /// the validity badge re-stats on this signal, because "Refresh providers" often leaves a
+    /// card's identity and path unchanged while the folder on disk appeared or vanished.
+    @MainActor
+    @Test func testDiscoverProvidersBumpsDiscoveryCountEvenWhenProvidersAreUnchanged() async {
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: { [folder("Dropbox")] })
+        #expect(settings.providerDiscoveryCount == 0)
+
+        await settings.discoverProviders()
+        let providersAfterFirst = settings.availableProviders.map(\.id)
+        #expect(settings.providerDiscoveryCount == 1)
+
+        await settings.discoverProviders()
+        #expect(settings.availableProviders.map(\.id) == providersAfterFirst)
+        #expect(settings.providerDiscoveryCount == 2)
+    }
 }

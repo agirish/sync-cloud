@@ -251,7 +251,8 @@ struct ProviderCard: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
     /// Cached so re-renders (e.g. dragging the glass slider) don't re-stat every provider path;
-    /// recomputed when the provider's path changes.
+    /// recomputed when the provider's path changes or providers are re-discovered (the folder
+    /// may have been created/deleted externally with the path itself unchanged).
     @State private var isPathValid: Bool = false
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
@@ -341,6 +342,11 @@ struct ProviderCard: View {
                 draftPath = updated
             }
             isPathValid = Self.validatePath(updated)
+        }
+        .onChange(of: settings.providerDiscoveryCount) { _, _ in
+            // "Refresh providers" re-discovers without changing this card's identity or path,
+            // so re-stat here or the badge keeps a stale verdict about the folder on disk.
+            isPathValid = Self.validatePath(provider.path)
         }
     }
 
