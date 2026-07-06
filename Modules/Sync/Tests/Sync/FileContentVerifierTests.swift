@@ -3,8 +3,8 @@ import Foundation
 @testable import Sync
 
 /// Coverage for FileContentVerifier, the SHA-256 checksum layer behind the "Verify with checksum"
-/// flows (GUI verify buttons and the CLI --verify option). It reads real bytes via
-/// `Data(contentsOf:)` and guards on directory / missing / oversize / partial-read, so these tests
+/// flows (GUI verify buttons and the CLI --verify option). It stream-reads real bytes via
+/// `FileHandle` and guards on directory / missing / oversize / partial-read, so these tests
 /// exercise it against real files in a temp directory rather than the virtual mock disk.
 @Suite struct FileContentVerifierTests {
 
