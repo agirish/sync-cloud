@@ -333,4 +333,130 @@ import Foundation
         await manager.syncAll(direction: .copyToRight)
         #expect(promptCount == 2)
     }
+
+    /// Builds a mock disk where every named file exists on both sides, so each one collides at
+    /// the batch stat pass, and a manager whose single-file collision seam is a tripwire: the
+    /// bulk path must never consult it (a .skip there would surface as an unresolved item).
+    @MainActor
+    private func makeBulkCollisionFixture(names: [String]) throws -> (FileSyncManager, MockFileManager, [FileDifference]) {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        var diffs: [FileDifference] = []
+        for name in names {
+            mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            mockFM.virtualDisk["/dst/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            diffs.append(FileDifference(
+                relativePath: name,
+                leftItemPath: "/src/\(name)",
+                rightItemPath: "/dst/\(name)",
+                type: .differentDates,
+                action: .copyToRight,
+                description: "Different dates"
+            ))
+        }
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+        manager.collisionResolver = { _, _ in .skip }
+        return (manager, mockFM, diffs)
+    }
+
+    /// Choosing "Apply to all" on the first collision must resolve every later collision in the
+    /// same run from the cache: exactly one prompt, and the chosen resolution applied to each
+    /// colliding file — including the per-file unique-URL generation that keep-both needs.
+    @MainActor
+    @Test func testSyncAllApplyToAllSuppressesLaterPromptsInSameRun() async throws {
+        let (manager, mockFM, _) = try makeBulkCollisionFixture(names: ["a.txt", "b.txt", "c.txt"])
+
+        var prompted: [String] = []
+        manager.bulkCollisionResolver = { fileName, _ in
+            prompted.append(fileName)
+            return (.keepBoth, true)
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // Only the first collision prompted; b and c were resolved from the cache.
+        #expect(prompted == ["a.txt"])
+        // Keep-both was applied to all three: each original untouched, each got a twin.
+        for name in ["a", "b", "c"] {
+            #expect(mockFM.virtualDisk["/dst/\(name).txt"] != nil)
+            #expect(mockFM.virtualDisk["/dst/\(name) 2.txt"] != nil)
+        }
+        #expect(mockFM.trashedPaths.isEmpty)
+        // All three resolved for good.
+        #expect(manager.differences.isEmpty)
+        #expect(manager.rawDifferences.isEmpty)
+    }
+
+    /// "Apply to all" is scoped to a single bulk run: a second syncAll after the first completes
+    /// must prompt afresh, and its (different) answer must win over the first run's cached one.
+    @MainActor
+    @Test func testSyncAllApplyToAllDoesNotPersistIntoNextRun() async throws {
+        let (manager, mockFM, diffs) = try makeBulkCollisionFixture(names: ["a.txt"])
+
+        var promptCount = 0
+        manager.bulkCollisionResolver = { _, _ in
+            promptCount += 1
+            return promptCount == 1 ? (.replace, true) : (.skip, false)
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+        #expect(promptCount == 1)
+        #expect(mockFM.trashedPaths.count == 1)
+
+        // Second run: the replace left the destination occupied, so a.txt collides again.
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+        await manager.syncAll(direction: .copyToRight)
+
+        // A leaked cache would silently replace again; instead the fresh prompt's skip wins.
+        #expect(promptCount == 2)
+        #expect(mockFM.trashedPaths.count == 1)
+        #expect(manager.differences.map(\.relativePath) == ["a.txt"])
+    }
+
+    /// Captures what a bulk run publishes while it is still executing; MainActor-bound so the
+    /// mid-run observation task can write to it from inside syncAll's suspension window.
+    @MainActor
+    private final class BulkRunProbe {
+        var progressActiveAtPrompt = false
+        var bulkProgressDuringIO: (completed: Int, total: Int)?
+        var midRunObservation: Task<Void, Never>?
+    }
+
+    /// `bulkSyncProgress` is published for the IO phase of the run and torn down on exit, and
+    /// `activeProgress` is up from the first prompt until completion. `bulkSyncProgress` is only
+    /// set after the prompt loop, so the resolver seam can't see it directly — instead a task
+    /// scheduled from inside the resolver runs at syncAll's next MainActor suspension (the IO
+    /// await, which comes after the value is published) and observes it there. Cross-run
+    /// clobbering of `activeProgress` needs no test: the reentrancy guard returns before a
+    /// second run ever touches it, and the teardown only clears the run's own progress.
+    @MainActor
+    @Test func testSyncAllPublishesBulkProgressDuringRunAndClearsItAfter() async throws {
+        let (manager, mockFM, _) = try makeBulkCollisionFixture(names: ["a.txt"])
+
+        let probe = BulkRunProbe()
+        manager.bulkCollisionResolver = { _, _ in
+            probe.progressActiveAtPrompt = (manager.activeProgress != nil)
+            probe.midRunObservation = Task { @MainActor in
+                probe.bulkProgressDuringIO = manager.bulkSyncProgress
+            }
+            return (.replace, false)
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+        await probe.midRunObservation?.value
+
+        // Live while running…
+        #expect(probe.progressActiveAtPrompt)
+        #expect(probe.bulkProgressDuringIO != nil)
+        #expect(probe.bulkProgressDuringIO?.total == 1)
+        // …and fully torn down after, with the work actually done.
+        #expect(manager.bulkSyncProgress == nil)
+        #expect(manager.activeProgress == nil)
+        #expect(mockFM.trashedPaths.count == 1)
+    }
 }
