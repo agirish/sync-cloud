@@ -53,6 +53,24 @@ import Foundation
         #expect(mockFM.trashedPaths.count == 1)
         #expect(mockFM.trashedPaths.first?.hasSuffix("/parent") == true)
     }
+
+    /// The delete prune must only drop real descendants: a path that merely starts with another
+    /// path's characters (no "/" boundary) is a sibling and must still be deleted.
+    @MainActor
+    @Test func testBulkDeleteKeepsStringPrefixSiblings() async throws {
+        let manager = FileSyncManager()
+        manager.permanentDeleteConfirmer = { _ in false }
+        let mockFM = MockFileManager()
+
+        mockFM.virtualDisk["/src/report"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
+        mockFM.virtualDisk["/src/report copy.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        await manager.deleteItems(at: ["/src/report", "/src/report copy.txt"], fileManager: mockFM)
+
+        #expect(mockFM.virtualDisk["/src/report"] == nil)
+        #expect(mockFM.virtualDisk["/src/report copy.txt"] == nil)
+        #expect(mockFM.trashedPaths.count == 2)
+    }
     
     @MainActor
     @Test func testCollisionResolutionKeepBoth() async throws {

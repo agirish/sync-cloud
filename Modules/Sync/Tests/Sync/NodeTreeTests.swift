@@ -79,4 +79,36 @@ import Foundation
         #expect(nestedTree().findNodes(at: []).isEmpty)
         #expect(nestedTree().findNodes(at: ["/nope"]).isEmpty)
     }
+
+    // MARK: pruneNestedNodes
+
+    @Test func testPruneNestedNodesKeepsOnlyHighestParents() {
+        // Distinct id lengths, so the length-sorted output order is deterministic.
+        let parent = FileNode(id: "/a", name: "a", isDirectory: true)
+        let child = FileNode(id: "/a/b", name: "b", isDirectory: true)
+        let sibling = FileNode(id: "/sibling", name: "sibling", isDirectory: true)
+        let grandchild = FileNode(id: "/a/b/c.txt", name: "c.txt", isDirectory: false)
+
+        let pruned = [grandchild, sibling, child, parent].pruneNestedNodes()
+        // Descendants of an accepted parent are dropped; survivors come out shortest-path first.
+        #expect(pruned.map(\.id) == ["/a", "/sibling"])
+    }
+
+    @Test func testPruneNestedNodesKeepsStringPrefixSiblings() {
+        // "/a/bc" starts with "/a/b" as a string but is NOT inside the "/a/b" directory.
+        let dir = FileNode(id: "/a/b", name: "b", isDirectory: true)
+        let lookalike = FileNode(id: "/a/bc", name: "bc", isDirectory: true)
+
+        let pruned = [lookalike, dir].pruneNestedNodes()
+        #expect(pruned.map(\.id) == ["/a/b", "/a/bc"])
+    }
+
+    @Test func testPruneNestedNodesKeepsDuplicateIds() {
+        // A node is not "nested inside" an identical id; duplicates both survive.
+        let one = FileNode(id: "/a/dup", name: "dup", isDirectory: false)
+        let two = FileNode(id: "/a/dup", name: "dup", isDirectory: false)
+
+        let pruned = [one, two].pruneNestedNodes()
+        #expect(pruned.map(\.id) == ["/a/dup", "/a/dup"])
+    }
 }
