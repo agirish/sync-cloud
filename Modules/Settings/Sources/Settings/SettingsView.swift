@@ -250,10 +250,6 @@ struct ProviderCard: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
-    /// Cached so re-renders (e.g. dragging the glass slider) don't re-stat every provider path;
-    /// recomputed when the provider's path changes or providers are re-discovered (the folder
-    /// may have been created/deleted externally with the path itself unchanged).
-    @State private var isPathValid: Bool = false
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     var body: some View {
@@ -276,7 +272,9 @@ struct ProviderCard: View {
                         Text(provider.displayName)
                             .font(.headline.weight(.semibold))
                         
-                        StatusBadge(isValid: isPathValid)
+                        // SettingsManager owns validity (re-checked on discovery/refresh and
+                        // path edits), so re-renders here never stat the disk.
+                        StatusBadge(isValid: settings.isPathValid(for: provider.id))
                     }
                     
                     Text(provider.id)
@@ -335,26 +333,14 @@ struct ProviderCard: View {
         )
         .onAppear {
             draftPath = provider.path
-            isPathValid = Self.validatePath(provider.path)
         }
         .onChange(of: provider.path) { _, updated in
             if draftPath != updated {
                 draftPath = updated
             }
-            isPathValid = Self.validatePath(updated)
-        }
-        .onChange(of: settings.providerDiscoveryCount) { _, _ in
-            // "Refresh providers" re-discovers without changing this card's identity or path,
-            // so re-stat here or the badge keeps a stale verdict about the folder on disk.
-            isPathValid = Self.validatePath(provider.path)
         }
     }
 
-    private static func validatePath(_ path: String) -> Bool {
-        var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath, isDirectory: &isDir) && isDir.boolValue
-    }
-    
     private func selectDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false

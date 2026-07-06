@@ -235,26 +235,29 @@ private func noOverrides(_ id: String) -> String? { nil }
         #expect(counter.count == 1)
     }
 
-    /// Every discovery pass must bump `providerDiscoveryCount`, even when it changes no provider:
-    /// the validity badge re-stats on this signal, because "Refresh providers" often leaves a
-    /// card's identity and path unchanged while the folder on disk appeared or vanished.
+    /// Every discovery pass must re-run the path validator, even when it changes no provider:
+    /// the validity badge shows `pathValidity`, and "Refresh providers" often leaves a card's
+    /// identity and path unchanged while the folder on disk appeared or vanished. (Successor to
+    /// the `providerDiscoveryCount` bump test — the counter was subsumed by `pathValidity`.)
     @MainActor
-    @Test func testDiscoverProvidersBumpsDiscoveryCountEvenWhenProvidersAreUnchanged() async {
+    @Test func testDiscoverProvidersRevalidatesPathsEvenWhenProvidersAreUnchanged() async {
         let test = TestDefaults()
         defer { test.wipe() }
+        let counter = CallCounter()
 
         let settings = SettingsManager(
             autoDiscover: false,
             userDefaults: test.defaults,
-            cloudStorageLister: { [folder("Dropbox")] })
-        #expect(settings.providerDiscoveryCount == 0)
+            cloudStorageLister: { [folder("Dropbox")] },
+            pathValidator: { _ in counter.increment(); return true })
 
         await settings.discoverProviders()
         let providersAfterFirst = settings.availableProviders.map(\.id)
-        #expect(settings.providerDiscoveryCount == 1)
+        let validationsAfterFirst = counter.count
+        #expect(validationsAfterFirst >= providersAfterFirst.count)
 
         await settings.discoverProviders()
         #expect(settings.availableProviders.map(\.id) == providersAfterFirst)
-        #expect(settings.providerDiscoveryCount == 2)
+        #expect(counter.count == validationsAfterFirst + providersAfterFirst.count)
     }
 }
