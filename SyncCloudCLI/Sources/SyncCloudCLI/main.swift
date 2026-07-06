@@ -40,12 +40,24 @@ private struct DiffSummary: Codable {
     let rightSize: Int?
 }
 
+/// Discovers providers against the app's UserDefaults domain, so path overrides set in the app's
+/// Settings window apply to the CLI too. The un-bundled CLI's `.standard` defaults resolve to a
+/// per-process domain (`synccloud.plist`) that never sees the app's `path_override_*` keys.
+private func discoverProviderSnapshot() async -> [CloudProvider] {
+    let settings = await MainActor.run {
+        SettingsManager(
+            autoDiscover: false,
+            userDefaults: UserDefaults(suiteName: SettingsManager.appSuiteName) ?? .standard
+        )
+    }
+    await settings.discoverProviders()
+    return await MainActor.run { settings.availableProviders }
+}
+
 /// Discovers providers and resolves both `-L`/`-R` values, converting resolution
 /// failures into ArgumentParser validation errors.
 private func resolveProviders(left: String, right: String) async throws -> (left: CloudProvider, right: CloudProvider) {
-    let settings = await MainActor.run { SettingsManager(autoDiscover: false) }
-    await settings.discoverProviders()
-    let providers = await MainActor.run { settings.availableProviders }
+    let providers = await discoverProviderSnapshot()
     do {
         let leftProvider = try resolveProviderOrPath(value: left, label: "Left", providers: providers)
         let rightProvider = try resolveProviderOrPath(value: right, label: "Right", providers: providers)
@@ -285,11 +297,7 @@ struct Providers: AsyncParsableCommand {
     )
 
     func run() async throws {
-        let settings = await MainActor.run { SettingsManager(autoDiscover: false) }
-        // Ensure discovery has completed at least once.
-        await settings.discoverProviders()
-
-        let providers = await MainActor.run { settings.availableProviders }
+        let providers = await discoverProviderSnapshot()
         if providers.isEmpty {
             print("No providers discovered.")
             return

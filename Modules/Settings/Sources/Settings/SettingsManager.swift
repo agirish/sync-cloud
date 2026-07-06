@@ -18,6 +18,12 @@ public class SettingsManager: ObservableObject {
     private static let overrideKeyPrefix = "path_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
 
+    /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
+    /// `.standard` resolves to inside the bundled app. Un-bundled processes (the `synccloud` CLI)
+    /// must pass `UserDefaults(suiteName: SettingsManager.appSuiteName)` explicitly: their own
+    /// `.standard` resolves to a per-process-name domain that never sees the app's path overrides.
+    public static let appSuiteName = "com.abhishekgirish.SyncCloud"
+
     static var iCloudDefaultPath: String {
         (NSString(string: "~/Documents")).expandingTildeInPath
     }
