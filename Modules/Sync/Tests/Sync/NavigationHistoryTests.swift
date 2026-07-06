@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import Sync
 
 @Suite struct NavigationHistoryTests {
@@ -96,8 +97,32 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         
         manager.focusOn(relativePath: "photos", isLeft: true)
-        
+
         #expect(manager.leftRelativePath == "photos")
         #expect(manager.rightRelativePath == "")
+    }
+
+    @MainActor
+    @Test func testFocusOnRightPaneWithUnknownPathNavigatesClearsIgnoredAndFiresRefresh() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.focusOn(relativePath: "somewhere", isLeft: true)
+        manager.ignoredPaths = ["noise.txt"]
+
+        var refreshCount = 0
+        let subscription = manager.refreshSubject.sink { refreshCount += 1 }
+        defer { subscription.cancel() }
+
+        // The focused path exists on no disk: focusOn does not validate it, it just re-focuses
+        // the one pane, resets the per-folder ignore list, appends to history, and fires the
+        // refresh subject (which is what triggers the follow-up tree load and scan).
+        manager.focusOn(relativePath: "does/not/exist", isLeft: false)
+
+        #expect(manager.rightRelativePath == "does/not/exist")
+        #expect(manager.leftRelativePath == "somewhere") // the other pane is untouched
+        #expect(manager.ignoredPaths.isEmpty)
+        #expect(refreshCount == 1)
+        #expect(manager.history.count == 3)
+        #expect(manager.canGoBack)
+        #expect(!manager.canGoForward)
     }
 }
