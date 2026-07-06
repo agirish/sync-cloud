@@ -15,4 +15,8 @@ Install the most recent SyncCloud build into /Applications:
    ```bash
    rm -rf /Applications/SyncCloud.app && ditto "$APP" /Applications/SyncCloud.app
    ```
-5. Confirm by reporting the installed binary's timestamp.
+5. Unregister the DerivedData copy from LaunchServices so macOS search shows only the installed app (each build re-registers it):
+   ```bash
+   /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP"
+   ```
+6. Confirm by reporting the installed binary's timestamp.
