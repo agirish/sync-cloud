@@ -35,16 +35,24 @@ public enum FileContentVerifier {
             var hasher = SHA256()
             var totalBytes = 0
             while true {
-                let chunk: Data?
-                do { chunk = try handle.read(upToCount: hashChunkSize) }
-                catch { return nil }
-                // nil or empty means end-of-file.
-                guard let chunk, !chunk.isEmpty else { break }
-                totalBytes += chunk.count
-                // The file grew past the stat'd size mid-read; treat as unverifiable,
-                // matching the previous whole-read size check.
-                if totalBytes > size { return nil }
-                hasher.update(data: chunk)
+                // read(upToCount:) bridges each chunk through an autoreleased NSData; without a
+                // per-iteration pool they accumulate until the closure returns, letting peak
+                // memory approach the whole file again. nil = unverifiable, false = end-of-file.
+                let advance: Bool? = autoreleasepool {
+                    let chunk: Data?
+                    do { chunk = try handle.read(upToCount: hashChunkSize) }
+                    catch { return nil }
+                    // nil or empty means end-of-file.
+                    guard let chunk, !chunk.isEmpty else { return false }
+                    totalBytes += chunk.count
+                    // The file grew past the stat'd size mid-read; treat as unverifiable,
+                    // matching the previous whole-read size check.
+                    if totalBytes > size { return nil }
+                    hasher.update(data: chunk)
+                    return true
+                }
+                guard let advance else { return nil }
+                if !advance { break }
             }
             guard totalBytes == size else { return nil }
             let digest = hasher.finalize()

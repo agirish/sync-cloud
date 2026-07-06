@@ -130,6 +130,11 @@ public class FileSyncManager: ObservableObject {
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
     /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
     internal var bulkApplyToAllResolution: CollisionResolution?
+    /// True while a `syncAll` run is in flight. Its prepare phase suspends (detached stat pass,
+    /// keep-both probing) before the progress overlay can block input, so without a guard a
+    /// second bulk run could interleave there, reset `bulkApplyToAllResolution` mid-prompt, and
+    /// tear down `bulkSyncProgress` on exit while the first run is still using it.
+    private var isBulkSyncRunning = false
 
     /// Current subfolder path relative to the left pane root (empty = root).
     @Published public var leftRelativePath: String = ""
@@ -669,6 +674,9 @@ public class FileSyncManager: ObservableObject {
         let toSync = source.filter { $0.action == direction }
         let total = toSync.count
         guard total > 0 else { return }
+        // Drop, don't queue, a bulk run started while another is in flight (see the flag's doc).
+        guard !isBulkSyncRunning else { return }
+        isBulkSyncRunning = true
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
 
@@ -682,6 +690,7 @@ public class FileSyncManager: ObservableObject {
         }
 
         defer {
+            isBulkSyncRunning = false
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
             if activeProgress === progress { activeProgress = nil }
@@ -695,7 +704,8 @@ public class FileSyncManager: ObservableObject {
         // detached pass: a per-file synchronous fileExists on the MainActor stalls the UI
         // proportionally to file count on network/cloud volumes before any copying starts.
         // Collision prompts still run afterwards on the MainActor, in list order, with the
-        // same resolutions - nothing between the stats and the prompts touches the disk.
+        // same resolutions; once a prompt has held the run, the loop below re-stats results
+        // the batch saw as missing so externally created destinations still get prompted.
         var candidates: [(difference: FileDifference, fromURL: URL, toURL: URL)] = []
         candidates.reserveCapacity(toSync.count)
         for difference in toSync {
@@ -721,15 +731,29 @@ public class FileSyncManager: ObservableObject {
 
         var preparedList: [(FileDifference, URL, URL, Bool)] = []
         var skippedCount = 0
+        // The batch stat above ran before the first prompt. A prompt holds this loop for an
+        // unbounded time, during which a destination the batch saw as missing can be created
+        // externally — and would then be replaced without its overwrite prompt. Once a prompt
+        // has been shown, re-stat the "missing" results (still off the main actor) so such a
+        // file gets the same prompt a just-in-time stat would have produced.
+        var promptShownSinceStatPass = false
         for (index, candidate) in candidates.enumerated() {
             if progress.isCancelled { break }
             var toURL = candidate.toURL
-            if destinationExists[index] {
+            var destinationOccupied = destinationExists[index]
+            if !destinationOccupied && promptShownSinceStatPass {
+                let staleCandidate = toURL
+                destinationOccupied = await Task.detached(priority: .userInitiated) {
+                    activeFM.fileExists(atPath: staleCandidate.path)
+                }.value
+            }
+            if destinationOccupied {
                 let fileName = toURL.lastPathComponent
                 let resolution: CollisionResolution
                 if let cached = bulkApplyToAllResolution {
                     resolution = cached
                 } else {
+                    promptShownSinceStatPass = true
                     let (res, applyToAll) = bulkCollisionResolver(fileName, isMove)
                     if applyToAll { bulkApplyToAllResolution = res }
                     resolution = res

@@ -235,4 +235,102 @@ import Foundation
         #expect(manager.leftTree.count == 1)
         #expect(manager.leftTree.first?.name == "a.txt")
     }
+
+    /// The batch stat pass runs before the first collision prompt, and a prompt holds the run
+    /// for an unbounded time. A destination created externally during that wait must still get
+    /// its own overwrite prompt — with only the stale pre-prompt stat it was silently replaced.
+    @MainActor
+    @Test func testSyncAllPromptsForDestinationCreatedDuringEarlierPrompt() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        var diffs: [FileDifference] = []
+        for name in ["a.txt", "b.txt"] {
+            mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            diffs.append(FileDifference(
+                relativePath: name,
+                leftItemPath: "/src/\(name)",
+                rightItemPath: "/dst/\(name)",
+                type: .missingOnRight,
+                action: .copyToRight,
+                description: "Missing"
+            ))
+        }
+        // Only a.txt collides when the batch stat runs.
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        var prompted: [String] = []
+        manager.collisionResolver = { _, _ in .skip } // bulk path must not use the single-file seam
+        manager.bulkCollisionResolver = { fileName, _ in
+            prompted.append(fileName)
+            if fileName == "a.txt" {
+                // While the user sits on a's prompt, b's destination appears externally.
+                mockFM.virtualDisk["/dst/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            }
+            return (.skip, false)
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // b collides by decision time, so it must be prompted too, in list order.
+        #expect(prompted == ["a.txt", "b.txt"])
+        // Both were skipped: nothing copied, nothing trashed, both still open differences.
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.differences.map(\.relativePath) == ["a.txt", "b.txt"])
+    }
+
+    /// A second syncAll started while one is still preparing must be dropped, not interleaved:
+    /// the prepare phase suspends (detached stat pass) before any prompt, and a concurrent run
+    /// would reset the first run's "Apply to all" cache and tear down its progress on exit.
+    @MainActor
+    @Test func testSyncAllDropsReentrantRunWhileFirstIsInFlight() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let diff = FileDifference(
+            relativePath: "a.txt",
+            leftItemPath: "/src/a.txt",
+            rightItemPath: "/dst/a.txt",
+            type: .differentDates,
+            action: .copyToRight,
+            description: "Different dates"
+        )
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+
+        var promptCount = 0
+        manager.collisionResolver = { _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _ in
+            promptCount += 1
+            return (.replace, false)
+        }
+
+        let first = Task { await manager.syncAll(direction: .copyToRight) }
+        // Let the first run reach its stat-pass suspension; it publishes activeProgress
+        // synchronously before that first await.
+        for _ in 0..<1_000 where manager.activeProgress == nil { await Task.yield() }
+        #expect(manager.activeProgress != nil)
+
+        // Second run while the first is in flight: must return without doing anything.
+        await manager.syncAll(direction: .copyToRight)
+        await first.value
+
+        // Exactly one run's worth of work: one prompt, one replace.
+        #expect(promptCount == 1)
+        #expect(mockFM.trashedPaths.count == 1)
+        // And the guard resets: a later run is not blocked.
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        await manager.syncAll(direction: .copyToRight)
+        #expect(promptCount == 2)
+    }
 }
