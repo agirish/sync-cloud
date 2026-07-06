@@ -222,8 +222,19 @@ extension FileSyncManager {
                         // resourceValues are cache hits. The URL-based API does not traverse a
                         // symlinked directory, so fall back to the path-based listing (which follows
                         // symlinks, as the tree always has) when it yields nothing.
-                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: Self.childKeys, options: []), !prefetched.isEmpty {
-                            return prefetched
+                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: Self.childKeys, options: []) {
+                            if !prefetched.isEmpty {
+                                return prefetched
+                            }
+                            // An empty result is either a genuinely empty directory or a symlinked
+                            // directory the URL-based API refused to traverse. Only the symlink case
+                            // needs the fallback listing; for plain empty directories the symlink
+                            // check is a cache hit (isSymbolicLinkKey is in childKeys) or one lstat,
+                            // cheaper than a second directory listing.
+                            let isSymlink = (try? dirURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
+                            if !isSymlink {
+                                return prefetched
+                            }
                         }
                         let names = (try? realFm.contentsOfDirectory(atPath: dirURL.path)) ?? []
                         return names.map { dirURL.appendingPathComponent($0) }

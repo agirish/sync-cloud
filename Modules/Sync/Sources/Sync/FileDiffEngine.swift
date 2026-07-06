@@ -48,6 +48,7 @@ public struct FileDiffEngine {
     /// - Returns: A map of relative paths to `FileInfo` metadata.
     public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
+        let keySet = Set(keys)
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
             return [:]
         }
@@ -63,7 +64,7 @@ public struct FileDiffEngine {
                 var isDir = false
                 
                 if let _ = fileManager as? FileManager {
-                    let resourceValues = try fileURL.resourceValues(forKeys: Set(keys + [.isDirectoryKey]))
+                    let resourceValues = try fileURL.resourceValues(forKeys: keySet)
                     isReg = resourceValues.isRegularFile ?? true
                     modDate = resourceValues.contentModificationDate
                     size = resourceValues.fileSize

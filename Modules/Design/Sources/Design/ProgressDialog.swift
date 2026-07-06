@@ -68,11 +68,15 @@ public struct ProgressDialog: View {
         }
     }
 
-    private func formattedCount(completed: Int64, total: Int64) -> String {
+    private static let countFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
-        let c = formatter.string(from: NSNumber(value: completed)) ?? "\(completed)"
-        let t = formatter.string(from: NSNumber(value: total)) ?? "\(total)"
+        return formatter
+    }()
+
+    private func formattedCount(completed: Int64, total: Int64) -> String {
+        let c = Self.countFormatter.string(from: NSNumber(value: completed)) ?? "\(completed)"
+        let t = Self.countFormatter.string(from: NSNumber(value: total)) ?? "\(total)"
         return "\(c) of \(t)"
     }
 }

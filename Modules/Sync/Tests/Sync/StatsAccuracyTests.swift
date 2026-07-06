@@ -186,6 +186,33 @@ import Foundation
     }
 
     @MainActor
+    @Test func testRealFilesystemEmptyAndSymlinkedEmptyDirectories() async throws {
+        // The empty-listing fallback in childURLs only re-lists when the entry is a symlink.
+        // Lock in that a genuinely empty directory and a symlink to an empty directory both
+        // still come back as directories with no children, exactly as before.
+        let manager = FileSyncManager() // real FileManager
+        let fm = FileManager.default
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SyncCloudEmptyDirTest-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let emptyDir = root.appendingPathComponent("emptyDir")
+        try fm.createDirectory(at: emptyDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: root.appendingPathComponent("linkToEmptyDir"),
+                                  withDestinationURL: emptyDir)
+
+        await manager.loadTree(path: root.path, isLeft: true)
+
+        let top = Dictionary(uniqueKeysWithValues: manager.rawLeftTree.map { ($0.name, $0) })
+        #expect(top["emptyDir"]?.isDirectory == true)
+        #expect(top["emptyDir"]?.children?.isEmpty == true)
+        #expect(top["linkToEmptyDir"]?.isDirectory == true)
+        #expect(top["linkToEmptyDir"]?.children?.isEmpty == true)
+    }
+
+    @MainActor
     @Test func testRealFilesystemMetadataPopulated() async throws {
         // The C7b fast path folded metadata (size/date) into the single resourceValues stat that also
         // reports existence/type. testRealFilesystemTreeBuild only checks count + isDirectory, so this

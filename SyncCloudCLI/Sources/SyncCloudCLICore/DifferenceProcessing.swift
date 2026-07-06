@@ -21,11 +21,12 @@ public enum DifferenceProcessing {
         showHidden: Bool,
         ignore: [String]
     ) -> [FileDifference] {
+        let ignoredSet = Set(ignore)
         return diffs.filter { diff in
             if !showHidden && FileSyncManager.isHiddenPath(diff.relativePath) {
                 return false
             }
-            if !ignore.isEmpty && FileSyncManager.isIgnoredPath(diff.relativePath, ignored: Set(ignore)) {
+            if !ignoredSet.isEmpty && FileSyncManager.isIgnoredPath(diff.relativePath, ignored: ignoredSet) {
                 return false
             }
             switch direction {
