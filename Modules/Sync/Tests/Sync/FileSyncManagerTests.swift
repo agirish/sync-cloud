@@ -152,15 +152,11 @@ import Foundation
         let manager = FileSyncManager()
         manager.leftRelativePath = "some/path"
         manager.rightRelativePath = "other/path"
-        manager.leftExpandedPaths = ["/root/some/path"]
-        manager.rightExpandedPaths = ["/root/other/path"]
-        
+
         manager.resetNavigation()
-        
+
         #expect(manager.leftRelativePath == "")
         #expect(manager.rightRelativePath == "")
-        #expect(manager.leftExpandedPaths.isEmpty)
-        #expect(manager.rightExpandedPaths.isEmpty)
     }
     
     @MainActor

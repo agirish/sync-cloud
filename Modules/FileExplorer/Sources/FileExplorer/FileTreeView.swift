@@ -15,7 +15,6 @@ public struct FileTreeView: View {
     public let currentPath: String
 
     @Binding public var selection: Set<String>
-    @Binding public var expandedPaths: Set<String>
     /// Selected paths in the opposite pane (for mutual exclusivity and paste-from-other).
     public let otherSelection: Set<String>
     /// `true` if this view is for the left pane, `false` for the right.
@@ -27,13 +26,12 @@ public struct FileTreeView: View {
     /// Paths ignored in the diff (user can toggle per path).
     public let ignoredPaths: Set<String>
     
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, expandedPaths: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
         self.currentPath = currentPath
         self._selection = selection
-        self._expandedPaths = expandedPaths
         self.otherSelection = otherSelection
         self.isLeft = isLeft
         self.delegate = delegate

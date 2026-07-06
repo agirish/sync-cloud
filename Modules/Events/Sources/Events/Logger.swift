@@ -2,7 +2,7 @@ import Foundation
 import SwiftUI
 
 /// Defines the severity level of an application log entry.
-public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
+public enum LogLevel: String, CaseIterable, Identifiable, Sendable {
     /// Informational telemetry or standard operational success events.
     case info = "INFO"
     /// Detailed diagnostic information for development.
@@ -34,7 +34,7 @@ public enum LogLevel: String, CaseIterable, Identifiable, Codable, Sendable {
 }
 
 /// Represents a single recorded event in the application's lifecycle.
-public struct LogEntry: Identifiable, Codable, Sendable {
+public struct LogEntry: Identifiable, Sendable {
     /// A unique identifier for the entry.
     public let id: UUID
     /// The exact timestamp when the event occurred.

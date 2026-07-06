@@ -102,23 +102,7 @@ public class FileActionHandler {
     
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
-        let destDisplayName = providerDisplayName(forPath: validDestinationPath)
-
-        Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
-        Task {
-            if isCut {
-                let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: validDestinationPath)
-                let successfullyMovedIds = Set(movedNodes.map { $0.id })
-                syncManager.clipboardNodes.removeAll { successfullyMovedIds.contains($0.id) }
-                if syncManager.clipboardNodes.isEmpty {
-                    syncManager.clipboardIsCut = false
-                }
-                setBannerForMove(movedNodes, to: destDisplayName)
-            } else {
-                let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: validDestinationPath)
-                setBannerForCopy(copiedNodes, to: destDisplayName)
-            }
-        }
+        pasteItems(nodes, toPath: validDestinationPath, isCut: isCut)
     }
     
     public func pasteClipboard(to targetDir: FileNode) {
@@ -135,7 +119,7 @@ public class FileActionHandler {
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
-        Logger.shared.info("User pasting \(nodes.count) items to specific path (isCut: \(isCut))")
+        Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
         Task {
             if isCut {
                 let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)

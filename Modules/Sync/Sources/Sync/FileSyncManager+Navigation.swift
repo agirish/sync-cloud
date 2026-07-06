@@ -31,27 +31,21 @@ extension FileSyncManager {
         ignoredPaths.removeAll()
         historyIndex -= 1
         let state = history[historyIndex]
-        if leftRelativePath != state.left { leftRelativePath = state.left }
-        if rightRelativePath != state.right { rightRelativePath = state.right }
         Logger.shared.info("User navigated back to \(state.left.isEmpty ? "root" : state.left)")
-        updateHistoryState()
-        refreshSubject.send()
+        updateStateFromHistory()
     }
-    
+
     /// Navigates to the next state in the directory history stack.
     @MainActor public func goForward() {
         guard historyIndex < history.count - 1 else { return }
         ignoredPaths.removeAll()
         historyIndex += 1
         let state = history[historyIndex]
-        if leftRelativePath != state.left { leftRelativePath = state.left }
-        if rightRelativePath != state.right { rightRelativePath = state.right }
         Logger.shared.info("User navigated forward to \(state.left.isEmpty ? "root" : state.left)")
-        updateHistoryState()
-        refreshSubject.send()
+        updateStateFromHistory()
     }
-    
-    /// Resets both panes to root, clears selection and expanded state, and resets back/forward history.
+
+    /// Resets both panes to root, clears selection, and resets back/forward history.
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
         ignoredPaths.removeAll()
@@ -59,9 +53,7 @@ extension FileSyncManager {
         if !rightRelativePath.isEmpty { rightRelativePath = "" }
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
-        if !leftExpandedPaths.isEmpty { leftExpandedPaths = [] }
-        if !rightExpandedPaths.isEmpty { rightExpandedPaths = [] }
-        
+
         // Reset history to root only when it is not already exactly one root entry.
         if history.count != 1 || history[0].left != "" || history[0].right != "" {
             history = [("", "")]
@@ -83,12 +75,4 @@ extension FileSyncManager {
         refreshSubject.send()
     }
 
-    /// Updates `canGoBack` and `canGoForward` from the current history index (called after goBack/goForward).
-    func updateHistoryState() {
-        let nextCanGoBack = historyIndex > 0
-        let nextCanGoForward = historyIndex < history.count - 1
-        if canGoBack != nextCanGoBack { canGoBack = nextCanGoBack }
-        if canGoForward != nextCanGoForward { canGoForward = nextCanGoForward }
-    }
-    
 }

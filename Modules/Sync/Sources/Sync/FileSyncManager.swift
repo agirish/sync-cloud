@@ -157,11 +157,6 @@ public class FileSyncManager: ObservableObject {
             }
         }
     }
-    /// Paths of expanded folders in the left pane tree view.
-    @Published public var leftExpandedPaths: Set<String> = []
-    /// Paths of expanded folders in the right pane tree view.
-    @Published public var rightExpandedPaths: Set<String> = []
-    
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.

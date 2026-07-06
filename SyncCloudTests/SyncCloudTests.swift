@@ -51,8 +51,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         manager.selectedRightPaths = ["/dst/b.txt"]
         manager.leftRelativePath = "subfolder"
         manager.rightRelativePath = "otherfolder"
-        manager.leftExpandedPaths = ["/src/folder"]
-        
+
         // 2. This simulates what the ContentView .onChange(of: leftProviderId) does
         manager.selectedLeftPaths = []
         manager.leftRelativePath = ""
@@ -61,9 +60,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // 3. Verify specifically the navigation reset effects
         #expect(manager.selectedLeftPaths.isEmpty)
         #expect(manager.leftRelativePath.isEmpty)
-        #expect(manager.leftExpandedPaths.isEmpty)
-        #expect(manager.rightExpandedPaths.isEmpty)
-        #expect(manager.rightExpandedPaths.isEmpty)
         #expect(manager.history.count == 1)
     }
 

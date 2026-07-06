@@ -146,7 +146,6 @@ public struct SettingsView: View {
                         isRefreshingProviders ? "Refreshing…" : "Refresh providers",
                         systemImage: "arrow.clockwise"
                     )
-                    .disabled(isRefreshingProviders)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
