@@ -163,6 +163,55 @@ import Foundation
         #expect(manager.differences.isEmpty)
     }
 
+    /// The bulk prepare pass stats destinations off the main actor (detached, one pass); the
+    /// collision prompts must still fire on the MainActor, in list order, and each colliding
+    /// file must get its own resolution when the user doesn't pick "Apply to all".
+    @MainActor
+    @Test func testSyncAllPromptsCollisionsInOrderWithMixedResolutions() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        var diffs: [FileDifference] = []
+        for name in ["a.txt", "b.txt", "c.txt"] {
+            mockFM.virtualDisk["/src/\(name)"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+            diffs.append(FileDifference(
+                relativePath: name,
+                leftItemPath: "/src/\(name)",
+                rightItemPath: "/dst/\(name)",
+                type: .missingOnRight,
+                action: .copyToRight,
+                description: "Missing"
+            ))
+        }
+        // a and c collide on the destination; b does not.
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/c.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        var prompted: [String] = []
+        manager.collisionResolver = { _, _ in .skip } // bulk path must not use the single-file seam
+        manager.bulkCollisionResolver = { fileName, _ in
+            prompted.append(fileName)
+            return (fileName == "a.txt" ? (.skip, false) : (.keepBoth, false))
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // One prompt per colliding file, in list order; the clean file never prompts.
+        #expect(prompted == ["a.txt", "c.txt"])
+        // a was skipped: destination untouched, no keep-both twin, still an open difference.
+        #expect(mockFM.virtualDisk["/dst/a 2.txt"] == nil)
+        #expect(manager.differences.map(\.relativePath) == ["a.txt"])
+        // b copied straight over; c resolved as keep-both alongside the existing file.
+        #expect(mockFM.virtualDisk["/dst/b.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/c.txt"] != nil)
+        #expect(mockFM.virtualDisk["/dst/c 2.txt"] != nil)
+        #expect(mockFM.trashedPaths.isEmpty)
+    }
+
     /// A prefetch fast-path load must clear the loading spinner left set by the slow load it
     /// cancelled — the cancelled task cannot clear the flag itself once a newer load owns it.
     @MainActor

@@ -552,7 +552,13 @@ public class FileSyncManager: ObservableObject {
         }
         
         // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
-        if activeFM.fileExists(atPath: toURL.path) {
+        // The stat runs off the main actor: on network/cloud volumes a synchronous fileExists
+        // can block the UI for seconds. The prompt itself stays on the MainActor.
+        let collisionCandidate = toURL
+        let destinationExists = await Task.detached(priority: .userInitiated) {
+            activeFM.fileExists(atPath: collisionCandidate.path)
+        }.value
+        if destinationExists {
             let fileName = toURL.lastPathComponent
             let resolution: CollisionResolution
             if isBulkSync, let cached = bulkApplyToAllResolution {
@@ -571,7 +577,10 @@ public class FileSyncManager: ObservableObject {
                 }
                 return
             case .keepBoth:
-                toURL = Self.generateUniqueURL(for: toURL, fileManager: activeFM)
+                // generateUniqueURL stats candidate names in a loop; keep that off the main actor too.
+                toURL = await Task.detached(priority: .userInitiated) {
+                    Self.generateUniqueURL(for: collisionCandidate, fileManager: activeFM)
+                }.value
             case .replace:
                 break
             }
@@ -655,12 +664,16 @@ public class FileSyncManager: ObservableObject {
         }
 
         let activeFM = fileManager
-        var preparedList: [(FileDifference, URL, URL, Bool)] = []
-        var skippedCount = 0
+        // Resolve from/to URLs first (pure string work), then stat every destination in one
+        // detached pass: a per-file synchronous fileExists on the MainActor stalls the UI
+        // proportionally to file count on network/cloud volumes before any copying starts.
+        // Collision prompts still run afterwards on the MainActor, in list order, with the
+        // same resolutions - nothing between the stats and the prompts touches the disk.
+        var candidates: [(difference: FileDifference, fromURL: URL, toURL: URL)] = []
+        candidates.reserveCapacity(toSync.count)
         for difference in toSync {
-            if progress.isCancelled { break }
             let fromURL: URL
-            var toURL: URL
+            let toURL: URL
             if difference.action == .copyToRight {
                 fromURL = URL(fileURLWithPath: difference.leftItemPath)
                 toURL = URL(fileURLWithPath: difference.rightItemPath)
@@ -668,7 +681,23 @@ public class FileSyncManager: ObservableObject {
                 fromURL = URL(fileURLWithPath: difference.rightItemPath)
                 toURL = URL(fileURLWithPath: difference.leftItemPath)
             }
-            if activeFM.fileExists(atPath: toURL.path) {
+            candidates.append((difference, fromURL, toURL))
+        }
+
+        let statURLs = candidates.map(\.toURL)
+        let statProgress = BulkSyncProgressRef(progress)
+        let destinationExists = await Task.detached(priority: .userInitiated) { () -> [Bool] in
+            // A cancelled run stops stat-ing; the prepare loop below breaks on the same flag
+            // before ever reading the remaining (false) placeholders.
+            statURLs.map { statProgress.progress.isCancelled ? false : activeFM.fileExists(atPath: $0.path) }
+        }.value
+
+        var preparedList: [(FileDifference, URL, URL, Bool)] = []
+        var skippedCount = 0
+        for (index, candidate) in candidates.enumerated() {
+            if progress.isCancelled { break }
+            var toURL = candidate.toURL
+            if destinationExists[index] {
                 let fileName = toURL.lastPathComponent
                 let resolution: CollisionResolution
                 if let cached = bulkApplyToAllResolution {
@@ -683,12 +712,15 @@ public class FileSyncManager: ObservableObject {
                     skippedCount += 1
                     continue
                 case .keepBoth:
-                    toURL = Self.generateUniqueURL(for: toURL, fileManager: activeFM)
+                    let collidingURL = toURL
+                    toURL = await Task.detached(priority: .userInitiated) {
+                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM)
+                    }.value
                 case .replace:
                     break
                 }
             }
-            preparedList.append((difference, fromURL, toURL, isMove))
+            preparedList.append((candidate.difference, candidate.fromURL, toURL, isMove))
         }
 
         // Skipped items still count toward the visible total; treat them as already completed
