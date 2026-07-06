@@ -37,8 +37,8 @@ import Foundation
         let targetURL = URL(fileURLWithPath: "/src/data.bin")
 
         let manager = FileSyncManager()
-        // The trash failure asks for permanent-delete confirmation; the default confirmer is a
-        // blocking NSAlert, so mock the user confirming.
+        // The trash failure asks for permanent-delete confirmation; the default confirmer
+        // refuses, so mock the user confirming.
         manager.permanentDeleteConfirmer = { _ in true }
         await manager.deleteItems(at: [targetURL.path], fileManager: mockFM)
         
@@ -376,7 +376,7 @@ import Foundation
         let node = FileNode(id: "/src/folder", name: "folder", isDirectory: true)
 
         // /dst/folder already exists, so this hits the collision path. The resolver must be
-        // mocked: the default one presents a blocking NSAlert.
+        // mocked: the default one skips the item.
         manager.collisionResolver = { _, _ in .replace }
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
 

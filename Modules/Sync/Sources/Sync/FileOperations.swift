@@ -1,7 +1,6 @@
 import Events
 import Foundation
 import AppKit
-import Design
 
 extension FileSyncManager {
 

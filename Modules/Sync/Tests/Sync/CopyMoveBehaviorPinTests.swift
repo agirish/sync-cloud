@@ -11,7 +11,8 @@ import Events
 /// - the final debug log per variant, including the "N of M" partial-count form,
 /// - the error message per family ("Error copying items" vs "Error moving items"),
 /// - the order and content of the returned nodes.
-/// Every test mocks the collision seams: the production defaults show blocking NSAlerts.
+/// Every test mocks the collision seams to the specific resolution it exercises; the unwired
+/// defaults fail safe (skip / don't delete), which UnwiredManagerSafeDefaultsTests pins.
 @Suite struct CopyMoveBehaviorPinTests {
 
     /// True when the shared Logger holds an entry with exactly `message`. Awaiting a fresh log

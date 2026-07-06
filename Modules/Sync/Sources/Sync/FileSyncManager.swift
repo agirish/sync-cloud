@@ -2,7 +2,6 @@ import Events
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
-import Design
 
 /// Core business logic for the two-pane file comparison and sync engine.
 /// Holds in-memory trees (`FileNode`) for the left and right panes, runs differential scans,
@@ -13,21 +12,23 @@ public class FileSyncManager: ObservableObject {
     public let fileManager: FileManaging
     
     /// A closure that resolves naming collisions during file operations.
-    /// In production, this typically shows an NSAlert. In tests, it can be mocked to return specific resolutions.
-    public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { fileName, isMove in
-        return NativeAlerts.promptForCollision(fileName: fileName, isMove: isMove)
+    /// Defaults to `.skip` so an unwired manager never overwrites existing files.
+    /// The app wires an NSAlert-backed prompt at construction; tests inject specific resolutions.
+    public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { _, _ in
+        return .skip
     }
 
     /// The bulk-sync variant of `collisionResolver`, adding an "Apply to all" choice.
-    /// In production this shows an NSAlert; tests mock it so no modal can block a headless run.
-    public var bulkCollisionResolver: @MainActor (String, Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { fileName, isMove in
-        return NativeAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+    /// Defaults to skipping the conflicting item; the app wires an NSAlert-backed prompt at construction.
+    public var bulkCollisionResolver: @MainActor (String, Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { _, _ in
+        return (.skip, false)
     }
 
     /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
-    /// In production this shows an NSAlert; tests mock it so no modal can block a headless run.
-    public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { itemNames in
-        return NativeAlerts.confirmPermanentDelete(itemNames: itemNames)
+    /// Defaults to `false` so an unwired manager never destroys data; the app wires an
+    /// NSAlert-backed confirmation at construction.
+    public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { _ in
+        return false
     }
     
     /// Initializes a new FileSyncManager with a specific file manager.
