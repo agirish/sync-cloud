@@ -7,15 +7,9 @@ let package = Package(
     products: [
         .library(name: "Events", targets: ["Events"]),
     ],
-    dependencies: [
-        .package(path: "../Design")
-    ],
     targets: [
         .target(
-            name: "Events",
-            dependencies: [
-                .product(name: "Design", package: "Design")
-            ]
+            name: "Events"
         ),
         .testTarget(
             name: "EventsTests",

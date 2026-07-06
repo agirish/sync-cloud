@@ -20,7 +20,7 @@ let package = Package(
             dependencies: ["Sync", "Events", "FileExplorer", "Settings", "Design"]),
         .testTarget(
             name: "DashboardTests",
-            dependencies: ["Dashboard", "Sync"],
+            dependencies: ["Dashboard", "Sync", "Events"],
             path: "Tests/Dashboard")
     ]
 )

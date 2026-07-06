@@ -1,5 +1,6 @@
 import SwiftUI
 import Design
+import Events
 
 /// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
 /// case-insensitive search, and newest-first ordering are unit-testable without `@State`.

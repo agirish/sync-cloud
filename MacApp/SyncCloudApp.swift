@@ -2,6 +2,7 @@ import SwiftUI
 import Sync
 import Events
 import Settings
+import Dashboard
 import AppIntents
 
 // Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.

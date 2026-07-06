@@ -107,6 +107,36 @@ import Foundation
         #expect(diskOrder == expected)
     }
 
+    /// Pins the on-disk line format: "[yyyy-MM-dd HH:mm:ss.SSS] [LEVEL] message". The timestamp
+    /// renders in the local timezone, so assert the shape rather than exact digits.
+    @Test func testFormattedStringPinsDiskLineFormat() {
+        let entry = LogEntry(level: .warning, message: "low disk space")
+        let pattern = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}\] \[WARN\] low disk space$/
+        #expect(entry.formattedString.wholeMatch(of: pattern) != nil)
+    }
+
+    /// warning() and error() append a "| Location: file:line / function" suffix; info() and
+    /// debug() must not (their messages land verbatim).
+    @MainActor
+    @Test func testWarningAndErrorAppendCallSiteLocation() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoggerLocationTest-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let logger = Logger(logFileURL: url)
+        await logger.warning("careful").value
+        await logger.error("broken").value
+        await logger.debug("just details").value
+
+        let messages = logger.entries.map(\.message)
+        #expect(messages.count == 3)
+        #expect(messages[0].hasPrefix("careful | Location: EventsTests.swift:"))
+        #expect(messages[0].hasSuffix("/ testWarningAndErrorAppendCallSiteLocation()"))
+        #expect(messages[1].hasPrefix("broken | Location: EventsTests.swift:"))
+        #expect(messages[2] == "just details")
+        #expect(logger.entries[2].level == .debug)
+    }
+
     /// The suites of every package log through `Logger.shared`, so under a test runner the
     /// shared instance must resolve to a temp file - never the user's real ~/sync-cloud.log.
     @Test func testDefaultLogFileURLAvoidsRealLogUnderTests() {
