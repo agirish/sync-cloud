@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Combine
 import UniformTypeIdentifiers
 
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
@@ -14,6 +15,28 @@ public struct DetailsSidebar: View {
 
     @State private var computedDirectorySizePath: String? = nil
     @State private var computedDirectorySize: String? = nil
+
+    /// Memoizes the metadata stat and NSWorkspace icon for the current path. Both hit the
+    /// filesystem (slow on cloud paths), and this view re-renders on every syncManager change
+    /// during bulk operations. A reference type held in @State: mutating it during body is a
+    /// cache fill, not a state write, so it cannot re-trigger rendering.
+    private final class MetadataCache {
+        var path: String?
+        var metadata: FileMetadata?
+        var icon: NSImage?
+    }
+    @State private var cache = MetadataCache()
+
+    /// Returns the memoized metadata/icon for `path`, refreshing the cache if the path changed
+    /// or the cache was invalidated (after a file operation refresh).
+    private func cachedData(for path: String) -> (metadata: FileMetadata?, icon: NSImage?) {
+        if cache.path != path {
+            cache.metadata = Self.loadMetadata(for: path)
+            cache.icon = cache.metadata.map { NSWorkspace.shared.icon(forFile: $0.path) }
+            cache.path = path
+        }
+        return (cache.metadata, cache.icon)
+    }
 
     /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
     /// of `metadata` (DateFormatter is expensive to construct).
@@ -54,13 +77,13 @@ public struct DetailsSidebar: View {
         return leftPath.isEmpty ? rightPath : leftPath
     }
     
-    private var metadata: FileMetadata? {
+    private static func loadMetadata(for activePath: String) -> FileMetadata? {
         let url = URL(fileURLWithPath: activePath)
         let fm = FileManager.default
         var isDir: ObjCBool = false
-        
+
         guard fm.fileExists(atPath: activePath, isDirectory: &isDir) else { return nil }
-        
+
         do {
             let attrs = try fm.attributesOfItem(atPath: activePath)
             
@@ -114,15 +137,15 @@ public struct DetailsSidebar: View {
     }
 
     public var body: some View {
-        // Compute metadata once per render (it hits the filesystem) and reuse it below.
-        let data = metadata
+        // Metadata and icon are memoized per path (they hit the filesystem).
+        let (data, icon) = cachedData(for: activePath)
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
                     if let data {
                         // Icon Header
                         VStack {
-                            Image(nsImage: NSWorkspace.shared.icon(forFile: data.path))
+                            Image(nsImage: icon ?? NSWorkspace.shared.icon(forFile: data.path))
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
@@ -180,6 +203,11 @@ public struct DetailsSidebar: View {
         .background(.regularMaterial.opacity(0.5))
         .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
+        .onReceive(syncManager.refreshSubject) { _ in
+            // A file operation may have changed the selected item's attributes in place;
+            // drop the memoized metadata so the next render re-stats it.
+            cache.path = nil
+        }
         .task(id: activePath) {
             guard let data, data.isDirectory else {
                 computedDirectorySizePath = nil

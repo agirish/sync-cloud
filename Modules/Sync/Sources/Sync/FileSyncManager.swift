@@ -113,7 +113,9 @@ public class FileSyncManager: ObservableObject {
     @Published public var rightItemCount = 0
     
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
-    @Published public var prefetchedTrees: [String: [FileNode]] = [:]
+    /// Not `@Published`: no view renders from it, and it is cleared after every file operation —
+    /// publishing it forced whole-window re-renders per operation.
+    public var prefetchedTrees: [String: [FileNode]] = [:]
     
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false
@@ -162,7 +164,8 @@ public class FileSyncManager: ObservableObject {
     
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
-    @Published public var activeFileOperationsCount = 0
+    /// Not `@Published`: the quit guard reads it imperatively; no view observes it.
+    public var activeFileOperationsCount = 0
     /// Real-time progress tracker for the currently active bulk file operation.
     @Published public var activeProgress: Progress? = nil
     /// Short-lived banner message for in-app operation completion toasts.

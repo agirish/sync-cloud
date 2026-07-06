@@ -329,37 +329,38 @@ struct ContentView: View {
 
     @ViewBuilder
     private var paneActionBar: some View {
+        // Each access walks the full pane tree; resolve the selection once per render. The trees
+        // and selections are all @Published, so any change re-renders this bar with fresh nodes.
+        let selectionNodes = activeSelectionNodes
         HStack(spacing: 10) {
             Button(action: {
-                guard let node = activeSelectionNodes.first, node.isDirectory else { return }
+                guard let node = selectionNodes.first, node.isDirectory else { return }
                 let isLeft = (activePane == .left)
                 actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
                 Label("Compare", systemImage: "scope")
             }
-            .disabled(activeSelectionNodes.count != 1 || !activeSelectionNodes[0].isDirectory)
+            .disabled(selectionNodes.count != 1 || !selectionNodes[0].isDirectory)
 
             Button(action: {
-                let nodes = activeSelectionNodes
-                guard !nodes.isEmpty, let activePane else { return }
+                guard !selectionNodes.isEmpty, let activePane else { return }
                 let fromLeft = (activePane == .left)
-                actionHandler?.copyItems(nodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+                actionHandler?.copyItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
                 Label("Copy", systemImage: "arrow.right.doc.on.clipboard")
             }
-            .disabled(activeSelectionNodes.isEmpty)
+            .disabled(selectionNodes.isEmpty)
 
             Button(action: {
-                let nodes = activeSelectionNodes
-                guard !nodes.isEmpty, let activePane else { return }
+                guard !selectionNodes.isEmpty, let activePane else { return }
                 let fromLeft = (activePane == .left)
                 Task {
-                    _ = await actionHandler?.moveItems(nodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+                    _ = await actionHandler?.moveItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }) {
                 Label("Move", systemImage: "arrow.right.square")
             }
-            .disabled(activeSelectionNodes.isEmpty)
+            .disabled(selectionNodes.isEmpty)
 
             Button(action: {
                 guard let path = activePanePath else { return }
@@ -370,13 +371,12 @@ struct ContentView: View {
             .disabled(activePane == nil)
 
             Button(role: .destructive, action: {
-                let nodes = activeSelectionNodes
-                guard !nodes.isEmpty else { return }
-                actionHandler?.confirmDelete(nodes)
+                guard !selectionNodes.isEmpty else { return }
+                actionHandler?.confirmDelete(selectionNodes)
             }) {
                 Label("Delete", systemImage: "trash")
             }
-            .disabled(activeSelectionNodes.isEmpty)
+            .disabled(selectionNodes.isEmpty)
 
             Menu {
                 ForEach(SortOption.allCases, id: \.self) { option in

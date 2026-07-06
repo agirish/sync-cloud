@@ -251,6 +251,9 @@ struct ProviderCard: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
+    /// Cached so re-renders (e.g. dragging the glass slider) don't re-stat every provider path;
+    /// recomputed when the provider's path changes.
+    @State private var isPathValid: Bool = false
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
     var body: some View {
@@ -332,17 +335,19 @@ struct ProviderCard: View {
         )
         .onAppear {
             draftPath = provider.path
+            isPathValid = Self.validatePath(provider.path)
         }
         .onChange(of: provider.path) { _, updated in
             if draftPath != updated {
                 draftPath = updated
             }
+            isPathValid = Self.validatePath(updated)
         }
     }
-    
-    private var isPathValid: Bool {
+
+    private static func validatePath(_ path: String) -> Bool {
         var isDir: ObjCBool = false
-        return FileManager.default.fileExists(atPath: (provider.path as NSString).expandingTildeInPath, isDirectory: &isDir) && isDir.boolValue
+        return FileManager.default.fileExists(atPath: (path as NSString).expandingTildeInPath, isDirectory: &isDir) && isDir.boolValue
     }
     
     private func selectDirectory() {

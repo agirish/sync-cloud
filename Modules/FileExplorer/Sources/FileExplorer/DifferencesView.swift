@@ -60,21 +60,9 @@ public struct DifferencesView: View {
         self.syncManager = syncManager
     }
 
-    private var filteredDifferences: [FileDifference] {
-        syncManager.differences.filter { selectedFilter.matches($0) }
-    }
-
-    private var summary: DifferencesSummary {
-        DifferencesSummary(differences: syncManager.differences, filter: selectedFilter)
-    }
-
-    private var copyToRightCount: Int { summary.copyToRightCount }
-    private var copyToLeftCount: Int { summary.copyToLeftCount }
-    private var anySyncing: Bool { summary.anySyncing }
     private var isBulkSyncing: Bool {
         syncManager.bulkSyncProgress != nil
     }
-    private var verifiableCount: Int { summary.verifiableCount }
     private var isVerifyAllInProgress: Bool {
         syncManager.verifyAllProgress != nil
     }
@@ -83,7 +71,17 @@ public struct DifferencesView: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Both are O(n) passes over the differences list; compute them once per render instead of
+        // once per access (the header alone reads the counts several times, and this view re-renders
+        // per file during bulk sync).
+        let filteredDifferences = syncManager.differences.filter { selectedFilter.matches($0) }
+        let summary = DifferencesSummary(differences: syncManager.differences, filter: selectedFilter)
+        let copyToRightCount = summary.copyToRightCount
+        let copyToLeftCount = summary.copyToLeftCount
+        let anySyncing = summary.anySyncing
+        let verifiableCount = summary.verifiableCount
+
+        return VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Differences Found")
                     .font(.headline.weight(.semibold))
