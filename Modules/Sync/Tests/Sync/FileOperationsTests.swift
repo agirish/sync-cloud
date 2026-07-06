@@ -111,13 +111,62 @@ import Foundation
     @Test func testRecursivePathValidation() async throws {
         let parentDir = URL(fileURLWithPath: "/src/folder")
         let targetChildDir = URL(fileURLWithPath: "/src/folder/child")
-        
+
         // You cannot move/copy `/src/folder` INTO `/src/folder/child`
         #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
             try FileSyncManager.validateFileOperation(source: parentDir, destination: targetChildDir)
         }
-        
+
         try #expect(FileSyncManager.validateFileOperation(source: parentDir, destination: URL(fileURLWithPath: "/src/otherFolder")) == ())
+    }
+
+    /// On a case-insensitive volume (the macOS default), `/src/Folder` and `/src/folder` are the
+    /// same directory: a case-variant destination must not slip past the nesting guard and
+    /// trigger a recursive self-copy.
+    @Test func testRecursivePathValidationIsCaseInsensitiveOnCaseInsensitiveVolumes() async throws {
+        let parentDir = URL(fileURLWithPath: "/src/Folder")
+        let caseVariantChild = URL(fileURLWithPath: "/src/folder/child")
+
+        #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
+            try FileSyncManager.validateFileOperation(source: parentDir, destination: caseVariantChild, caseSensitiveVolume: false)
+        }
+
+        // On a case-sensitive volume those really are two distinct directories - allowed.
+        try #expect(FileSyncManager.validateFileOperation(source: parentDir, destination: caseVariantChild, caseSensitiveVolume: true) == ())
+
+        // A case-only rename ("folder" -> "Folder", no deeper nesting) stays legitimate on
+        // case-insensitive volumes: neither identical nor a nesting violation.
+        try #expect(FileSyncManager.validateFileOperation(
+            source: URL(fileURLWithPath: "/src/folder"),
+            destination: URL(fileURLWithPath: "/src/Folder"),
+            caseSensitiveVolume: false
+        ) == ())
+    }
+
+    /// A destination reached through a symlink that points back inside the source must be
+    /// rejected: before symlink resolution, `/tmp/.../link/sub` shares no prefix with the real
+    /// source directory, so the guard passed and the copy recursed into itself.
+    @Test func testRecursivePathValidationResolvesSymlinks() async throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("ValidateSymlink-\(UUID().uuidString)")
+        let realDir = base.appendingPathComponent("realDir")
+        let linkURL = base.appendingPathComponent("alias")
+        try fm.createDirectory(at: realDir, withIntermediateDirectories: true)
+        try fm.createSymbolicLink(at: linkURL, withDestinationURL: realDir)
+        defer { try? fm.removeItem(at: base) }
+
+        // Moving realDir into itself via the alias: alias/sub resolves to realDir/sub.
+        #expect(throws: FileSyncManager.FileOperationError.nestingViolation) {
+            try FileSyncManager.validateFileOperation(source: realDir, destination: linkURL.appendingPathComponent("sub"))
+        }
+
+        // The alias and its target are the same item once resolved.
+        #expect(throws: FileSyncManager.FileOperationError.identicalSourceAndDestination) {
+            try FileSyncManager.validateFileOperation(source: linkURL, destination: realDir)
+        }
+
+        // A sibling destination behind the same symlinked base stays allowed.
+        try #expect(FileSyncManager.validateFileOperation(source: realDir, destination: base.appendingPathComponent("elsewhere")) == ())
     }
     
     @MainActor

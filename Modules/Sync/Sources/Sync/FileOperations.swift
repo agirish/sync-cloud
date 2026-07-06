@@ -31,18 +31,63 @@ extension FileSyncManager {
     }
     
     nonisolated static func validateFileOperation(source: URL, destination: URL) throws {
-        let src = source.standardizedFileURL.path
-        let dst = destination.standardizedFileURL.path
-        
+        try validateFileOperation(
+            source: source,
+            destination: destination,
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: source)
+        )
+    }
+
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
+    nonisolated static func validateFileOperation(source: URL, destination: URL, caseSensitiveVolume: Bool) throws {
+        // Resolve symlinks so an aliased destination path cannot smuggle a directory into itself.
+        let src = symlinkResolvedPath(for: source)
+        let dst = symlinkResolvedPath(for: destination)
+
+        // Deliberately case-sensitive: a case-only rename ("foo" -> "Foo") is a legitimate
+        // operation on case-insensitive volumes and must not be rejected as identical.
         if src == dst {
             throw FileOperationError.identicalSourceAndDestination
         }
-        
+
         // Ensure trailing slash for prefix check to avoid /a matching /abc
         let srcWithSlash = src.hasSuffix("/") ? src : src + "/"
-        if dst.hasPrefix(srcWithSlash) {
+        let isNested: Bool
+        if caseSensitiveVolume {
+            isNested = dst.hasPrefix(srcWithSlash)
+        } else {
+            // APFS is case-insensitive by default: /a/Dir/child and /a/dir/child are the same
+            // directory, so a case-variant path must not slip past the prefix check.
+            isNested = dst.range(of: srcWithSlash, options: [.anchored, .caseInsensitive]) != nil
+        }
+        if isNested {
             throw FileOperationError.nestingViolation
         }
+    }
+
+    /// Symlink-free path for `url`. `resolvingSymlinksInPath()` alone returns the path
+    /// unresolved whenever a trailing component does not exist (realpath fails), and a
+    /// destination usually does not exist yet - so resolve the deepest existing ancestor and
+    /// re-append the missing components.
+    private nonisolated static func symlinkResolvedPath(for url: URL) -> String {
+        var existing = url.standardizedFileURL
+        var missing: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.path != "/" {
+            missing.append(existing.lastPathComponent)
+            existing = existing.deletingLastPathComponent()
+        }
+        var resolved = existing.resolvingSymlinksInPath()
+        for component in missing.reversed() {
+            resolved.appendPathComponent(component)
+        }
+        return resolved.path
+    }
+
+    /// True when the volume containing `url` distinguishes names by case. Falls back to false
+    /// (the macOS default is case-insensitive) when the volume cannot be queried, e.g. for a
+    /// destination that does not exist yet - the stricter comparison is the safe default.
+    nonisolated static func volumeSupportsCaseSensitiveNames(for url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames ?? false
     }
     
     
