@@ -29,9 +29,13 @@ extension FileSyncManager {
                 if isLeft {
                     self.rawLeftTree = cachedTree
                     self.applyFilters()
+                    // A slow load we just cancelled may have left the spinner flag set; it can't
+                    // clear it itself (this newer load owns the flag once it starts).
+                    if isLoadingLeftTree { isLoadingLeftTree = false }
                 } else {
                     self.rawRightTree = cachedTree
                     self.applyFilters()
+                    if isLoadingRightTree { isLoadingRightTree = false }
                 }
                 return
             }

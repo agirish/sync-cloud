@@ -225,6 +225,16 @@ public class FileSyncManager: ObservableObject {
         return Self.isIgnoredPath(rPath, ignored: ignoredPaths)
     }
     
+    /// Removes resolved differences from both the published list and the raw backing list.
+    /// `applyFilters()` rebuilds `differences` from `rawDifferences`, so removing from the
+    /// published list alone lets any pre-rescan filter change (hidden toggle, sort, the post-sync
+    /// refresh itself) resurrect items that were already synced.
+    internal func removeResolvedDifferences(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        differences.removeAll { ids.contains($0.id) }
+        rawDifferences.removeAll { ids.contains($0.id) }
+    }
+
     /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating published state.
     public func applyFilters() {
         self.leftTree = Self.filterTree(rawLeftTree, showHidden: showHiddenFiles)
@@ -365,6 +375,29 @@ public class FileSyncManager: ObservableObject {
         applyFilters()
     }
 
+    /// For the dialog's `isPresented` binding: defers the "dismissed without copy" cleanup by one
+    /// main-actor turn. SwiftUI writes `false` into the binding on ANY dismissal — including the
+    /// confirm button — and the order of the setter vs. the button action is not guaranteed, so
+    /// cleaning up synchronously here could destroy the list before `confirmVerifiedCopy()` claims
+    /// it. Both button paths run synchronously in the same turn; whichever claimed the list first
+    /// wins and this deferred cleanup becomes a no-op.
+    public func verifiedCopyDialogDismissed() {
+        Task { @MainActor in
+            self.dismissVerifiedCopyDialogWithoutCopy()
+        }
+    }
+
+    /// Claims the verified-identical list synchronously and starts the bulk copy left→right.
+    /// Must be called directly from the confirm button (not inside a `Task`) so the claim happens
+    /// before `verifiedCopyDialogDismissed()`'s deferred cleanup can hide the list.
+    /// - Returns: The copy task, so tests can await completion. `nil` if there was nothing to copy.
+    @discardableResult
+    public func confirmVerifiedCopy() -> Task<Void, Never>? {
+        guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return nil }
+        verifiedIdenticalForCopy = nil
+        return Task { await self.bulkCopyDifferencesLeftToRight(list) }
+    }
+
     /// Bulk copy the given differences from left to right (overwrites if exists). No per-file confirmation; 2–4 concurrent copies.
     private func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
         let total = toCopy.count
@@ -436,8 +469,8 @@ public class FileSyncManager: ObservableObject {
             let initialResolver = AsyncValueResolver<[CopyItemState]>()
             Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
             registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
-            differences.removeAll { $0.id == diff.id }
         }
+        removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
         for (diff, error) in result.failures {
             let msg = "Error copying file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg
@@ -451,13 +484,6 @@ public class FileSyncManager: ObservableObject {
         } else if !result.successes.isEmpty {
             bannerMessage = "\(result.successes.count) files copied — dates matched"
         }
-    }
-
-    /// Copies the verified-identical list left→right (no confirmation, overwrites). Call after user confirms in the dialog.
-    public func bulkCopyVerifiedIdenticalLeftToRight() async {
-        guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return }
-        verifiedIdenticalForCopy = nil
-        await bulkCopyDifferencesLeftToRight(list)
     }
 
     /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.
@@ -593,7 +619,7 @@ public class FileSyncManager: ObservableObject {
                     self.registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
                 }
             }
-            differences.removeAll { $0.id == difference.id }
+            removeResolvedDifferences(ids: [difference.id])
         }
     }
 
@@ -710,8 +736,8 @@ public class FileSyncManager: ObservableObject {
                 Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
                 registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
             }
-            differences.removeAll { $0.id == diff.id }
         }
+        removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
         for (diff, error) in result.failures {
             let msg = "Error syncing file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg

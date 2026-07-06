@@ -227,10 +227,13 @@ public struct DifferencesView: View {
         }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
-            set: { if !$0 { syncManager.dismissVerifiedCopyDialogWithoutCopy() } }
+            // Deferred cleanup: SwiftUI writes false here on ANY dismissal, including confirm,
+            // and may run this setter before the button action. A synchronous cleanup here would
+            // destroy the list before the confirm button can claim it (making Copy a no-op).
+            set: { if !$0 { syncManager.verifiedCopyDialogDismissed() } }
         )) {
             Button("Copy Left to Right") {
-                Task { await syncManager.bulkCopyVerifiedIdenticalLeftToRight() }
+                syncManager.confirmVerifiedCopy()
             }
             Button("Cancel", role: .cancel) {
                 syncManager.dismissVerifiedCopyDialogWithoutCopy()
