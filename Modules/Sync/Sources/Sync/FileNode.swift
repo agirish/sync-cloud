@@ -73,16 +73,34 @@ extension Array where Element == FileNode {
         // Sort paths by length so parents come first
         let sortedNodes = self.sorted { $0.id.count < $1.id.count }
         var pruned: [FileNode] = []
-        
+        var acceptedIds = Set<String>()
+        acceptedIds.reserveCapacity(count)
+
         for node in sortedNodes {
             // Check if this node is a child of any already accepted parent
-            let isChildOfAcceptedParent = pruned.contains { parent in
-                node.id.hasPrefix(parent.id + "/")
-            }
-            if !isChildOfAcceptedParent {
+            if !node.id.isInsideDirectory(anyOf: acceptedIds) {
                 pruned.append(node)
+                acceptedIds.insert(node.id)
             }
         }
         return pruned
+    }
+}
+
+extension String {
+    /// True when the path lies inside one of the given directory paths, i.e. some prefix of it
+    /// ending at a "/" separator is a member of `directories`. Equivalent to
+    /// `directories.contains { hasPrefix($0 + "/") }` but O(path depth) instead of O(set size),
+    /// so selection pruning stays linear-ish over large selections.
+    func isInsideDirectory(anyOf directories: Set<String>) -> Bool {
+        guard !directories.isEmpty else { return false }
+        var searchStart = startIndex
+        while let slash = self[searchStart...].firstIndex(of: "/") {
+            if directories.contains(String(self[..<slash])) {
+                return true
+            }
+            searchStart = index(after: slash)
+        }
+        return false
     }
 }

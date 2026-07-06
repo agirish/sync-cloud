@@ -446,9 +446,10 @@ extension FileSyncManager {
             self.activeProgress = nil
         }
 
-        let transferredNodes = transferred.compactMap { item in
-            prunedNodes.first { $0.id == item.from.path }
-        }
+        // Keyed lookup instead of a linear scan per transferred item; first-wins matches what
+        // `first(where:)` returned should an id ever repeat in the selection.
+        let nodesByID = Dictionary(prunedNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let transferredNodes = transferred.compactMap { nodesByID[$0.from.path] }
 
         if let firstError = result.errors.first {
             let msg = "Error \(isMove ? "moving" : "copying") items: \(firstError.localizedDescription)"
@@ -533,9 +534,11 @@ extension FileSyncManager {
         // Prune nested paths to avoid redundant operations on children if parent is trashed
         let sortedPaths = paths.sorted { $0.count < $1.count }
         var prunedPaths: [String] = []
+        var acceptedPaths = Set<String>()
         for path in sortedPaths {
-            if !prunedPaths.contains(where: { path.hasPrefix($0 + "/") }) {
+            if !path.isInsideDirectory(anyOf: acceptedPaths) {
                 prunedPaths.append(path)
+                acceptedPaths.insert(path)
             }
         }
 
