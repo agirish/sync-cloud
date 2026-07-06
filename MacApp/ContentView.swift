@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var selectedBottomTab: BottomTab = .differences
 
     private static let bannerAutoDismissNanoseconds: UInt64 = 5_000_000_000 // 5 seconds
+    @State private var bannerDismissScheduler = BannerDismissScheduler()
 
     /// Resolves the left and right provider IDs from the current list (e.g. after provider list changes or bootstrap).
     /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a different provider for the right.
@@ -103,7 +104,10 @@ struct ContentView: View {
         .quickLookPreview($quickLookURL)
         .background(
             Button(action: {
-                if let targetPath = syncManager.selectedLeftPaths.first ?? syncManager.selectedRightPaths.first {
+                if let targetPath = PaneLogic.primarySelectionPath(
+                    leftSelection: syncManager.selectedLeftPaths,
+                    rightSelection: syncManager.selectedRightPaths
+                ) {
                     quickLookURL = URL(fileURLWithPath: targetPath)
                 }
             }) { EmptyView() }
@@ -273,12 +277,8 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.bannerMessage)
         .onChange(of: syncManager.bannerMessage) { _, newValue in
-            guard let current = newValue else { return }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: Self.bannerAutoDismissNanoseconds)
-                if syncManager.bannerMessage == current {
-                    syncManager.bannerMessage = nil
-                }
+            bannerDismissScheduler.bannerChanged(to: newValue, delayNanoseconds: Self.bannerAutoDismissNanoseconds) {
+                syncManager.bannerMessage = nil
             }
         }
     }

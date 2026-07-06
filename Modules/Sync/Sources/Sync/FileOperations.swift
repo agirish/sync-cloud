@@ -254,17 +254,21 @@ extension FileSyncManager {
         if let progress {
             progress.localizedDescription = "Copying \(total) Items"
             progress.isCancellable = true
-            self.activeProgress = progress
         }
-        
+
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
+            // Publish progress only once this operation actually starts; setting it at enqueue
+            // time would clobber the progress of an operation still running ahead in the queue.
+            if let progress {
+                await MainActor.run { [weak self] in self?.activeProgress = progress }
+            }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
-            
+
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
-                
+
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
                 }
@@ -312,9 +316,12 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(copied) }
             self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
         }
-        
-        self.activeProgress = nil
-        
+
+        // Clear only if still ours: a queued operation may have started and published its own.
+        if let progress, self.activeProgress === progress {
+            self.activeProgress = nil
+        }
+
         let copiedNodes = copied.compactMap { copiedItem in
             prunedNodes.first { $0.id == copiedItem.source.path }
         }
@@ -349,17 +356,20 @@ extension FileSyncManager {
         if let progress {
             progress.localizedDescription = "Moving \(total) Items"
             progress.isCancellable = true
-            self.activeProgress = progress
         }
-        
+
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
+            // Publish progress only once this operation actually starts (see copyItems above).
+            if let progress {
+                await MainActor.run { [weak self] in self?.activeProgress = progress }
+            }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-            
+
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
-                
+
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
                 }
@@ -410,8 +420,10 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(moved) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
-        
-        self.activeProgress = nil
+
+        if let progress, self.activeProgress === progress {
+            self.activeProgress = nil
+        }
 
         let movedNodes = moved.compactMap { moved in
             prunedNodes.first { $0.id == moved.from.path }
@@ -444,17 +456,20 @@ extension FileSyncManager {
         if let progress {
             progress.localizedDescription = "Copying \(total) Items"
             progress.isCancellable = true
-            self.activeProgress = progress
         }
-        
+
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
+            // Publish progress only once this operation actually starts (see copyItems above).
+            if let progress {
+                await MainActor.run { [weak self] in self?.activeProgress = progress }
+            }
             var taskErrors: [Error] = []
             var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
-            
+
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
-                
+
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
                 }
@@ -488,7 +503,9 @@ extension FileSyncManager {
             return (taskErrors, targetItems)
         }
         
-        self.activeProgress = nil
+        if let progress, self.activeProgress === progress {
+            self.activeProgress = nil
+        }
         let copied = result.copied
         if !copied.isEmpty {
             let initialResolver = AsyncValueResolver<[CopyItemState]>()
@@ -527,17 +544,20 @@ extension FileSyncManager {
         if let progress {
             progress.localizedDescription = "Moving \(total) Items"
             progress.isCancellable = true
-            self.activeProgress = progress
         }
-        
+
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
+            // Publish progress only once this operation actually starts (see copyItems above).
+            if let progress {
+                await MainActor.run { [weak self] in self?.activeProgress = progress }
+            }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-            
+
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
-                
+
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
                 }
@@ -577,9 +597,11 @@ extension FileSyncManager {
             Task { await initialResolver.resolve(moved) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
         }
-        
-        self.activeProgress = nil
-        
+
+        if let progress, self.activeProgress === progress {
+            self.activeProgress = nil
+        }
+
         let movedNodes = result.moved.compactMap { moved in prunedNodes.first { $0.id == moved.from.path } }
 
         if let firstError = result.errors.first {
@@ -656,31 +678,33 @@ extension FileSyncManager {
     /// Permanently deletes files or directories from disk.
     public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
         let confirmPermanentDelete = permanentDeleteConfirmer
-        let result = await enqueueFileOperation { [weak self] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
-            guard let strongSelf = self else { return ([], []) }
+
+        // Prune nested paths to avoid redundant operations on children if parent is trashed
+        let sortedPaths = paths.sorted { $0.count < $1.count }
+        var prunedPaths: [String] = []
+        for path in sortedPaths {
+            if !prunedPaths.contains(where: { path.hasPrefix($0 + "/") }) {
+                prunedPaths.append(path)
+            }
+        }
+
+        let total = Int64(prunedPaths.count)
+        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
+        if let progress {
+            progress.localizedDescription = "Deleting \(total) Items"
+            progress.isCancellable = true
+        }
+
+        let result = await enqueueFileOperation { [weak self, progress, prunedPaths] () -> (errors: [Error], items: [(original: URL, trashed: URL?)]) in
+            guard self != nil else { return ([], []) }
+            // Publish progress only once this operation actually starts (see copyItems above).
+            if let progress {
+                await MainActor.run { [weak self] in self?.activeProgress = progress }
+            }
             var taskErrors: [Error] = []
             var trashedItems: [(original: URL, trashed: URL?)] = []
             var trashFailures: [URL] = []
-            
-            // Prune nested paths to avoid redundant operations on children if parent is trashed
-            let sortedPaths = paths.sorted { $0.count < $1.count }
-            var prunedPaths: [String] = []
-            for path in sortedPaths {
-                if !prunedPaths.contains(where: { path.hasPrefix($0 + "/") }) {
-                    prunedPaths.append(path)
-                }
-            }
-            
-            let total = Int64(prunedPaths.count)
-            let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-            if let progress {
-                await MainActor.run {
-                    progress.localizedDescription = "Deleting \(total) Items"
-                    progress.isCancellable = true
-                    strongSelf.activeProgress = progress
-                }
-            }
-            
+
             for (index, path) in prunedPaths.enumerated() {
                 if progress?.isCancelled == true { break }
                 
@@ -742,7 +766,9 @@ extension FileSyncManager {
                 ? "Deleted \"\(name)\""
                 : "Deleted \(items.count) items"
         }
-        
-        self.activeProgress = nil
+
+        if let progress, self.activeProgress === progress {
+            self.activeProgress = nil
+        }
     }
 }

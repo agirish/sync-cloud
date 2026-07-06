@@ -20,9 +20,26 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // by observing that it doesn't just return .terminateNow immediately.
         manager.activeFileOperationsCount = 5
         
-        // We can't easily test the NSAlert response in a headless unit test, 
+        // We can't easily test the NSAlert response in a headless unit test,
         // but we've verified the property access and the branch logic in the source.
         #expect(manager.activeFileOperationsCount == 5)
+    }
+
+    /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@StateObject`
+    /// discards. Adopting that orphan would leave the quit guard watching an operation count
+    /// that is always zero, so only the first adopted manager may stick.
+    @MainActor
+    @Test func testQuitGuardKeepsFirstManagerAcrossAppReinit() async throws {
+        SyncCloudAppDelegate.sharedSyncManager = nil
+        let delegate = SyncCloudAppDelegate()
+        let liveManager = FileSyncManager()
+        let orphan = FileSyncManager()
+
+        delegate.adoptSyncManager(liveManager)
+        delegate.adoptSyncManager(orphan) // a re-run App.init offers its throwaway manager
+
+        #expect(delegate.syncManager === liveManager)
+        #expect(SyncCloudAppDelegate.sharedSyncManager === liveManager)
     }
 
     @MainActor

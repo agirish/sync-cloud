@@ -315,7 +315,8 @@ public class FileSyncManager: ObservableObject {
 
         defer {
             verifyAllProgress = nil
-            activeProgress = nil
+            // Clear only if still ours: a queued operation may have published its own by now.
+            if activeProgress === progress { activeProgress = nil }
         }
 
         let activeFM = fileManager
@@ -422,7 +423,7 @@ public class FileSyncManager: ObservableObject {
 
         defer {
             bulkSyncProgress = nil
-            activeProgress = nil
+            if activeProgress === progress { activeProgress = nil }
             for i in differences.indices where toCopyIDs.contains(differences[i].id) {
                 differences[i].isSyncing = false
             }
@@ -652,7 +653,7 @@ public class FileSyncManager: ObservableObject {
         defer {
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
-            activeProgress = nil
+            if activeProgress === progress { activeProgress = nil }
             for i in differences.indices where toSyncIDs.contains(differences[i].id) {
                 differences[i].isSyncing = false
             }
@@ -660,6 +661,7 @@ public class FileSyncManager: ObservableObject {
 
         let activeFM = fileManager
         var preparedList: [(FileDifference, URL, URL, Bool)] = []
+        var skippedCount = 0
         for difference in toSync {
             if progress.isCancelled { break }
             let fromURL: URL
@@ -683,6 +685,7 @@ public class FileSyncManager: ObservableObject {
                 }
                 switch resolution {
                 case .skip:
+                    skippedCount += 1
                     continue
                 case .keepBoth:
                     toURL = Self.generateUniqueURL(for: toURL, fileManager: activeFM)
@@ -693,7 +696,11 @@ public class FileSyncManager: ObservableObject {
             preparedList.append((difference, fromURL, toURL, isMove))
         }
 
-        bulkSyncProgress = (0, total)
+        // Skipped items still count toward the visible total; treat them as already completed
+        // so the progress can reach 100% instead of stalling at (total - skipped).
+        progress.completedUnitCount = Int64(skippedCount)
+        bulkSyncProgress = (skippedCount, total)
+        let skipped = skippedCount
         let progressRef = BulkSyncProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
@@ -715,7 +722,7 @@ public class FileSyncManager: ObservableObject {
                             } catch {
                                 await collector.addFailure(diff, error)
                             }
-                            let completed = await counter.increment()
+                            let completed = skipped + (await counter.increment())
                             progressRef.progress.completedUnitCount = Int64(completed)
                             await MainActor.run {
                                 weakRef.value?.bulkSyncProgress = (completed, totalCount)

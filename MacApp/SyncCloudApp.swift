@@ -24,9 +24,7 @@ struct SyncCloudApp: App {
         // skip the init-triggered scan here to avoid discovering providers twice on launch.
         _settings = StateObject(wrappedValue: SettingsManager(autoDiscover: false))
         // CRITICAL: Link the manager to the delegate so the termination guard is active.
-        // Use both instance and static ref so the delegate always has the manager on every quit attempt.
-        appDelegate.syncManager = manager
-        SyncCloudAppDelegate.sharedSyncManager = manager
+        appDelegate.adoptSyncManager(manager)
     }
     
     var body: some Scene {
@@ -73,7 +71,17 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     
     /// Static reference so the delegate always has the current manager even if the App struct is recreated.
     static weak var sharedSyncManager: FileSyncManager?
-    
+
+    /// Wires the termination guard to `manager`, keeping the first manager when one is already
+    /// wired (both instance and static ref, so the guard works on every quit attempt). SwiftUI
+    /// may re-run `App.init`, but `@StateObject` keeps only the first manager alive — re-wiring
+    /// on a later init would point the quit guard at an orphan whose operation count is always 0.
+    func adoptSyncManager(_ manager: FileSyncManager) {
+        guard syncManager == nil, Self.sharedSyncManager == nil else { return }
+        syncManager = manager
+        Self.sharedSyncManager = manager
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let manager = syncManager ?? Self.sharedSyncManager
         guard let manager, manager.activeFileOperationsCount > 0 else {

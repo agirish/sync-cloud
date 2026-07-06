@@ -18,6 +18,14 @@ enum PaneLogic {
         return nil
     }
 
+    /// The path Quick Look (and similar single-item consumers) should target for the current
+    /// selection: alphabetically first path, left pane taking priority — the same ordering
+    /// DetailsSidebar uses. `Set.first` is arbitrary per hash seed, so a multi-item selection
+    /// would otherwise preview a different file on every launch.
+    static func primarySelectionPath(leftSelection: Set<String>, rightSelection: Set<String>) -> String? {
+        leftSelection.sorted().first ?? rightSelection.sorted().first
+    }
+
     /// Builds a pane's full path from its provider root and in-pane relative path.
     /// An empty or absolute "relative" path yields just the root, so a stale or
     /// cross-provider relative path can never escape the pane's root.
