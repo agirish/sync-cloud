@@ -283,25 +283,98 @@ extension FileSyncManager {
     }
 
     // MARK: - File Operations
-    
+
     /// Copies the given nodes from one pane to the other (left → right or right → left). Resolves collisions via `collisionResolver`.
     /// - Returns: The nodes that were successfully copied (may be fewer if user skips or errors occur).
     @discardableResult
     public func copyItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let resolveCollision = collisionResolver
+        await transferItems(
+            nodes: nodes,
+            isMove: false,
+            destinationDescription: "between panes",
+            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            fileManager: fm
+        )
+    }
+
+    /// Moves the given nodes to the opposite pane (removes from source). Collisions handled via `collisionResolver`.
+    /// - Returns: The nodes that were successfully moved.
+    @discardableResult
+    public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        await transferItems(
+            nodes: nodes,
+            isMove: true,
+            destinationDescription: "between panes",
+            targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            fileManager: fm
+        )
+    }
+
+    /// Copies multiple files to a specific absolute destination directory path.
+    /// - Returns: Nodes that were successfully copied.
+    @discardableResult
+    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        await transferItems(
+            nodes: nodes,
+            isMove: false,
+            destinationDescription: "to \(destinationPath)",
+            targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
+            fileManager: fm
+        )
+    }
+
+    /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
+    /// - Returns: Nodes that were successfully moved.
+    @discardableResult
+    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+        await transferItems(
+            nodes: nodes,
+            isMove: true,
+            destinationDescription: "to \(destinationPath)",
+            targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
+            fileManager: fm
+        )
+    }
+
+    /// Derives the cross-pane destination for a node: its path relative to the source pane root,
+    /// re-rooted under the opposite pane's root.
+    private nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String) -> @Sendable (FileNode) -> URL {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
-        
+        return { node in
+            var relativePath = node.id
+            if relativePath.hasPrefix(fromRoot) {
+                relativePath = String(relativePath.dropFirst(fromRoot.count))
+            }
+            if relativePath.hasPrefix("/") { relativePath.removeFirst() }
+            return URL(fileURLWithPath: (toRoot as NSString).appendingPathComponent(relativePath))
+        }
+    }
+
+    /// Shared implementation behind the four copy/move entry points. The variants differ only in
+    /// how the destination URL is derived (`targetURL`), the primitive (`isMove` selects
+    /// safeMoveItem/safeCopyItem, the Move/Copy undo registrar, and the log wording), and the
+    /// same-URL policy: a copy onto itself keeps both under a uniquified name, a move onto
+    /// itself is skipped.
+    /// - Returns: The nodes that were successfully transferred, in processing order.
+    private func transferItems(
+        nodes: [FileNode],
+        isMove: Bool,
+        destinationDescription: String,
+        targetURL deriveTargetURL: @escaping @Sendable (FileNode) -> URL,
+        fileManager fm: FileManaging
+    ) async -> [FileNode] {
+        let resolveCollision = collisionResolver
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
-        
+
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
-            progress.localizedDescription = "Copying \(total) Items"
+            progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(total) Items"
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
+        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -309,7 +382,7 @@ extension FileSyncManager {
                 await MainActor.run { [weak self] in self?.activeProgress = progress }
             }
             var taskErrors: [Error] = []
-            var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
+            var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
 
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
@@ -317,34 +390,34 @@ extension FileSyncManager {
                 await MainActor.run {
                     progress?.localizedAdditionalDescription = node.name
                 }
-                var relativePath = node.id
-                if relativePath.hasPrefix(fromRoot) {
-                    relativePath = String(relativePath.dropFirst(fromRoot.count))
-                }
-                if relativePath.hasPrefix("/") { relativePath.removeFirst() }
-                
-                let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
-                
                 let sourceURL = URL(fileURLWithPath: node.id)
-                var targetURL = URL(fileURLWithPath: targetPath)
-                
+                var targetURL = deriveTargetURL(node)
+
                 if sourceURL == targetURL {
+                    if isMove {
+                        _ = await MainActor.run {
+                            Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
+                        }
+                        continue
+                    }
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                 } else if fm.fileExists(atPath: targetURL.path) {
                     let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { resolveCollision(tName, false) }
+                    let resolution = await MainActor.run { resolveCollision(tName, isMove) }
                     switch resolution {
                     case .replace: break
                     case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
                     case .skip: continue
                     }
                 }
-                
+
                 do {
                     try Self.validateFileOperation(source: sourceURL, destination: targetURL)
                     try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
-                    let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
+                    let trashed = isMove
+                        ? try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
+                        : try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
+                    targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
                 } catch {
                     taskErrors.append(error)
                 }
@@ -354,12 +427,18 @@ extension FileSyncManager {
             }
             return (taskErrors, targetItems)
         }
-        
-        let copied = result.copied
-        if !copied.isEmpty {
-            let initialResolver = AsyncValueResolver<[CopyItemState]>()
-            Task { await initialResolver.resolve(copied) }
-            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
+
+        let transferred = result.transferred
+        if !transferred.isEmpty {
+            if isMove {
+                let initialResolver = AsyncValueResolver<[MoveItemState]>()
+                Task { await initialResolver.resolve(transferred) }
+                self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(transferred.count) Items", fileManager: fm)
+            } else {
+                let initialResolver = AsyncValueResolver<[CopyItemState]>()
+                Task { await initialResolver.resolve(transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }) }
+                self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(transferred.count) Items", fileManager: fm)
+            }
         }
 
         // Clear only if still ours: a queued operation may have started and published its own.
@@ -367,297 +446,24 @@ extension FileSyncManager {
             self.activeProgress = nil
         }
 
-        let copiedNodes = copied.compactMap { copiedItem in
-            prunedNodes.first { $0.id == copiedItem.source.path }
+        let transferredNodes = transferred.compactMap { item in
+            prunedNodes.first { $0.id == item.from.path }
         }
-        
+
         if let firstError = result.errors.first {
-            let msg = "Error copying items: \(firstError.localizedDescription)"
+            let msg = "Error \(isMove ? "moving" : "copying") items: \(firstError.localizedDescription)"
             self.currentError = msg
             Logger.shared.error(msg)
         } else if !nodes.isEmpty {
-            if copiedNodes.count == prunedNodes.count {
-                Logger.shared.debug("Copied \(copiedNodes.count) items between panes")
+            let verb = isMove ? "Moved" : "Copied"
+            if transferredNodes.count == prunedNodes.count {
+                Logger.shared.debug("\(verb) \(transferredNodes.count) items \(destinationDescription)")
             } else {
-                Logger.shared.debug("Copied \(copiedNodes.count) of \(prunedNodes.count) items between panes")
-            }
-        }
-        
-        return copiedNodes
-    }
-    
-    /// Moves the given nodes to the opposite pane (removes from source). Collisions handled via `collisionResolver`.
-    /// - Returns: The nodes that were successfully moved.
-    @discardableResult
-    public func moveItems(nodes: [FileNode], fromLeft: Bool, leftRoot: String, rightRoot: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let resolveCollision = collisionResolver
-        let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
-        let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
-        
-        let prunedNodes = nodes.pruneNestedNodes()
-        let total = Int64(prunedNodes.count)
-        
-        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-        if let progress {
-            progress.localizedDescription = "Moving \(total) Items"
-            progress.isCancellable = true
-        }
-
-        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
-            guard self != nil else { return ([], []) }
-            // Publish progress only once this operation actually starts (see copyItems above).
-            if let progress {
-                await MainActor.run { [weak self] in self?.activeProgress = progress }
-            }
-            var taskErrors: [Error] = []
-            var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-
-            for (index, node) in prunedNodes.enumerated() {
-                if progress?.isCancelled == true { break }
-
-                await MainActor.run {
-                    progress?.localizedAdditionalDescription = node.name
-                }
-                var relativePath = node.id
-                if relativePath.hasPrefix(fromRoot) {
-                    relativePath = String(relativePath.dropFirst(fromRoot.count))
-                }
-                if relativePath.hasPrefix("/") { relativePath.removeFirst() }
-                
-                let targetPath = (toRoot as NSString).appendingPathComponent(relativePath)
-                
-                let sourceURL = URL(fileURLWithPath: node.id)
-                var targetURL = URL(fileURLWithPath: targetPath)
-                
-                if sourceURL == targetURL {
-                    _ = await MainActor.run {
-                        Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
-                    }
-                    continue
-                } else if fm.fileExists(atPath: targetURL.path) {
-                    let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { resolveCollision(tName, true) }
-                    switch resolution {
-                    case .replace: break
-                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                    case .skip: continue
-                    }
-                }
-                
-                do {
-                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
-                    let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
-                } catch {
-                    taskErrors.append(error)
-                }
-                await MainActor.run {
-                    progress?.completedUnitCount = Int64(index + 1)
-                }
-            }
-            return (taskErrors, targetItems)
-        }
-        
-        let moved = result.moved
-        if !moved.isEmpty {
-            let initialResolver = AsyncValueResolver<[MoveItemState]>()
-            Task { await initialResolver.resolve(moved) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
-        }
-
-        if let progress, self.activeProgress === progress {
-            self.activeProgress = nil
-        }
-
-        let movedNodes = moved.compactMap { moved in
-            prunedNodes.first { $0.id == moved.from.path }
-        }
-
-        if let firstError = result.errors.first {
-            let msg = "Error moving items: \(firstError.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
-        } else if !nodes.isEmpty {
-            if movedNodes.count == prunedNodes.count {
-                Logger.shared.debug("Moved \(movedNodes.count) items between panes")
-            } else {
-                Logger.shared.debug("Moved \(movedNodes.count) of \(prunedNodes.count) items between panes")
+                Logger.shared.debug("\(verb) \(transferredNodes.count) of \(prunedNodes.count) items \(destinationDescription)")
             }
         }
 
-        return movedNodes
-    }
-    
-    /// Copies multiple files to a specific absolute destination directory path.
-    /// - Returns: Nodes that were successfully copied.
-    @discardableResult
-    public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let resolveCollision = collisionResolver
-        let prunedNodes = nodes.pruneNestedNodes()
-        let total = Int64(prunedNodes.count)
-        
-        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-        if let progress {
-            progress.localizedDescription = "Copying \(total) Items"
-            progress.isCancellable = true
-        }
-
-        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], copied: [(source: URL, destination: URL, overwritten: URL?)]) in
-            guard self != nil else { return ([], []) }
-            // Publish progress only once this operation actually starts (see copyItems above).
-            if let progress {
-                await MainActor.run { [weak self] in self?.activeProgress = progress }
-            }
-            var taskErrors: [Error] = []
-            var targetItems: [(source: URL, destination: URL, overwritten: URL?)] = []
-
-            for (index, node) in prunedNodes.enumerated() {
-                if progress?.isCancelled == true { break }
-
-                await MainActor.run {
-                    progress?.localizedAdditionalDescription = node.name
-                }
-                let sourceURL = URL(fileURLWithPath: node.id)
-                var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
-                
-                if sourceURL == targetURL {
-                    targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                } else if fm.fileExists(atPath: targetURL.path) {
-                    let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { resolveCollision(tName, false) }
-                    switch resolution {
-                    case .replace: break
-                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                    case .skip: continue
-                    }
-                }
-                
-                do {
-                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
-                    let trashed = try Self.safeCopyItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((source: sourceURL, destination: targetURL, overwritten: trashed))
-                } catch {
-                    taskErrors.append(error)
-                }
-                await MainActor.run {
-                    progress?.completedUnitCount = Int64(index + 1)
-                }
-            }
-            return (taskErrors, targetItems)
-        }
-        
-        if let progress, self.activeProgress === progress {
-            self.activeProgress = nil
-        }
-        let copied = result.copied
-        if !copied.isEmpty {
-            let initialResolver = AsyncValueResolver<[CopyItemState]>()
-            Task { await initialResolver.resolve(copied) }
-            self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(copied.count) Items", fileManager: fm)
-        }
-        
-        let copiedNodes = copied.compactMap { copiedItem in
-            prunedNodes.first { $0.id == copiedItem.source.path }
-        }
-        
-        if let firstError = result.errors.first {
-            let msg = "Error copying items: \(firstError.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
-        } else if !nodes.isEmpty {
-            if copiedNodes.count == prunedNodes.count {
-                Logger.shared.debug("Copied \(copiedNodes.count) items to \(destinationPath)")
-            } else {
-                Logger.shared.debug("Copied \(copiedNodes.count) of \(prunedNodes.count) items to \(destinationPath)")
-            }
-        }
-        
-        return copiedNodes
-    }
-    
-    /// Moves multiple files to a specific absolute destination directory path, removing them from their origin.
-    /// - Returns: Nodes that were successfully moved.
-    @discardableResult
-    public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        let resolveCollision = collisionResolver
-        let prunedNodes = nodes.pruneNestedNodes()
-        let total = Int64(prunedNodes.count)
-        
-        let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
-        if let progress {
-            progress.localizedDescription = "Moving \(total) Items"
-            progress.isCancellable = true
-        }
-
-        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], moved: [(from: URL, to: URL, overwritten: URL?)]) in
-            guard self != nil else { return ([], []) }
-            // Publish progress only once this operation actually starts (see copyItems above).
-            if let progress {
-                await MainActor.run { [weak self] in self?.activeProgress = progress }
-            }
-            var taskErrors: [Error] = []
-            var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
-
-            for (index, node) in prunedNodes.enumerated() {
-                if progress?.isCancelled == true { break }
-
-                await MainActor.run {
-                    progress?.localizedAdditionalDescription = node.name
-                }
-                let sourceURL = URL(fileURLWithPath: node.id)
-                var targetURL = URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name)
-                
-                if sourceURL == targetURL {
-                    continue
-                } else if fm.fileExists(atPath: targetURL.path) {
-                    let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { resolveCollision(tName, true) }
-                    switch resolution {
-                    case .replace: break
-                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                    case .skip: continue
-                    }
-                }
-                
-                do {
-                    try Self.validateFileOperation(source: sourceURL, destination: targetURL)
-                    try Self.ensureParentDirectoryExists(for: targetURL, fileManager: fm)
-                    let trashed = try Self.safeMoveItem(at: sourceURL, to: targetURL, fileManager: fm)
-                    targetItems.append((from: sourceURL, to: targetURL, overwritten: trashed))
-                } catch {
-                    taskErrors.append(error)
-                }
-                await MainActor.run {
-                    progress?.completedUnitCount = Int64(index + 1)
-                }
-            }
-            return (taskErrors, targetItems)
-        }
-        
-        let moved = result.moved
-        if !moved.isEmpty {
-            let initialResolver = AsyncValueResolver<[MoveItemState]>()
-            Task { await initialResolver.resolve(moved) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(moved.count) Items", fileManager: fm)
-        }
-
-        if let progress, self.activeProgress === progress {
-            self.activeProgress = nil
-        }
-
-        let movedNodes = result.moved.compactMap { moved in prunedNodes.first { $0.id == moved.from.path } }
-
-        if let firstError = result.errors.first {
-            let msg = "Error moving items: \(firstError.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
-        } else if !nodes.isEmpty {
-            Logger.shared.debug("Moved \(nodes.count) items to \(destinationPath)")
-        }
-        
-        return movedNodes
+        return transferredNodes
     }
     
     /// Renames a specific file or folder on disk.

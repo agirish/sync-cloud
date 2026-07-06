@@ -205,10 +205,9 @@ import Events
         #expect(await loggerContains("Copied 1 of 2 items to /dst"))
     }
 
-    /// Known drift in moveItems(toPath:): its final log reports the *selection* count, not the
-    /// moved count, and lacks the "N of M" partial form its three siblings have. This pins the
-    /// current (wrong) message; the unified implementation deliberately aligns it with the
-    /// siblings, at which point this expectation flips to "Moved 1 of 2 items to /dst".
+    /// moveItems(toPath:)'s final log had drifted from its three siblings: it reported the
+    /// *selection* count instead of the moved count and lacked the "N of M" partial form. The
+    /// unified implementation deliberately aligns it, so a partial move now logs "1 of 2".
     @MainActor
     @Test func testMoveItemsToPathPartialSkipLogsMovedCount() async throws {
         let manager = makeManager()
@@ -230,7 +229,7 @@ import Events
         #expect(mockFM.virtualDisk["/dst/pdA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/pdBB.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Move 1 Items")
-        #expect(await loggerContains("Moved 2 items to /dst"))
+        #expect(await loggerContains("Moved 1 of 2 items to /dst"))
     }
 
     /// Full-count happy-path logs for the two move variants (the copy ones are pinned above).
