@@ -63,6 +63,43 @@ import Foundation
         #expect(contents.contains("new line"))
     }
 
+    /// An oversized existing log is tail-trimmed at init: the newest lines survive, the result
+    /// starts at a line boundary, and the writer keeps appending normally afterwards.
+    @Test func testInitTailTrimsOversizedLogKeepingNewestLines() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let history = (0..<500).map { "line \($0)" }.joined(separator: "\n") + "\n"
+        try history.write(to: url, atomically: true, encoding: .utf8)
+
+        let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        writer.flush()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.utf8.count <= 512)
+        #expect(contents.hasSuffix("line 499\n"))          // newest end intact
+        #expect(!contents.contains("line 0\n"))            // oldest lines gone
+        #expect(contents.hasPrefix("line "))               // starts at a line boundary
+
+        writer.append("after trim\n")
+        writer.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8).hasSuffix("after trim\n"))
+    }
+
+    /// A file under the cap is left byte-for-byte untouched at init.
+    @Test func testInitLeavesLogUnderCapUntouched() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let history = "keep me\nand me\n"
+        try history.write(to: url, atomically: true, encoding: .utf8)
+
+        let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        writer.flush()
+
+        #expect(try String(contentsOf: url, encoding: .utf8) == history)
+    }
+
     @Test func testClearTruncatesFile() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }

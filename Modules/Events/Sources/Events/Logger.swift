@@ -151,27 +151,39 @@ public class Logger: ObservableObject {
         return log(level: .error, message: locationMsg)
     }
 
-    /// Internal abstraction formatting the memory entry and dispatching to the disk background queue.
+    /// FIFO handoff buffer between nonisolated log callers and the MainActor `entries` array.
+    private let pendingEntries = PendingLogEntryQueue()
+
+    /// Internal abstraction routing the entry to memory and disk.
+    ///
+    /// Both destinations are sequenced at the call site, not by task scheduling: the pending
+    /// queue (drained in FIFO order on the MainActor) and the writer's serial disk queue each
+    /// preserve enqueue order, so lines land in call order. The per-call unstructured task this
+    /// replaces carried the entry itself, which let concurrent bursts reorder lines.
     @discardableResult
     private nonisolated func log(level: LogLevel, message: String) -> Task<Void, Never> {
         let entry = LogEntry(level: level, message: message)
-        let logText = entry.formattedString + "\n"
+        pendingEntries.enqueue(entry)
+        logWriter.append(entry.formattedString + "\n")
 
+        // Awaiting the returned task guarantees the entry is visible in `entries`: the first
+        // flush to run drains everything enqueued before it; later flushes are cheap no-ops.
         return Task { @MainActor in
-            self.applyLogEntry(entry, logText: logText)
+            self.flushPendingEntries()
         }
     }
 
     @MainActor
-    private func applyLogEntry(_ entry: LogEntry, logText: String) {
-        entries.append(entry)
+    private func flushPendingEntries() {
+        let batch = pendingEntries.drain()
+        guard !batch.isEmpty else { return }
+        entries.append(contentsOf: batch)
 
+        // One batched trim (and one array republish) per flush, instead of an O(count) shift
+        // per line while at the cap during per-file sync bursts.
         if entries.count > 1000 {
             entries.removeFirst(entries.count - 1000)
         }
-
-        // Append to the log file on a background queue (reuses one open handle).
-        logWriter.append(logText)
     }
     
     /// Empties the public memory array and overwrites the local disk file with an empty sequence.
@@ -186,23 +198,73 @@ public class Logger: ObservableObject {
     }
 }
 
+/// Lock-guarded FIFO handing `LogEntry` values from nonisolated log callers to the MainActor
+/// flush. Enqueue order is the order entries appear in the Activity Log.
+private final class PendingLogEntryQueue: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending: [LogEntry] = []
+
+    func enqueue(_ entry: LogEntry) {
+        lock.lock()
+        pending.append(entry)
+        lock.unlock()
+    }
+
+    func drain() -> [LogEntry] {
+        lock.lock()
+        let batch = pending
+        pending = []
+        lock.unlock()
+        return batch
+    }
+}
+
 /// Appends log text to a file on a dedicated serial queue, keeping one `FileHandle` open across
-/// writes instead of opening/seeking/closing per line. All handle access is confined to `queue`.
+/// writes instead of opening/seeking/closing per line. All handle access is confined to `queue`,
+/// including the initial tail-trim and handle opening (appends enqueue behind them).
 ///
 /// Internal (not private) so the self-heal / truncate behavior can be tested directly against an
 /// injected temp-file URL; production code only ever uses it via `Logger`.
 final class LogFileWriter: @unchecked Sendable {
+    /// Startup cap for the log file. ~5 MB is tens of thousands of lines; an oversized file is
+    /// trimmed to roughly half the cap so trims don't run on every launch.
+    private static let defaultMaxFileSize = 5 * 1024 * 1024
+
     private let url: URL
     private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     private var handle: FileHandle?
 
-    init(url: URL) {
+    init(url: URL, maxFileSize: Int = LogFileWriter.defaultMaxFileSize) {
         self.url = url
-        if !FileManager.default.fileExists(atPath: url.path) {
-            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
+        queue.async { [self] in
+            trimTailIfOversized(maxFileSize: maxFileSize)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
+            }
+            handle = try? FileHandle(forWritingTo: url)
+            _ = try? handle?.seekToEnd()
         }
-        handle = try? FileHandle(forWritingTo: url)
-        _ = try? handle?.seekToEnd()
+    }
+
+    /// Tail-trims the file when it exceeds `maxFileSize`, keeping the newest half of the cap
+    /// aligned to a line boundary, so `~/sync-cloud.log` cannot grow unbounded across runs.
+    /// Runs on `queue` before the write handle opens.
+    private func trimTailIfOversized(maxFileSize: Int) {
+        guard maxFileSize > 0,
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attributes[.size] as? NSNumber)?.intValue,
+              size > maxFileSize,
+              let readHandle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? readHandle.close() }
+
+        let keepBytes = maxFileSize / 2
+        guard (try? readHandle.seek(toOffset: UInt64(size - keepBytes))) != nil,
+              var tail = try? readHandle.readToEnd() else { return }
+        // Drop the partial first line so the trimmed file still starts at a line boundary.
+        if let newline = tail.firstIndex(of: UInt8(ascii: "\n")) {
+            tail = tail.suffix(from: tail.index(after: newline))
+        }
+        try? tail.write(to: url, options: .atomic)
     }
 
     func append(_ text: String) {

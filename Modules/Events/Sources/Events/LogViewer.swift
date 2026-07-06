@@ -35,6 +35,9 @@ public struct LogViewer: View {
     }
     
     public var body: some View {
+        // Computed once per body evaluation; the isEmpty check and the ForEach below would
+        // otherwise each run the full filter pass.
+        let filtered = filteredEntries
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
@@ -98,14 +101,14 @@ public struct LogViewer: View {
             // Log List
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
-                    if filteredEntries.isEmpty {
+                    if filtered.isEmpty {
                         Text("No log activity.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                             .padding(.top, 40)
                     } else {
-                        ForEach(filteredEntries) { entry in
+                        ForEach(filtered) { entry in
                             LogEntryRow(entry: entry)
                         }
                     }

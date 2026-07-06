@@ -79,6 +79,34 @@ import Foundation
         #expect(contents.contains("[INFO] Injected destination message"))
     }
 
+    /// A synchronous burst of log calls must land in call order in memory AND on disk. The old
+    /// per-call unstructured tasks carried the entries themselves, so scheduling could reorder
+    /// lines; the ordered handoff queue makes this deterministic.
+    @MainActor
+    @Test func testBurstLoggingPreservesCallOrderInMemoryAndOnDisk() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoggerOrderTest-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let logger = Logger(logFileURL: url)
+        let expected = (0..<200).map { "ORDER \($0)" }
+        var lastTask: Task<Void, Never>?
+        for message in expected {
+            lastTask = logger.info(message)
+        }
+        // All entries were handed off synchronously above, so awaiting any one flush task
+        // guarantees the whole burst is visible.
+        await lastTask?.value
+
+        #expect(logger.entries.map(\.message) == expected)
+
+        logger.logWriter.flush()
+        let diskOrder = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { line in line.range(of: "ORDER ").map { String(line[$0.lowerBound...]) } }
+        #expect(diskOrder == expected)
+    }
+
     /// The suites of every package log through `Logger.shared`, so under a test runner the
     /// shared instance must resolve to a temp file - never the user's real ~/sync-cloud.log.
     @Test func testDefaultLogFileURLAvoidsRealLogUnderTests() {
