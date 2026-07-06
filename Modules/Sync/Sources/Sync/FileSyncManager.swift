@@ -315,37 +315,27 @@ public class FileSyncManager: ObservableObject {
         }
 
         let activeFM = fileManager
-        let queue = VerifyWorkQueue(items: toVerify)
         let collector = VerifyResultsCollector()
-        let counter = BulkSyncCompletedCounter(total: toVerify.count)
         let weakRef = WeakSyncManagerRef(self)
-        let progressRef = BulkSyncProgressRef(progress)
         let totalCount = toVerify.count
-        let concurrency = min(4, max(1, toVerify.count))
 
-        await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<concurrency {
-                group.addTask {
-                    while !progressRef.progress.isCancelled, let diff = await queue.next() {
-                        let same = await FileContentVerifier.filesHaveSameContent(
-                            leftPath: diff.leftItemPath,
-                            rightPath: diff.rightItemPath,
-                            fileManager: activeFM
-                        )
-                        if same == true {
-                            await collector.addIdentical(diff)
-                        } else if same == false {
-                            await collector.addDiffered()
-                        } else {
-                            await collector.addSkipped()
-                        }
-                        let completed = await counter.increment()
-                        progressRef.progress.completedUnitCount = Int64(completed)
-                        await MainActor.run {
-                            weakRef.value?.verifyAllProgress = (completed, totalCount)
-                        }
-                    }
-                }
+        await Self.processInParallel(
+            items: toVerify,
+            concurrency: min(4, max(1, toVerify.count)),
+            progress: ProgressRef(progress),
+            reportCompleted: { completed in weakRef.value?.verifyAllProgress = (completed, totalCount) }
+        ) { diff in
+            let same = await FileContentVerifier.filesHaveSameContent(
+                leftPath: diff.leftItemPath,
+                rightPath: diff.rightItemPath,
+                fileManager: activeFM
+            )
+            if same == true {
+                await collector.addIdentical(diff)
+            } else if same == false {
+                await collector.addDiffered()
+            } else {
+                await collector.addSkipped()
             }
         }
 
@@ -429,38 +419,18 @@ public class FileSyncManager: ObservableObject {
             (diff, URL(fileURLWithPath: diff.leftItemPath), URL(fileURLWithPath: diff.rightItemPath), false)
         }
 
-        let progressRef = BulkSyncProgressRef(progress)
+        let progressRef = ProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
-        let counter = BulkSyncCompletedCounter(total: totalCount)
 
-        let result = await enqueueFileOperation { () -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) in
-            let queue = BulkSyncWorkQueue(items: workList)
-            let collector = BulkSyncResultsCollector()
-            let concurrency = min(4, max(2, workList.count))
-
-            await withTaskGroup(of: Void.self) { group in
-                for _ in 0..<concurrency {
-                    group.addTask {
-                        while !progressRef.progress.isCancelled {
-                            guard let (diff, fromURL, toURL, isMove) = await queue.next() else { break }
-                            do {
-                                let syncResult = try FileSyncManager.performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: activeFM)
-                                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
-                            } catch {
-                                await collector.addFailure(diff, error)
-                            }
-                            let completed = await counter.increment()
-                            progressRef.progress.completedUnitCount = Int64(completed)
-                            await MainActor.run {
-                                weakRef.value?.bulkSyncProgress = (completed, totalCount)
-                            }
-                        }
-                    }
-                }
-            }
-
-            return await collector.get()
+        let result = await enqueueFileOperation {
+            await Self.performBulkSyncIO(
+                workList: workList,
+                concurrency: min(4, max(2, workList.count)),
+                progress: progressRef,
+                fileManager: activeFM,
+                reportCompleted: { completed in weakRef.value?.bulkSyncProgress = (completed, totalCount) }
+            )
         }
 
         for (diff, (trashed, from, to)) in result.successes {
@@ -470,19 +440,76 @@ public class FileSyncManager: ObservableObject {
             registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
         }
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
+        // No per-failure isSyncing reset here: the defer above clears the flag for every
+        // item of this run, and nothing can observe the list before it runs.
         for (diff, error) in result.failures {
             let msg = "Error copying file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg
             Logger.shared.error(msg)
-            if let index = differences.firstIndex(where: { $0.id == diff.id }) {
-                differences[index].isSyncing = false
-            }
         }
         if !result.failures.isEmpty {
             bannerMessage = "\(result.successes.count) copied; \(result.failures.count) failed"
         } else if !result.successes.isEmpty {
             bannerMessage = "\(result.successes.count) files copied — dates matched"
         }
+    }
+
+    /// Shared scaffolding for the parallel bulk-sync / verify workers: a work queue drained by
+    /// up to `concurrency` tasks, stopping early once the progress is cancelled. After each item
+    /// the shared completed count (offset by `completedBase`, for items resolved before the
+    /// workers started) is mirrored into the `Progress` and reported on the MainActor.
+    private nonisolated static func processInParallel<Item: Sendable>(
+        items: [Item],
+        concurrency: Int,
+        progress progressRef: ProgressRef,
+        completedBase: Int = 0,
+        reportCompleted: @escaping @MainActor @Sendable (Int) -> Void,
+        handle: @escaping @Sendable (Item) async -> Void
+    ) async {
+        let queue = WorkQueue(items: items)
+        let counter = CompletedCounter()
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<concurrency {
+                group.addTask {
+                    while !progressRef.progress.isCancelled, let item = await queue.next() {
+                        await handle(item)
+                        let completed = completedBase + (await counter.increment())
+                        progressRef.progress.completedUnitCount = Int64(completed)
+                        await MainActor.run { reportCompleted(completed) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Runs the copy/move I/O for a prepared bulk work list on the parallel scaffolding,
+    /// collecting per-difference successes and failures. Shared by `syncAll` and
+    /// `bulkCopyDifferencesLeftToRight`.
+    private nonisolated static func performBulkSyncIO(
+        workList: [(FileDifference, URL, URL, Bool)],
+        concurrency: Int,
+        progress progressRef: ProgressRef,
+        completedBase: Int = 0,
+        fileManager: FileManaging,
+        reportCompleted: @escaping @MainActor @Sendable (Int) -> Void
+    ) async -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) {
+        let collector = BulkSyncResultsCollector()
+        await processInParallel(
+            items: workList,
+            concurrency: concurrency,
+            progress: progressRef,
+            completedBase: completedBase,
+            reportCompleted: reportCompleted
+        ) { item in
+            let (diff, fromURL, toURL, isMove) = item
+            do {
+                let syncResult = try performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: fileManager)
+                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
+            } catch {
+                await collector.addFailure(diff, error)
+            }
+        }
+        return await collector.get()
     }
 
     /// Recursively filters a tree removing nodes whose names start with a period if `showHidden` is false.
@@ -685,7 +712,7 @@ public class FileSyncManager: ObservableObject {
         }
 
         let statURLs = candidates.map(\.toURL)
-        let statProgress = BulkSyncProgressRef(progress)
+        let statProgress = ProgressRef(progress)
         let destinationExists = await Task.detached(priority: .userInitiated) { () -> [Bool] in
             // A cancelled run stops stat-ing; the prepare loop below breaks on the same flag
             // before ever reading the remaining (false) placeholders.
@@ -728,38 +755,20 @@ public class FileSyncManager: ObservableObject {
         progress.completedUnitCount = Int64(skippedCount)
         bulkSyncProgress = (skippedCount, total)
         let skipped = skippedCount
-        let progressRef = BulkSyncProgressRef(progress)
+        let progressRef = ProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
-        let counter = BulkSyncCompletedCounter(total: totalCount)
         let workList = preparedList
 
-        let result = await enqueueFileOperation { () -> (successes: [(FileDifference, (URL?, URL, URL))], failures: [(FileDifference, Error)]) in
-            let queue = BulkSyncWorkQueue(items: workList)
-            let collector = BulkSyncResultsCollector()
-
-            await withTaskGroup(of: Void.self) { group in
-                for _ in 0..<4 {
-                    group.addTask {
-                        while !progressRef.progress.isCancelled {
-                            guard let (diff, fromURL, toURL, isMove) = await queue.next() else { break }
-                            do {
-                                let syncResult = try FileSyncManager.performFileSyncIO(from: fromURL, to: toURL, isMove: isMove, fileManager: activeFM)
-                                await collector.addSuccess(diff, (syncResult.trashed, syncResult.from, syncResult.to))
-                            } catch {
-                                await collector.addFailure(diff, error)
-                            }
-                            let completed = skipped + (await counter.increment())
-                            progressRef.progress.completedUnitCount = Int64(completed)
-                            await MainActor.run {
-                                weakRef.value?.bulkSyncProgress = (completed, totalCount)
-                            }
-                        }
-                    }
-                }
-            }
-
-            return await collector.get()
+        let result = await enqueueFileOperation {
+            await Self.performBulkSyncIO(
+                workList: workList,
+                concurrency: 4,
+                progress: progressRef,
+                completedBase: skipped,
+                fileManager: activeFM,
+                reportCompleted: { completed in weakRef.value?.bulkSyncProgress = (completed, totalCount) }
+            )
         }
 
         for (diff, (trashed, from, to)) in result.successes {
@@ -775,13 +784,12 @@ public class FileSyncManager: ObservableObject {
             }
         }
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
+        // No per-failure isSyncing reset here: the defer above clears the flag for every
+        // item of this run, and nothing can observe the list before it runs.
         for (diff, error) in result.failures {
             let msg = "Error syncing file \(diff.relativePath): \(error.localizedDescription)"
             currentError = msg
             Logger.shared.error(msg)
-            if let index = differences.firstIndex(where: { $0.id == diff.id }) {
-                differences[index].isSyncing = false
-            }
         }
     }
 
@@ -831,7 +839,7 @@ public class FileSyncManager: ObservableObject {
 
 // MARK: - Bulk sync helpers (Sendable-safe refs and actors for parallel workers)
 
-private final class BulkSyncProgressRef: @unchecked Sendable {
+private final class ProgressRef: @unchecked Sendable {
     let progress: Progress
     init(_ progress: Progress) { self.progress = progress }
 }
@@ -841,14 +849,24 @@ private final class WeakSyncManagerRef: @unchecked Sendable {
     init(_ value: FileSyncManager?) { self.value = value }
 }
 
-private actor BulkSyncWorkQueue {
-    private let items: [(FileDifference, URL, URL, Bool)]
+/// Hands work items one at a time to the parallel workers.
+private actor WorkQueue<Item: Sendable> {
+    private let items: [Item]
     private var index: Int = 0
-    init(items: [(FileDifference, URL, URL, Bool)]) { self.items = items }
-    func next() -> (FileDifference, URL, URL, Bool)? {
+    init(items: [Item]) { self.items = items }
+    func next() -> Item? {
         guard index < items.count else { return nil }
         defer { index += 1 }
         return items[index]
+    }
+}
+
+/// Monotonic completed-item counter shared by the parallel workers.
+private actor CompletedCounter {
+    private var completed: Int = 0
+    func increment() -> Int {
+        completed += 1
+        return completed
     }
 }
 
@@ -866,28 +884,7 @@ private actor BulkSyncResultsCollector {
     }
 }
 
-private actor BulkSyncCompletedCounter {
-    private var completed: Int = 0
-    private let total: Int
-    init(total: Int) { self.total = total }
-    func increment() -> Int {
-        completed += 1
-        return completed
-    }
-}
-
 // MARK: - Verify-all parallel workers
-
-private actor VerifyWorkQueue {
-    private let items: [FileDifference]
-    private var index: Int = 0
-    init(items: [FileDifference]) { self.items = items }
-    func next() -> FileDifference? {
-        guard index < items.count else { return nil }
-        defer { index += 1 }
-        return items[index]
-    }
-}
 
 private actor VerifyResultsCollector {
     private var verifiedIdentical: [FileDifference] = []
