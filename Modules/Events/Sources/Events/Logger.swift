@@ -69,8 +69,8 @@ public struct LogEntry: Identifiable, Codable, Sendable {
 @MainActor
 public class Logger: ObservableObject {
     /// The shared singleton instance used across the application to trace events.
-    public static let shared = Logger()
-    
+    public static let shared = Logger(logFileURL: Logger.defaultLogFileURL())
+
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
 
@@ -78,15 +78,48 @@ public class Logger: ObservableObject {
     private let logFileURL: URL
     
     /// Serializes writes to the log file on a background queue while keeping a single file handle
-    /// open, avoiding a per-line open/seek/close cycle.
-    private let logWriter: LogFileWriter
+    /// open, avoiding a per-line open/seek/close cycle. Internal (not private) so tests can
+    /// `flush()` before asserting on file contents.
+    let logWriter: LogFileWriter
 
-    private init() {
-        let homeDir = (NSString(string: "~")).expandingTildeInPath
-        logFileURL = URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")
+    /// Internal (not private) so tests can construct an isolated Logger against a temp-file URL;
+    /// production code only ever uses the `shared` instance.
+    init(logFileURL: URL) {
+        self.logFileURL = logFileURL
         logWriter = LogFileWriter(url: logFileURL)
     }
-    
+
+    /// Resolves the disk destination for the `shared` logger.
+    ///
+    /// Production: `~/sync-cloud.log`, unchanged. Two escape hatches keep test runs from
+    /// polluting (or truncating, via `clearLogs`) the user's real app log and the Activity Log
+    /// viewer that displays it:
+    /// - `SYNCCLOUD_LOG_FILE` in the environment overrides the path outright.
+    /// - Under a test runner (every package suite logs through `Logger.shared`, so `swift test`
+    ///   would otherwise fill the real log with test entries), a per-process temp file is used.
+    nonisolated static func defaultLogFileURL() -> URL {
+        let environment = ProcessInfo.processInfo.environment
+        if let override = environment["SYNCCLOUD_LOG_FILE"], !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        // `swift test` runs swift-testing suites inside swiftpm-testing-helper (no XCTest linked,
+        // no XCTest* environment), XCTest suites inside an xctest runner; Xcode sets the
+        // XCTest* environment markers. Cover all three.
+        let executable = URL(fileURLWithPath: ProcessInfo.processInfo.arguments.first ?? "").lastPathComponent
+        let isRunningTests = executable == "swiftpm-testing-helper"
+            || executable == "xctest"
+            || NSClassFromString("XCTestCase") != nil
+            || environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || environment["XCTestBundlePath"] != nil
+        if isRunningTests {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("sync-cloud-tests-\(ProcessInfo.processInfo.processIdentifier).log")
+        }
+        let homeDir = (NSString(string: "~")).expandingTildeInPath
+        return URL(fileURLWithPath: homeDir).appendingPathComponent("sync-cloud.log")
+    }
+
     /// Records an informational trace event to memory and disk.
     /// - Parameter message: The string description to log.
     @discardableResult

@@ -64,4 +64,28 @@ import Foundation
         let filteredCount = logger.entries.filter { $0.message.hasPrefix(prefix) }.count
         #expect(filteredCount == taskCount * logsPerTask)
     }
+
+    @MainActor
+    @Test func testLoggerWritesToInjectedURL() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoggerInjectionTest-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let logger = Logger(logFileURL: url)
+        await logger.info("Injected destination message").value
+        logger.logWriter.flush()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.contains("[INFO] Injected destination message"))
+    }
+
+    /// The suites of every package log through `Logger.shared`, so under a test runner the
+    /// shared instance must resolve to a temp file - never the user's real ~/sync-cloud.log.
+    @Test func testDefaultLogFileURLAvoidsRealLogUnderTests() {
+        let url = Logger.defaultLogFileURL()
+        let realLog = URL(fileURLWithPath: (NSString(string: "~")).expandingTildeInPath)
+            .appendingPathComponent("sync-cloud.log")
+        #expect(url.path != realLog.path)
+        #expect(url.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+    }
 }
