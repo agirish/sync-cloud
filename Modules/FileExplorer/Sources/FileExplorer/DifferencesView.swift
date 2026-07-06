@@ -64,21 +64,17 @@ public struct DifferencesView: View {
         syncManager.differences.filter { selectedFilter.matches($0) }
     }
 
-    private var copyToRightCount: Int {
-        filteredDifferences.filter { $0.action == .copyToRight }.count
+    private var summary: DifferencesSummary {
+        DifferencesSummary(differences: syncManager.differences, filter: selectedFilter)
     }
-    private var copyToLeftCount: Int {
-        filteredDifferences.filter { $0.action == .copyToLeft }.count
-    }
-    private var anySyncing: Bool {
-        syncManager.differences.contains { $0.isSyncing }
-    }
+
+    private var copyToRightCount: Int { summary.copyToRightCount }
+    private var copyToLeftCount: Int { summary.copyToLeftCount }
+    private var anySyncing: Bool { summary.anySyncing }
     private var isBulkSyncing: Bool {
         syncManager.bulkSyncProgress != nil
     }
-    private var verifiableCount: Int {
-        syncManager.differences.filter { $0.type == .differentDates && $0.sizesMatch }.count
-    }
+    private var verifiableCount: Int { summary.verifiableCount }
     private var isVerifyAllInProgress: Bool {
         syncManager.verifyAllProgress != nil
     }
@@ -255,7 +251,11 @@ struct DifferenceRow: View {
 
     private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
     private var canVerify: Bool {
-        difference.type == .differentDates && difference.sizesMatch && !difference.isSyncing && !isVerifying && syncManager.verifyAllProgress == nil
+        DifferencesSummary.canVerify(
+            difference,
+            isRowVerifying: isVerifying,
+            isVerifyAllInProgress: syncManager.verifyAllProgress != nil
+        )
     }
 
     var body: some View {

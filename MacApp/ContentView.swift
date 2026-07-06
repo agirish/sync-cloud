@@ -170,18 +170,12 @@ struct ContentView: View {
     
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
     private var currentLeftPath: String {
-        let root = (settings.path(for: leftProviderId) as NSString).expandingTildeInPath
-        let rel = syncManager.leftRelativePath
-        guard !rel.isEmpty, !rel.hasPrefix("/") else { return root }
-        return (root as NSString).appendingPathComponent(rel)
+        PaneLogic.fullPath(root: settings.path(for: leftProviderId), relativePath: syncManager.leftRelativePath)
     }
-    
+
     /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
     private var currentRightPath: String {
-        let root = (settings.path(for: rightProviderId) as NSString).expandingTildeInPath
-        let rel = syncManager.rightRelativePath
-        guard !rel.isEmpty, !rel.hasPrefix("/") else { return root }
-        return (root as NSString).appendingPathComponent(rel)
+        PaneLogic.fullPath(root: settings.path(for: rightProviderId), relativePath: syncManager.rightRelativePath)
     }
 
     /// When user selects items in a pane and the bottom pane is on Differences, switch to Details tab.
@@ -290,15 +284,11 @@ struct ContentView: View {
         }
     }
 
-    private enum ActivePane {
-        case left
-        case right
-    }
-
-    private var activePane: ActivePane? {
-        if !syncManager.selectedLeftPaths.isEmpty { return .left }
-        if !syncManager.selectedRightPaths.isEmpty { return .right }
-        return nil
+    private var activePane: PaneLogic.ActivePane? {
+        PaneLogic.activePane(
+            leftSelection: syncManager.selectedLeftPaths,
+            rightSelection: syncManager.selectedRightPaths
+        )
     }
 
     private var activeSelectionNodes: [FileNode] {
@@ -552,26 +542,13 @@ struct PaneActionDelegate: FileActionDelegate {
         let relPrefix = isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath
         
         let basePath = relPrefix.isEmpty ? expandedRoot : (expandedRoot as NSString).appendingPathComponent(relPrefix)
-        
+
         // Convert to relative paths from current focal point so they sync across panes seamlessly
-        let relativeTargets: [String] = nodes.map { node in
-            var rPath = node.id
-            if rPath.hasPrefix(basePath) {
-                rPath = String(rPath.dropFirst(basePath.count))
-                if rPath.hasPrefix("/") { rPath.removeFirst() }
-            }
-            return rPath
-        }
-        
-        let allIgnored = relativeTargets.allSatisfy { syncManager.ignoredPaths.contains($0) }
-        
-        for relPath in relativeTargets {
-            if allIgnored {
-                syncManager.ignoredPaths.remove(relPath)
-            } else {
-                syncManager.ignoredPaths.insert(relPath)
-            }
-        }
+        let relativeTargets = PaneLogic.relativeIgnoreTargets(nodeIds: nodes.map(\.id), basePath: basePath)
+        syncManager.ignoredPaths = PaneLogic.toggledIgnoredPaths(
+            targets: relativeTargets,
+            ignoredPaths: syncManager.ignoredPaths
+        )
     }
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
         syncManager.isNodeIgnored(node, currentPath: currentPath)
