@@ -224,8 +224,10 @@ final class LogFileWriter: @unchecked Sendable {
                 _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
             } else {
-                // Fallback if the handle could not be opened (matches prior behavior).
-                try? data.write(to: self.url, options: .atomic)
+                // Last-resort fallback when the handle could not be opened. Append manually — a
+                // bare `.atomic` write would replace the entire log history with this one line.
+                let existing = (try? Data(contentsOf: self.url)) ?? Data()
+                try? (existing + data).write(to: self.url, options: .atomic)
             }
         }
     }

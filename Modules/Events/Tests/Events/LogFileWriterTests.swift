@@ -40,6 +40,29 @@ import Foundation
         #expect(!contents.contains("first line"))
     }
 
+    @Test func testFallbackAppendPreservesExistingLogHistory() throws {
+        let url = makeTempURL()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: url)
+        }
+
+        try "history line\n".write(to: url, atomically: true, encoding: .utf8)
+        // Make the file unwritable so `FileHandle(forWritingTo:)` fails and the writer must use
+        // its fallback (an atomic replace only needs directory write permission, so it succeeds).
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+
+        let writer = LogFileWriter(url: url)
+        writer.append("new line\n")
+        writer.flush()
+
+        // The fallback must append, not clobber: one transient handle failure previously replaced
+        // the entire log history with the single new line.
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.hasPrefix("history line"))
+        #expect(contents.contains("new line"))
+    }
+
     @Test func testClearTruncatesFile() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
