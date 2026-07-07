@@ -39,6 +39,24 @@ struct ContentView: View {
     private static let bannerAutoDismissNanoseconds: UInt64 = 5_000_000_000 // 5 seconds
     @State private var bannerDismissScheduler = BannerDismissScheduler()
 
+    // Per-pane diff lookups for the tree rows, rebuilt only when the differences
+    // or pane roots change (not per render — the panes re-render per file during
+    // bulk sync, and rebuilding walks every difference's ancestor chain).
+    @State private var leftDiffIndex: DiffStatusIndex = .empty
+    @State private var rightDiffIndex: DiffStatusIndex = .empty
+
+    /// Everything the tree diff indices are derived from, as one Equatable value
+    /// so a single onChange covers scan results, navigation, and provider switches.
+    private struct DiffIndexInputs: Equatable {
+        let differences: [FileDifference]
+        let leftRoot: String
+        let rightRoot: String
+    }
+
+    private var diffIndexInputs: DiffIndexInputs {
+        DiffIndexInputs(differences: syncManager.differences, leftRoot: currentLeftPath, rightRoot: currentRightPath)
+    }
+
     /// Resolves the left and right provider IDs from the current list (e.g. after provider list changes or bootstrap).
     /// - Parameter preferDistinctPair: If `true`, when both sides would be the same, pick a different provider for the right.
     /// - Returns: `(leftId, rightId)` or `nil` if there are no providers.
@@ -168,6 +186,10 @@ struct ContentView: View {
         }
         .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
             syncManager.ignoreGoogleDriveNewerDateOnly = new
+        }
+        .onChange(of: diffIndexInputs, initial: true) { _, inputs in
+            leftDiffIndex = DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot)
+            rightDiffIndex = DiffStatusIndex(differences: inputs.differences, rootPath: inputs.rightRoot)
         }
     }
     
@@ -408,7 +430,8 @@ struct ContentView: View {
             otherSelection: syncManager.selectedRightPaths,
             isLeft: true,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
-            ignoredPaths: syncManager.ignoredPaths
+            ignoredPaths: syncManager.ignoredPaths,
+            diffIndex: leftDiffIndex
         )
     }
     
@@ -423,7 +446,8 @@ struct ContentView: View {
             otherSelection: syncManager.selectedLeftPaths,
             isLeft: false,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
-            ignoredPaths: syncManager.ignoredPaths
+            ignoredPaths: syncManager.ignoredPaths,
+            diffIndex: rightDiffIndex
         )
     }
     

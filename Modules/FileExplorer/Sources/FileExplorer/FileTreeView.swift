@@ -25,8 +25,11 @@ public struct FileTreeView: View {
 
     /// Paths ignored in the diff (user can toggle per path).
     public let ignoredPaths: Set<String>
-    
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>) {
+
+    /// Diff status per absolute node path for this pane (precomputed by the caller).
+    public let diffIndex: DiffStatusIndex
+
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -36,6 +39,7 @@ public struct FileTreeView: View {
         self.isLeft = isLeft
         self.delegate = delegate
         self.ignoredPaths = ignoredPaths
+        self.diffIndex = diffIndex
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -46,7 +50,12 @@ public struct FileTreeView: View {
         ZStack {
             List(selection: $selection) {
                 OutlineGroup(tree, children: \.children) { node in
-                    FileRowView(node: node, isIgnored: isPathIgnored(node))
+                    FileRowView(
+                        node: node,
+                        isIgnored: isPathIgnored(node),
+                        diffStatus: diffIndex.status(forNodeId: node.id),
+                        containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
+                    )
                         .tag(node.id)
                         .contextMenu {
                             FileContextMenu(
@@ -248,11 +257,16 @@ struct FileContextMenu: View {
     }
 }
 
-/// Renders a single row representing a file or directory node with its associated system icon.
+/// Renders a single row representing a file or directory node with its associated system icon,
+/// plus a trailing sync-status badge when the node (or, for folders, anything beneath it) differs.
 struct FileRowView: View {
     let node: FileNode
     let isIgnored: Bool
-    
+    /// Diff status of the node itself, or nil when it is in sync.
+    let diffStatus: FileDifference.DifferenceType?
+    /// Number of differences beneath this node (directories only; 0 elsewhere).
+    let containedDiffCount: Int
+
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
@@ -264,8 +278,50 @@ struct FileRowView: View {
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
+            if let diffStatus {
+                // Shape encodes direction/kind so status is readable without color
+                // (colors match DifferenceRow in the Differences pane).
+                Image(systemName: Self.badgeSymbol(for: diffStatus))
+                    .font(.subheadline)
+                    .foregroundStyle(Self.badgeColor(for: diffStatus))
+                    .help(Self.badgeHelp(for: diffStatus))
+                    .accessibilityLabel(Self.badgeHelp(for: diffStatus))
+            } else if containedDiffCount > 0 {
+                Text("\(containedDiffCount)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(.quaternary))
+                    .help("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
+                    .accessibilityLabel("\(containedDiffCount) differences inside")
+            }
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+
+    static func badgeSymbol(for type: FileDifference.DifferenceType) -> String {
+        switch type {
+        case .missingOnRight: return "arrow.right.circle"
+        case .missingOnLeft: return "arrow.left.circle"
+        case .differentDates: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    static func badgeColor(for type: FileDifference.DifferenceType) -> Color {
+        switch type {
+        case .missingOnRight: return .blue
+        case .missingOnLeft: return .purple
+        case .differentDates: return .orange
+        }
+    }
+
+    static func badgeHelp(for type: FileDifference.DifferenceType) -> String {
+        switch type {
+        case .missingOnRight: return "Missing on right"
+        case .missingOnLeft: return "Missing on left"
+        case .differentDates: return "Different dates or sizes"
+        }
     }
 }
