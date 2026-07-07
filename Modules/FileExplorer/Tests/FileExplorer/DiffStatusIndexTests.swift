@@ -110,6 +110,27 @@ private func diff(
         #expect(index.containedDiffCount(forNodeId: "/sub") == 1)
     }
 
+    @Test func testSiblingDirectoryNamePrefixesDoNotCollide() {
+        // "/root/sub" is a string prefix of "/root/subfolder"; containment must
+        // follow path components, not string prefixes.
+        let index = DiffStatusIndex(
+            differences: [diff("subfolder/a.txt")],
+            rootPath: "/root"
+        )
+        #expect(index.containedDiffCount(forNodeId: "/root/subfolder") == 1)
+        #expect(index.containedDiffCount(forNodeId: "/root/sub") == 0)
+        #expect(index.status(forNodeId: "/root/sub") == nil)
+    }
+
+    @Test func testPathsWithSpacesAndNonASCIINamesResolve() {
+        let index = DiffStatusIndex(
+            differences: [diff("Süb Fólder/日本語 メモ.txt", type: .differentDates)],
+            rootPath: "/Users/mé/My Documents"
+        )
+        #expect(index.status(forNodeId: "/Users/mé/My Documents/Süb Fólder/日本語 メモ.txt") == .differentDates)
+        #expect(index.containedDiffCount(forNodeId: "/Users/mé/My Documents/Süb Fólder") == 1)
+    }
+
     @Test func testBadgePresentationCoversAllDifferenceTypes() {
         // Shape encodes meaning (colorblind-safe), color matches DifferenceRow.
         #expect(FileRowView.badgeSymbol(for: .missingOnRight) == "arrow.right.circle")
@@ -118,5 +139,8 @@ private func diff(
         #expect(FileRowView.badgeColor(for: .missingOnRight) == .blue)
         #expect(FileRowView.badgeColor(for: .missingOnLeft) == .purple)
         #expect(FileRowView.badgeColor(for: .differentDates) == .orange)
+        #expect(FileRowView.badgeHelp(for: .missingOnRight) == "Missing on right")
+        #expect(FileRowView.badgeHelp(for: .missingOnLeft) == "Missing on left")
+        #expect(FileRowView.badgeHelp(for: .differentDates) == "Different dates or sizes")
     }
 }
