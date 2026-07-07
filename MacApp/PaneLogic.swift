@@ -47,6 +47,20 @@ enum PaneLogic {
         leftSelection.sorted().first ?? rightSelection.sorted().first
     }
 
+    /// Whether a pane selection change should switch the bottom pane to the Details tab.
+    /// A manual Differences pick is sticky: once the user has chosen Differences via the
+    /// Picker, selection changes never steal the tab (they may be clicking tree files while
+    /// working through the differences list). Manually picking Details re-arms the
+    /// auto-switch — the caller clears `differencesPickedManually` in the Picker's setter.
+    static func shouldAutoSwitchToDetails(
+        hasSelection: Bool,
+        bottomPaneVisible: Bool,
+        currentTabIsDetails: Bool,
+        differencesPickedManually: Bool
+    ) -> Bool {
+        hasSelection && bottomPaneVisible && !currentTabIsDetails && !differencesPickedManually
+    }
+
     /// Builds a pane's full path from its provider root and in-pane relative path.
     /// An empty or absolute "relative" path yields just the root, so a stale or
     /// cross-provider relative path can never escape the pane's root.

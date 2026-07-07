@@ -36,6 +36,11 @@ struct ContentView: View {
     }
     @State private var selectedBottomTab: BottomTab = .differences
 
+    /// True once the user manually picks the Differences tab via the segmented Picker;
+    /// suppresses the selection-driven auto-switch to Details until they manually pick
+    /// Details again. Per-launch only — deliberately not persisted.
+    @State private var differencesTabPickedManually: Bool = false
+
     private static let bannerAutoDismissNanoseconds: UInt64 = 5_000_000_000 // 5 seconds
     @State private var bannerDismissScheduler = BannerDismissScheduler()
 
@@ -211,10 +216,29 @@ struct ContentView: View {
         PaneLogic.fullPath(root: settings.path(for: rightProviderId), relativePath: syncManager.rightRelativePath)
     }
 
-    /// When user selects items in a pane and the bottom pane is on Differences, switch to Details tab.
+    /// When user selects items in a pane and the bottom pane is on Differences, switch to
+    /// Details tab — unless the user manually picked Differences (see PaneLogic).
     private func switchToDetailsTabIfNeeded(whenSelectionChanges paths: Set<String>) {
-        guard !paths.isEmpty, showingBottomPane, selectedBottomTab != .details else { return }
+        guard PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: !paths.isEmpty,
+            bottomPaneVisible: showingBottomPane,
+            currentTabIsDetails: selectedBottomTab == .details,
+            differencesPickedManually: differencesTabPickedManually
+        ) else { return }
         selectedBottomTab = .details
+    }
+
+    /// Binding used exclusively by the bottom-tab Picker, so every write through it is by
+    /// construction a manual user pick — the programmatic auto-switch above writes
+    /// `selectedBottomTab` directly and never trips this setter.
+    private var manualBottomTabSelection: Binding<BottomTab> {
+        Binding(
+            get: { selectedBottomTab },
+            set: { tab in
+                differencesTabPickedManually = (tab == .differences)
+                selectedBottomTab = tab
+            }
+        )
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -471,7 +495,7 @@ struct ContentView: View {
     private var bottomPaneView: some View {
         VStack(spacing: 0) {
             HStack {
-                Picker("", selection: $selectedBottomTab) {
+                Picker("", selection: manualBottomTabSelection) {
                     ForEach(BottomTab.allCases, id: \.self) { tab in
                         Text(tab.rawValue).tag(tab)
                     }

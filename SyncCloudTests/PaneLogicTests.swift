@@ -85,6 +85,61 @@ import FileExplorer
         #expect(PaneLogic.primarySelectionPath(leftSelection: [], rightSelection: []) == nil)
     }
 
+    // MARK: shouldAutoSwitchToDetails
+
+    @Test func testAutoSwitchFiresOnSelectionWhenTabWasNotManuallyChosen() {
+        // The default flow: bottom pane on Differences (automatically), user selects a file.
+        #expect(PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: true,
+            bottomPaneVisible: true,
+            currentTabIsDetails: false,
+            differencesPickedManually: false))
+    }
+
+    @Test func testAutoSwitchIsSuppressedAfterManualDifferencesPick() {
+        // Once the user manually picked Differences, selection changes must not steal the tab.
+        #expect(!PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: true,
+            bottomPaneVisible: true,
+            currentTabIsDetails: false,
+            differencesPickedManually: true))
+    }
+
+    @Test func testAutoSwitchReArmsAfterManualDetailsPick() {
+        // Manually picking Details clears the manual-Differences flag (the Picker setter
+        // only raises it for .differences), so the next selection auto-switches again.
+        let flagAfterManualDetailsPick = false
+        #expect(PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: true,
+            bottomPaneVisible: true,
+            currentTabIsDetails: false,
+            differencesPickedManually: flagAfterManualDetailsPick))
+    }
+
+    @Test func testAutoSwitchNeverFiresWhenBottomPaneHidden() {
+        #expect(!PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: true,
+            bottomPaneVisible: false,
+            currentTabIsDetails: false,
+            differencesPickedManually: false))
+    }
+
+    @Test func testAutoSwitchNeverFiresWhenSelectionIsEmpty() {
+        #expect(!PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: false,
+            bottomPaneVisible: true,
+            currentTabIsDetails: false,
+            differencesPickedManually: false))
+    }
+
+    @Test func testAutoSwitchIsANoOpWhenAlreadyOnDetails() {
+        #expect(!PaneLogic.shouldAutoSwitchToDetails(
+            hasSelection: true,
+            bottomPaneVisible: true,
+            currentTabIsDetails: true,
+            differencesPickedManually: false))
+    }
+
     // MARK: fullPath
 
     @Test func testFullPathAppendsRelativePath() {
