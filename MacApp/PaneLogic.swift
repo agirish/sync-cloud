@@ -18,6 +18,19 @@ enum PaneLogic {
         activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
+    /// SF Symbols for the action bar's Copy/Move buttons, pointing toward the pane the
+    /// operation targets (the one opposite the selection). SF Symbols has no left-pointing
+    /// counterpart of `arrow.right.doc.on.clipboard`, so the directional states use the
+    /// symmetric circle/square arrow pairs instead of mismatched glyphs; with no selection
+    /// the buttons keep their neutral right-pointing defaults.
+    static func actionBarSymbols(activePane: ActivePane?) -> (copy: String, move: String) {
+        switch activePane {
+        case .left: return (copy: "arrow.right.circle", move: "arrow.right.square")
+        case .right: return (copy: "arrow.left.circle", move: "arrow.left.square")
+        case nil: return (copy: "arrow.right.doc.on.clipboard", move: "arrow.right.square")
+        }
+    }
+
     /// The left pane wins when both panes have selections (it is checked first, matching
     /// the historical behavior of the details/actions targeting).
     static func activePane(leftSelection: Set<String>, rightSelection: Set<String>) -> ActivePane? {

@@ -362,6 +362,7 @@ struct ContentView: View {
         // and selections are all @Published, so any change re-renders this bar with fresh nodes.
         let selectionNodes = activeSelectionNodes
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
+        let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         HStack(spacing: 10) {
             Button(action: {
                 guard let node = selectionNodes.first, node.isDirectory else { return }
@@ -377,7 +378,7 @@ struct ContentView: View {
                 let fromLeft = (activePane == .left)
                 actionHandler?.copyItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
-                Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: "arrow.right.doc.on.clipboard")
+                Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy)
             }
             .disabled(selectionNodes.isEmpty)
             .help(copyTarget.map { "Copy the selected items to \($0)" } ?? "Copy the selected items to the other pane")
@@ -389,7 +390,7 @@ struct ContentView: View {
                     _ = await actionHandler?.moveItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }) {
-                Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: "arrow.right.square")
+                Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move)
             }
             .disabled(selectionNodes.isEmpty)
             .help(copyTarget.map { "Move the selected items to \($0)" } ?? "Move the selected items to the other pane")

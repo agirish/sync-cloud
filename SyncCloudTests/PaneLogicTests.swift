@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Foundation
 import FileExplorer
 @testable import SyncCloud
@@ -24,6 +25,35 @@ import FileExplorer
         let names = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
         #expect(PaneLogic.copyTargetName(activePane: .left, paneNames: names) == "iCloud (right)")
         #expect(PaneLogic.copyTargetName(activePane: .right, paneNames: names) == "iCloud (left)")
+    }
+
+    // MARK: actionBarSymbols
+
+    @Test func testActionBarSymbolsPointTowardTheTargetPane() {
+        // Left-pane selection targets the right pane, so the icons point right — and vice versa.
+        let fromLeft = PaneLogic.actionBarSymbols(activePane: .left)
+        #expect(fromLeft.copy == "arrow.right.circle")
+        #expect(fromLeft.move == "arrow.right.square")
+        let fromRight = PaneLogic.actionBarSymbols(activePane: .right)
+        #expect(fromRight.copy == "arrow.left.circle")
+        #expect(fromRight.move == "arrow.left.square")
+    }
+
+    @Test func testActionBarSymbolsWithoutSelectionKeepNeutralDefaults() {
+        let neutral = PaneLogic.actionBarSymbols(activePane: nil)
+        #expect(neutral.copy == "arrow.right.doc.on.clipboard")
+        #expect(neutral.move == "arrow.right.square")
+    }
+
+    @Test func testActionBarSymbolNamesExistInSFSymbols() {
+        // A typo'd symbol name renders as a blank icon at runtime; pin that every name resolves.
+        for pane in [PaneLogic.ActivePane.left, .right, nil] {
+            let symbols = PaneLogic.actionBarSymbols(activePane: pane)
+            #expect(NSImage(systemSymbolName: symbols.copy, accessibilityDescription: nil) != nil,
+                    "missing SF Symbol \(symbols.copy)")
+            #expect(NSImage(systemSymbolName: symbols.move, accessibilityDescription: nil) != nil,
+                    "missing SF Symbol \(symbols.move)")
+        }
     }
 
     // MARK: activePane
