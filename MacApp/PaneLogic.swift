@@ -1,3 +1,4 @@
+import FileExplorer
 import Foundation
 
 /// Pure pane-related decision rules extracted from ContentView and its pane delegates so
@@ -8,6 +9,13 @@ enum PaneLogic {
     enum ActivePane {
         case left
         case right
+    }
+
+    /// The provider the action bar's Copy/Move buttons target: the pane opposite the one
+    /// holding the selection. `nil` when nothing is selected — there is no direction yet,
+    /// so the buttons fall back to a neutral label.
+    static func copyTargetName(activePane: ActivePane?, paneNames: PaneProviderNames) -> String? {
+        activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
     /// The left pane wins when both panes have selections (it is checked first, matching

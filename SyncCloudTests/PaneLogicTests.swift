@@ -1,8 +1,30 @@
 import Testing
 import Foundation
+import FileExplorer
 @testable import SyncCloud
 
 @Suite struct PaneLogicTests {
+
+    // MARK: copyTargetName
+
+    @Test func testCopyTargetIsTheOppositePane() {
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
+        // Selection in the left pane copies to the right provider, and vice versa.
+        #expect(PaneLogic.copyTargetName(activePane: .left, paneNames: names) == "Dropbox")
+        #expect(PaneLogic.copyTargetName(activePane: .right, paneNames: names) == "iCloud")
+    }
+
+    @Test func testCopyTargetIsNilWithoutSelection() {
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "Dropbox")
+        #expect(PaneLogic.copyTargetName(activePane: nil, paneNames: names) == nil)
+    }
+
+    @Test func testCopyTargetDisambiguatesSameProviderPanes() {
+        // Both panes on the same provider: the target must still say which side.
+        let names = PaneProviderNames(leftName: "iCloud", rightName: "iCloud")
+        #expect(PaneLogic.copyTargetName(activePane: .left, paneNames: names) == "iCloud (right)")
+        #expect(PaneLogic.copyTargetName(activePane: .right, paneNames: names) == "iCloud (left)")
+    }
 
     // MARK: activePane
 

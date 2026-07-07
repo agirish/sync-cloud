@@ -361,9 +361,7 @@ struct ContentView: View {
         // Each access walks the full pane tree; resolve the selection once per render. The trees
         // and selections are all @Published, so any change re-renders this bar with fresh nodes.
         let selectionNodes = activeSelectionNodes
-        // Copy/Move go from the pane holding the selection to the other one; with no selection
-        // there is no direction yet, so fall back to a neutral label.
-        let copyTarget = activePane.map { paneNames.other(isLeft: $0 == .left) }
+        let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         HStack(spacing: 10) {
             Button(action: {
                 guard let node = selectionNodes.first, node.isDirectory else { return }
