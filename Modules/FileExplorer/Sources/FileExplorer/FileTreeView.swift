@@ -32,6 +32,11 @@ public struct FileTreeView: View {
     /// Display name of the opposite pane's provider, used as the copy/move target in menu labels.
     public let otherPaneName: String
 
+    /// In-flight drag payload, observed so drop highlights only appear on valid targets.
+    @ObservedObject private var dragSession = PaneDragSession.shared
+    /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
+    @State private var isBackgroundDropTargeted = false
+
     public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil) {
         self.tree = tree
         self.otherTree = otherTree
@@ -54,31 +59,25 @@ public struct FileTreeView: View {
         ZStack {
             List(selection: $selection) {
                 OutlineGroup(tree, children: \.children) { node in
-                    FileRowView(
-                        node: node,
-                        isIgnored: isPathIgnored(node),
-                        diffStatus: diffIndex.status(forNodeId: node.id),
-                        containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
-                    )
-                        .tag(node.id)
-                        .contextMenu {
-                            FileContextMenu(
-                                node: node,
-                                selection: selection,
-                                tree: tree,
-                                otherTree: otherTree,
-                                otherSelection: otherSelection,
-                                isLeft: isLeft,
-                                currentPath: currentPath,
-                                delegate: delegate,
-                                ignoredPaths: ignoredPaths,
-                                otherPaneName: otherPaneName
-                            )
-                        }
+                    treeRow(for: node)
                 }
             }
             .listStyle(SidebarListStyle())
             .contextMenu { emptyAreaContextMenu }
+            .dropDestination(for: PaneDragPayload.self) { payloads, _ in
+                guard let payload = payloads.first else { return false }
+                return Self.performPaneDrop(payload, toPath: currentPath, targetIsLeft: isLeft, delegate: delegate)
+            } isTargeted: { targeting in
+                isBackgroundDropTargeted = targeting
+            }
+            .overlay {
+                if isBackgroundDropTargeted && backgroundDropAllowed {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.accentColor, lineWidth: 2)
+                        .padding(2)
+                        .allowsHitTesting(false)
+                }
+            }
             .onDeleteCommand {
                 let selectedNodes = tree.findNodes(at: selection)
                 if !selectedNodes.isEmpty {
@@ -126,6 +125,74 @@ public struct FileTreeView: View {
         }
     }
     
+    /// One tree row: content + context menu, draggable, and (for directories) a drop target.
+    @ViewBuilder
+    private func treeRow(for node: FileNode) -> some View {
+        FileRowView(
+            node: node,
+            isIgnored: isPathIgnored(node),
+            diffStatus: diffIndex.status(forNodeId: node.id),
+            containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
+        )
+            .tag(node.id)
+            .contextMenu {
+                FileContextMenu(
+                    node: node,
+                    selection: selection,
+                    tree: tree,
+                    otherTree: otherTree,
+                    otherSelection: otherSelection,
+                    isLeft: isLeft,
+                    currentPath: currentPath,
+                    delegate: delegate,
+                    ignoredPaths: ignoredPaths,
+                    otherPaneName: otherPaneName
+                )
+            }
+            .draggable(makeDragPayload(for: node))
+            .modifier(PaneDropTarget(
+                targetDirectoryPath: node.isDirectory ? node.id : nil,
+                paneIsLeft: isLeft,
+                delegate: delegate
+            ))
+    }
+
+    /// Built lazily when a drag actually starts (`.draggable` takes an autoclosure); also
+    /// records the payload in the shared session so drop targets can validate while hovering.
+    private func makeDragPayload(for node: FileNode) -> PaneDragPayload {
+        let payload = PaneDragPayload(
+            sourceIsLeft: isLeft,
+            nodes: PaneDropLogic.dragNodes(for: node, selection: selection, tree: tree)
+        )
+        PaneDragSession.shared.active = payload
+        return payload
+    }
+
+    /// Whether the drag currently in flight may be dropped on this pane's background
+    /// (i.e. into the pane's current folder).
+    private var backgroundDropAllowed: Bool {
+        guard let payload = dragSession.active else { return false }
+        return PaneDropLogic.canDrop(
+            draggedIds: payload.nodes.map(\.id),
+            sourceIsLeft: payload.sourceIsLeft,
+            targetIsLeft: isLeft,
+            targetDirectoryPath: currentPath
+        )
+    }
+
+    /// Validates and routes a performed drop; shared by row and background targets.
+    static func performPaneDrop(_ payload: PaneDragPayload, toPath path: String, targetIsLeft: Bool, delegate: FileActionDelegate) -> Bool {
+        defer { PaneDragSession.shared.active = nil }
+        guard PaneDropLogic.canDrop(
+            draggedIds: payload.nodes.map(\.id),
+            sourceIsLeft: payload.sourceIsLeft,
+            targetIsLeft: targetIsLeft,
+            targetDirectoryPath: path
+        ) else { return false }
+        delegate.handleDrop(payload.nodes, toPath: path, isMove: ModifierTracker.moveModifierHeld)
+        return true
+    }
+
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
         Button(action: { delegate.handleRefresh() }) {
@@ -150,6 +217,47 @@ public struct FileTreeView: View {
             Button("Size") { delegate.handleSort(.size) }
             Button("Tags") { delegate.handleSort(.tags) }
         }
+    }
+}
+
+/// Makes a directory row accept cross-pane drags, highlighting it only while a valid drop
+/// hovers. Rows without a `targetDirectoryPath` (files) pass through untouched, so drops on
+/// them fall to the pane background (= into the pane's current folder), like Finder.
+private struct PaneDropTarget: ViewModifier {
+    /// Absolute path of the directory this row represents, or nil when the row is a file.
+    let targetDirectoryPath: String?
+    let paneIsLeft: Bool
+    let delegate: FileActionDelegate
+
+    @ObservedObject private var dragSession = PaneDragSession.shared
+    @State private var isTargeted = false
+
+    func body(content: Content) -> some View {
+        if let targetDirectoryPath {
+            content
+                .background {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.accentColor.opacity(isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
+                }
+                .dropDestination(for: PaneDragPayload.self) { payloads, _ in
+                    guard let payload = payloads.first else { return false }
+                    return FileTreeView.performPaneDrop(payload, toPath: targetDirectoryPath, targetIsLeft: paneIsLeft, delegate: delegate)
+                } isTargeted: { targeting in
+                    isTargeted = targeting
+                }
+        } else {
+            content
+        }
+    }
+
+    private func dropAllowed(into directoryPath: String) -> Bool {
+        guard let payload = dragSession.active else { return false }
+        return PaneDropLogic.canDrop(
+            draggedIds: payload.nodes.map(\.id),
+            sourceIsLeft: payload.sourceIsLeft,
+            targetIsLeft: paneIsLeft,
+            targetDirectoryPath: directoryPath
+        )
     }
 }
 

@@ -563,6 +563,13 @@ struct PaneActionDelegate: FileActionDelegate {
     func handlePaste(_ targetDir: FileNode) { handler?.pasteClipboard(to: targetDir) }
     func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) { handler?.pasteItems(nodes, to: targetDir, isCut: false) }
     func handlePasteToPath(_ path: String) { handler?.pasteClipboard(toPath: path) }
+    func handleDrop(_ nodes: [FileNode], toPath path: String, isMove: Bool) {
+        if isMove {
+            handler?.moveItems(nodes, toPath: path)
+        } else {
+            handler?.pasteItems(nodes, toPath: path, isCut: false)
+        }
+    }
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
     func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
     func handleGetInfo(for path: String) { handler?.openGetInfo(for: path) }

@@ -54,10 +54,21 @@ final class ModifierTracker: ObservableObject {
     }
     
     private func updateModifiers(_ flags: NSEvent.ModifierFlags) {
-        let isPressed = flags.contains(.shift) || flags.contains(.command)
+        let isPressed = Self.isMoveModifier(flags)
         if isMoveModifierPressed != isPressed {
             isMoveModifierPressed = isPressed
         }
+    }
+
+    /// The app-wide "move instead of copy" modifier: Shift or Command.
+    nonisolated static func isMoveModifier(_ flags: NSEvent.ModifierFlags) -> Bool {
+        flags.contains(.shift) || flags.contains(.command)
+    }
+
+    /// One-shot read of the current keyboard state (e.g. at drop time), for callers that
+    /// don't need the published stream.
+    static var moveModifierHeld: Bool {
+        isMoveModifier(NSEvent.modifierFlags)
     }
 }
 

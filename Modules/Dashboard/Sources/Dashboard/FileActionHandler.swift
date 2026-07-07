@@ -100,6 +100,22 @@ public class FileActionHandler {
         return movedNodes
     }
     
+    /// Moves the given items into the directory at `destinationPath` (after user confirmation).
+    /// This is drag & drop's move route; unlike the cut+paste route it never touches the
+    /// internal clipboard, and unlike the pane-to-pane move it targets an explicit directory.
+    public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
+        let destDisplayName = providerDisplayName(forPath: destinationPath)
+        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: destDisplayName) else {
+            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(destDisplayName)")
+            return
+        }
+        Logger.shared.info("User initiating move of \(nodes.count) items to a dropped-on directory")
+        Task {
+            let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
+            setBannerForMove(movedNodes, to: destDisplayName)
+        }
+    }
+
     public func pasteItems(_ nodes: [FileNode], to targetDir: FileNode, isCut: Bool) {
         let validDestinationPath = targetDir.isDirectory ? targetDir.id : URL(fileURLWithPath: targetDir.id).deletingLastPathComponent().path
         pasteItems(nodes, toPath: validDestinationPath, isCut: isCut)
