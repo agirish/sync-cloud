@@ -193,6 +193,14 @@ struct ContentView: View {
         }
     }
     
+    /// Provider display names for the two panes, disambiguated when both panes show the same provider.
+    private var paneNames: PaneProviderNames {
+        PaneProviderNames(
+            leftName: settings.availableProviders.first(where: { $0.id == leftProviderId })?.displayName,
+            rightName: settings.availableProviders.first(where: { $0.id == rightProviderId })?.displayName
+        )
+    }
+
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
     private var currentLeftPath: String {
         PaneLogic.fullPath(root: settings.path(for: leftProviderId), relativePath: syncManager.leftRelativePath)
@@ -353,6 +361,9 @@ struct ContentView: View {
         // Each access walks the full pane tree; resolve the selection once per render. The trees
         // and selections are all @Published, so any change re-renders this bar with fresh nodes.
         let selectionNodes = activeSelectionNodes
+        // Copy/Move go from the pane holding the selection to the other one; with no selection
+        // there is no direction yet, so fall back to a neutral label.
+        let copyTarget = activePane.map { paneNames.other(isLeft: $0 == .left) }
         HStack(spacing: 10) {
             Button(action: {
                 guard let node = selectionNodes.first, node.isDirectory else { return }
@@ -368,9 +379,10 @@ struct ContentView: View {
                 let fromLeft = (activePane == .left)
                 actionHandler?.copyItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
-                Label("Copy", systemImage: "arrow.right.doc.on.clipboard")
+                Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: "arrow.right.doc.on.clipboard")
             }
             .disabled(selectionNodes.isEmpty)
+            .help(copyTarget.map { "Copy the selected items to \($0)" } ?? "Copy the selected items to the other pane")
 
             Button(action: {
                 guard !selectionNodes.isEmpty, let activePane else { return }
@@ -379,9 +391,10 @@ struct ContentView: View {
                     _ = await actionHandler?.moveItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }) {
-                Label("Move", systemImage: "arrow.right.square")
+                Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: "arrow.right.square")
             }
             .disabled(selectionNodes.isEmpty)
+            .help(copyTarget.map { "Move the selected items to \($0)" } ?? "Move the selected items to the other pane")
 
             Button(action: {
                 guard let path = activePanePath else { return }
@@ -431,7 +444,8 @@ struct ContentView: View {
             isLeft: true,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths,
-            diffIndex: leftDiffIndex
+            diffIndex: leftDiffIndex,
+            otherPaneName: paneNames.right
         )
     }
     
@@ -447,7 +461,8 @@ struct ContentView: View {
             isLeft: false,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths,
-            diffIndex: rightDiffIndex
+            diffIndex: rightDiffIndex,
+            otherPaneName: paneNames.left
         )
     }
     
@@ -479,7 +494,7 @@ struct ContentView: View {
             ZStack {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
-                        DifferencesView(syncManager: syncManager)
+                        DifferencesView(syncManager: syncManager, paneNames: paneNames)
                             .frame(minHeight: 0)
                     } else if syncManager.hasScanned {
                         VStack(spacing: 12) {

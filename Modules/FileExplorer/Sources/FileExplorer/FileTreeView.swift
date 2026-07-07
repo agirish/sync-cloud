@@ -29,7 +29,10 @@ public struct FileTreeView: View {
     /// Diff status per absolute node path for this pane (precomputed by the caller).
     public let diffIndex: DiffStatusIndex
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty) {
+    /// Display name of the opposite pane's provider, used as the copy/move target in menu labels.
+    public let otherPaneName: String
+
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -40,6 +43,7 @@ public struct FileTreeView: View {
         self.delegate = delegate
         self.ignoredPaths = ignoredPaths
         self.diffIndex = diffIndex
+        self.otherPaneName = otherPaneName ?? (isLeft ? "Right" : "Left")
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -67,7 +71,8 @@ public struct FileTreeView: View {
                                 isLeft: isLeft,
                                 currentPath: currentPath,
                                 delegate: delegate,
-                                ignoredPaths: ignoredPaths
+                                ignoredPaths: ignoredPaths,
+                                otherPaneName: otherPaneName
                             )
                         }
                 }
@@ -160,7 +165,8 @@ struct FileContextMenu: View {
     let currentPath: String
     let delegate: FileActionDelegate
     let ignoredPaths: Set<String>
-    
+    let otherPaneName: String
+
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
         if selection.isEmpty {
@@ -212,13 +218,11 @@ struct FileContextMenu: View {
             Divider()
             
             Button(action: { delegate.handleCopy(selectedNodes) }) {
-                let targetPane = isLeft ? "Right" : "Left"
-                Label(count > 1 ? "Copy \(count) items to \(targetPane)" : "Copy to \(targetPane)", systemImage: "arrow.right.doc.on.clipboard")
+                Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: "arrow.right.doc.on.clipboard")
             }
-            
+
             Button(action: { delegate.handleMove(selectedNodes) }) {
-                let targetPane = isLeft ? "Right" : "Left"
-                Label(count > 1 ? "Move \(count) items to \(targetPane)" : "Move to \(targetPane)", systemImage: "arrow.right.square")
+                Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: "arrow.right.square")
             }
             
             Divider()
@@ -240,9 +244,9 @@ struct FileContextMenu: View {
                 if !otherSelectedNodes.isEmpty {
                     Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                         if otherSelectedNodes.count > 1 {
-                            Label("Copy \(otherSelectedNodes.count) items from other pane", systemImage: "arrow.right.to.line.compact")
+                            Label("Copy \(otherSelectedNodes.count) items from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                         } else if let first = otherSelectedNodes.first {
-                            Label("Copy '\(first.name)' from other pane", systemImage: "arrow.right.to.line.compact")
+                            Label("Copy '\(first.name)' from \(otherPaneName)", systemImage: "arrow.right.to.line.compact")
                         }
                     }
                 }

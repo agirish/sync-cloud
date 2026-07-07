@@ -12,6 +12,17 @@ public enum DifferenceFilter: String, CaseIterable {
     case changedCopyToRight = "Changed (left newer)"
     case changedCopyToLeft = "Changed (right newer)"
 
+    /// User-facing label using the panes' provider names; rawValue stays the stable case identity.
+    func displayName(leftName: String, rightName: String) -> String {
+        switch self {
+        case .all: return "All"
+        case .missingOnLeft: return "Missing on \(leftName)"
+        case .missingOnRight: return "Missing on \(rightName)"
+        case .changedCopyToRight: return "Changed (\(leftName) newer)"
+        case .changedCopyToLeft: return "Changed (\(rightName) newer)"
+        }
+    }
+
     func matches(_ diff: FileDifference) -> Bool {
         switch self {
         case .all: return true
@@ -56,8 +67,10 @@ public struct DifferencesView: View {
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @State private var selectedFilter: DifferenceFilter = .all
-    public init(syncManager: FileSyncManager) {
+    private let paneNames: PaneProviderNames
+    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight) {
         self.syncManager = syncManager
+        self.paneNames = paneNames
     }
 
     private var isBulkSyncing: Bool {
@@ -92,15 +105,19 @@ public struct DifferencesView: View {
                             Button {
                                 selectedFilter = filter
                             } label: {
+                                let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
                                 if selectedFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
+                                    Label(name, systemImage: "checkmark")
                                 } else {
-                                    Text(filter.rawValue)
+                                    Text(name)
                                 }
                             }
                         }
                     } label: {
-                        Label(selectedFilter.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+                        Label(
+                            selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
+                            systemImage: "line.3.horizontal.decrease.circle"
+                        )
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     if selectedFilter == .all {
@@ -118,7 +135,7 @@ public struct DifferencesView: View {
                             Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: filteredDifferences) }
                         } label: {
                             Label(
-                                modifierTracker.isMoveModifierPressed ? "Move \(copyToRightCount) to Right" : "Copy \(copyToRightCount) to Right",
+                                modifierTracker.isMoveModifierPressed ? "Move \(copyToRightCount) to \(paneNames.right)" : "Copy \(copyToRightCount) to \(paneNames.right)",
                                 systemImage: "arrow.right.circle"
                             )
                         }
@@ -129,7 +146,7 @@ public struct DifferencesView: View {
                             Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: filteredDifferences) }
                         } label: {
                             Label(
-                                modifierTracker.isMoveModifierPressed ? "Move \(copyToLeftCount) to Left" : "Copy \(copyToLeftCount) to Left",
+                                modifierTracker.isMoveModifierPressed ? "Move \(copyToLeftCount) to \(paneNames.left)" : "Copy \(copyToLeftCount) to \(paneNames.left)",
                                 systemImage: "arrow.left.circle"
                             )
                         }
@@ -210,7 +227,8 @@ public struct DifferencesView: View {
                             difference: difference,
                             syncManager: syncManager,
                             isMove: modifierTracker.isMoveModifierPressed,
-                            glassIntensity: glassIntensity
+                            glassIntensity: glassIntensity,
+                            paneNames: paneNames
                         ) { isMove in
                             Task {
                                 await syncManager.syncFile(difference, isMove: isMove)
@@ -230,14 +248,14 @@ public struct DifferencesView: View {
             // destroy the list before the confirm button can claim it (making Copy a no-op).
             set: { if !$0 { syncManager.verifiedCopyDialogDismissed() } }
         )) {
-            Button("Copy Left to Right") {
+            Button("Copy \(paneNames.left) to \(paneNames.right)") {
                 syncManager.confirmVerifiedCopy()
             }
             Button("Cancel", role: .cancel) {
                 syncManager.dismissVerifiedCopyDialogWithoutCopy()
             }
         } message: {
-            Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all left to right to match dates. No per-file confirmation.")
+            Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all from \(paneNames.left) to \(paneNames.right) to match dates. No per-file confirmation.")
         }
     }
 }
@@ -248,6 +266,7 @@ struct DifferenceRow: View {
     @ObservedObject var syncManager: FileSyncManager
     let isMove: Bool
     let glassIntensity: Double
+    let paneNames: PaneProviderNames
     let onSync: (Bool) -> Void
 
     private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
@@ -314,9 +333,9 @@ struct DifferenceRow: View {
                     } else {
                         switch difference.action {
                         case .copyToRight:
-                            Label(isMove ? "Move to Right" : "Copy to Right", systemImage: "arrow.right.circle.fill")
+                            Label(isMove ? "Move to \(paneNames.right)" : "Copy to \(paneNames.right)", systemImage: "arrow.right.circle.fill")
                         case .copyToLeft:
-                            Label(isMove ? "Move to Left" : "Copy to Left", systemImage: "arrow.left.circle.fill")
+                            Label(isMove ? "Move to \(paneNames.left)" : "Copy to \(paneNames.left)", systemImage: "arrow.left.circle.fill")
                         }
                     }
                 }
