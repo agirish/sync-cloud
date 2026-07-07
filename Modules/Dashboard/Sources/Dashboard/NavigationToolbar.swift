@@ -38,27 +38,12 @@ public struct NavigationToolbar: View {
                 .frame(width: 1, height: 20)
                 .padding(.horizontal, 8)
             
-            if !syncManager.leftRelativePath.isEmpty || !syncManager.rightRelativePath.isEmpty {
-                HStack {
-                    Image(systemName: "scope")
-                        .foregroundColor(.accentColor)
-                    Text("Focusing on:")
-                        .fontWeight(.medium)
-                    Text(syncManager.leftRelativePath.isEmpty ? syncManager.rightRelativePath : syncManager.leftRelativePath)
-                        .italic()
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                .font(.subheadline)
-                
+            if let focus = BreadcrumbTrail.displayedFocus(
+                leftRelativePath: syncManager.leftRelativePath,
+                rightRelativePath: syncManager.rightRelativePath
+            ) {
+                breadcrumbBar(relativePath: focus.relativePath, isLeft: focus.isLeft)
                 Spacer()
-                
-                Button(action: { syncManager.resetNavigation() }) {
-                    Label("Restore Root", systemImage: "house")
-                }
-                .buttonStyle(.bordered)
-                .help("Return to the root directory view")
             } else {
                 Text("Viewing All Files (Root)")
                     .font(.subheadline)
@@ -80,5 +65,64 @@ public struct NavigationToolbar: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .glassBarStyle(intensity: glassIntensity)
+    }
+
+    /// Clickable breadcrumbs for the focused path: a house (root) crumb, then one crumb per
+    /// path component. Deep trails collapse their middle into an ellipsis menu. Clicking a
+    /// crumb re-focuses the displayed pane at that ancestor; the current folder is inert.
+    @ViewBuilder
+    private func breadcrumbBar(relativePath: String, isLeft: Bool) -> some View {
+        let crumbs = BreadcrumbTrail.crumbs(forRelativePath: relativePath)
+        let items = BreadcrumbTrail.displayItems(for: crumbs)
+        HStack(spacing: 3) {
+            Image(systemName: "scope")
+                .foregroundColor(.accentColor)
+
+            Button(action: { syncManager.resetNavigation() }) {
+                Image(systemName: "house")
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .help("Return to the root directory view")
+
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                Image(systemName: "chevron.compact.right")
+                    .foregroundStyle(.tertiary)
+                switch item {
+                case .crumb(let crumb):
+                    if crumb == crumbs.last {
+                        Text(crumb.name)
+                            .fontWeight(.medium)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    } else {
+                        Button(crumb.name) {
+                            syncManager.focusOn(relativePath: crumb.relativePath, isLeft: isLeft)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help("Focus the comparison on \(crumb.relativePath)")
+                    }
+                case .collapsed(let hidden):
+                    Menu {
+                        ForEach(hidden) { crumb in
+                            Button(crumb.name) {
+                                syncManager.focusOn(relativePath: crumb.relativePath, isLeft: isLeft)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .foregroundColor(.secondary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Collapsed folders")
+                }
+            }
+        }
+        .font(.subheadline)
     }
 }

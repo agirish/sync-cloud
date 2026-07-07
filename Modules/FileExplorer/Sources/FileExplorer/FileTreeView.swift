@@ -149,6 +149,15 @@ public struct FileTreeView: View {
                     otherPaneName: otherPaneName
                 )
             }
+            // simultaneousGesture so the List's single-click selection keeps working;
+            // directories drill in exactly like "Compare only this folder".
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                if node.isDirectory {
+                    delegate.handleFocus(node)
+                } else {
+                    delegate.handleQuickLook(node)
+                }
+            })
             .draggable(makeDragPayload(for: node))
             .modifier(PaneDropTarget(
                 targetDirectoryPath: node.isDirectory ? node.id : nil,

@@ -125,4 +125,42 @@ import Combine
         #expect(manager.canGoBack)
         #expect(!manager.canGoForward)
     }
+
+    @MainActor
+    @Test func testAncestorFocusAppendsToHistoryLikeAnyFocus() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        manager.focusOn(relativePath: "docs", isLeft: true)
+        manager.focusOn(relativePath: "docs/projects/app", isLeft: true)
+
+        // Breadcrumb jump to an ancestor is a plain focus: it appends a new history
+        // entry rather than rewinding, so Back returns to the deeper folder.
+        manager.focusOn(relativePath: "docs/projects", isLeft: true)
+
+        #expect(manager.leftRelativePath == "docs/projects")
+        #expect(manager.history.count == 4)
+        #expect(manager.canGoBack)
+        #expect(!manager.canGoForward)
+
+        manager.goBack()
+        #expect(manager.leftRelativePath == "docs/projects/app")
+        manager.goForward()
+        #expect(manager.leftRelativePath == "docs/projects")
+    }
+
+    @MainActor
+    @Test func testAncestorFocusOnRightPaneWhenLeftIsAtRoot() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        // Only the right pane is focused (the breadcrumb bar's fallback case).
+        manager.focusOn(relativePath: "photos/2026/july", isLeft: false)
+        manager.focusOn(relativePath: "photos", isLeft: false)
+
+        #expect(manager.rightRelativePath == "photos")
+        #expect(manager.leftRelativePath == "")
+        #expect(manager.history.count == 3)
+
+        manager.goBack()
+        #expect(manager.rightRelativePath == "photos/2026/july")
+    }
 }

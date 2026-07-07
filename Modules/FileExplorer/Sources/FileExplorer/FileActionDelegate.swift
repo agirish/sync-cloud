@@ -20,4 +20,10 @@ public protocol FileActionDelegate: Sendable {
     func handleSort(_ option: SortOption)
     func handleIgnore(_ nodes: [FileNode])
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool
+    /// Double-click on a file row: preview it (Quick Look). Optional; defaults to a no-op.
+    func handleQuickLook(_ node: FileNode)
+}
+
+public extension FileActionDelegate {
+    func handleQuickLook(_ node: FileNode) {}
 }

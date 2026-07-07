@@ -440,7 +440,7 @@ struct ContentView: View {
             selection: $syncManager.selectedLeftPaths,
             otherSelection: syncManager.selectedRightPaths,
             isLeft: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, quickLook: { quickLookURL = URL(fileURLWithPath: $0) }),
             ignoredPaths: syncManager.ignoredPaths,
             diffIndex: leftDiffIndex,
             otherPaneName: paneNames.right
@@ -457,7 +457,7 @@ struct ContentView: View {
             selection: $syncManager.selectedRightPaths,
             otherSelection: syncManager.selectedLeftPaths,
             isLeft: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, quickLook: { quickLookURL = URL(fileURLWithPath: $0) }),
             ignoredPaths: syncManager.ignoredPaths,
             diffIndex: rightDiffIndex,
             otherPaneName: paneNames.left
@@ -545,10 +545,13 @@ struct PaneActionDelegate: FileActionDelegate {
     let leftProviderId: String
     let rightProviderId: String
     let forceRefreshAction: () -> Void
-    
+    /// Shows Quick Look for the given absolute path (double-click on a file row).
+    let quickLook: (String) -> Void
+
     func handleRefresh() {
         forceRefreshAction()
     }
+    func handleQuickLook(_ node: FileNode) { quickLook(node.id) }
     func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleMove(_ nodes: [FileNode]) { 
