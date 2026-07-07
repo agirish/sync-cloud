@@ -457,6 +457,33 @@ struct ContentView: View {
         .glassBarStyle(intensity: glassIntensity)
     }
     
+    /// Selection binding for one pane that enforces the one-pane-selected invariant
+    /// synchronously: setting a non-empty selection also clears the other pane in the
+    /// same update, so consumers (`PaneLogic.activePane`, Details, Quick Look) never see
+    /// both panes selected — not even for one runloop tick. Binding setters run during
+    /// event handling, so writing both `@Published` properties here is safe; a didSet on
+    /// FileSyncManager would publish from within a view update and had to defer instead,
+    /// which left a stale other-pane selection when a click produced no set change.
+    private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
+        Binding(
+            get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
+            set: { newSelection in
+                let reconciled = PaneLogic.reconciledSelections(
+                    settingSelection: newSelection,
+                    isLeft: isLeft,
+                    currentLeft: syncManager.selectedLeftPaths,
+                    currentRight: syncManager.selectedRightPaths
+                )
+                if syncManager.selectedLeftPaths != reconciled.left {
+                    syncManager.selectedLeftPaths = reconciled.left
+                }
+                if syncManager.selectedRightPaths != reconciled.right {
+                    syncManager.selectedRightPaths = reconciled.right
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     private var leftTreeView: some View {
         FileTreeView(
@@ -464,7 +491,7 @@ struct ContentView: View {
             otherTree: syncManager.rightTree,
             isLoading: syncManager.isLoadingLeftTree,
             currentPath: currentLeftPath,
-            selection: $syncManager.selectedLeftPaths,
+            selection: paneSelectionBinding(isLeft: true),
             otherSelection: syncManager.selectedRightPaths,
             isLeft: true,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, quickLook: { quickLookURL = URL(fileURLWithPath: $0) }),
@@ -481,7 +508,7 @@ struct ContentView: View {
             otherTree: syncManager.leftTree,
             isLoading: syncManager.isLoadingRightTree, 
             currentPath: currentRightPath,
-            selection: $syncManager.selectedRightPaths,
+            selection: paneSelectionBinding(isLeft: false),
             otherSelection: syncManager.selectedLeftPaths,
             isLeft: false,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, quickLook: { quickLookURL = URL(fileURLWithPath: $0) }),

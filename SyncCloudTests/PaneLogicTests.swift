@@ -56,6 +56,49 @@ import FileExplorer
         }
     }
 
+    // MARK: reconciledSelections
+
+    @Test func testSettingNonEmptyLeftSelectionClearsRight() {
+        let reconciled = PaneLogic.reconciledSelections(
+            settingSelection: ["/l/a"],
+            isLeft: true,
+            currentLeft: [],
+            currentRight: ["/r/b", "/r/c"])
+        #expect(reconciled.left == ["/l/a"])
+        #expect(reconciled.right.isEmpty)
+    }
+
+    @Test func testSettingNonEmptyRightSelectionClearsLeft() {
+        let reconciled = PaneLogic.reconciledSelections(
+            settingSelection: ["/r/b"],
+            isLeft: false,
+            currentLeft: ["/l/a"],
+            currentRight: [])
+        #expect(reconciled.left.isEmpty)
+        #expect(reconciled.right == ["/r/b"])
+    }
+
+    @Test func testSettingEmptySelectionDoesNotClearTheOtherPane() {
+        // Deselecting (or SwiftUI re-writing an unchanged empty set, e.g. on right-click)
+        // must leave the other pane's selection alone — "Copy N items from other pane"
+        // in the context menu depends on it surviving.
+        let afterLeftDeselect = PaneLogic.reconciledSelections(
+            settingSelection: [],
+            isLeft: true,
+            currentLeft: ["/l/a"],
+            currentRight: ["/r/b"])
+        #expect(afterLeftDeselect.left.isEmpty)
+        #expect(afterLeftDeselect.right == ["/r/b"])
+
+        let afterRightDeselect = PaneLogic.reconciledSelections(
+            settingSelection: [],
+            isLeft: false,
+            currentLeft: ["/l/a"],
+            currentRight: ["/r/b"])
+        #expect(afterRightDeselect.left == ["/l/a"])
+        #expect(afterRightDeselect.right.isEmpty)
+    }
+
     // MARK: activePane
 
     @Test func testActivePaneFollowsSelectionWithLeftPriority() {

@@ -141,27 +141,17 @@ public class FileSyncManager: ObservableObject {
     /// Current subfolder path relative to the right pane root (empty = root).
     @Published public var rightRelativePath: String = ""
 
-    /// Paths currently selected in the left pane (at most one pane has selection at a time).
-    @Published public var selectedLeftPaths: Set<String> = [] {
-        didSet {
-            // Enforce mutual exclusivity: defer so we don't publish from within a view update.
-            if !selectedLeftPaths.isEmpty && !selectedRightPaths.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    self?.selectedRightPaths = []
-                }
-            }
-        }
-    }
-    @Published public var selectedRightPaths: Set<String> = [] {
-        didSet {
-            // Enforce mutual exclusivity: defer so we don't publish from within a view update.
-            if !selectedRightPaths.isEmpty && !selectedLeftPaths.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    self?.selectedLeftPaths = []
-                }
-            }
-        }
-    }
+    /// Paths currently selected in the left pane.
+    ///
+    /// Invariant: at most one pane has a selection at a time. It is enforced
+    /// synchronously at the UI binding layer (the pane selection bindings in
+    /// MacApp/ContentView.swift), not here — a didSet would either publish from
+    /// within a view update or have to defer the clear, leaving a window where
+    /// both panes hold selections and consumers target the wrong pane.
+    @Published public var selectedLeftPaths: Set<String> = []
+    /// Paths currently selected in the right pane. See `selectedLeftPaths` for
+    /// the one-pane-selected invariant (enforced in MacApp/ContentView.swift).
+    @Published public var selectedRightPaths: Set<String> = []
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.

@@ -31,8 +31,31 @@ enum PaneLogic {
         }
     }
 
+    /// Reconciles a pane-selection write with the one-pane-selected invariant: setting a
+    /// non-empty selection in one pane clears the other pane in the same update, so no
+    /// consumer ever observes both panes selected. Setting an empty selection (a deselect,
+    /// or SwiftUI re-writing an unchanged empty set) leaves the other pane alone — this is
+    /// what keeps right-click context menus working, since right-click never sets selection
+    /// and "Copy N items from other pane" needs the other pane's selection to survive.
+    /// Only the FileTreeView selection bindings route through this; selection pruning and
+    /// navigation resets write the manager's properties directly.
+    static func reconciledSelections(
+        settingSelection newSelection: Set<String>,
+        isLeft: Bool,
+        currentLeft: Set<String>,
+        currentRight: Set<String>
+    ) -> (left: Set<String>, right: Set<String>) {
+        if isLeft {
+            return (left: newSelection, right: newSelection.isEmpty ? currentRight : [])
+        } else {
+            return (left: newSelection.isEmpty ? currentLeft : [], right: newSelection)
+        }
+    }
+
     /// The left pane wins when both panes have selections (it is checked first, matching
-    /// the historical behavior of the details/actions targeting).
+    /// the historical behavior of the details/actions targeting). Since the selection
+    /// bindings enforce exclusivity synchronously via `reconciledSelections`, the
+    /// both-non-empty tie can no longer occur in the app; the rule remains as a safe default.
     static func activePane(leftSelection: Set<String>, rightSelection: Set<String>) -> ActivePane? {
         if !leftSelection.isEmpty { return .left }
         if !rightSelection.isEmpty { return .right }
