@@ -125,10 +125,18 @@ public struct FileTreeView: View {
         }
     }
     
+    /// TEMPORARY diagnostic flag to A/B test whether the row drag recognizer steals single
+    /// clicks; remove after the experiment. When true, rows get no `.draggable` modifier, so
+    /// drags never start from this app (drop targets stay active). No Settings UI on purpose:
+    /// toggle via `defaults write <bundle-id> paneDragDisabled -bool YES` and relaunch.
+    /// Read once at process start — a conditional modifier changes SwiftUI view identity,
+    /// so flipping it live would rebuild rows mid-session; relaunch-to-apply is intended.
+    private static let paneDragDisabled = UserDefaults.standard.bool(forKey: "paneDragDisabled")
+
     /// One tree row: content + context menu, draggable, and (for directories) a drop target.
     @ViewBuilder
     private func treeRow(for node: FileNode) -> some View {
-        FileRowView(
+        let row = FileRowView(
             node: node,
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
@@ -158,12 +166,17 @@ public struct FileTreeView: View {
                     delegate.handleQuickLook(node)
                 }
             })
-            .draggable(makeDragPayload(for: node))
-            .modifier(PaneDropTarget(
-                targetDirectoryPath: node.isDirectory ? node.id : nil,
-                paneIsLeft: isLeft,
-                delegate: delegate
-            ))
+        let dropTarget = PaneDropTarget(
+            targetDirectoryPath: node.isDirectory ? node.id : nil,
+            paneIsLeft: isLeft,
+            delegate: delegate
+        )
+        // The branch changes view identity, but the flag is constant for the process.
+        if Self.paneDragDisabled {
+            row.modifier(dropTarget)
+        } else {
+            row.draggable(makeDragPayload(for: node)).modifier(dropTarget)
+        }
     }
 
     /// Built lazily when a drag actually starts (`.draggable` takes an autoclosure); also
