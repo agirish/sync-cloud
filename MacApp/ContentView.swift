@@ -34,7 +34,9 @@ struct ContentView: View {
         /// Displays rich file metadata (size, dates, permissions).
         case details = "Details"
     }
-    @State private var selectedBottomTab: BottomTab = .differences
+    /// Persisted so a user who was on Details stays there across launches. Stored by
+    /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
+    @AppStorage("selectedBottomTab") private var selectedBottomTab: BottomTab = .differences
 
     /// True once the user manually picks the Differences tab via the segmented Picker;
     /// suppresses the selection-driven auto-switch to Details until they manually pick

@@ -96,4 +96,24 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(resolved?.leftId == "iCloud")
         #expect(resolved?.rightId == "iCloud")
     }
+
+    // MARK: BottomTab persistence format
+
+    @Test func testBottomTabRawValuesAreAStablePersistenceFormat() {
+        // The selected bottom tab is persisted via @AppStorage("selectedBottomTab") using
+        // these raw values, so a user who was on Details relaunches into Details. Renaming
+        // a case's rawValue (e.g. while relabeling the Picker) would silently drop every
+        // user back to the Differences default — relabel the UI elsewhere instead.
+        #expect(ContentView.BottomTab.differences.rawValue == "Differences")
+        #expect(ContentView.BottomTab.details.rawValue == "Details")
+    }
+
+    @Test func testBottomTabRestoresFromStoredRawValue() {
+        // Round-trip every case, and confirm an unrecognized stored value fails the
+        // RawRepresentable init — which is what makes @AppStorage fall back to its default.
+        for tab in ContentView.BottomTab.allCases {
+            #expect(ContentView.BottomTab(rawValue: tab.rawValue) == tab)
+        }
+        #expect(ContentView.BottomTab(rawValue: "NotATab") == nil)
+    }
 }
