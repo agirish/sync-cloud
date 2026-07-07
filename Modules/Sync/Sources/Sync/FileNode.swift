@@ -1,5 +1,5 @@
+import CoreTransferable
 import Foundation
-import SwiftUI
 import UniformTypeIdentifiers
 
 /// An in-memory representation of a file or directory mapped from a local or cloud path.

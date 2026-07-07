@@ -1,5 +1,4 @@
 import Events
-import SwiftUI
 import Foundation
 
 extension FileSyncManager {

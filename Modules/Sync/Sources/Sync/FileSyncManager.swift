@@ -1,7 +1,6 @@
 import Events
-import SwiftUI
+import Foundation
 import Combine
-import UniformTypeIdentifiers
 
 /// Core business logic for the two-pane file comparison and sync engine.
 /// Holds in-memory trees (`FileNode`) for the left and right panes, runs differential scans,

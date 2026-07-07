@@ -3,7 +3,6 @@
 //  SyncCloud
 //
 
-import AppKit
 import Foundation
 
 /// A protocol declaring the `FileManager` primitives required by the Sync engine,

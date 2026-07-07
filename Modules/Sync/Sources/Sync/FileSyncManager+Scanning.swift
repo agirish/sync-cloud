@@ -1,7 +1,5 @@
 import Events
-import SwiftUI
-import Combine
-import UniformTypeIdentifiers
+import Foundation
 
 extension FileSyncManager {
     
