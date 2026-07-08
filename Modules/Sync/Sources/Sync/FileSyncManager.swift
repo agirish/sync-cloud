@@ -200,6 +200,21 @@ public class FileSyncManager: ObservableObject {
     internal var activeLoadLeftTask: Task<Void, Never>?
     internal var activeLoadRightTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
+    /// Target of the in-flight refresh (both providers + focused subpaths); nil when none is
+    /// running. Lets refreshTreesAndScan dedupe the identical refreshes the launch bootstrap
+    /// fires (explicit initial refresh + the provider-id onChange that resets navigation)
+    /// instead of cancel-restarting them, which raced and could strand a pane's load.
+    var activeRefreshKey: RefreshKey?
+    /// Identity of a refresh target. Two concurrent refreshes with the same key would load the
+    /// same thing, so the later one is skipped; a different key is real navigation and supersedes.
+    struct RefreshKey: Equatable {
+        let leftId: String
+        let leftPath: String
+        let rightId: String
+        let rightPath: String
+        let leftRel: String
+        let rightRel: String
+    }
     /// Monotonic per-pane load tokens: each `loadTree` call claims the next value. The deferred
     /// spinner cleanup in `loadTree` fires only while the pane's token still matches, so a
     /// superseded load never clears a newer load's spinner, yet the current load always

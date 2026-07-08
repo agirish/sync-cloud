@@ -158,8 +158,23 @@ extension FileSyncManager {
     ///   - left: Cloud provider for the left pane (root path and display name).
     ///   - right: Cloud provider for the right pane.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider) async {
+        let key = RefreshKey(
+            leftId: left.id, leftPath: left.path,
+            rightId: right.id, rightPath: right.path,
+            leftRel: leftRelativePath, rightRel: rightRelativePath
+        )
+        // The launch bootstrap fires several identical refreshes (the explicit initial one plus
+        // the provider-id onChange that resets navigation). A refresh already in flight for the
+        // exact same target loads both panes on its own, so skip the duplicate rather than
+        // cancel-and-restart it — that race could strand a pane's load, leaving it blank until
+        // the user re-navigated. A different target is real navigation and still supersedes.
+        if activeRefreshKey == key {
+            Logger.shared.debug("Skipping duplicate in-flight refresh for the same target")
+            return
+        }
         activeRefreshTask?.cancel()
-        
+        activeRefreshKey = key
+
         let task = Task {
             let leftRoot = (left.path as NSString).expandingTildeInPath
             let rightRoot = (right.path as NSString).expandingTildeInPath
@@ -186,8 +201,11 @@ extension FileSyncManager {
         
         activeRefreshTask = task
         await task.value
+        // Release the key when this refresh is still the current one; a superseding refresh
+        // (different target) will have overwritten it and owns the cleanup.
+        if activeRefreshKey == key { activeRefreshKey = nil }
     }
-    
+
     /// Runs a diff scan between the two given directory paths on a background thread. Queues a single scan if one is already running.
     /// - Parameters:
     ///   - left: Cloud provider for the left pane.

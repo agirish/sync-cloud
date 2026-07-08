@@ -81,6 +81,43 @@ import Testing
         #expect(!manager.isLoadingLeftTree)
     }
 
+    // MARK: Refresh dedup (launch-race empty-pane guard)
+
+    /// The launch bootstrap fires two identical refreshes (the explicit initial one plus the
+    /// provider-id onChange that resets navigation). The second must be deduped, not
+    /// cancel-and-restart the first — that race could strand a pane's load, leaving it blank
+    /// until the user re-navigated.
+    @MainActor
+    @Test func testConcurrentIdenticalRefreshIsDedupedSoNeitherPaneIsStranded() async throws {
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.05
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/right"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/left/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/right/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        if var l = mockFM.virtualDisk["/left"] { l.contents = ["a.txt"]; mockFM.virtualDisk["/left"] = l }
+        if var r = mockFM.virtualDisk["/right"] { r.contents = ["b.txt"]; mockFM.virtualDisk["/right"] = r }
+
+        let manager = FileSyncManager(fileManager: mockFM)
+        let left = CloudProvider(id: "L", displayName: "L", imageName: "folder", path: "/left", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "R", imageName: "folder", path: "/right", type: .iCloud)
+
+        async let first: Void = manager.refreshTreesAndScan(left: left, right: right)
+        try await Task.sleep(nanoseconds: 10_000_000)   // let the first register its key and start loading
+        async let second: Void = manager.refreshTreesAndScan(left: left, right: right)
+        _ = await (first, second)
+
+        // Deduped: each pane loaded exactly once (the first refresh only, not restarted).
+        #expect(manager.leftLoadGeneration == 1)
+        #expect(manager.rightLoadGeneration == 1)
+        // Neither pane stranded: both populated, spinners down, key released.
+        #expect(manager.leftTree.map(\.name) == ["a.txt"])
+        #expect(manager.rightTree.map(\.name) == ["b.txt"])
+        #expect(!manager.isLoadingLeftTree)
+        #expect(!manager.isLoadingRightTree)
+        #expect(manager.activeRefreshKey == nil)
+    }
+
     // MARK: Scan-from-tree equivalence
 
     @Test func testFilesInfoFromTreeMatchesTheDiskWalk() async throws {
