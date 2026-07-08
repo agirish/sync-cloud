@@ -17,7 +17,9 @@ public struct ProviderSidebar: View {
     }
     
     public var body: some View {
-        let providers = settings.availableProviders
+        // Only user-enabled providers are offered as pane roots; disabled ones remain
+        // visible (and re-enableable) in Settings.
+        let providers = settings.enabledProviders
         return List {
             Group {
                 Section("Left") {

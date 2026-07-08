@@ -63,7 +63,9 @@ struct SyncCloudApp: App {
         }
         .windowResizability(.contentMinSize)
         
-        Window("Settings", id: "settings") {
+        // The native Settings scene gives the standard macOS preferences window: toolbar
+        // tabs, Cmd+, shortcut, and the "Settings…" item in the app menu.
+        Settings {
             if isRunningTests {
                 Color.clear
             } else {
@@ -71,7 +73,6 @@ struct SyncCloudApp: App {
                     .environmentObject(settings)
             }
         }
-        .windowResizability(.contentMinSize)
     }
 }
 

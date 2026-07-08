@@ -22,11 +22,24 @@ public class SettingsManager: ObservableObject {
     /// gesture and after path edits, without views stat-ing the filesystem per render.
     @Published public private(set) var pathValidity: [String: Bool] = [:]
 
+    /// Provider ids the user switched off in Settings. Stored as the disabled set (not the
+    /// enabled one) so newly discovered accounts default to enabled. Ids of providers that
+    /// later disappear from disk are kept: if the account is re-mounted it stays disabled.
+    @Published public private(set) var disabledProviderIds: Set<String>
+
+    /// The discovered providers the rest of the app may offer as pane roots — everything the
+    /// user hasn't disabled. Settings itself lists `availableProviders` so disabled entries
+    /// remain visible and re-enableable.
+    public var enabledProviders: [CloudProvider] {
+        availableProviders.filter { !disabledProviderIds.contains($0.id) }
+    }
+
     private let userDefaults: UserDefaults
     private let listCloudStorageFolders: CloudStorageLister
     private let validatePath: PathValidator
     private static let overrideKeyPrefix = "path_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
+    private static let disabledProviderIdsKey = "disabledProviderIds"
 
     /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
     /// `.standard` resolves to inside the bundled app. Un-bundled processes (the `synccloud` CLI)
@@ -65,6 +78,7 @@ public class SettingsManager: ObservableObject {
         self.listCloudStorageFolders = cloudStorageLister ?? Self.defaultCloudStorageLister
         self.validatePath = pathValidator ?? Self.defaultPathValidator
         self.ignoreGoogleDriveNewerDateOnly = userDefaults.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
+        self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
         // Initialize with default iCloud provider to allow app to start immediately
         self.availableProviders = [
             CloudProvider(
@@ -209,6 +223,33 @@ public class SettingsManager: ObservableObject {
     /// (init, or any discovery pass). Unknown provider ids are invalid.
     public func isPathValid(for providerId: String) -> Bool {
         pathValidity[providerId] ?? false
+    }
+
+    /// Whether the provider participates in pane selection. Ids never disabled — including
+    /// ones not discovered yet — report enabled, matching the default for new accounts.
+    public func isEnabled(_ providerId: String) -> Bool {
+        !disabledProviderIds.contains(providerId)
+    }
+
+    /// Whether the Settings toggle for this provider may be switched off: disabling is refused
+    /// when it would leave the app without any enabled provider to show in the panes.
+    public func canDisable(_ providerId: String) -> Bool {
+        !isEnabled(providerId) || enabledProviders.count > 1
+    }
+
+    /// Switches a discovered provider on or off for pane selection, persisting the choice.
+    /// Disabling the last enabled provider is ignored (see `canDisable`).
+    public func setEnabled(_ enabled: Bool, for providerId: String) {
+        if enabled {
+            guard disabledProviderIds.contains(providerId) else { return }
+            Logger.shared.info("User enabled provider: \(providerId)")
+            disabledProviderIds.remove(providerId)
+        } else {
+            guard isEnabled(providerId), canDisable(providerId) else { return }
+            Logger.shared.info("User disabled provider: \(providerId)")
+            disabledProviderIds.insert(providerId)
+        }
+        userDefaults.set(disabledProviderIds.sorted(), forKey: Self.disabledProviderIdsKey)
     }
 
     private nonisolated static func validity(

@@ -18,6 +18,7 @@ struct ContentView: View {
     
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     
     @State private var actionHandler: FileActionHandler?
     @State private var quickLookURL: URL? = nil
@@ -119,7 +120,7 @@ struct ContentView: View {
                                 Label("Logs", systemImage: "list.bullet.rectangle")
                             }
                             
-                            Button(action: { openWindow(id: "settings") }) {
+                            Button(action: { openSettings() }) {
                                 Label("Settings", systemImage: "gear")
                             }
                         }
@@ -163,7 +164,7 @@ struct ContentView: View {
             Task { @MainActor in
                 await settings.discoverProviders()
                 applyProviderSelection(preferDistinctPair: true)
-                if !settings.availableProviders.isEmpty {
+                if !settings.enabledProviders.isEmpty {
                     refreshAction()
                 }
                 isBootstrappingProviders = false
@@ -186,7 +187,9 @@ struct ContentView: View {
         .onChange(of: syncManager.selectedRightPaths) { _, paths in
             switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
         }
-        .onChange(of: settings.availableProviders) { _, _ in
+        // Watches the enabled subset (not the full discovered list) so toggling a provider
+        // off in Settings re-resolves any pane that was showing it and rescans.
+        .onChange(of: settings.enabledProviders) { _, _ in
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
             guard !isBootstrappingProviders else { return }
             refreshAction()
@@ -245,7 +248,7 @@ struct ContentView: View {
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
         guard let resolved = Self.resolvedProviderSelection(
-            providers: settings.availableProviders,
+            providers: settings.enabledProviders,
             currentLeftId: leftProviderId,
             currentRightId: rightProviderId,
             preferDistinctPair: preferDistinctPair
@@ -263,8 +266,8 @@ struct ContentView: View {
 
     /// Reloads both pane trees and runs a diff scan (with re-entrancy and cancellation handled by the manager).
     private func refreshAction() {
-        guard let leftProvider = settings.availableProviders.first(where: { $0.id == leftProviderId }),
-              let rightProvider = settings.availableProviders.first(where: { $0.id == rightProviderId }) else {
+        guard let leftProvider = settings.enabledProviders.first(where: { $0.id == leftProviderId }),
+              let rightProvider = settings.enabledProviders.first(where: { $0.id == rightProviderId }) else {
             return
         }
         Task {
