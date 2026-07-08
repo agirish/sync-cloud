@@ -188,7 +188,8 @@ struct ProviderSettingsSection: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
-    @State private var draftLabel: String = ""
+    @State private var draftName: String = ""
+    @FocusState private var nameFieldFocused: Bool
 
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
@@ -203,8 +204,17 @@ struct ProviderSettingsSection: View {
                     .frame(width: 26, height: 26)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(provider.displayName)
+                    // The name itself is the rename affordance: click to edit in place.
+                    // Enter or clicking away commits; emptying it restores the default.
+                    TextField("Provider name", text: $draftName)
+                        .textFieldStyle(.plain)
                         .font(.body.weight(.medium))
+                        .focused($nameFieldFocused)
+                        .onSubmit { commitName() }
+                        .onChange(of: nameFieldFocused) { _, focused in
+                            if !focused { commitName() }
+                        }
+                        .help("Click to rename. Clear the name to restore the default.")
                     Text(provider.id)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -229,25 +239,18 @@ struct ProviderSettingsSection: View {
             .padding(.vertical, 2)
             .onAppear {
                 draftPath = provider.path
-                draftLabel = settings.accountLabel(for: provider.id)
+                draftName = provider.displayName
             }
             .onChange(of: provider.path) { _, updated in
                 if draftPath != updated {
                     draftPath = updated
                 }
             }
-
-            LabeledContent("Label") {
-                TextField(
-                    SettingsManager.defaultAccountSuffix(forProviderId: provider.id) ?? "None",
-                    text: $draftLabel
-                )
-                .textFieldStyle(.roundedBorder)
-                .labelsHidden()
-                .onSubmit { commitLabel() }
-                .help("Shown in parentheses after the provider name, e.g. \"Personal\" or \"Work\". Leave empty for the account default.")
+            .onChange(of: provider.displayName) { _, updated in
+                if draftName != updated {
+                    draftName = updated
+                }
             }
-            .disabled(!isEnabled)
 
             LabeledContent("Location") {
                 TextField("Synchronized path", text: $draftPath)
@@ -263,11 +266,8 @@ struct ProviderSettingsSection: View {
                 Button("Reset") { resetToDefault() }
                 Button("Show in Finder") { openInFinder() }
                 Spacer()
-                Button("Save") {
-                    commitPath()
-                    commitLabel()
-                }
-                .disabled(draftPath == provider.path && draftLabel == settings.accountLabel(for: provider.id))
+                Button("Save") { commitPath() }
+                    .disabled(draftPath == provider.path)
             }
             .controlSize(.small)
             .disabled(!isEnabled)
@@ -313,11 +313,16 @@ struct ProviderSettingsSection: View {
         settings.setPath(normalized, for: provider.id)
     }
 
-    private func commitLabel() {
-        let normalized = draftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        draftLabel = normalized
-        guard normalized != settings.accountLabel(for: provider.id) else { return }
-        settings.setAccountLabel(normalized, for: provider.id)
+    private func commitName() {
+        let normalized = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == provider.displayName {
+            draftName = normalized
+            return
+        }
+        // Empty clears the override; the default name flows back through discovery
+        // and the onChange(of: provider.displayName) refreshes the field.
+        settings.setCustomName(normalized, for: provider.id)
+        draftName = normalized.isEmpty ? provider.displayName : normalized
     }
 }
 

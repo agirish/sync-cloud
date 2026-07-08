@@ -38,7 +38,7 @@ public class SettingsManager: ObservableObject {
     private let listCloudStorageFolders: CloudStorageLister
     private let validatePath: PathValidator
     private static let overrideKeyPrefix = "path_override_"
-    private static let labelOverrideKeyPrefix = "label_override_"
+    private static let nameOverrideKeyPrefix = "name_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
     private static let disabledProviderIdsKey = "disabledProviderIds"
 
@@ -127,30 +127,27 @@ public class SettingsManager: ObservableObject {
     ///   - cloudStorageFolders: Account folder URLs found under the CloudStorage root.
     ///   - iCloudDefaultPath: Path used for the always-present iCloud provider absent an override.
     ///   - pathOverride: Returns the user's custom path for a provider id, or nil for the default.
-    ///   - labelOverride: Returns the user's custom parenthesized label for a provider id, or nil
-    ///     for the default (the account suffix for OneDrive/Google Drive, none for iCloud/Dropbox).
+    ///   - nameOverride: Returns the user's custom display name for a provider id, or nil for
+    ///     the discovered default (e.g. "Google Drive (someone@gmail.com)").
     /// - Returns: The providers sorted iCloud → OneDrive → Google Drive → Dropbox, then by
     ///   display name within each type; unrecognized folders are ignored.
     nonisolated static func mapProviders(
         cloudStorageFolders: [URL],
         iCloudDefaultPath: String,
         pathOverride: (String) -> String?,
-        labelOverride: (String) -> String? = { _ in nil }
+        nameOverride: (String) -> String? = { _ in nil }
     ) -> [CloudProvider] {
         var found: [CloudProvider] = []
 
-        // "Google Drive (work@gmail.com)" → "Google Drive (Work)" when a label override exists;
-        // suffix-less providers (iCloud, Dropbox) gain a parenthesis only when one is set.
-        func displayName(_ base: String, id: String, accountSuffix: String?) -> String {
-            let label = labelOverride(id).flatMap { $0.isEmpty ? nil : $0 } ?? accountSuffix
-            guard let label else { return base }
-            return "\(base) (\(label))"
+        // A rename replaces the whole discovered name; empty means "no override".
+        func displayName(_ defaultName: String, id: String) -> String {
+            nameOverride(id).flatMap { $0.isEmpty ? nil : $0 } ?? defaultName
         }
 
         // 1. iCloud is always available
         found.append(CloudProvider(
             id: "iCloud",
-            displayName: displayName("iCloud", id: "iCloud", accountSuffix: nil),
+            displayName: displayName("iCloud", id: "iCloud"),
             imageName: "icloud",
             path: iCloudDefaultPath,
             type: .iCloud
@@ -165,7 +162,7 @@ public class SettingsManager: ObservableObject {
                 let id = folderName
                 found.append(CloudProvider(
                     id: id,
-                    displayName: displayName("OneDrive", id: id, accountSuffix: String(suffix)),
+                    displayName: displayName("OneDrive (\(suffix))", id: id),
                     imageName: "onedrive",
                     path: fileURL.appendingPathComponent("Documents").path,
                     type: .oneDrive
@@ -176,7 +173,7 @@ public class SettingsManager: ObservableObject {
                 let defaultPath = fileURL.appendingPathComponent("My Drive").appendingPathComponent("Documents").path
                 found.append(CloudProvider(
                     id: id,
-                    displayName: displayName("Google Drive", id: id, accountSuffix: String(suffix)),
+                    displayName: displayName("Google Drive (\(suffix))", id: id),
                     imageName: "googledrive",
                     path: defaultPath,
                     type: .googleDrive
@@ -185,7 +182,7 @@ public class SettingsManager: ObservableObject {
                 let id = folderName
                 found.append(CloudProvider(
                     id: id,
-                    displayName: displayName("Dropbox", id: id, accountSuffix: nil),
+                    displayName: displayName("Dropbox", id: id),
                     imageName: "dropbox",
                     path: fileURL.appendingPathComponent("Documents").path,
                     type: .dropBox
@@ -223,7 +220,7 @@ public class SettingsManager: ObservableObject {
         let lister = listCloudStorageFolders
         let validator = validatePath
         let overrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
-        let labelOverrides = overridesByProviderId(keyPrefix: Self.labelOverrideKeyPrefix)
+        let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
         let iCloudPath = Self.iCloudDefaultPath
         // The whole pass — listing, mapping, and validity stats — runs off the main
         // actor: validating a root stats network-backed CloudStorage mounts, which can
@@ -233,7 +230,7 @@ public class SettingsManager: ObservableObject {
                 cloudStorageFolders: lister(),
                 iCloudDefaultPath: iCloudPath,
                 pathOverride: { overrides[$0] },
-                labelOverride: { labelOverrides[$0] }
+                nameOverride: { nameOverrides[$0] }
             )
             return (providers, Self.validity(of: providers, using: validator))
         }.value
@@ -322,37 +319,21 @@ public class SettingsManager: ObservableObject {
         }
     }
 
-    /// The user's custom parenthesized label for a provider, or "" when the default
-    /// (the account suffix parsed from the CloudStorage folder name) applies.
-    public func accountLabel(for providerId: String) -> String {
-        userDefaults.string(forKey: "\(Self.labelOverrideKeyPrefix)\(providerId)") ?? ""
-    }
-
-    /// Persists a custom label shown in parentheses after the provider name (e.g. turning
-    /// "Google Drive (someone@gmail.com)" into "Google Drive (Personal)"). An empty or
-    /// whitespace-only label clears the override, restoring the account-suffix default.
-    public func setAccountLabel(_ label: String, for providerId: String) {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Persists a custom display name for a provider (e.g. renaming "Google Drive
+    /// (someone@gmail.com)" to "Google Drive (Personal)"). An empty or whitespace-only
+    /// name clears the override, restoring the discovered default.
+    public func setCustomName(_ name: String, for providerId: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            Logger.shared.info("User cleared custom label for provider: \(providerId)")
-            userDefaults.removeObject(forKey: "\(Self.labelOverrideKeyPrefix)\(providerId)")
+            Logger.shared.info("User cleared custom name for provider: \(providerId)")
+            userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(providerId)")
         } else {
-            Logger.shared.info("User set custom label \(trimmed) for provider: \(providerId)")
-            userDefaults.set(trimmed, forKey: "\(Self.labelOverrideKeyPrefix)\(providerId)")
+            Logger.shared.info("User renamed provider \(providerId) to \(trimmed)")
+            userDefaults.set(trimmed, forKey: "\(Self.nameOverrideKeyPrefix)\(providerId)")
         }
         Task {
             await discoverProviders()
         }
-    }
-
-    /// The account suffix a provider's display name falls back to absent a label override —
-    /// what the Settings label field shows as its placeholder. Nil for suffix-less providers
-    /// (iCloud, Dropbox), whose names carry no parenthesis by default.
-    public nonisolated static func defaultAccountSuffix(forProviderId id: String) -> String? {
-        for prefix in ["OneDrive-", "GoogleDrive-"] where id.hasPrefix(prefix) {
-            return String(id.dropFirst(prefix.count))
-        }
-        return nil
     }
 
     /// Clears any user-defined override from UserDefaults and restores the System-discovered path.
