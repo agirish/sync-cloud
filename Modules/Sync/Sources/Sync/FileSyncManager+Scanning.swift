@@ -97,11 +97,14 @@ extension FileSyncManager {
         let task = Task {
             let leftRoot = (left.path as NSString).expandingTildeInPath
             let rightRoot = (right.path as NSString).expandingTildeInPath
-            
-            await self.loadTree(path: leftRoot, isLeft: true)
-            guard !Task.isCancelled else { return }
-            
-            await self.loadTree(path: rightRoot, isLeft: false)
+
+            // The two pane loads are independent — disjoint published state, and each walks
+            // the disk on its own detached worker — so run them concurrently. Serially they
+            // doubled time-to-first-render, and panes on different volumes don't even
+            // contend for I/O. Cancelling this task cancels both child loads.
+            async let leftLoad: Void = self.loadTree(path: leftRoot, isLeft: true)
+            async let rightLoad: Void = self.loadTree(path: rightRoot, isLeft: false)
+            _ = await (leftLoad, rightLoad)
             guard !Task.isCancelled else { return }
             
             let currentLeftFull = (leftRoot as NSString).appendingPathComponent(leftRelativePath)
@@ -154,10 +157,17 @@ extension FileSyncManager {
                 let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
                 
                 let fm = await MainActor.run { self.fileManager }
-                
-                // Allow cancellation check inside the detached block if needed
-                let leftFilesInfo = try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
-                let rightFilesInfo = try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
+
+                // The two walks are independent and FileManager is thread-safe, so run them
+                // concurrently — serially they doubled the scan's disk phase.
+                let leftWalk = Task.detached(priority: .userInitiated) {
+                    try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
+                }
+                let rightWalk = Task.detached(priority: .userInitiated) {
+                    try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
+                }
+                let leftFilesInfo = try await leftWalk.value
+                let rightFilesInfo = try await rightWalk.value
                 
                 return FileDiffEngine.computeDifferences(
                     left: request.left,
