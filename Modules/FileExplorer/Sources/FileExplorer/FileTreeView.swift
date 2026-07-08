@@ -239,12 +239,14 @@ public struct FileTreeView: View {
     /// Validates and routes a performed drop; shared by row and background targets.
     static func performPaneDrop(_ payload: PaneDragPayload, toPath path: String, targetIsLeft: Bool, delegate: FileActionDelegate) -> Bool {
         defer { PaneDragSession.shared.active = nil }
-        guard PaneDropLogic.canDrop(
+        let allowed = PaneDropLogic.canDrop(
             draggedIds: payload.nodes.map(\.id),
             sourceIsLeft: payload.sourceIsLeft,
             targetIsLeft: targetIsLeft,
             targetDirectoryPath: path
-        ) else { return false }
+        )
+        Logger.shared.debug("Pane drop received: \(payload.nodes.count) node(s) onto \(path) (allowed: \(allowed))")
+        guard allowed else { return false }
         delegate.handleDrop(payload.nodes, toPath: path, isMove: ModifierTracker.moveModifierHeld)
         return true
     }

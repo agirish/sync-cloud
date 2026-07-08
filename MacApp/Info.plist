@@ -20,5 +20,18 @@
 	<string>1</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2024. All rights reserved.</string>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>SyncCloud pane drag payload</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.abhishekgirish.synccloud.pane-drag</string>
+		</dict>
+	</array>
 </dict>
 </plist>
