@@ -1,3 +1,4 @@
+import AppKit
 import Design
 import Events
 import SwiftUI
@@ -392,17 +393,48 @@ struct FileRowView: View {
     /// Number of differences beneath this node (directories only; 0 elsewhere).
     let containedDiffCount: Int
 
+    /// Shared formatters: rows render lazily but scroll fast, so allocating a formatter
+    /// per row body would still churn.
+    @MainActor private static let sizeFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+    @MainActor private static let modifiedFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    /// Size for files, date modified for directories (a directory's fileSize is just the
+    /// entry size, not its contents); nil when the scan didn't populate the metadata.
+    private var secondaryText: String? {
+        if node.isDirectory {
+            guard let date = node.modificationDate else { return nil }
+            return Self.modifiedFormatter.string(from: date)
+        }
+        guard let size = node.fileSize else { return nil }
+        return Self.sizeFormatter.string(fromByteCount: Int64(size))
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: node.isDirectory ? "folder.fill" : "doc.text.fill")
-                .font(.body)
-                .foregroundStyle(node.isDirectory ? .blue : .secondary)
-                .symbolRenderingMode(.hierarchical)
+            Image(nsImage: FileIconCache.icon(name: node.name, isDirectory: node.isDirectory))
+                .resizable()
+                .frame(width: 17, height: 17)
             Text(node.name)
                 .font(.system(.body, design: .rounded))
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
+            if let secondaryText {
+                Text(secondaryText)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
             if let diffStatus {
                 // Shape encodes direction/kind so status is readable without color
                 // (colors match DifferenceRow in the Differences pane).
