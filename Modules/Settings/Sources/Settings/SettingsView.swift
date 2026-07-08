@@ -206,8 +206,12 @@ struct ProviderSettingsSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     // The name itself is the rename affordance: click to edit in place.
                     // Enter or clicking away commits; emptying it restores the default.
+                    // labelsHidden keeps the grouped Form from rendering a leading
+                    // "Provider name" label and right-aligning the value; the name
+                    // must sit in place of the title, next to the icon.
                     TextField("Provider name", text: $draftName)
                         .textFieldStyle(.plain)
+                        .labelsHidden()
                         .font(.body.weight(.medium))
                         .focused($nameFieldFocused)
                         .onSubmit { commitName() }
