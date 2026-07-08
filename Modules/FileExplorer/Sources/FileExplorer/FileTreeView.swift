@@ -1,3 +1,4 @@
+import AppKit
 import Design
 import Events
 import SwiftUI
@@ -193,9 +194,15 @@ public struct FileTreeView: View {
         if Self.paneDoubleClickDisabled {
             content
         } else {
-            // simultaneousGesture so the List's single-click selection keeps working;
-            // directories drill in exactly like "Compare only this folder".
-            content.simultaneousGesture(TapGesture(count: 2).onEnded {
+            // Double-click detection via AppKit's click counter on a count-1 tap.
+            // TapGesture(count: 2) was the "dead clicks" culprit (verified by the flag
+            // experiment): a count-2 recognizer makes the gesture system hold single
+            // clicks while it waits for a possible second one, and clicks with slight
+            // mouse travel were discarded outright. A count-1 tap completes immediately,
+            // so the List's single-click selection is never gated; the second click of a
+            // double-click still reaches us, carrying clickCount == 2.
+            content.simultaneousGesture(TapGesture().onEnded {
+                guard NSApp.currentEvent?.clickCount == 2 else { return }
                 if node.isDirectory {
                     delegate.handleFocus(node)
                 } else {
