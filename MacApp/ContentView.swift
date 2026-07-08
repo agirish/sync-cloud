@@ -91,6 +91,21 @@ struct ContentView: View {
         return (leftId, rightId)
     }
 
+    /// Whether either pane's provider differs between two versions of the enabled-provider
+    /// list — by value, so a root-path edit counts, but changes to other providers don't.
+    static func paneProvidersChanged(
+        old: [CloudProvider],
+        new: [CloudProvider],
+        leftId: String,
+        rightId: String
+    ) -> Bool {
+        func provider(_ id: String, in providers: [CloudProvider]) -> CloudProvider? {
+            providers.first(where: { $0.id == id })
+        }
+        return provider(leftId, in: old) != provider(leftId, in: new)
+            || provider(rightId, in: old) != provider(rightId, in: new)
+    }
+
     var body: some View {
         NavigationSplitView {
             ProviderSidebar(
@@ -158,6 +173,13 @@ struct ContentView: View {
             refreshAction()
         }
         .onAppear {
+            // Diagnostic hook (like paneDragDisabled): `defaults write
+            // com.abhishekgirish.SyncCloud openSettingsOnLaunch -bool YES` opens the
+            // Settings scene at startup, so automated verification can reach it
+            // without synthesizing input. No-op unless explicitly armed.
+            if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
+                openSettings()
+            }
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
             syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
@@ -189,10 +211,26 @@ struct ContentView: View {
         }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
-        .onChange(of: settings.enabledProviders) { _, _ in
+        .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
+            let previousLeftId = leftProviderId
+            let previousRightId = rightProviderId
             applyProviderSelection(preferDistinctPair: isBootstrappingProviders)
             guard !isBootstrappingProviders else { return }
-            refreshAction()
+            // If re-resolution switched a pane's provider, its id onChange below already
+            // refreshes via resetNavigation — don't schedule a second scan here.
+            guard leftProviderId == previousLeftId, rightProviderId == previousRightId else { return }
+            // Only rescan when a pane's own provider changed (e.g. its root path was
+            // edited). Toggling or re-pathing a provider neither pane shows must not
+            // reload the trees — that spurious rescan put spinners over both panes
+            // on every unrelated Settings edit.
+            if Self.paneProvidersChanged(
+                old: oldProviders,
+                new: newProviders,
+                leftId: previousLeftId,
+                rightId: previousRightId
+            ) {
+                refreshAction()
+            }
         }
         .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
             syncManager.ignoreGoogleDriveNewerDateOnly = new

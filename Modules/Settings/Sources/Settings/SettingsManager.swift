@@ -209,14 +209,38 @@ public class SettingsManager: ObservableObject {
         Logger.shared.debug("Discovering cloud providers...")
 
         let lister = listCloudStorageFolders
-        let folders = await Task.detached(priority: .userInitiated) { lister() }.value
+        let validator = validatePath
+        let overrides = pathOverridesByProviderId()
+        let iCloudPath = Self.iCloudDefaultPath
+        // The whole pass — listing, mapping, and validity stats — runs off the main
+        // actor: validating a root stats network-backed CloudStorage mounts, which can
+        // block for seconds and would beachball the Settings window if done here.
+        let (providers, validity) = await Task.detached(priority: .userInitiated) {
+            let providers = Self.mapProviders(
+                cloudStorageFolders: lister(),
+                iCloudDefaultPath: iCloudPath,
+                pathOverride: { overrides[$0] }
+            )
+            return (providers, Self.validity(of: providers, using: validator))
+        }.value
 
-        self.availableProviders = Self.mapProviders(
-            cloudStorageFolders: folders,
-            iCloudDefaultPath: Self.iCloudDefaultPath,
-            pathOverride: { userDefaults.string(forKey: "\(Self.overrideKeyPrefix)\($0)") }
-        )
-        pathValidity = Self.validity(of: availableProviders, using: validatePath)
+        // Skip no-op publishes so unrelated saves don't re-render every observer.
+        if availableProviders != providers {
+            availableProviders = providers
+        }
+        if pathValidity != validity {
+            pathValidity = validity
+        }
+    }
+
+    /// All persisted path overrides keyed by provider id — snapshotted on the main actor
+    /// so the discovery pass can run detached without capturing the (non-Sendable) defaults.
+    private func pathOverridesByProviderId() -> [String: String] {
+        userDefaults.dictionaryRepresentation().reduce(into: [:]) { result, entry in
+            guard entry.key.hasPrefix(Self.overrideKeyPrefix),
+                  let value = entry.value as? String else { return }
+            result[String(entry.key.dropFirst(Self.overrideKeyPrefix.count))] = value
+        }
     }
 
     /// Whether the provider's root path existed as a directory at the last validity check

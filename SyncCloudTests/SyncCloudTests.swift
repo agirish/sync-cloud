@@ -97,6 +97,36 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(resolved?.rightId == "iCloud")
     }
 
+    // MARK: Settings-driven rescan gating
+
+    private func provider(_ id: String, path: String) -> CloudProvider {
+        CloudProvider(id: id, displayName: id, imageName: "icloud", path: path, type: .iCloud)
+    }
+
+    @Test func testUnrelatedProviderChangeDoesNotRequirePaneRefresh() {
+        // Toggling or re-pathing a provider neither pane shows must not rescan —
+        // that spurious rescan put spinners over both panes on unrelated edits.
+        let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b"), provider("OneDrive", path: "/c")]
+        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
+
+        #expect(!ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+    }
+
+    @Test func testPaneProviderPathEditRequiresPaneRefresh() {
+        let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
+        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/elsewhere")]
+
+        #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+    }
+
+    @Test func testPaneProviderAppearingOrVanishingRequiresPaneRefresh() {
+        let old = [provider("iCloud", path: "/a")]
+        let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
+
+        // A pane pointing at a provider that just became enabled must load it.
+        #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+    }
+
     // MARK: BottomTab persistence format
 
     @Test func testBottomTabRawValuesAreAStablePersistenceFormat() {

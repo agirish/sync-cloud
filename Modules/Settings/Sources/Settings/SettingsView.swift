@@ -7,24 +7,44 @@ import Design
 /// The app's settings window, hosted in the SwiftUI `Settings` scene. Follows the standard
 /// macOS preferences layout: toolbar tabs (Appearance / Providers / Sync) over grouped forms.
 public struct SettingsView: View {
-    public init() {}
+    /// Identifies a settings tab; raw values are the format of the `settingsSelectedTab`
+    /// default read at window creation, so treat them as stable.
+    public enum SettingsTab: String {
+        case appearance
+        case providers
+        case sync
+    }
+
+    /// Initial tab, read once from `settingsSelectedTab`. Deliberately not written back:
+    /// binding the TabView selection to @AppStorage churns nondeterministically while the
+    /// Settings scene builds its toolbar, clobbering the stored value. Read-once keeps the
+    /// default authoritative — which automated verification relies on to open a given tab.
+    @State private var selectedTab: SettingsTab
+
+    public init() {
+        let stored = UserDefaults.standard.string(forKey: "settingsSelectedTab") ?? ""
+        _selectedTab = State(initialValue: SettingsTab(rawValue: stored) ?? .appearance)
+    }
 
     public var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             AppearanceSettingsTab()
                 .tabItem {
                     Label("Appearance", systemImage: "paintbrush")
                 }
+                .tag(SettingsTab.appearance)
 
             ProvidersSettingsTab()
                 .tabItem {
                     Label("Providers", systemImage: "externaldrive.badge.icloud")
                 }
+                .tag(SettingsTab.providers)
 
             SyncSettingsTab()
                 .tabItem {
                     Label("Sync", systemImage: "arrow.triangle.2.circlepath")
                 }
+                .tag(SettingsTab.sync)
         }
         .frame(width: 620, height: 520)
     }
@@ -219,6 +239,7 @@ struct ProviderSettingsSection: View {
                 TextField("Synchronized path", text: $draftPath)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.callout, design: .monospaced))
+                    .labelsHidden()
                     .onSubmit { commitPath() }
             }
             .disabled(!isEnabled)
