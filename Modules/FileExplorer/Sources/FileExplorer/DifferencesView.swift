@@ -79,9 +79,14 @@ public struct DifferencesView: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @State private var selectedFilter: DifferenceFilter = .all
     private let paneNames: PaneProviderNames
-    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight) {
+    private let onQuickLook: ((URL) -> Void)?
+    /// - Parameter onQuickLook: Presents a Quick Look preview for the given file. The app
+    ///   routes this to the same `quickLookPreview` binding the spacebar shortcut uses, so
+    ///   there is a single presenter; `nil` hides the Quick Look menu items.
+    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil) {
         self.syncManager = syncManager
         self.paneNames = paneNames
+        self.onQuickLook = onQuickLook
     }
 
     private var isBulkSyncing: Bool {
@@ -239,7 +244,8 @@ public struct DifferencesView: View {
                             syncManager: syncManager,
                             isMove: modifierTracker.isMoveModifierPressed,
                             glassIntensity: glassIntensity,
-                            paneNames: paneNames
+                            paneNames: paneNames,
+                            onQuickLook: onQuickLook
                         ) { isMove in
                             Task {
                                 await syncManager.syncFile(difference, isMove: isMove)
@@ -278,6 +284,7 @@ struct DifferenceRow: View {
     let isMove: Bool
     let glassIntensity: Double
     let paneNames: PaneProviderNames
+    let onQuickLook: ((URL) -> Void)?
     let onSync: (Bool) -> Void
 
     private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
@@ -368,5 +375,54 @@ struct DifferenceRow: View {
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
+        // Context menu only — no tap/click gestures here; gesture modifiers have a
+        // history of swallowing the row buttons' clicks.
+        .contextMenu { contextMenuItems }
+    }
+
+    /// Right-click menu: per-side Reveal/Quick Look/Copy Path for the sides that exist,
+    /// plus the same ignore toggle the tree panes offer.
+    @ViewBuilder
+    private var contextMenuItems: some View {
+        let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: side.path)])
+            } label: {
+                Label("Reveal in Finder (\(side.paneName))", systemImage: "magnifyingglass")
+            }
+        }
+        if let onQuickLook {
+            Divider()
+            ForEach(sides, id: \.paneName) { side in
+                Button {
+                    onQuickLook(URL(fileURLWithPath: side.path))
+                } label: {
+                    Label("Quick Look (\(side.paneName))", systemImage: "eye")
+                }
+            }
+        }
+        Divider()
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(side.path, forType: .string)
+            } label: {
+                Label("Copy Path (\(side.paneName))", systemImage: "doc.on.clipboard")
+            }
+        }
+        Divider()
+        let isIgnored = DifferenceRowMenu.isIgnored(difference, ignoredPaths: syncManager.ignoredPaths)
+        Button {
+            syncManager.ignoredPaths = DifferenceRowMenu.toggledIgnoredPaths(
+                for: difference,
+                ignoredPaths: syncManager.ignoredPaths
+            )
+        } label: {
+            Label(
+                isIgnored ? "Include in comparison" : "Ignore in comparison",
+                systemImage: isIgnored ? "eye" : "eye.slash"
+            )
+        }
     }
 }

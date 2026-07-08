@@ -660,7 +660,7 @@ struct ContentView: View {
             ZStack {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
-                        DifferencesView(syncManager: syncManager, paneNames: paneNames)
+                        DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 })
                             .frame(minHeight: 0)
                     } else if syncManager.hasScanned {
                         VStack(spacing: 12) {
