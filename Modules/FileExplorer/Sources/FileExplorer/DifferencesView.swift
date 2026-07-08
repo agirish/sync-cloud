@@ -375,6 +375,11 @@ struct DifferenceRow: View {
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
+        // The HStack's Spacer gap is not hit-testable on its own, and on macOS 26 the
+        // card background comes from glassEffect rather than a hit-testable material,
+        // so without an explicit content shape right-clicks over most of the card land
+        // on nothing (same convention as FileRowView's contentShape for the tree menus).
+        .contentShape(Rectangle())
         // Context menu only — no tap/click gestures here; gesture modifiers have a
         // history of swallowing the row buttons' clicks.
         .contextMenu { contextMenuItems }
