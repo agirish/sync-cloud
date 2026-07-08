@@ -299,9 +299,9 @@ struct DifferenceRow: View {
     var body: some View {
         HStack(spacing: 16) {
             // Icon
-            iconForDifference(difference)
+            Image(systemName: DifferenceGlyph.symbol(for: difference.type, filled: true))
                 .font(.system(size: 22))
-                .foregroundStyle(colorForDifference(difference))
+                .foregroundStyle(DifferenceGlyph.color(for: difference.type))
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 32)
             
@@ -319,7 +319,7 @@ struct DifferenceRow: View {
                 
                 Text(descriptionText)
                     .font(.caption)
-                    .foregroundStyle(colorForDifference(difference))
+                    .foregroundStyle(DifferenceGlyph.color(for: difference.type))
             }
             
             Spacer()
@@ -368,28 +368,5 @@ struct DifferenceRow: View {
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
         )
-    }
-    
-    @ViewBuilder
-    private func iconForDifference(_ diff: FileDifference) -> some View {
-        switch diff.type {
-        case .missingOnRight:
-            Image(systemName: "plus.circle.fill")
-        case .missingOnLeft:
-            Image(systemName: "plus.circle.fill")
-        case .differentDates:
-            Image(systemName: "arrow.triangle.2.circlepath")
-        }
-    }
-    
-    private func colorForDifference(_ diff: FileDifference) -> Color {
-        switch diff.type {
-        case .missingOnRight:
-            return .blue
-        case .missingOnLeft:
-            return .purple
-        case .differentDates:
-            return .orange
-        }
     }
 }

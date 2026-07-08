@@ -427,19 +427,11 @@ struct FileRowView: View {
     }
 
     static func badgeSymbol(for type: FileDifference.DifferenceType) -> String {
-        switch type {
-        case .missingOnRight: return "arrow.right.circle"
-        case .missingOnLeft: return "arrow.left.circle"
-        case .differentDates: return "arrow.triangle.2.circlepath"
-        }
+        DifferenceGlyph.symbol(for: type, filled: false)
     }
 
     static func badgeColor(for type: FileDifference.DifferenceType) -> Color {
-        switch type {
-        case .missingOnRight: return .blue
-        case .missingOnLeft: return .purple
-        case .differentDates: return .orange
-        }
+        DifferenceGlyph.color(for: type)
     }
 
     static func badgeHelp(for type: FileDifference.DifferenceType) -> String {
