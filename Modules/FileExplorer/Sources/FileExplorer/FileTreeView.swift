@@ -101,11 +101,11 @@ public struct FileTreeView: View {
         }
     }
 
-    /// The pane's List plus its list-level chrome (empty-area context menu, background drop
-    /// target and its highlight) — the chrome layer skippable via the TEMPORARY flags below.
+    /// The pane's List plus its list-level chrome: empty-area context menu, background drop
+    /// target (drop into the pane's current folder), and the drop highlight.
     @ViewBuilder
     private var paneList: some View {
-        let list = List(selection: $selection) {
+        List(selection: $selection) {
             OutlineGroup(tree, children: \.children) { node in
                 treeRow(for: node)
             }
@@ -117,100 +117,55 @@ public struct FileTreeView: View {
                 delegate.handleDelete(selectedNodes)
             }
         }
-
-        if Self.paneListChromeDisabled {
-            list
-        } else {
-            list
-                .contextMenu { emptyAreaContextMenu }
-                .dropDestination(for: PaneDragPayload.self) { payloads, _ in
-                    guard let payload = payloads.first else { return false }
-                    return Self.performPaneDrop(payload, toPath: currentPath, targetIsLeft: isLeft, delegate: delegate)
-                } isTargeted: { targeting in
-                    isBackgroundDropTargeted = targeting
-                }
-                .overlay {
-                    if isBackgroundDropTargeted && backgroundDropAllowed {
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 2)
-                            .padding(2)
-                            .allowsHitTesting(false)
-                    }
-                }
+        .contextMenu { emptyAreaContextMenu }
+        .dropDestination(for: PaneDragPayload.self) { payloads, _ in
+            guard let payload = payloads.first else { return false }
+            return Self.performPaneDrop(payload, toPath: currentPath, targetIsLeft: isLeft, delegate: delegate)
+        } isTargeted: { targeting in
+            isBackgroundDropTargeted = targeting
+        }
+        .overlay {
+            if isBackgroundDropTargeted && backgroundDropAllowed {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .padding(2)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
-    /// TEMPORARY diagnostic flags to bisect which pane decoration eats single clicks (the
-    /// "dead click" bug). The bisect convicted the row double-click gesture — a count-1
-    /// `simultaneousGesture` still intermittently swallowed the mouse-up the List needs to
-    /// select — so it has been removed outright rather than flagged. The remaining flags stay
-    /// while drag/drop is still being investigated; remove them and the layered row helpers
-    /// below once that's settled. Each flag strips one layer. No Settings UI on purpose:
-    /// toggle via `defaults write <bundle-id> <key> -bool YES` and relaunch. Read once at
-    /// process start — conditional modifiers change SwiftUI view identity, so flipping them
-    /// live would rebuild rows mid-session; relaunch-to-apply is intended.
-    private static let paneDragDisabled = UserDefaults.standard.bool(forKey: "paneDragDisabled")
-    private static let paneRowContextMenuDisabled = UserDefaults.standard.bool(forKey: "paneRowContextMenuDisabled")
-    private static let paneRowDropTargetDisabled = UserDefaults.standard.bool(forKey: "paneRowDropTargetDisabled")
-    private static let paneListChromeDisabled = UserDefaults.standard.bool(forKey: "paneListChromeDisabled")
-
-    /// One tree row: content + context menu, draggable, and (for directories) a drop target —
-    /// each layer skippable via the TEMPORARY flags above. Single-click selection is left
-    /// entirely to the List; drilling into a folder is via the Compare button / context menu.
+    /// One tree row: content, its context menu, draggable payload, and (for directories) a drop
+    /// target. Single-click selection is left entirely to the List; drilling into a folder is
+    /// via the Compare button / context menu.
     @ViewBuilder
     private func treeRow(for node: FileNode) -> some View {
-        let base = FileRowView(
+        FileRowView(
             node: node,
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
         )
         .tag(node.id)
-        rowDropTarget(rowDrag(rowContextMenu(base, for: node), for: node), for: node)
-    }
-
-    @ViewBuilder
-    private func rowContextMenu(_ content: some View, for node: FileNode) -> some View {
-        if Self.paneRowContextMenuDisabled {
-            content
-        } else {
-            content.contextMenu {
-                FileContextMenu(
-                    node: node,
-                    selection: selection,
-                    tree: tree,
-                    otherTree: otherTree,
-                    otherSelection: otherSelection,
-                    isLeft: isLeft,
-                    currentPath: currentPath,
-                    delegate: delegate,
-                    ignoredPaths: ignoredPaths,
-                    otherPaneName: otherPaneName
-                )
-            }
+        .contextMenu {
+            FileContextMenu(
+                node: node,
+                selection: selection,
+                tree: tree,
+                otherTree: otherTree,
+                otherSelection: otherSelection,
+                isLeft: isLeft,
+                currentPath: currentPath,
+                delegate: delegate,
+                ignoredPaths: ignoredPaths,
+                otherPaneName: otherPaneName
+            )
         }
-    }
-
-    @ViewBuilder
-    private func rowDrag(_ content: some View, for node: FileNode) -> some View {
-        if Self.paneDragDisabled {
-            content
-        } else {
-            content.draggable(makeDragPayload(for: node))
-        }
-    }
-
-    @ViewBuilder
-    private func rowDropTarget(_ content: some View, for node: FileNode) -> some View {
-        if Self.paneRowDropTargetDisabled {
-            content
-        } else {
-            content.modifier(PaneDropTarget(
-                targetDirectoryPath: node.isDirectory ? node.id : nil,
-                paneIsLeft: isLeft,
-                delegate: delegate
-            ))
-        }
+        .draggable(makeDragPayload(for: node))
+        .modifier(PaneDropTarget(
+            targetDirectoryPath: node.isDirectory ? node.id : nil,
+            paneIsLeft: isLeft,
+            delegate: delegate
+        ))
     }
 
     /// Built lazily when a drag actually starts (`.draggable` takes an autoclosure); also

@@ -173,10 +173,10 @@ struct ContentView: View {
             refreshAction()
         }
         .onAppear {
-            // Diagnostic hook (like paneDragDisabled): `defaults write
-            // com.abhishekgirish.SyncCloud openSettingsOnLaunch -bool YES` opens the
-            // Settings scene at startup, so automated verification can reach it
-            // without synthesizing input. No-op unless explicitly armed.
+            // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
+            // openSettingsOnLaunch -bool YES` opens the Settings scene at startup, so
+            // automated verification can reach it without synthesizing input. No-op
+            // unless explicitly armed.
             if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
                 openSettings()
             }
