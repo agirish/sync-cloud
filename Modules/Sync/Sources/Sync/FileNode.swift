@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// An in-memory representation of a file or directory mapped from a local or cloud path.
 /// Includes metadata used for UI display, sorting, and differential scanning.
-public struct FileNode: Identifiable, Hashable, Codable {
+public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// The absolute path of the file or directory on the local filesystem.
     public let id: String
     /// The display name of the item.

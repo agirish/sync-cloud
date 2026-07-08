@@ -18,7 +18,7 @@ import Foundation
     // MARK: applyFilters — Google Drive newer-date-only noise filter
 
     @MainActor
-    @Test func testGoogleDriveFilterHidesOnlyRightNewerSameSize() {
+    @Test func testGoogleDriveFilterHidesOnlyRightNewerSameSize() async {
         let manager = FileSyncManager()
         // The one that must be hidden: right-is-newer (copyToLeft), same size, on a Drive right pane.
         let noise = dateDiff("noise.txt", action: .copyToLeft, leftSize: 100, rightSize: 100)
@@ -29,7 +29,10 @@ import Foundation
 
         manager.rawDifferences = [noise, keepDirection, keepSize]
         manager.lastRightProviderType = .googleDrive
-        manager.ignoreGoogleDriveNewerDateOnly = true // didSet -> applyFilters()
+        manager.ignoreGoogleDriveNewerDateOnly = true // didSet kicks off an async pass
+        // The didSet's pass is fire-and-forget; await one explicitly for a deterministic
+        // read (the generation guard makes both passes publish identical state).
+        await manager.applyFilters()
 
         let ids = Set(manager.differences.map(\.id))
         #expect(!ids.contains(noise.id))
@@ -38,7 +41,7 @@ import Foundation
     }
 
     @MainActor
-    @Test func testGoogleDriveFilterInactiveWhenRightIsNotDriveOrToggleOff() {
+    @Test func testGoogleDriveFilterInactiveWhenRightIsNotDriveOrToggleOff() async {
         let manager = FileSyncManager()
         let noise = dateDiff("noise.txt", action: .copyToLeft, leftSize: 100, rightSize: 100)
         manager.rawDifferences = [noise]
@@ -46,12 +49,13 @@ import Foundation
         // Toggle on, but the right pane is not Google Drive -> nothing filtered.
         manager.lastRightProviderType = .iCloud
         manager.ignoreGoogleDriveNewerDateOnly = true
+        await manager.applyFilters()
         #expect(manager.differences.count == 1)
 
         // Right pane is Drive, but the toggle is off -> nothing filtered.
-        manager.ignoreGoogleDriveNewerDateOnly = false // didSet -> applyFilters()
+        manager.ignoreGoogleDriveNewerDateOnly = false
         manager.lastRightProviderType = .googleDrive
-        manager.applyFilters()
+        await manager.applyFilters()
         #expect(manager.differences.count == 1)
     }
 
@@ -65,7 +69,7 @@ import Foundation
         let diff = dateDiff("same.txt", action: .copyToRight, leftSize: 10, rightSize: 10)
         manager.rawDifferences = [diff]
         manager.verifiedSameDifferenceIds.insert(diff.id)
-        manager.applyFilters()
+        await manager.applyFilters()
         // Verified-identical ids are hidden from the list until the next scan.
         #expect(manager.differences.isEmpty)
 

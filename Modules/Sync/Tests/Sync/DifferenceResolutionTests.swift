@@ -125,7 +125,7 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
         #expect(manager.differences.isEmpty)
 
-        manager.applyFilters()
+        await manager.applyFilters()
         #expect(manager.differences.isEmpty)   // regression: used to reappear from rawDifferences
         #expect(manager.rawDifferences.isEmpty)
     }
@@ -159,7 +159,7 @@ import Foundation
 
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
-        manager.applyFilters()
+        await manager.applyFilters()
         #expect(manager.differences.isEmpty)
     }
 

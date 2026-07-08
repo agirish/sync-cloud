@@ -33,17 +33,13 @@ extension FileSyncManager {
             if let cached {
                 Logger.shared.debug("Serving \(label) tree for \(focusPath) from cache")
                 prefetchedTrees[focusPath] = cached
+                self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath)
+                await self.applyFilters()
+                // A slow load we just cancelled may have left the spinner flag set; it can't
+                // clear it itself (this newer load owns the flag once it starts).
                 if isLeft {
-                    self.rawLeftTree = cached
-                    self.lastLoadedLeftFocusPath = focusPath
-                    self.applyFilters()
-                    // A slow load we just cancelled may have left the spinner flag set; it can't
-                    // clear it itself (this newer load owns the flag once it starts).
                     if isLoadingLeftTree { isLoadingLeftTree = false }
                 } else {
-                    self.rawRightTree = cached
-                    self.lastLoadedRightFocusPath = focusPath
-                    self.applyFilters()
                     if isLoadingRightTree { isLoadingRightTree = false }
                 }
                 return
@@ -70,29 +66,19 @@ extension FileSyncManager {
             if currentTree.isEmpty || lastFocus != focusPath {
                 let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
                 guard !Task.isCancelled else { return }
-                if isLeft {
-                    self.rawLeftTree = shallowTree
-                    self.lastLoadedLeftFocusPath = focusPath
-                } else {
-                    self.rawRightTree = shallowTree
-                    self.lastLoadedRightFocusPath = focusPath
-                }
-                self.applyFilters()
+                self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath)
+                await self.applyFilters()
             }
 
             let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
 
             guard !Task.isCancelled else { return }
 
+            self.adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath)
+            await self.applyFilters()
             if isLeft {
-                self.rawLeftTree = tree
-                self.lastLoadedLeftFocusPath = focusPath
-                self.applyFilters()
                 isLoadingLeftTree = false
             } else {
-                self.rawRightTree = tree
-                self.lastLoadedRightFocusPath = focusPath
-                self.applyFilters()
                 isLoadingRightTree = false
             }
             // Cache the deep tree for this focus (never the shallow one — cache consumers,
@@ -113,6 +99,20 @@ extension FileSyncManager {
         }
     }
     
+    /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
+    /// `rawTreeGeneration`, which invalidates any off-main resort snapshot in flight —
+    /// this tree was built with the current sort option already applied.
+    func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String) {
+        rawTreeGeneration += 1
+        if isLeft {
+            rawLeftTree = tree
+            lastLoadedLeftFocusPath = focusPath
+        } else {
+            rawRightTree = tree
+            lastLoadedRightFocusPath = focusPath
+        }
+    }
+
     /// The children of the directory at `path` inside a cached deep tree, or nil when the path
     /// is not present (or `tree` is nil). Lets navigation serve a drill-down from an ancestor's
     /// cached tree without re-walking the disk.
@@ -125,7 +125,7 @@ extension FileSyncManager {
         return nil
     }
 
-    nonisolated func countItems(in tree: [FileNode]) -> Int {
+    nonisolated static func countItems(in tree: [FileNode]) -> Int {
         var count = 0
         for node in tree {
             count += 1
@@ -262,7 +262,7 @@ extension FileSyncManager {
             self.rawDifferences = results
             self.lastRightProviderType = request.right.type
             self.verifiedSameDifferenceIds.removeAll()
-            self.applyFilters()
+            await self.applyFilters()
             hasScanned = true
             
             Logger.shared.debug("Scan completed: found \(results.count) differences.")

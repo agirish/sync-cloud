@@ -59,10 +59,9 @@ public class FileSyncManager: ObservableObject {
             guard sortOption != oldValue else { return }
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             prefetchedTrees.removeAll()
-            // Re-sort current trees globally when option changes
-            rawLeftTree = Self.sort(nodes: rawLeftTree, by: sortOption)
-            rawRightTree = Self.sort(nodes: rawRightTree, by: sortOption)
-            applyFilters()
+            // Re-sort current trees when the option changes — off the main actor; the full
+            // re-sort of both trees froze the UI on large panes.
+            Task { await self.resortTreesAndRefilter() }
         }
     }
     
@@ -71,7 +70,7 @@ public class FileSyncManager: ObservableObject {
         didSet {
             guard showHiddenFiles != oldValue else { return }
             prefetchedTrees.removeAll()
-            applyFilters()
+            Task { await self.applyFilters() }
         }
     }
     
@@ -79,7 +78,7 @@ public class FileSyncManager: ObservableObject {
     @Published public var ignoredPaths: Set<String> = [] {
         didSet {
             guard ignoredPaths != oldValue else { return }
-            applyFilters()
+            Task { await self.applyFilters() }
         }
     }
 
@@ -87,11 +86,23 @@ public class FileSyncManager: ObservableObject {
     @Published public var ignoreGoogleDriveNewerDateOnly: Bool = false {
         didSet {
             guard ignoreGoogleDriveNewerDateOnly != oldValue else { return }
-            applyFilters()
+            Task { await self.applyFilters() }
         }
     }
     /// Provider type of the right pane from the last scan; used with ignoreGoogleDriveNewerDateOnly to filter differences.
     internal var lastRightProviderType: CloudProvider.ProviderType?
+
+    /// Monotonic token for `applyFilters()` passes: each pass claims the next value on entry.
+    /// A pass publishes only while no newer pass has published (see
+    /// `lastPublishedFilterGeneration`), so overlapping off-main filter computations can never
+    /// publish out of order — yet an awaited pass still publishes when it's the freshest done.
+    private var filterGeneration = 0
+    /// Generation of the most recent `applyFilters()` pass that published its results.
+    private var lastPublishedFilterGeneration = 0
+
+    /// Bumped on every raw-tree publish (see `adoptRawTree`). Guards the off-main resort in
+    /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
+    internal var rawTreeGeneration = 0
     
     /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []
@@ -237,24 +248,82 @@ public class FileSyncManager: ObservableObject {
         rawDifferences.removeAll { ids.contains($0.id) }
     }
 
-    /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating published state.
-    public func applyFilters() {
-        self.leftTree = Self.filterTree(rawLeftTree, showHidden: showHiddenFiles)
-        self.rightTree = Self.filterTree(rawRightTree, showHidden: showHiddenFiles)
-        self.leftItemCount = countItems(in: self.leftTree)
-        self.rightItemCount = countItems(in: self.rightTree)
-        
+    /// Everything a filter pass publishes, computed off the main actor in one shot.
+    struct FilteredState: Sendable {
+        var leftTree: [FileNode]
+        var rightTree: [FileNode]
+        var leftItemCount: Int
+        var rightItemCount: Int
+        var differences: [FileDifference]
+    }
+
+    /// Reapplies `showHiddenFiles` and `ignoredPaths` to raw trees and differences, updating
+    /// published state. The filtering itself — full walks of both pane trees plus a pass over
+    /// every raw difference — runs off the main actor: with tens of thousands of nodes it takes
+    /// long enough to freeze every window in the app (the Settings hitches were exactly this,
+    /// landing on the main thread several times per progressive load + scan cycle).
+    /// Overlapping passes are safe: the last-started pass wins; earlier results are discarded.
+    public func applyFilters() async {
+        filterGeneration += 1
+        let generation = filterGeneration
+
+        let rawLeft = rawLeftTree
+        let rawRight = rawRightTree
+        let rawDiffs = rawDifferences
+        let showHidden = showHiddenFiles
+        let ignored = ignoredPaths
+        let verifiedSame = verifiedSameDifferenceIds
+        let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && lastRightProviderType == .googleDrive
+
+        let state = await Task.detached(priority: .userInitiated) {
+            Self.computeFilteredState(
+                rawLeftTree: rawLeft,
+                rawRightTree: rawRight,
+                rawDifferences: rawDiffs,
+                showHidden: showHidden,
+                ignoredPaths: ignored,
+                verifiedSameDifferenceIds: verifiedSame,
+                dropDriveDateNoise: dropDriveDateNoise
+            )
+        }.value
+
+        // Publish unless a newer pass (with a newer snapshot) already has: results may
+        // finish out of entry order, and stale state must never overwrite fresher state.
+        guard generation > lastPublishedFilterGeneration else { return }
+        lastPublishedFilterGeneration = generation
+        self.leftTree = state.leftTree
+        self.rightTree = state.rightTree
+        self.leftItemCount = state.leftItemCount
+        self.rightItemCount = state.rightItemCount
+        self.differences = state.differences
+    }
+
+    /// The pure core of `applyFilters()`: value inputs in, published-ready state out.
+    nonisolated static func computeFilteredState(
+        rawLeftTree: [FileNode],
+        rawRightTree: [FileNode],
+        rawDifferences: [FileDifference],
+        showHidden: Bool,
+        ignoredPaths: Set<String>,
+        verifiedSameDifferenceIds: Set<UUID>,
+        dropDriveDateNoise: Bool
+    ) -> FilteredState {
+        let leftTree = filterTree(rawLeftTree, showHidden: showHidden)
+        let rightTree = filterTree(rawRightTree, showHidden: showHidden)
+
         var filteredDifferences = rawDifferences
-        if !showHiddenFiles {
-            filteredDifferences = filteredDifferences.filter { !Self.isHiddenPath($0.relativePath) }
+        if !showHidden {
+            filteredDifferences = filteredDifferences.filter { !isHiddenPath($0.relativePath) }
         }
         if !ignoredPaths.isEmpty {
-            filteredDifferences = filteredDifferences.filter { diff in 
-                !Self.isIgnoredPath(diff.relativePath, ignored: ignoredPaths)
+            filteredDifferences = filteredDifferences.filter { diff in
+                !isIgnoredPath(diff.relativePath, ignored: ignoredPaths)
             }
         }
-        filteredDifferences = filteredDifferences.filter { !verifiedSameDifferenceIds.contains($0.id) }
-        if ignoreGoogleDriveNewerDateOnly, lastRightProviderType == .googleDrive {
+        if !verifiedSameDifferenceIds.isEmpty {
+            filteredDifferences = filteredDifferences.filter { !verifiedSameDifferenceIds.contains($0.id) }
+        }
+        if dropDriveDateNoise {
             filteredDifferences = filteredDifferences.filter { diff in
                 // Hide "right is newer, same size" only (Drive date noise)
                 if diff.type == .differentDates, diff.sizesMatch, diff.action == .copyToLeft {
@@ -263,7 +332,31 @@ public class FileSyncManager: ObservableObject {
                 return true
             }
         }
-        self.differences = filteredDifferences
+
+        return FilteredState(
+            leftTree: leftTree,
+            rightTree: rightTree,
+            leftItemCount: countItems(in: leftTree),
+            rightItemCount: countItems(in: rightTree),
+            differences: filteredDifferences
+        )
+    }
+
+    /// Re-sorts both raw trees off the main actor, then refilters. Skips publishing when a
+    /// tree load or another sort change landed mid-sort: fresh trees are built already sorted
+    /// by the then-current option, so the stale result would clobber newer data.
+    func resortTreesAndRefilter() async {
+        let option = sortOption
+        let left = rawLeftTree
+        let right = rawRightTree
+        let generation = rawTreeGeneration
+        let (sortedLeft, sortedRight) = await Task.detached(priority: .userInitiated) {
+            (Self.sort(nodes: left, by: option), Self.sort(nodes: right, by: option))
+        }.value
+        guard option == sortOption, generation == rawTreeGeneration else { return }
+        rawLeftTree = sortedLeft
+        rawRightTree = sortedRight
+        await applyFilters()
     }
 
     /// Verifies whether the two sides of a "newer / different dates" difference have the same content via checksum.
@@ -289,7 +382,7 @@ public class FileSyncManager: ObservableObject {
             return false
         }
         verifiedSameDifferenceIds.insert(difference.id)
-        applyFilters()
+        await applyFilters()
         bannerMessage = "Verified identical — hidden from list"
         return true
     }
@@ -365,7 +458,7 @@ public class FileSyncManager: ObservableObject {
             verifiedSameDifferenceIds.insert(diff.id)
         }
         verifiedIdenticalForCopy = nil
-        applyFilters()
+        Task { await self.applyFilters() }
     }
 
     /// For the dialog's `isPresented` binding: defers the "dismissed without copy" cleanup by one
@@ -821,7 +914,10 @@ public class FileSyncManager: ObservableObject {
     /// publishes a shallow (root-children-only) tree before the deep walk finishes, and pruning
     /// against it would wipe a still-valid deeper selection.
     public func pruneSelection() {
-        if !isLoadingLeftTree {
+        // Collecting every path in a pane's tree is a full main-thread walk — skip it
+        // outright when the pane has no selection (the common case, e.g. the post-scan
+        // prune during launch churn).
+        if !isLoadingLeftTree, !selectedLeftPaths.isEmpty {
             var allLeftPaths = Set<String>()
             collectPaths(in: leftTree, into: &allLeftPaths)
             let prunedLeft = selectedLeftPaths.filter { allLeftPaths.contains($0) }
@@ -829,7 +925,7 @@ public class FileSyncManager: ObservableObject {
                 selectedLeftPaths = prunedLeft
             }
         }
-        if !isLoadingRightTree {
+        if !isLoadingRightTree, !selectedRightPaths.isEmpty {
             var allRightPaths = Set<String>()
             collectPaths(in: rightTree, into: &allRightPaths)
             let prunedRight = selectedRightPaths.filter { allRightPaths.contains($0) }

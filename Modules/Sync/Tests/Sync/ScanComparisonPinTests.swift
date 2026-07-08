@@ -91,7 +91,10 @@ import Foundation
         #expect(manager.differences.map(\.relativePath) == ["visible.txt"])
 
         // The raw scan kept it: toggling the setting reveals it with no new scan.
+        // The didSet's filter pass is fire-and-forget; await one explicitly for a
+        // deterministic read (whichever pass publishes computes identical state).
         manager.showHiddenFiles = true
+        await manager.applyFilters()
         #expect(Set(manager.differences.map(\.relativePath)) == [".secret", "visible.txt"])
     }
 
