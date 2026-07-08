@@ -159,6 +159,46 @@ private func noOverrides(_ id: String) -> String? { nil }
 
         #expect(providers.first(where: { $0.id == "iCloud" })?.path == "/Users/test/CustomDocs")
     }
+
+    @Test func testLabelOverrideReplacesTheAccountSuffixInParentheses() {
+        let labels = ["GoogleDrive-someone@gmail.com": "Personal"]
+        let providers = SettingsManager.mapProviders(
+            cloudStorageFolders: [folder("GoogleDrive-someone@gmail.com"), folder("OneDrive-Work")],
+            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides,
+            labelOverride: { labels[$0] })
+
+        #expect(providers.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (Personal)")
+        // Providers without an override keep their account-suffix default.
+        #expect(providers.first(where: { $0.type == .oneDrive })?.displayName == "OneDrive (Work)")
+    }
+
+    @Test func testLabelOverrideAddsParenthesesToSuffixlessProviders() {
+        let labels = ["Dropbox": "Work", "iCloud": "Mac"]
+        let providers = SettingsManager.mapProviders(
+            cloudStorageFolders: [folder("Dropbox")],
+            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides,
+            labelOverride: { labels[$0] })
+
+        #expect(providers.first(where: { $0.type == .dropBox })?.displayName == "Dropbox (Work)")
+        #expect(providers.first(where: { $0.type == .iCloud })?.displayName == "iCloud (Mac)")
+    }
+
+    @Test func testEmptyLabelOverrideFallsBackToTheDefault() {
+        let providers = SettingsManager.mapProviders(
+            cloudStorageFolders: [folder("GoogleDrive-someone@gmail.com"), folder("Dropbox")],
+            iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides,
+            labelOverride: { _ in "" })
+
+        #expect(providers.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (someone@gmail.com)")
+        #expect(providers.first(where: { $0.type == .dropBox })?.displayName == "Dropbox")
+    }
+
+    @Test func testDefaultAccountSuffixParsesOnlySuffixedProviderIds() {
+        #expect(SettingsManager.defaultAccountSuffix(forProviderId: "GoogleDrive-someone@gmail.com") == "someone@gmail.com")
+        #expect(SettingsManager.defaultAccountSuffix(forProviderId: "OneDrive-Work") == "Work")
+        #expect(SettingsManager.defaultAccountSuffix(forProviderId: "iCloud") == nil)
+        #expect(SettingsManager.defaultAccountSuffix(forProviderId: "Dropbox") == nil)
+    }
 }
 
 // MARK: - SettingsManager with injected seams
@@ -203,6 +243,30 @@ private func noOverrides(_ id: String) -> String? { nil }
         await settings.discoverProviders()
         #expect(settings.path(for: "Dropbox") == defaultPath)
         #expect(test.defaults.string(forKey: "path_override_Dropbox") == nil)
+    }
+
+    @MainActor
+    @Test func testSetAccountLabelRoundTripAndClearRestoresDefaultName() async {
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: { [folder("GoogleDrive-someone@gmail.com")] })
+        await settings.discoverProviders()
+
+        settings.setAccountLabel("Personal", for: "GoogleDrive-someone@gmail.com")
+        await settings.discoverProviders()
+        #expect(settings.accountLabel(for: "GoogleDrive-someone@gmail.com") == "Personal")
+        #expect(settings.availableProviders.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (Personal)")
+
+        // Whitespace-only clears the override; the suffix default returns.
+        settings.setAccountLabel("  ", for: "GoogleDrive-someone@gmail.com")
+        await settings.discoverProviders()
+        #expect(settings.accountLabel(for: "GoogleDrive-someone@gmail.com") == "")
+        #expect(test.defaults.string(forKey: "label_override_GoogleDrive-someone@gmail.com") == nil)
+        #expect(settings.availableProviders.first(where: { $0.type == .googleDrive })?.displayName == "Google Drive (someone@gmail.com)")
     }
 
     @MainActor

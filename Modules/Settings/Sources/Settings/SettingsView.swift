@@ -188,6 +188,7 @@ struct ProviderSettingsSection: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
+    @State private var draftLabel: String = ""
 
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
@@ -228,12 +229,25 @@ struct ProviderSettingsSection: View {
             .padding(.vertical, 2)
             .onAppear {
                 draftPath = provider.path
+                draftLabel = settings.accountLabel(for: provider.id)
             }
             .onChange(of: provider.path) { _, updated in
                 if draftPath != updated {
                     draftPath = updated
                 }
             }
+
+            LabeledContent("Label") {
+                TextField(
+                    SettingsManager.defaultAccountSuffix(forProviderId: provider.id) ?? "None",
+                    text: $draftLabel
+                )
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .onSubmit { commitLabel() }
+                .help("Shown in parentheses after the provider name, e.g. \"Personal\" or \"Work\". Leave empty for the account default.")
+            }
+            .disabled(!isEnabled)
 
             LabeledContent("Location") {
                 TextField("Synchronized path", text: $draftPath)
@@ -249,8 +263,11 @@ struct ProviderSettingsSection: View {
                 Button("Reset") { resetToDefault() }
                 Button("Show in Finder") { openInFinder() }
                 Spacer()
-                Button("Save") { commitPath() }
-                    .disabled(draftPath == provider.path)
+                Button("Save") {
+                    commitPath()
+                    commitLabel()
+                }
+                .disabled(draftPath == provider.path && draftLabel == settings.accountLabel(for: provider.id))
             }
             .controlSize(.small)
             .disabled(!isEnabled)
@@ -294,6 +311,13 @@ struct ProviderSettingsSection: View {
         draftPath = normalized
         guard normalized != provider.path else { return }
         settings.setPath(normalized, for: provider.id)
+    }
+
+    private func commitLabel() {
+        let normalized = draftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        draftLabel = normalized
+        guard normalized != settings.accountLabel(for: provider.id) else { return }
+        settings.setAccountLabel(normalized, for: provider.id)
     }
 }
 
