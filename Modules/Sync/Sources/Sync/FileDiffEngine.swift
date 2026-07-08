@@ -40,6 +40,39 @@ public struct FileDiffEngine {
         return (.copyToLeft, "Type mismatch; defaulting to the folder from \(rightProvider.displayName)")
     }
     
+    /// Builds the same relative-path→`FileInfo` map `getFilesInDirectory` produces by walking
+    /// the disk, but from an already-built deep `FileNode` tree — used to skip the scan's
+    /// re-walk when both panes' trees are current (they carry the same metadata the walk
+    /// would fetch). Key normalization mirrors `getFilesInDirectory`: strip `basePath`, strip
+    /// the leading slash, skip the base itself.
+    public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
+        var result: [String: FileInfo] = [:]
+        func add(_ node: FileNode) {
+            var relativePath = node.id
+            if relativePath.hasPrefix(basePath) {
+                relativePath = String(relativePath.dropFirst(basePath.count))
+            }
+            if relativePath.hasPrefix("/") {
+                relativePath.removeFirst()
+            }
+            if !relativePath.isEmpty {
+                result[relativePath] = FileInfo(
+                    url: URL(fileURLWithPath: node.id),
+                    modificationDate: node.modificationDate,
+                    fileSize: node.fileSize,
+                    isDirectory: node.isDirectory
+                )
+            }
+            for child in node.children ?? [] {
+                add(child)
+            }
+        }
+        for node in nodes {
+            add(node)
+        }
+        return result
+    }
+
     /// Recursively scans a directory and aggregates `FileInfo` objects in a dictionary keyed by relative path.
     /// Uses high-performance resource value fetching in standard production, and fallback attributes for mocks.
     /// - Parameters:

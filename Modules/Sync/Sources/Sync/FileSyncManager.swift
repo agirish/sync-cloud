@@ -115,7 +115,16 @@ public class FileSyncManager: ObservableObject {
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
     /// Not `@Published`: no view renders from it, and it is cleared after every file operation —
     /// publishing it forced whole-window re-renders per operation.
+    /// Deep trees by focused-folder path (pane roots and any folder visited since the last
+    /// invalidation). Never holds shallow trees — consumers (navigation fast path, the
+    /// in-memory diff scan) rely on cached trees being fully walked. Cleared by file
+    /// operations, sort changes, and force refresh.
     public var prefetchedTrees: [String: [FileNode]] = [:]
+    /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
+    /// same-focus refresh (keep showing the current tree while rebuilding) from a focus
+    /// change (repaint shallow immediately) in `loadTree`.
+    var lastLoadedLeftFocusPath: String? = nil
+    var lastLoadedRightFocusPath: String? = nil
     
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false

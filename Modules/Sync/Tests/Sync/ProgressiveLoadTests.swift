@@ -46,6 +46,57 @@ import Testing
         #expect(subDir.children?.map(\.name) == ["file2.txt"])
     }
 
+    // MARK: Cache-served navigation
+
+    @Test func testSubtreeSlicesTheCachedTreeByPath() {
+        let file = FileNode(id: "/src/a/b/file.txt", name: "file.txt", isDirectory: false)
+        let b = FileNode(id: "/src/a/b", name: "b", isDirectory: true, children: [file])
+        let a = FileNode(id: "/src/a", name: "a", isDirectory: true, children: [b])
+        let tree = [a]
+
+        #expect(FileSyncManager.subtree(atPath: "/src/a", in: tree) == [b])
+        #expect(FileSyncManager.subtree(atPath: "/src/a/b", in: tree) == [file])
+        // Not in the tree, a file, or no tree at all -> no slice.
+        #expect(FileSyncManager.subtree(atPath: "/src/missing", in: tree) == nil)
+        #expect(FileSyncManager.subtree(atPath: "/src/a/b/file.txt", in: tree) == nil)
+        #expect(FileSyncManager.subtree(atPath: "/src/a", in: nil) == nil)
+    }
+
+    @MainActor
+    @Test func testDrillDownIsServedFromTheCachedRootTree() async throws {
+        let mockFM = try makeDisk()
+        let manager = FileSyncManager(fileManager: mockFM)
+
+        // Deep load at the root populates the cache.
+        await manager.loadTree(path: "/src", isLeft: true)
+        #expect(manager.leftTree.map(\.name).sorted() == ["file1.txt", "subDir"])
+
+        // Mutate the virtual disk: if the drill-down re-walked the disk it would see the
+        // change; the cached slice (valid until an operation invalidates it) still has it.
+        mockFM.virtualDisk.removeValue(forKey: "/src/subDir/file2.txt")
+
+        manager.leftRelativePath = "subDir"
+        await manager.loadTree(path: "/src", isLeft: true)
+        #expect(manager.leftTree.map(\.name) == ["file2.txt"])
+        #expect(!manager.isLoadingLeftTree)
+    }
+
+    // MARK: Scan-from-tree equivalence
+
+    @Test func testFilesInfoFromTreeMatchesTheDiskWalk() async throws {
+        let mockFM = try makeDisk()
+        let url = URL(fileURLWithPath: "/src")
+
+        let walked = try FileDiffEngine.getFilesInDirectory(url, fileManager: mockFM)
+        let tree = await FileSyncManager.buildTree(url: url, sortOption: .name, fileManager: mockFM)
+        let derived = FileDiffEngine.filesInfo(fromTree: tree, basePath: url.path)
+
+        #expect(Set(derived.keys) == Set(walked.keys))
+        for (key, info) in derived {
+            #expect(info.isDirectory == walked[key]?.isDirectory, "isDirectory mismatch for \(key)")
+        }
+    }
+
     @MainActor
     @Test func testPruneSkipsPanesWhoseTreeIsStillLoading() async throws {
         let manager = FileSyncManager()

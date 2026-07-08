@@ -5,7 +5,9 @@ extension FileSyncManager {
     
     // MARK: - Core Scanning Operations
 
-    /// Loads the file tree for one pane from disk (or from prefetch cache when at root).
+    /// Loads the file tree for one pane — served from the prefetch cache when the focused
+    /// folder (or an ancestor's cached deep tree containing it) is available, otherwise from
+    /// disk with a shallow-first progressive paint.
     /// - Parameters:
     ///   - path: Absolute path of the pane root (e.g. expanded tilde).
     ///   - isLeft: `true` for the left pane, `false` for the right pane.
@@ -16,28 +18,37 @@ extension FileSyncManager {
         let task = Task {
             let label = isLeft ? "Left" : "Right"
             Logger.shared.debug("Loading \(label) Tree for path: \(path)")
-            
+
             let relPath = isLeft ? leftRelativePath : rightRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
             let focusURL = relPath.isEmpty ? rootURL : rootURL.appendingPathComponent(relPath)
-            
-            // Fast Path: Check prefetch cache if we are at the root
-            if relPath.isEmpty, let cachedTree = prefetchedTrees[path] {
-                Logger.shared.debug("Consuming prefetched tree for \(path)")
+            let focusPath = focusURL.path
+
+            // Fast path: serve the focus from the cache without touching the disk — a direct
+            // hit, or a slice of the cached root tree (deep by construction, so drill-down and
+            // breadcrumb navigation are instant). File operations, sort changes, and force
+            // refresh clear the cache, so this never serves stale post-operation state.
+            let cached = prefetchedTrees[focusPath]
+                ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
+            if let cached {
+                Logger.shared.debug("Serving \(label) tree for \(focusPath) from cache")
+                prefetchedTrees[focusPath] = cached
                 if isLeft {
-                    self.rawLeftTree = cachedTree
+                    self.rawLeftTree = cached
+                    self.lastLoadedLeftFocusPath = focusPath
                     self.applyFilters()
                     // A slow load we just cancelled may have left the spinner flag set; it can't
                     // clear it itself (this newer load owns the flag once it starts).
                     if isLoadingLeftTree { isLoadingLeftTree = false }
                 } else {
-                    self.rawRightTree = cachedTree
+                    self.rawRightTree = cached
+                    self.lastLoadedRightFocusPath = focusPath
                     self.applyFilters()
                     if isLoadingRightTree { isLoadingRightTree = false }
                 }
                 return
             }
-            
+
             // Slow Path: Load actively
             if isLeft { isLoadingLeftTree = true }
             else { isLoadingRightTree = true }
@@ -48,17 +59,26 @@ extension FileSyncManager {
             let sortOp = self.sortOption
 
             // Progressive first paint: publish the immediate children right away (one
-            // directory listing), then swap in the deep tree when the full walk finishes.
-            // The pane stops looking hung on large/cloud folders; the loading flag stays up
-            // until the deep tree lands, which also keeps pruneSelection off the shallow tree.
-            let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
-            guard !Task.isCancelled else { return }
-            if isLeft {
-                self.rawLeftTree = shallowTree
-            } else {
-                self.rawRightTree = shallowTree
+            // directory listing), then swap in the deep tree when the full walk finishes —
+            // but only when the pane has nothing valid to show for this focus (first load,
+            // or navigation to an uncached folder). A same-focus refresh keeps the current
+            // deep tree visible until the new one lands (stale-while-revalidate) instead of
+            // collapsing rows to a shallow flash. The loading flag stays up until the deep
+            // tree lands, which also keeps pruneSelection off the interim tree.
+            let currentTree = isLeft ? rawLeftTree : rawRightTree
+            let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
+            if currentTree.isEmpty || lastFocus != focusPath {
+                let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
+                guard !Task.isCancelled else { return }
+                if isLeft {
+                    self.rawLeftTree = shallowTree
+                    self.lastLoadedLeftFocusPath = focusPath
+                } else {
+                    self.rawRightTree = shallowTree
+                    self.lastLoadedRightFocusPath = focusPath
+                }
+                self.applyFilters()
             }
-            self.applyFilters()
 
             let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
 
@@ -66,15 +86,18 @@ extension FileSyncManager {
 
             if isLeft {
                 self.rawLeftTree = tree
+                self.lastLoadedLeftFocusPath = focusPath
                 self.applyFilters()
                 isLoadingLeftTree = false
             } else {
                 self.rawRightTree = tree
+                self.lastLoadedRightFocusPath = focusPath
                 self.applyFilters()
                 isLoadingRightTree = false
             }
-            // Update cache since we did the work
-            if relPath.isEmpty { self.prefetchedTrees[path] = tree }
+            // Cache the deep tree for this focus (never the shallow one — cache consumers,
+            // including the in-memory diff scan, rely on cached trees being fully walked).
+            self.prefetchedTrees[focusPath] = tree
             Logger.shared.debug("\(label) Tree Loaded. Count: \(isLeft ? leftItemCount : rightItemCount)")
         }
 
@@ -90,6 +113,18 @@ extension FileSyncManager {
         }
     }
     
+    /// The children of the directory at `path` inside a cached deep tree, or nil when the path
+    /// is not present (or `tree` is nil). Lets navigation serve a drill-down from an ancestor's
+    /// cached tree without re-walking the disk.
+    nonisolated static func subtree(atPath path: String, in tree: [FileNode]?) -> [FileNode]? {
+        guard let tree else { return nil }
+        for node in tree where node.isDirectory {
+            if node.id == path { return node.children ?? [] }
+            if path.hasPrefix(node.id + "/") { return subtree(atPath: path, in: node.children) }
+        }
+        return nil
+    }
+
     nonisolated func countItems(in tree: [FileNode]) -> Int {
         var count = 0
         for node in tree {
@@ -165,24 +200,21 @@ extension FileSyncManager {
         isScanning = true
         Logger.shared.info("Internal scan comparing \(request.left.displayName) and \(request.right.displayName)")
 
-        let newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
-            do {
-                let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
-                let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
-                
-                let fm = await MainActor.run { self.fileManager }
+        let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
+        let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
 
-                // The two walks are independent and FileManager is thread-safe, so run them
-                // concurrently — serially they doubled the scan's disk phase.
-                let leftWalk = Task.detached(priority: .userInitiated) {
-                    try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
-                }
-                let rightWalk = Task.detached(priority: .userInitiated) {
-                    try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
-                }
-                let leftFilesInfo = try await leftWalk.value
-                let rightFilesInfo = try await rightWalk.value
-                
+        // In-memory fast path: when both focused folders have deep trees in the prefetch
+        // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
+        // from the trees instead of re-walking both directories on disk — the scan becomes
+        // near-instant after navigation. Tree semantics apply: the tree builder follows
+        // symlinked directories (the disk enumerator does not), so their contents
+        // participate in the diff exactly as the panes display them.
+        let newDifferences: [FileDifference]?
+        if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
+            Logger.shared.debug("Scanning from cached trees (no disk walk)")
+            newDifferences = await Task.detached(priority: .userInitiated) {
+                let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
+                let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
                 return FileDiffEngine.computeDifferences(
                     left: request.left,
                     leftURL: leftURL,
@@ -191,13 +223,39 @@ extension FileSyncManager {
                     leftFilesInfo: leftFilesInfo,
                     rightFilesInfo: rightFilesInfo
                 )
-                
-            } catch {
-                let msg = "Error scanning directories: \(error)"
-                Task { @MainActor in Logger.shared.error(msg) }
-                return nil
-            }
-        }.value
+            }.value
+        } else {
+            newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
+                do {
+                    let fm = await MainActor.run { self.fileManager }
+
+                    // The two walks are independent and FileManager is thread-safe, so run them
+                    // concurrently — serially they doubled the scan's disk phase.
+                    let leftWalk = Task.detached(priority: .userInitiated) {
+                        try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
+                    }
+                    let rightWalk = Task.detached(priority: .userInitiated) {
+                        try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
+                    }
+                    let leftFilesInfo = try await leftWalk.value
+                    let rightFilesInfo = try await rightWalk.value
+
+                    return FileDiffEngine.computeDifferences(
+                        left: request.left,
+                        leftURL: leftURL,
+                        right: request.right,
+                        rightURL: rightURL,
+                        leftFilesInfo: leftFilesInfo,
+                        rightFilesInfo: rightFilesInfo
+                    )
+
+                } catch {
+                    let msg = "Error scanning directories: \(error)"
+                    Task { @MainActor in Logger.shared.error(msg) }
+                    return nil
+                }
+            }.value
+        }
 
         let isLatestRequest = request.generation == scanRequestGeneration
         if !Task.isCancelled, isLatestRequest, let results = newDifferences {
