@@ -667,15 +667,10 @@ public class FileSyncManager: ObservableObject {
         return components.contains { $0.hasPrefix(".") }
     }
     
-    /// Stack of (leftRelativePath, rightRelativePath) for back/forward navigation.
-    public var history: [(left: String, right: String)] = [("", "")]
-    /// Index into `history` for the current navigation state.
-    public var historyIndex: Int = 0
-    
-    /// Indicates if the user can navigate back in history.
-    @Published public var canGoBack: Bool = false
-    /// Indicates if the user can navigate forward in history.
-    @Published public var canGoForward: Bool = false
+    /// Back/forward stack for the left pane; independent of the right pane's.
+    @Published public var leftHistory = PaneNavigationHistory()
+    /// Back/forward stack for the right pane; independent of the left pane's.
+    @Published public var rightHistory = PaneNavigationHistory()
     
     // Navigation and Scanning methods moved to extensions
     

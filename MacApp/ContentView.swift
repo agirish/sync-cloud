@@ -333,8 +333,6 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContentView: some View {
         VStack(spacing: 0) {
-            NavigationToolbar(syncManager: syncManager)
-            Divider()
             paneActionBar
             Divider()
             VSplitView {
@@ -346,6 +344,10 @@ struct ContentView: View {
                                 provider: settings.availableProviders.first(where: { $0.id == leftProviderId }),
                                 rootPath: settings.path(for: leftProviderId),
                                 relativePath: syncManager.leftRelativePath,
+                                canGoBack: syncManager.leftHistory.canGoBack,
+                                canGoForward: syncManager.leftHistory.canGoForward,
+                                onBack: { syncManager.goBack(isLeft: true) },
+                                onForward: { syncManager.goForward(isLeft: true) },
                                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: true) },
                                 onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
                             )
@@ -359,6 +361,10 @@ struct ContentView: View {
                                 provider: settings.availableProviders.first(where: { $0.id == rightProviderId }),
                                 rootPath: settings.path(for: rightProviderId),
                                 relativePath: syncManager.rightRelativePath,
+                                canGoBack: syncManager.rightHistory.canGoBack,
+                                canGoForward: syncManager.rightHistory.canGoForward,
+                                onBack: { syncManager.goBack(isLeft: false) },
+                                onForward: { syncManager.goForward(isLeft: false) },
                                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: false) },
                                 onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
                             )
@@ -515,6 +521,17 @@ struct ContentView: View {
             }
 
             Spacer()
+
+            // No refresh here: raw trees and differences already include hidden entries, and the
+            // showHiddenFiles didSet re-filters them in memory via applyFilters().
+            Toggle(isOn: $syncManager.showHiddenFiles) {
+                Label("Hidden", systemImage: "eye")
+            }
+            .toggleStyle(.button)
+            .help("Toggle visibility of hidden files")
+            .onChange(of: syncManager.showHiddenFiles) { _, newValue in
+                Logger.shared.info("User toggled hidden files to: \(newValue)")
+            }
         }
         .buttonStyle(.bordered)
         .padding(.horizontal, 20)

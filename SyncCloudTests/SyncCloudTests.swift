@@ -60,7 +60,8 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // 3. Verify specifically the navigation reset effects
         #expect(manager.selectedLeftPaths.isEmpty)
         #expect(manager.leftRelativePath.isEmpty)
-        #expect(manager.history.count == 1)
+        #expect(manager.leftHistory == PaneNavigationHistory())
+        #expect(manager.rightHistory == PaneNavigationHistory())
     }
 
     @Test func testResolvedProviderSelectionPrefersDistinctDestinationDuringBootstrap() async throws {

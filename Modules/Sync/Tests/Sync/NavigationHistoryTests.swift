@@ -4,7 +4,7 @@ import Combine
 @testable import Sync
 
 @Suite struct NavigationHistoryTests {
-    
+
     @MainActor
     @Test func testBackForwardHistory() async throws {
         let mockFM = MockFileManager()
@@ -13,92 +13,80 @@ import Combine
         try mockFM.createDirectory(at: URL(fileURLWithPath: root), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "\(root)/folder1"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "\(root)/folder1/sub"), withIntermediateDirectories: true)
-        
+
         // 1. Initial State
         #expect(manager.leftRelativePath == "")
-        #expect(!manager.canGoBack)
-        #expect(!manager.canGoForward)
-        
+        #expect(!manager.leftHistory.canGoBack)
+        #expect(!manager.leftHistory.canGoForward)
+
         // 2. Navigate to folder1
         manager.focusOn(relativePath: "folder1", isLeft: true)
         #expect(manager.leftRelativePath == "folder1")
-        #expect(manager.canGoBack)
-        #expect(!manager.canGoForward)
-        
+        #expect(manager.leftHistory.canGoBack)
+        #expect(!manager.leftHistory.canGoForward)
+
         // 3. Navigate to sub
         manager.focusOn(relativePath: "folder1/sub", isLeft: true)
         #expect(manager.leftRelativePath == "folder1/sub")
-        #expect(manager.historyIndex == 2)
-        
+        #expect(manager.leftHistory.index == 2)
+
         // 4. Go Back
-        manager.goBack()
+        manager.goBack(isLeft: true)
         #expect(manager.leftRelativePath == "folder1")
-        #expect(manager.canGoBack)
-        #expect(manager.canGoForward)
-        
+        #expect(manager.leftHistory.canGoBack)
+        #expect(manager.leftHistory.canGoForward)
+
         // 5. Go Back to Root
-        manager.goBack()
+        manager.goBack(isLeft: true)
         #expect(manager.leftRelativePath == "")
-        #expect(!manager.canGoBack)
-        #expect(manager.canGoForward)
-        
+        #expect(!manager.leftHistory.canGoBack)
+        #expect(manager.leftHistory.canGoForward)
+
         // 6. Go Forward
-        manager.goForward()
+        manager.goForward(isLeft: true)
         #expect(manager.leftRelativePath == "folder1")
-        #expect(manager.canGoBack)
-        #expect(manager.canGoForward)
+        #expect(manager.leftHistory.canGoBack)
+        #expect(manager.leftHistory.canGoForward)
     }
-    
+
     @MainActor
     @Test func testHistoryTrimming() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        
+
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "a/b", isLeft: true)
-        
-        #expect(manager.history.count == 3) // Root, a, a/b
-        
-        manager.goBack() // Now at "a"
+
+        #expect(manager.leftHistory.entries.count == 3) // Root, a, a/b
+
+        manager.goBack(isLeft: true) // Now at "a"
         #expect(manager.leftRelativePath == "a")
-        
+
         // Navigate to new path "c"
         manager.focusOn(relativePath: "c", isLeft: true)
-        
+
         // Forward history "a/b" should be trimmed
-        #expect(manager.history.count == 3)
-        #expect(manager.history.last?.left == "c")
-        #expect(!manager.canGoForward)
+        #expect(manager.leftHistory.entries.count == 3)
+        #expect(manager.leftHistory.entries.last == "c")
+        #expect(!manager.leftHistory.canGoForward)
     }
-    
+
     @MainActor
-    @Test func testMatchingPathNavigation() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/common"), withIntermediateDirectories: true)
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/common"), withIntermediateDirectories: true)
-        
-        // Navigate source to "common"
+    @Test func testHistoriesAreIndependentPerPane() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        // Navigating the left pane leaves the right pane's path AND history untouched.
         manager.focusOn(relativePath: "common", isLeft: true)
-        
-        // focusOn only updates the focused pane; dest is unchanged
+
         #expect(manager.leftRelativePath == "common")
         #expect(manager.rightRelativePath == "")
-    }
-    
-    @MainActor
-    @Test func testNonMatchingPathFallsBackToRoot() async throws {
-        let mockFM = MockFileManager()
-        let manager = FileSyncManager(fileManager: mockFM)
-        
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/photos"), withIntermediateDirectories: true)
-        // Destination intentionally does not have /dst/photos
-        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
-        
-        manager.focusOn(relativePath: "photos", isLeft: true)
+        #expect(!manager.rightHistory.canGoBack)
 
-        #expect(manager.leftRelativePath == "photos")
+        // Back in the right pane is a no-op; back in the left pane undoes only the left move.
+        manager.goBack(isLeft: false)
+        #expect(manager.leftRelativePath == "common")
+        manager.goBack(isLeft: true)
+        #expect(manager.leftRelativePath == "")
         #expect(manager.rightRelativePath == "")
     }
 
@@ -113,17 +101,17 @@ import Combine
         defer { subscription.cancel() }
 
         // The focused path exists on no disk: focusOn does not validate it, it just re-focuses
-        // the one pane, resets the per-folder ignore list, appends to history, and fires the
-        // refresh subject (which is what triggers the follow-up tree load and scan).
+        // the one pane, resets the per-folder ignore list, appends to that pane's history, and
+        // fires the refresh subject (which is what triggers the follow-up tree load and scan).
         manager.focusOn(relativePath: "does/not/exist", isLeft: false)
 
         #expect(manager.rightRelativePath == "does/not/exist")
         #expect(manager.leftRelativePath == "somewhere") // the other pane is untouched
         #expect(manager.ignoredPaths.isEmpty)
         #expect(refreshCount == 1)
-        #expect(manager.history.count == 3)
-        #expect(manager.canGoBack)
-        #expect(!manager.canGoForward)
+        #expect(manager.rightHistory.entries.count == 2)
+        #expect(manager.rightHistory.canGoBack)
+        #expect(!manager.rightHistory.canGoForward)
     }
 
     @MainActor
@@ -138,18 +126,18 @@ import Combine
         manager.focusOn(relativePath: "docs/projects", isLeft: true)
 
         #expect(manager.leftRelativePath == "docs/projects")
-        #expect(manager.history.count == 4)
-        #expect(manager.canGoBack)
-        #expect(!manager.canGoForward)
+        #expect(manager.leftHistory.entries.count == 4)
+        #expect(manager.leftHistory.canGoBack)
+        #expect(!manager.leftHistory.canGoForward)
 
-        manager.goBack()
+        manager.goBack(isLeft: true)
         #expect(manager.leftRelativePath == "docs/projects/app")
-        manager.goForward()
+        manager.goForward(isLeft: true)
         #expect(manager.leftRelativePath == "docs/projects")
     }
 
     @MainActor
-    @Test func testFocusBothMovesBothPanesWithOneHistoryEntry() async throws {
+    @Test func testFocusBothMovesBothPanesWithOneEntryPerPane() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "docs/a", isLeft: true)
         manager.focusOn(relativePath: "docs/b", isLeft: false)
@@ -160,33 +148,42 @@ import Combine
         defer { subscription.cancel() }
 
         // ⌥-click on a breadcrumb: both panes converge on the same relative path,
-        // recorded as a single history entry so one Back undoes the whole jump.
+        // one new entry in each pane's own history.
         manager.focusBoth(relativePath: "docs")
 
         #expect(manager.leftRelativePath == "docs")
         #expect(manager.rightRelativePath == "docs")
         #expect(manager.ignoredPaths.isEmpty)
         #expect(refreshCount == 1)
-        #expect(manager.history.count == 4)
+        #expect(manager.leftHistory.entries == ["", "docs/a", "docs"])
+        #expect(manager.rightHistory.entries == ["", "docs/b", "docs"])
 
-        manager.goBack()
+        // Back in each pane independently undoes that pane's part of the jump.
+        manager.goBack(isLeft: true)
         #expect(manager.leftRelativePath == "docs/a")
+        #expect(manager.rightRelativePath == "docs")
+        manager.goBack(isLeft: false)
         #expect(manager.rightRelativePath == "docs/b")
     }
 
     @MainActor
-    @Test func testFocusBothIsNoOpWhenBothPanesAlreadyThere() async throws {
+    @Test func testFocusBothSkipsPanesAlreadyAtTarget() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.focusOn(relativePath: "shared", isLeft: true)
+
+        // Left is already at "shared": only the right pane gets a history entry.
         manager.focusBoth(relativePath: "shared")
-        #expect(manager.history.count == 2)
+        #expect(manager.leftHistory.entries == ["", "shared"])
+        #expect(manager.rightHistory.entries == ["", "shared"])
 
         var refreshCount = 0
         let subscription = manager.refreshSubject.sink { refreshCount += 1 }
         defer { subscription.cancel() }
 
+        // Both already there: complete no-op.
         manager.focusBoth(relativePath: "shared")
-
-        #expect(manager.history.count == 2)
+        #expect(manager.leftHistory.entries.count == 2)
+        #expect(manager.rightHistory.entries.count == 2)
         #expect(refreshCount == 0)
     }
 
@@ -195,29 +192,28 @@ import Combine
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.focusOn(relativePath: "a", isLeft: true)
         manager.focusOn(relativePath: "a/b", isLeft: true)
-        manager.goBack()
+        manager.goBack(isLeft: true)
 
         manager.focusBoth(relativePath: "c")
 
-        #expect(manager.history.count == 3)
-        #expect(manager.history.last?.left == "c")
-        #expect(manager.history.last?.right == "c")
-        #expect(!manager.canGoForward)
+        #expect(manager.leftHistory.entries == ["", "a", "c"])
+        #expect(manager.rightHistory.entries == ["", "c"])
+        #expect(!manager.leftHistory.canGoForward)
     }
 
     @MainActor
-    @Test func testAncestorFocusOnRightPaneWhenLeftIsAtRoot() async throws {
+    @Test func testResetNavigationClearsBothHistories() async throws {
         let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.focusOn(relativePath: "a", isLeft: true)
+        manager.focusOn(relativePath: "b", isLeft: false)
 
-        // Only the right pane is focused (the breadcrumb bar's fallback case).
-        manager.focusOn(relativePath: "photos/2026/july", isLeft: false)
-        manager.focusOn(relativePath: "photos", isLeft: false)
+        manager.resetNavigation()
 
-        #expect(manager.rightRelativePath == "photos")
         #expect(manager.leftRelativePath == "")
-        #expect(manager.history.count == 3)
-
-        manager.goBack()
-        #expect(manager.rightRelativePath == "photos/2026/july")
+        #expect(manager.rightRelativePath == "")
+        #expect(manager.leftHistory == PaneNavigationHistory())
+        #expect(manager.rightHistory == PaneNavigationHistory())
+        #expect(!manager.leftHistory.canGoBack)
+        #expect(!manager.rightHistory.canGoBack)
     }
 }

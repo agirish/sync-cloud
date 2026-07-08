@@ -1,92 +1,123 @@
 import Events
 import Foundation
 
+/// Back/forward stack for one pane's focused relative path. Each pane owns an independent
+/// history, so the back button in a pane's header only undoes that pane's navigation.
+public struct PaneNavigationHistory: Equatable {
+    /// Visited relative paths, oldest first. Always contains at least the root entry `""`.
+    public private(set) var entries: [String] = [""]
+    /// Index of the current entry.
+    public private(set) var index: Int = 0
+
+    public init() {}
+
+    public var current: String { entries[index] }
+    public var canGoBack: Bool { index > 0 }
+    public var canGoForward: Bool { index < entries.count - 1 }
+
+    /// Appends `path` as the new current entry, trimming any forward entries first.
+    public mutating func push(_ path: String) {
+        if index < entries.count - 1 {
+            entries.removeSubrange((index + 1)...)
+        }
+        entries.append(path)
+        index = entries.count - 1
+    }
+
+    /// Steps back one entry; no-op at the oldest entry.
+    public mutating func goBack() {
+        if canGoBack { index -= 1 }
+    }
+
+    /// Steps forward one entry; no-op at the newest entry.
+    public mutating func goForward() {
+        if canGoForward { index += 1 }
+    }
+
+    /// Back to the initial root-only state.
+    public mutating func reset() {
+        entries = [""]
+        index = 0
+    }
+}
+
 extension FileSyncManager {
-    
+
     // MARK: - Navigation Methods
-    
-    /// Sets the focused subfolder for one pane and appends to the back/forward history.
+
+    /// Sets the focused subfolder for one pane and appends to that pane's history.
     /// - Parameters:
     ///   - relativePath: Subfolder path relative to the pane root (e.g. `"Documents/Projects"`).
     ///   - isLeft: `true` if the user drilled into this folder from the left pane; `false` for the right pane.
     public func focusOn(relativePath: String, isLeft: Bool) {
         ignoredPaths.removeAll()
-        let newLeft = isLeft ? relativePath : self.leftRelativePath
-        let newRight = !isLeft ? relativePath : self.rightRelativePath
-        
-        // Trim history if we're not at the end
-        if historyIndex < history.count - 1 {
-            history.removeSubrange((historyIndex + 1)...)
+        if isLeft {
+            leftHistory.push(relativePath)
+        } else {
+            rightHistory.push(relativePath)
         }
-        
-        history.append((newLeft, newRight))
-        historyIndex = history.count - 1
-        updateStateFromHistory()
+        syncPathsFromHistory()
     }
-    
-    /// Sets the focused subfolder for both panes at once (⌥-click on a pane breadcrumb) and
-    /// appends a single history entry, so Back undoes the jump for both panes together.
-    /// No-op when both panes are already focused on `relativePath`.
+
+    /// Sets the focused subfolder for both panes at once (⌥-click on a pane breadcrumb).
+    /// Panes already focused on `relativePath` keep their history untouched, so Back in each
+    /// pane still undoes exactly that pane's last move. No-op when both panes are already there.
     public func focusBoth(relativePath: String) {
         guard leftRelativePath != relativePath || rightRelativePath != relativePath else { return }
         ignoredPaths.removeAll()
+        if leftRelativePath != relativePath { leftHistory.push(relativePath) }
+        if rightRelativePath != relativePath { rightHistory.push(relativePath) }
+        syncPathsFromHistory()
+    }
 
-        if historyIndex < history.count - 1 {
-            history.removeSubrange((historyIndex + 1)...)
+    /// Navigates one pane to the previous entry in its own history stack.
+    @MainActor public func goBack(isLeft: Bool) {
+        if isLeft {
+            guard leftHistory.canGoBack else { return }
+            leftHistory.goBack()
+        } else {
+            guard rightHistory.canGoBack else { return }
+            rightHistory.goBack()
         }
-
-        history.append((relativePath, relativePath))
-        historyIndex = history.count - 1
-        updateStateFromHistory()
-    }
-
-    /// Navigates to the previous state in the directory history stack.
-    @MainActor public func goBack() {
-        guard historyIndex > 0 else { return }
         ignoredPaths.removeAll()
-        historyIndex -= 1
-        let state = history[historyIndex]
-        Logger.shared.info("User navigated back to \(state.left.isEmpty ? "root" : state.left)")
-        updateStateFromHistory()
+        let pane = isLeft ? "left" : "right"
+        let target = (isLeft ? leftHistory : rightHistory).current
+        Logger.shared.info("User navigated \(pane) pane back to \(target.isEmpty ? "root" : target)")
+        syncPathsFromHistory()
     }
 
-    /// Navigates to the next state in the directory history stack.
-    @MainActor public func goForward() {
-        guard historyIndex < history.count - 1 else { return }
+    /// Navigates one pane to the next entry in its own history stack.
+    @MainActor public func goForward(isLeft: Bool) {
+        if isLeft {
+            guard leftHistory.canGoForward else { return }
+            leftHistory.goForward()
+        } else {
+            guard rightHistory.canGoForward else { return }
+            rightHistory.goForward()
+        }
         ignoredPaths.removeAll()
-        historyIndex += 1
-        let state = history[historyIndex]
-        Logger.shared.info("User navigated forward to \(state.left.isEmpty ? "root" : state.left)")
-        updateStateFromHistory()
+        let pane = isLeft ? "left" : "right"
+        let target = (isLeft ? leftHistory : rightHistory).current
+        Logger.shared.info("User navigated \(pane) pane forward to \(target.isEmpty ? "root" : target)")
+        syncPathsFromHistory()
     }
 
-    /// Resets both panes to root, clears selection, and resets back/forward history.
+    /// Resets both panes to root, clears selection, and resets both history stacks.
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
         ignoredPaths.removeAll()
-        if !leftRelativePath.isEmpty { leftRelativePath = "" }
-        if !rightRelativePath.isEmpty { rightRelativePath = "" }
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
 
-        // Reset history to root only when it is not already exactly one root entry.
-        if history.count != 1 || history[0].left != "" || history[0].right != "" {
-            history = [("", "")]
-        }
-        if historyIndex != 0 { historyIndex = 0 }
-        updateStateFromHistory()
+        if leftHistory != PaneNavigationHistory() { leftHistory.reset() }
+        if rightHistory != PaneNavigationHistory() { rightHistory.reset() }
+        syncPathsFromHistory()
     }
-    
-    func updateStateFromHistory() {
-        let state = history[historyIndex]
-        if leftRelativePath != state.left { leftRelativePath = state.left }
-        if rightRelativePath != state.right { rightRelativePath = state.right }
-        
-        let nextCanGoBack = historyIndex > 0
-        let nextCanGoForward = historyIndex < history.count - 1
-        if canGoBack != nextCanGoBack { canGoBack = nextCanGoBack }
-        if canGoForward != nextCanGoForward { canGoForward = nextCanGoForward }
-        
+
+    /// Publishes each pane's current history entry into its relative path and triggers a refresh.
+    func syncPathsFromHistory() {
+        if leftRelativePath != leftHistory.current { leftRelativePath = leftHistory.current }
+        if rightRelativePath != rightHistory.current { rightRelativePath = rightHistory.current }
         refreshSubject.send()
     }
 
