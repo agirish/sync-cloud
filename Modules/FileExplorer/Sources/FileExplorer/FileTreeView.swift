@@ -1,4 +1,3 @@
-import AppKit
 import Design
 import Events
 import SwiftUI
@@ -142,19 +141,22 @@ public struct FileTreeView: View {
     }
 
     /// TEMPORARY diagnostic flags to bisect which pane decoration eats single clicks (the
-    /// "dead click" bug — dragging alone was already exonerated); remove all of them and the
-    /// layered row helpers below after the experiment. Each flag strips one layer. No Settings
-    /// UI on purpose: toggle via `defaults write <bundle-id> <key> -bool YES` and relaunch.
-    /// Read once at process start — conditional modifiers change SwiftUI view identity, so
-    /// flipping them live would rebuild rows mid-session; relaunch-to-apply is intended.
+    /// "dead click" bug). The bisect convicted the row double-click gesture — a count-1
+    /// `simultaneousGesture` still intermittently swallowed the mouse-up the List needs to
+    /// select — so it has been removed outright rather than flagged. The remaining flags stay
+    /// while drag/drop is still being investigated; remove them and the layered row helpers
+    /// below once that's settled. Each flag strips one layer. No Settings UI on purpose:
+    /// toggle via `defaults write <bundle-id> <key> -bool YES` and relaunch. Read once at
+    /// process start — conditional modifiers change SwiftUI view identity, so flipping them
+    /// live would rebuild rows mid-session; relaunch-to-apply is intended.
     private static let paneDragDisabled = UserDefaults.standard.bool(forKey: "paneDragDisabled")
-    private static let paneDoubleClickDisabled = UserDefaults.standard.bool(forKey: "paneDoubleClickDisabled")
     private static let paneRowContextMenuDisabled = UserDefaults.standard.bool(forKey: "paneRowContextMenuDisabled")
     private static let paneRowDropTargetDisabled = UserDefaults.standard.bool(forKey: "paneRowDropTargetDisabled")
     private static let paneListChromeDisabled = UserDefaults.standard.bool(forKey: "paneListChromeDisabled")
 
-    /// One tree row: content + context menu, double-click drill-down, draggable, and (for
-    /// directories) a drop target — each layer skippable via the TEMPORARY flags above.
+    /// One tree row: content + context menu, draggable, and (for directories) a drop target —
+    /// each layer skippable via the TEMPORARY flags above. Single-click selection is left
+    /// entirely to the List; drilling into a folder is via the Compare button / context menu.
     @ViewBuilder
     private func treeRow(for node: FileNode) -> some View {
         let base = FileRowView(
@@ -164,7 +166,7 @@ public struct FileTreeView: View {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
         )
         .tag(node.id)
-        rowDropTarget(rowDrag(rowDoubleClick(rowContextMenu(base, for: node), for: node), for: node), for: node)
+        rowDropTarget(rowDrag(rowContextMenu(base, for: node), for: node), for: node)
     }
 
     @ViewBuilder
@@ -186,29 +188,6 @@ public struct FileTreeView: View {
                     otherPaneName: otherPaneName
                 )
             }
-        }
-    }
-
-    @ViewBuilder
-    private func rowDoubleClick(_ content: some View, for node: FileNode) -> some View {
-        if Self.paneDoubleClickDisabled {
-            content
-        } else {
-            // Double-click detection via AppKit's click counter on a count-1 tap.
-            // TapGesture(count: 2) was the "dead clicks" culprit (verified by the flag
-            // experiment): a count-2 recognizer makes the gesture system hold single
-            // clicks while it waits for a possible second one, and clicks with slight
-            // mouse travel were discarded outright. A count-1 tap completes immediately,
-            // so the List's single-click selection is never gated; the second click of a
-            // double-click still reaches us, carrying clickCount == 2.
-            content.simultaneousGesture(TapGesture().onEnded {
-                guard NSApp.currentEvent?.clickCount == 2 else { return }
-                if node.isDirectory {
-                    delegate.handleFocus(node)
-                } else {
-                    delegate.handleQuickLook(node)
-                }
-            })
         }
     }
 
