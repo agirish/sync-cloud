@@ -200,6 +200,12 @@ public class FileSyncManager: ObservableObject {
     internal var activeLoadLeftTask: Task<Void, Never>?
     internal var activeLoadRightTask: Task<Void, Never>?
     internal var activeRefreshTask: Task<Void, Never>?
+    /// Monotonic per-pane load tokens: each `loadTree` call claims the next value. The deferred
+    /// spinner cleanup in `loadTree` fires only while the pane's token still matches, so a
+    /// superseded load never clears a newer load's spinner, yet the current load always
+    /// releases it — even when cancelled with no successor to take over.
+    var leftLoadGeneration = 0
+    var rightLoadGeneration = 0
     private var hasPendingSelectionPrune = false
     var scanRequestGeneration = 0
     var pendingScanRequest: ScanRequest?

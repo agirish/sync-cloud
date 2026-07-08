@@ -15,9 +15,31 @@ extension FileSyncManager {
         if isLeft { activeLoadLeftTask?.cancel() }
         else { activeLoadRightTask?.cancel() }
 
+        // Token for this load; the next load for the same pane bumps it. The deferred cleanup
+        // below uses it to release the spinner only while this load is still the current one.
+        let loadToken: Int
+        if isLeft { leftLoadGeneration += 1; loadToken = leftLoadGeneration }
+        else { rightLoadGeneration += 1; loadToken = rightLoadGeneration }
+
         let task = Task {
             let label = isLeft ? "Left" : "Right"
             Logger.shared.debug("Loading \(label) Tree for path: \(path)")
+
+            // Whatever exit this load takes — normal completion, cache-hit return, or
+            // cancellation between the disk walks — release the loading spinner, but only if
+            // this load is still the pane's current one (a newer load owns the flag once it
+            // starts). Without this, a load cancelled with no successor stranded the spinner
+            // (the "stuck Scanning Directory…" bug); it self-healed only on re-navigation.
+            defer {
+                let stillCurrent = isLeft ? (leftLoadGeneration == loadToken) : (rightLoadGeneration == loadToken)
+                let wasLoading = isLeft ? isLoadingLeftTree : isLoadingRightTree
+                if stillCurrent, wasLoading {
+                    if isLeft { isLoadingLeftTree = false } else { isLoadingRightTree = false }
+                    if Task.isCancelled {
+                        Logger.shared.debug("\(label) tree load cancelled before completing; cleared its stale loading spinner")
+                    }
+                }
+            }
 
             let relPath = isLeft ? leftRelativePath : rightRelativePath
             let rootURL = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
@@ -35,13 +57,8 @@ extension FileSyncManager {
                 prefetchedTrees[focusPath] = cached
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath)
                 await self.applyFilters()
-                // A slow load we just cancelled may have left the spinner flag set; it can't
-                // clear it itself (this newer load owns the flag once it starts).
-                if isLeft {
-                    if isLoadingLeftTree { isLoadingLeftTree = false }
-                } else {
-                    if isLoadingRightTree { isLoadingRightTree = false }
-                }
+                // The spinner (set by a slow load this one just cancelled) is released by the
+                // deferred cleanup above.
                 return
             }
 

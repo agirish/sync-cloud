@@ -236,6 +236,29 @@ import Foundation
         #expect(manager.leftTree.first?.name == "a.txt")
     }
 
+    /// A load cancelled with NO successor to inherit its spinner (e.g. the refresh that owned it
+    /// was cancelled and nothing reloads the pane) must clear the flag itself — otherwise the
+    /// pane sticks on "Scanning Directory…" until the user re-navigates. Mirrors the right pane,
+    /// where this was observed.
+    @MainActor
+    @Test func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.05
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/slow/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let load = Task { await manager.loadTree(path: "/slow", isLeft: false) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        #expect(manager.isLoadingRightTree)
+
+        // Cancel the load with nothing else starting for this pane to take the flag over.
+        load.cancel()
+        await load.value
+
+        #expect(!manager.isLoadingRightTree)   // regression: a cancelled load used to strand the spinner
+    }
+
     /// The batch stat pass runs before the first collision prompt, and a prompt holds the run
     /// for an unbounded time. A destination created externally during that wait must still get
     /// its own overwrite prompt — with only the stale pre-prompt stat it was silently replaced.
