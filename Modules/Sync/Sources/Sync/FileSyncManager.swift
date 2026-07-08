@@ -807,22 +807,26 @@ public class FileSyncManager: ObservableObject {
         }
     }
 
-    /// Removes selected paths that no longer exist in the trees (e.g. after move/delete) to avoid ghost selection.
+    /// Removes selected paths that no longer exist in the trees (e.g. after move/delete) to avoid
+    /// ghost selection. A pane whose tree is still loading is skipped: progressive loading
+    /// publishes a shallow (root-children-only) tree before the deep walk finishes, and pruning
+    /// against it would wipe a still-valid deeper selection.
     public func pruneSelection() {
-        var allLeftPaths = Set<String>()
-        var allRightPaths = Set<String>()
-        
-        collectPaths(in: leftTree, into: &allLeftPaths)
-        collectPaths(in: rightTree, into: &allRightPaths)
-        
-        let prunedLeft = selectedLeftPaths.filter { allLeftPaths.contains($0) }
-        let prunedRight = selectedRightPaths.filter { allRightPaths.contains($0) }
-        
-        if prunedLeft != selectedLeftPaths {
-            selectedLeftPaths = prunedLeft
+        if !isLoadingLeftTree {
+            var allLeftPaths = Set<String>()
+            collectPaths(in: leftTree, into: &allLeftPaths)
+            let prunedLeft = selectedLeftPaths.filter { allLeftPaths.contains($0) }
+            if prunedLeft != selectedLeftPaths {
+                selectedLeftPaths = prunedLeft
+            }
         }
-        if prunedRight != selectedRightPaths {
-            selectedRightPaths = prunedRight
+        if !isLoadingRightTree {
+            var allRightPaths = Set<String>()
+            collectPaths(in: rightTree, into: &allRightPaths)
+            let prunedRight = selectedRightPaths.filter { allRightPaths.contains($0) }
+            if prunedRight != selectedRightPaths {
+                selectedRightPaths = prunedRight
+            }
         }
     }
 

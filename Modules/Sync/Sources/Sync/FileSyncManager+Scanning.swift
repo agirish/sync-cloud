@@ -46,6 +46,20 @@ extension FileSyncManager {
             // so no extra detached hop is needed here.
             let fm = self.fileManager
             let sortOp = self.sortOption
+
+            // Progressive first paint: publish the immediate children right away (one
+            // directory listing), then swap in the deep tree when the full walk finishes.
+            // The pane stops looking hung on large/cloud folders; the loading flag stays up
+            // until the deep tree lands, which also keeps pruneSelection off the shallow tree.
+            let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
+            guard !Task.isCancelled else { return }
+            if isLeft {
+                self.rawLeftTree = shallowTree
+            } else {
+                self.rawRightTree = shallowTree
+            }
+            self.applyFilters()
+
             let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
 
             guard !Task.isCancelled else { return }
@@ -211,11 +225,15 @@ extension FileSyncManager {
     /// Walks the directory tree off the main actor. Cancelling the calling task aborts the walk:
     /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —
     /// that is what makes the `Task.isCancelled` checks inside `buildNode` effective.
-    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
+    /// `maxDepth` caps the walk (1 = immediate children only) for the progressive first paint;
+    /// capped directories come back with `children: []` — present and expandable-looking, but
+    /// unexplored — and nil means unlimited.
+    nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder {
                 let fileManager: FileManaging
                 let sortOption: SortOption
+                let maxDepth: Int?
 
                 /// Keys prefetched when listing a directory so each child's resourceValues in
                 /// buildNode is a cache hit rather than a separate stat.
@@ -257,7 +275,7 @@ extension FileSyncManager {
                     }
                 }
 
-                func buildNode(at fullURL: URL) -> FileNode? {
+                func buildNode(at fullURL: URL, depth: Int) -> FileNode? {
                     guard !Task.isCancelled else { return nil }
 
                     let name = fullURL.lastPathComponent
@@ -296,9 +314,14 @@ extension FileSyncManager {
                     }
 
                     if isDirectory {
+                        // Depth-capped (shallow) pass: report the directory but don't walk into
+                        // it — empty children keep it rendering as a folder until the deep pass.
+                        if let maxDepth, depth >= maxDepth {
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                        }
                         var children: [FileNode] = []
                         for childURL in childURLs(of: fullURL) {
-                            if let childNode = buildNode(at: childURL) {
+                            if let childNode = buildNode(at: childURL, depth: depth + 1) {
                                 children.append(childNode)
                             }
                         }
@@ -310,7 +333,7 @@ extension FileSyncManager {
                 }
             }
             
-            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption)
+            let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 
@@ -318,7 +341,7 @@ extension FileSyncManager {
             await Logger.shared.debug("buildTree contents count: \(rootChildURLs.count)")
             var rootChildren: [FileNode] = []
             for childURL in rootChildURLs {
-                if let childNode = builder.buildNode(at: childURL) {
+                if let childNode = builder.buildNode(at: childURL, depth: 1) {
                     rootChildren.append(childNode)
                 }
             }
