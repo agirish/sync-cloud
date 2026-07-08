@@ -15,6 +15,11 @@ public struct SettingsView: View {
         case sync
     }
 
+    /// UserDefaults key holding the tab the Settings window opens on (a `SettingsTab` raw
+    /// value). Callers set it just before invoking `openSettings` to preselect a tab; the
+    /// GUI-verification recipe writes it via `defaults`, so the literal is a stable format.
+    public static let selectedTabDefaultsKey = "settingsSelectedTab"
+
     /// Initial tab, read once from `settingsSelectedTab`. Deliberately not written back:
     /// binding the TabView selection to @AppStorage churns nondeterministically while the
     /// Settings scene builds its toolbar, clobbering the stored value. Read-once keeps the
@@ -22,7 +27,7 @@ public struct SettingsView: View {
     @State private var selectedTab: SettingsTab
 
     public init() {
-        let stored = UserDefaults.standard.string(forKey: "settingsSelectedTab") ?? ""
+        let stored = UserDefaults.standard.string(forKey: Self.selectedTabDefaultsKey) ?? ""
         _selectedTab = State(initialValue: SettingsTab(rawValue: stored) ?? .appearance)
     }
 

@@ -113,6 +113,14 @@ public class FileSyncManager: ObservableObject {
     internal var rawRightTree: [FileNode] = []
     /// Filtered file tree for the right pane (used by the UI).
     @Published public var rightTree: [FileNode] = []
+
+    /// True when the left pane's folder has entries but filtering (hidden files) removed all
+    /// of them — lets the empty-pane placeholder point at the Hidden toggle. Not `@Published`:
+    /// read during renders that `leftTree` (always published after the raw tree is set)
+    /// already triggers.
+    public var leftTreeHasOnlyHiddenEntries: Bool { leftTree.isEmpty && !rawLeftTree.isEmpty }
+    /// Right-pane counterpart of `leftTreeHasOnlyHiddenEntries`.
+    public var rightTreeHasOnlyHiddenEntries: Bool { rightTree.isEmpty && !rawRightTree.isEmpty }
     /// True while the left pane tree is being loaded from disk.
     @Published public var isLoadingLeftTree = false
     /// True while the right pane tree is being loaded from disk.

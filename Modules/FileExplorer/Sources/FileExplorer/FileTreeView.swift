@@ -33,12 +33,25 @@ public struct FileTreeView: View {
     /// Display name of the opposite pane's provider, used as the copy/move target in menu labels.
     public let otherPaneName: String
 
+    /// Whether the provider's ROOT path existed as a directory at Settings' last validity
+    /// check (validity of a focused subfolder is not tracked — see `PaneEmptyState.classify`).
+    public let rootPathIsValid: Bool
+    /// Whether the pane's provider is enabled in Settings.
+    public let providerIsEnabled: Bool
+    /// True when the folder has entries but the hidden-files filter removed all of them.
+    public let hasOnlyHiddenEntries: Bool
+    /// The provider's root path, shown as the offending path in the invalid placeholder.
+    public let rootPath: String
+    /// Opens the Settings scene (preselected on the providers tab by the caller); nil hides
+    /// the "Open Settings" buttons.
+    public let onOpenSettings: (() -> Void)?
+
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
     @State private var isBackgroundDropTargeted = false
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -50,39 +63,78 @@ public struct FileTreeView: View {
         self.ignoredPaths = ignoredPaths
         self.diffIndex = diffIndex
         self.otherPaneName = otherPaneName ?? (isLeft ? "Right" : "Left")
+        self.rootPathIsValid = rootPathIsValid
+        self.providerIsEnabled = providerIsEnabled
+        self.hasOnlyHiddenEntries = hasOnlyHiddenEntries
+        self.rootPath = rootPath ?? currentPath
+        self.onOpenSettings = onOpenSettings
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
         return delegate.isNodeIgnored(node, currentPath: currentPath)
     }
     
+    /// The placeholder to show when the tree has no rows (see `PaneEmptyState.classify`).
+    var emptyState: PaneEmptyState {
+        PaneEmptyState.classify(
+            treeIsEmpty: tree.isEmpty,
+            isLoading: isLoading,
+            providerIsEnabled: providerIsEnabled,
+            rootIsValid: rootPathIsValid,
+            hasOnlyHiddenEntries: hasOnlyHiddenEntries
+        )
+    }
+
     public var body: some View {
         ZStack {
             paneList
 
-            if tree.isEmpty {
-                if isLoading {
-                    ProgressView("Scanning Directory...")
-                        .padding(16)
-                        .background(.regularMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-                        .shadow(
-                            color: LiquidGlass.subtleShadow.color,
-                            radius: LiquidGlass.subtleShadow.radius,
-                            x: LiquidGlass.subtleShadow.x,
-                            y: LiquidGlass.subtleShadow.y
-                        )
-                } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "folder.badge.questionmark")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                        Text("Directory is empty or invalid")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+            switch emptyState {
+            case .none:
+                EmptyView()
+            case .loading:
+                ProgressView("Scanning Directory...")
+                    .padding(16)
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+                    .shadow(
+                        color: LiquidGlass.subtleShadow.color,
+                        radius: LiquidGlass.subtleShadow.radius,
+                        x: LiquidGlass.subtleShadow.x,
+                        y: LiquidGlass.subtleShadow.y
+                    )
+            case .providerDisabled:
+                settingsProblemPlaceholder(
+                    icon: "externaldrive.badge.xmark",
+                    title: "Provider is disabled",
+                    detail: "Enable it in Settings to browse its files."
+                )
+            case .invalidRoot:
+                settingsProblemPlaceholder(
+                    icon: "exclamationmark.triangle",
+                    title: "Folder not found",
+                    detail: "The configured folder is missing or not a directory.",
+                    path: rootPath
+                )
+            case .emptyFolder(let hasOnlyHiddenEntries):
+                VStack(spacing: 12) {
+                    Image(systemName: "folder")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("Folder is empty")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if hasOnlyHiddenEntries {
+                        Text("It only contains hidden items — use the Hidden toggle to show them.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .multilineTextAlignment(.center)
                     }
                 }
-            } else if isLoading {
+                .padding(.horizontal, 24)
+            }
+
+            if !tree.isEmpty && isLoading {
                 // Subtle corner overlay when refreshing non-empty tree; display-only, so it
                 // must never intercept clicks meant for the rows underneath it.
                 VStack {
@@ -100,6 +152,39 @@ public struct FileTreeView: View {
                 .allowsHitTesting(false)
             }
         }
+    }
+
+    /// Placeholder for states the user fixes in Settings (missing root, disabled provider):
+    /// warning icon, explanation, optionally the offending path, and an Open Settings button.
+    @ViewBuilder
+    private func settingsProblemPlaceholder(icon: String, title: String, detail: String, path: String? = nil) -> some View {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.largeTitle)
+                .foregroundStyle(.orange)
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+            if let path {
+                Text(path)
+                    .font(.caption)
+                    .monospaced()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
+            }
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if let onOpenSettings {
+                Button("Open Settings", action: onOpenSettings)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 24)
     }
 
     /// The pane's List plus its list-level chrome: empty-area context menu, background drop

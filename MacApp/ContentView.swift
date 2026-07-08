@@ -322,6 +322,17 @@ struct ContentView: View {
         }
     }
 
+    /// Opens the native Settings scene preselected on the Providers tab — the fix-it action
+    /// for the invalid-root / disabled-provider pane placeholders. SettingsView reads the
+    /// tab default once at window creation, so it must be written before `openSettings()`.
+    private func openProviderSettings() {
+        UserDefaults.standard.set(
+            SettingsView.SettingsTab.providers.rawValue,
+            forKey: SettingsView.selectedTabDefaultsKey
+        )
+        openSettings()
+    }
+
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
     private func forceRefreshAction() {
         Logger.shared.info("User requested a force refresh")
@@ -590,7 +601,12 @@ struct ContentView: View {
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths,
             diffIndex: leftDiffIndex,
-            otherPaneName: paneNames.right
+            otherPaneName: paneNames.right,
+            rootPathIsValid: settings.isPathValid(for: leftProviderId),
+            providerIsEnabled: settings.isEnabled(leftProviderId),
+            hasOnlyHiddenEntries: syncManager.leftTreeHasOnlyHiddenEntries,
+            rootPath: settings.path(for: leftProviderId),
+            onOpenSettings: openProviderSettings
         )
     }
     
@@ -607,7 +623,12 @@ struct ContentView: View {
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths,
             diffIndex: rightDiffIndex,
-            otherPaneName: paneNames.left
+            otherPaneName: paneNames.left,
+            rootPathIsValid: settings.isPathValid(for: rightProviderId),
+            providerIsEnabled: settings.isEnabled(rightProviderId),
+            hasOnlyHiddenEntries: syncManager.rightTreeHasOnlyHiddenEntries,
+            rootPath: settings.path(for: rightProviderId),
+            onOpenSettings: openProviderSettings
         )
     }
     
