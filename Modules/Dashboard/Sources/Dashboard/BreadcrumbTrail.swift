@@ -1,7 +1,7 @@
 import Foundation
 
-/// Pure model behind the breadcrumb bar in `NavigationToolbar`: splits the focused relative
-/// path into clickable crumbs and folds the middle of deep paths into an ellipsis menu.
+/// Pure model behind the per-pane breadcrumb in `PaneHeader`: splits a relative path into
+/// clickable crumbs and folds the middle of deep paths into an ellipsis menu.
 public enum BreadcrumbTrail {
 
     /// One ancestor level: display name plus the relative path to re-focus on when clicked.
@@ -53,11 +53,11 @@ public enum BreadcrumbTrail {
         ]
     }
 
-    /// Which pane's focused path the bar shows: the left one, falling back to the right
-    /// (same precedence the old "Focusing on:" label used). Nil when both panes are at root.
-    public static func displayedFocus(leftRelativePath: String, rightRelativePath: String) -> (relativePath: String, isLeft: Bool)? {
-        if !leftRelativePath.isEmpty { return (leftRelativePath, true) }
-        if !rightRelativePath.isEmpty { return (rightRelativePath, false) }
-        return nil
+    /// Display name for a pane's root crumb: the last component of the provider root path
+    /// (e.g. `"Documents"` for `/Users/me/Documents`), falling back to `"Root"` for paths
+    /// with no usable component.
+    public static func rootDisplayName(forRootPath rootPath: String) -> String {
+        let name = rootPath.split(separator: "/").last.map(String.init) ?? ""
+        return name.isEmpty ? "Root" : name
     }
 }

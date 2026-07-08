@@ -24,6 +24,22 @@ extension FileSyncManager {
         updateStateFromHistory()
     }
     
+    /// Sets the focused subfolder for both panes at once (⌥-click on a pane breadcrumb) and
+    /// appends a single history entry, so Back undoes the jump for both panes together.
+    /// No-op when both panes are already focused on `relativePath`.
+    public func focusBoth(relativePath: String) {
+        guard leftRelativePath != relativePath || rightRelativePath != relativePath else { return }
+        ignoredPaths.removeAll()
+
+        if historyIndex < history.count - 1 {
+            history.removeSubrange((historyIndex + 1)...)
+        }
+
+        history.append((relativePath, relativePath))
+        historyIndex = history.count - 1
+        updateStateFromHistory()
+    }
+
     /// Navigates to the previous state in the directory history stack.
     @MainActor public func goBack() {
         guard historyIndex > 0 else { return }

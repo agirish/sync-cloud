@@ -64,17 +64,32 @@ struct DashboardMetric: View {
     }
 }
 
-/// Header above each file tree pane: provider logo and name on the left, current path below.
+/// Header above each file tree pane: provider logo and name on the left, a clickable
+/// breadcrumb (provider root + relative-path segments) below. Clicking a crumb navigates
+/// this pane; ⌥-clicking navigates both panes to the same relative path.
 public struct PaneHeader: View {
     public let title: String
     public let provider: CloudProvider?
-    public let path: String
+    public let rootPath: String
+    public let relativePath: String
+    public let onNavigate: (String) -> Void
+    public let onNavigateBoth: (String) -> Void
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
 
-    public init(title: String, provider: CloudProvider?, path: String) {
+    public init(
+        title: String,
+        provider: CloudProvider?,
+        rootPath: String,
+        relativePath: String,
+        onNavigate: @escaping (String) -> Void,
+        onNavigateBoth: @escaping (String) -> Void
+    ) {
         self.title = title
         self.provider = provider
-        self.path = path
+        self.rootPath = rootPath
+        self.relativePath = relativePath
+        self.onNavigate = onNavigate
+        self.onNavigateBoth = onNavigateBoth
     }
 
     public var body: some View {
@@ -97,14 +112,12 @@ public struct PaneHeader: View {
                 }
                 Spacer(minLength: 0)
             }
-            HStack {
-                Text(path)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
+            PaneBreadcrumb(
+                rootPath: rootPath,
+                relativePath: relativePath,
+                onNavigate: onNavigate,
+                onNavigateBoth: onNavigateBoth
+            )
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)

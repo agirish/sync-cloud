@@ -1,8 +1,8 @@
 import Testing
 @testable import Dashboard
 
-/// Coverage for the pure breadcrumb logic behind NavigationToolbar: path splitting into
-/// cumulative crumbs, middle-ellipsis truncation of deep trails, and pane precedence.
+/// Coverage for the pure breadcrumb logic behind PaneBreadcrumb: path splitting into
+/// cumulative crumbs, middle-ellipsis truncation of deep trails, and root crumb naming.
 @Suite struct BreadcrumbTrailTests {
 
     // MARK: - crumbs(forRelativePath:)
@@ -70,21 +70,18 @@ import Testing
         #expect(items == crumbs.map(BreadcrumbTrail.Item.crumb))
     }
 
-    // MARK: - displayedFocus(leftRelativePath:rightRelativePath:)
+    // MARK: - rootDisplayName(forRootPath:)
 
-    @Test func testLeftPathTakesPrecedence() {
-        let focus = BreadcrumbTrail.displayedFocus(leftRelativePath: "docs", rightRelativePath: "other")
-        #expect(focus?.relativePath == "docs")
-        #expect(focus?.isLeft == true)
+    @Test func testRootNameIsLastPathComponent() {
+        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/Users/me/Documents") == "Documents")
     }
 
-    @Test func testFallsBackToRightPath() {
-        let focus = BreadcrumbTrail.displayedFocus(leftRelativePath: "", rightRelativePath: "other")
-        #expect(focus?.relativePath == "other")
-        #expect(focus?.isLeft == false)
+    @Test func testRootNameIgnoresTrailingSlash() {
+        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/Users/me/Dropbox/") == "Dropbox")
     }
 
-    @Test func testBothAtRootShowsNoBreadcrumbs() {
-        #expect(BreadcrumbTrail.displayedFocus(leftRelativePath: "", rightRelativePath: "") == nil)
+    @Test func testRootNameFallsBackForBareOrEmptyPaths() {
+        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "/") == "Root")
+        #expect(BreadcrumbTrail.rootDisplayName(forRootPath: "") == "Root")
     }
 }

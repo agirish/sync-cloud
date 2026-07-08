@@ -341,13 +341,27 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     HSplitView {
                         VStack(spacing: 0) {
-                            PaneHeader(title: "Left", provider: settings.availableProviders.first(where: { $0.id == leftProviderId }), path: currentLeftPath)
+                            PaneHeader(
+                                title: "Left",
+                                provider: settings.availableProviders.first(where: { $0.id == leftProviderId }),
+                                rootPath: settings.path(for: leftProviderId),
+                                relativePath: syncManager.leftRelativePath,
+                                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: true) },
+                                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
+                            )
                             leftTreeView
                         }
                         .frame(minWidth: 250)
                         
                         VStack(spacing: 0) {
-                            PaneHeader(title: "Right", provider: settings.availableProviders.first(where: { $0.id == rightProviderId }), path: currentRightPath)
+                            PaneHeader(
+                                title: "Right",
+                                provider: settings.availableProviders.first(where: { $0.id == rightProviderId }),
+                                rootPath: settings.path(for: rightProviderId),
+                                relativePath: syncManager.rightRelativePath,
+                                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: false) },
+                                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
+                            )
                             rightTreeView
                         }
                         .frame(minWidth: 250)
