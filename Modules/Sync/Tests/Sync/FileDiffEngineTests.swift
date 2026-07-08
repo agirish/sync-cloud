@@ -354,4 +354,117 @@ import Foundation
         #expect(diffs.first?.action == .copyToRight)
         #expect(diffs.first?.description == "Source file is newer")
     }
+
+    // MARK: - Missing-folder collapse
+    // A folder missing on one side is synced with a single recursive copy, so its contents
+    // must not appear as separate differences: they'd double-copy during bulk sync and leave
+    // stale rows (with spurious overwrite prompts) after the folder entry is synced.
+
+    private func makeProviders() -> (CloudProvider, CloudProvider) {
+        (CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud),
+         CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud))
+    }
+
+    @Test func testMissingFolderCollapsesContentsIntoSingleEntry() async throws {
+        let mockFM = MockFileManager()
+        // The mock's createDirectory only registers the leaf, so create each level explicitly.
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Music"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Music/Inner"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Music/a.mp3"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Music/b.mp3"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Music/Inner/c.mp3"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Music")
+        #expect(diffs.first?.type == .missingOnRight)
+        #expect(diffs.first?.action == .copyToRight)
+        // 4 collapsed items: a.mp3, b.mp3, Inner, Inner/c.mp3
+        #expect(diffs.first?.enclosedItemCount == 4)
+    }
+
+    @Test func testMissingFolderCollapseOnLeftSide() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/Photos"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/dst/Photos/p1.jpg"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Photos")
+        #expect(diffs.first?.type == .missingOnLeft)
+        #expect(diffs.first?.action == .copyToLeft)
+        #expect(diffs.first?.enclosedItemCount == 1)
+    }
+
+    @Test func testCollapseKeepsUnrelatedDifferences() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Music"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Music/a.mp3"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // A sibling file missing on right — not inside the missing folder, must survive.
+        mockFM.virtualDisk["/src/loose.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // A changed file present on both sides must survive too.
+        let now = Date()
+        mockFM.virtualDisk["/src/shared.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now.addingTimeInterval(10), .size: 10], contents: nil)
+        mockFM.virtualDisk["/dst/shared.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 10], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.map(\.relativePath) == ["Music", "loose.txt", "shared.txt"])
+        #expect(diffs.first?.enclosedItemCount == 1)
+        #expect(diffs[1].enclosedItemCount == nil)
+        #expect(diffs[2].enclosedItemCount == nil)
+    }
+
+    @Test func testCollapseRespectsComponentBoundaries() async throws {
+        let mockFM = MockFileManager()
+        // "Music" is missing, and so is the separate folder "Music2". Its contents must
+        // collapse under "Music2", not be swallowed by the "Music" prefix.
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Music"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Music2"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Music2/song.mp3"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.map(\.relativePath) == ["Music", "Music2"])
+        #expect(diffs[0].enclosedItemCount == nil)
+        #expect(diffs[1].enclosedItemCount == 1)
+    }
 }

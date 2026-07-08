@@ -170,7 +170,12 @@ public struct FileDiffEngine {
         rightFilesInfo: [String: FileInfo]
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
-        
+        // Folders that exist on one side only, per direction. Their descendants are collapsed
+        // into the folder's own entry below (a folder copy is recursive, so the descendants
+        // carry no independent action).
+        var missingOnRightDirs = Set<String>()
+        var missingOnLeftDirs = Set<String>()
+
         // 1. Files on left but not on right (or compare if exists)
         for (relativePath, leftFile) in leftFilesInfo {
             if let rightFile = rightFilesInfo[relativePath] {
@@ -250,6 +255,7 @@ public struct FileDiffEngine {
                 }
             } else {
                 // missing on right
+                if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
                 let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
@@ -265,6 +271,7 @@ public struct FileDiffEngine {
         // 2. Files on right but not on left
         for (relativePath, rightFile) in rightFilesInfo {
             if leftFilesInfo[relativePath] == nil {
+                if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
                     relativePath: relativePath,
@@ -277,10 +284,81 @@ public struct FileDiffEngine {
             }
         }
         
-        let result = diffs.sorted { $0.relativePath < $1.relativePath }
-        Task { @MainActor in 
+        let result = collapseMissingFolderContents(
+            diffs,
+            missingOnRightDirs: missingOnRightDirs,
+            missingOnLeftDirs: missingOnLeftDirs
+        ).sorted { $0.relativePath < $1.relativePath }
+        Task { @MainActor in
             Logger.shared.debug("Computed differences: \(result.count) items requiring action.")
         }
         return result
+    }
+
+    /// Drops differences that live inside a folder already reported missing on the same side:
+    /// copying that folder is recursive, so its contents sync with the folder entry itself.
+    /// Listing them separately double-copies during bulk sync and leaves stale rows (with
+    /// spurious overwrite prompts) after the folder row is synced. The surviving folder entry
+    /// gets `enclosedItemCount` so the UI can still say how much it carries.
+    private static func collapseMissingFolderContents(
+        _ diffs: [FileDifference],
+        missingOnRightDirs: Set<String>,
+        missingOnLeftDirs: Set<String>
+    ) -> [FileDifference] {
+        guard !missingOnRightDirs.isEmpty || !missingOnLeftDirs.isEmpty else { return diffs }
+
+        // Top-most missing ancestor folder → number of items collapsed into it.
+        var enclosedCounts: [String: Int] = [:]
+        var kept: [FileDifference] = []
+        kept.reserveCapacity(diffs.count)
+
+        for diff in diffs {
+            let dirs: Set<String>
+            switch diff.type {
+            case .missingOnRight: dirs = missingOnRightDirs
+            case .missingOnLeft: dirs = missingOnLeftDirs
+            case .differentDates:
+                // Items present on both sides can't sit under a folder that's missing on either.
+                kept.append(diff)
+                continue
+            }
+            if let ancestor = topMostAncestor(of: diff.relativePath, in: dirs) {
+                enclosedCounts[ancestor, default: 0] += 1
+            } else {
+                kept.append(diff)
+            }
+        }
+
+        guard !enclosedCounts.isEmpty else { return kept }
+        return kept.map { diff in
+            guard let count = enclosedCounts[diff.relativePath] else { return diff }
+            return FileDifference(
+                id: diff.id,
+                relativePath: diff.relativePath,
+                leftItemPath: diff.leftItemPath,
+                rightItemPath: diff.rightItemPath,
+                type: diff.type,
+                action: diff.action,
+                description: diff.description,
+                isSyncing: diff.isSyncing,
+                leftFileSize: diff.leftFileSize,
+                rightFileSize: diff.rightFileSize,
+                enclosedItemCount: count
+            )
+        }
+    }
+
+    /// Shortest strict prefix of `path` (at a "/" component boundary) that is in `dirs`, or nil.
+    /// The shortest match is the top-most missing folder, so nested missing folders and their
+    /// contents all collapse into the single entry the user actually sees.
+    private static func topMostAncestor(of path: String, in dirs: Set<String>) -> String? {
+        guard !dirs.isEmpty else { return nil }
+        var index = path.startIndex
+        while let slash = path[index...].firstIndex(of: "/") {
+            let prefix = String(path[..<slash])
+            if dirs.contains(prefix) { return prefix }
+            index = path.index(after: slash)
+        }
+        return nil
     }
 }

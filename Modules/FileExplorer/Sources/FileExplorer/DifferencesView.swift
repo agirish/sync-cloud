@@ -132,11 +132,11 @@ public struct DifferencesView: View {
                     }
                     .fixedSize(horizontal: true, vertical: false)
                     if selectedFilter == .all {
-                        Text("\(syncManager.differences.count) files")
+                        Text("\(syncManager.differences.count) items")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("\(filteredDifferences.count) of \(syncManager.differences.count) files")
+                        Text("\(filteredDifferences.count) of \(syncManager.differences.count) items")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -281,6 +281,13 @@ struct DifferenceRow: View {
     let onSync: (Bool) -> Void
 
     private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
+
+    /// Folder entries carry their collapsed contents ("everything inside syncs with the folder"),
+    /// so surface that count instead of listing each item as its own row.
+    private var descriptionText: String {
+        guard let count = difference.enclosedItemCount, count > 0 else { return difference.description }
+        return "\(difference.description) — includes \(count) item\(count == 1 ? "" : "s")"
+    }
     private var canVerify: Bool {
         DifferencesSummary.canVerify(
             difference,
@@ -310,7 +317,7 @@ struct DifferenceRow: View {
                 Text(parts.last ?? "")
                     .font(.body.weight(.medium))
                 
-                Text(difference.description)
+                Text(descriptionText)
                     .font(.caption)
                     .foregroundStyle(colorForDifference(difference))
             }
