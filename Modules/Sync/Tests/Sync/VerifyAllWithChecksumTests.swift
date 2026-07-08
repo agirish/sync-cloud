@@ -55,7 +55,8 @@ import Foundation
 
         // Only the identical item is offered for the follow-up copy.
         #expect(manager.verifiedIdenticalForCopy?.map(\.id) == [identical.id])
-        #expect(manager.bannerMessage == "Verify All: 1 identical; 1 differed; 1 skipped")
+        // Differed/skipped items make the summary a warning, not a success.
+        #expect(manager.banner == .warning("Verify All: 1 identical; 1 differed; 1 skipped"))
         // Progress state is fully torn down.
         #expect(manager.verifyAllProgress == nil)
         #expect(manager.activeProgress == nil)

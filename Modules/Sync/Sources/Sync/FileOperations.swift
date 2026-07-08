@@ -614,9 +614,9 @@ extension FileSyncManager {
         } else if !items.isEmpty {
             Logger.shared.debug("Deleted \(items.count) items")
             let name = items.first?.original.lastPathComponent ?? "item"
-            self.bannerMessage = items.count == 1
+            self.banner = .success(items.count == 1
                 ? "Deleted \"\(name)\""
-                : "Deleted \(items.count) items"
+                : "Deleted \(items.count) items")
         }
 
         if let progress, self.activeProgress === progress {

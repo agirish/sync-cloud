@@ -178,8 +178,9 @@ public class FileSyncManager: ObservableObject {
     public var activeFileOperationsCount = 0
     /// Real-time progress tracker for the currently active bulk file operation.
     @Published public var activeProgress: Progress? = nil
-    /// Short-lived banner message for in-app operation completion toasts.
-    @Published public var bannerMessage: String? = nil
+    /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
+    /// icon, tint, and dismissal behavior.
+    @Published public var banner: OperationBanner? = nil
     
     /// Global Combine subject to trigger a UI refresh of trees from anywhere without closure retain cycles.
     public let refreshSubject = PassthroughSubject<Void, Never>()
@@ -411,7 +412,7 @@ public class FileSyncManager: ObservableObject {
         }
         verifiedSameDifferenceIds.insert(difference.id)
         await applyFilters()
-        bannerMessage = "Verified identical — hidden from list"
+        banner = .success("Verified identical — hidden from list")
         return true
     }
 
@@ -473,9 +474,13 @@ public class FileSyncManager: ObservableObject {
         if differed > 0 { parts.append("\(differed) differed") }
         if skipped > 0 { parts.append("\(skipped) skipped") }
         if progress.isCancelled {
-            bannerMessage = "Verify All cancelled"
+            banner = .warning("Verify All cancelled")
+        } else if parts.isEmpty {
+            banner = nil
         } else {
-            bannerMessage = parts.isEmpty ? nil : "Verify All: " + parts.joined(separator: "; ")
+            let message = "Verify All: " + parts.joined(separator: "; ")
+            // Anything that differed or couldn't be verified needs the user's attention.
+            banner = (differed > 0 || skipped > 0) ? .warning(message) : .success(message)
         }
     }
 
@@ -573,9 +578,9 @@ public class FileSyncManager: ObservableObject {
             Logger.shared.error(msg)
         }
         if !result.failures.isEmpty {
-            bannerMessage = "\(result.successes.count) copied; \(result.failures.count) failed"
+            banner = .warning("\(result.successes.count) copied; \(result.failures.count) failed")
         } else if !result.successes.isEmpty {
-            bannerMessage = "\(result.successes.count) files copied — dates matched"
+            banner = .success("\(result.successes.count) files copied — dates matched")
         }
     }
 

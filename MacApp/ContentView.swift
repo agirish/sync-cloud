@@ -44,7 +44,6 @@ struct ContentView: View {
     /// Details again. Per-launch only — deliberately not persisted.
     @State private var differencesTabPickedManually: Bool = false
 
-    private static let bannerAutoDismissNanoseconds: UInt64 = 5_000_000_000 // 5 seconds
     @State private var bannerDismissScheduler = BannerDismissScheduler()
 
     // Per-pane diff lookups for the tree rows, rebuilt only when the differences
@@ -395,17 +394,17 @@ struct ContentView: View {
             }
         }
         .overlay(alignment: .top) {
-            if let banner = syncManager.bannerMessage {
-                OperationBannerView(message: banner)
+            if let banner = syncManager.banner {
+                OperationBannerView(banner: banner)
                     .padding(.top, 8)
                     .padding(.horizontal, 16)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.bannerMessage)
-        .onChange(of: syncManager.bannerMessage) { _, newValue in
-            bannerDismissScheduler.bannerChanged(to: newValue, delayNanoseconds: Self.bannerAutoDismissNanoseconds) {
-                syncManager.bannerMessage = nil
+        .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
+        .onChange(of: syncManager.banner) { _, newValue in
+            bannerDismissScheduler.bannerChanged(to: newValue) {
+                syncManager.banner = nil
             }
         }
     }
@@ -438,19 +437,31 @@ struct ContentView: View {
 
     /// Lightweight in-app banner used for bulk operation completion notifications.
     @ViewBuilder
-    private func OperationBannerView(message: String) -> some View {
+    private func OperationBannerView(banner: OperationBanner) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
+            Image(systemName: OperationBannerStyle.iconName(for: banner.severity))
                 .font(.title3)
-                .foregroundStyle(.green)
-            Text(message)
+                .foregroundStyle(OperationBannerStyle.tint(for: banner.severity))
+            Text(banner.message)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
+            Button {
+                syncManager.banner = nil
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Close notification")
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .glassCardStyle(material: .ultraThickMaterial, intensity: glassIntensity)
+        .onHover { hovering in
+            bannerDismissScheduler.hoverChanged(isHovering: hovering)
+        }
     }
 
     @ViewBuilder

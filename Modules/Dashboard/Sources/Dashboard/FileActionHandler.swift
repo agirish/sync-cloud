@@ -183,16 +183,16 @@ public class FileActionHandler {
     
     private func setBannerForCopy(_ nodes: [FileNode], to destinationName: String) {
         guard !nodes.isEmpty else { return }
-        syncManager.bannerMessage = nodes.count == 1
+        syncManager.banner = .success(nodes.count == 1
             ? "Copied \"\(nodes[0].name)\" to \(destinationName)"
-            : "Copied \(nodes.count) items to \(destinationName)"
+            : "Copied \(nodes.count) items to \(destinationName)")
     }
     
     private func setBannerForMove(_ nodes: [FileNode], to destinationName: String) {
         guard !nodes.isEmpty else { return }
-        syncManager.bannerMessage = nodes.count == 1
+        syncManager.banner = .success(nodes.count == 1
             ? "Moved \"\(nodes[0].name)\" to \(destinationName)"
-            : "Moved \(nodes.count) items to \(destinationName)"
+            : "Moved \(nodes.count) items to \(destinationName)")
     }
     
     // MARK: - Mutations
