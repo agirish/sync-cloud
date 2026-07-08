@@ -54,8 +54,8 @@ struct ContentView: View {
     @State private var rightDiffIndex: DiffStatusIndex = .empty
 
     /// Everything the tree diff indices are derived from, as one Equatable value
-    /// so a single onChange covers scan results, navigation, and provider switches.
-    private struct DiffIndexInputs: Equatable {
+    /// so a single task(id:) covers scan results, navigation, and provider switches.
+    private struct DiffIndexInputs: Equatable, Sendable {
         let differences: [FileDifference]
         let leftRoot: String
         let rightRoot: String
@@ -235,9 +235,19 @@ struct ContentView: View {
         .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
             syncManager.ignoreGoogleDriveNewerDateOnly = new
         }
-        .onChange(of: diffIndexInputs, initial: true) { _, inputs in
-            leftDiffIndex = DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot)
-            rightDiffIndex = DiffStatusIndex(differences: inputs.differences, rootPath: inputs.rightRoot)
+        // Rebuilding the indices walks every difference's ancestor chain — with tens of
+        // thousands of differences that froze the main thread after every scan, so the
+        // work runs detached and only the results land on main. task(id:) also cancels a
+        // stale rebuild when the inputs change again mid-flight.
+        .task(id: diffIndexInputs) {
+            let inputs = diffIndexInputs
+            let (left, right) = await Task.detached(priority: .userInitiated) {
+                (DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot),
+                 DiffStatusIndex(differences: inputs.differences, rootPath: inputs.rightRoot))
+            }.value
+            guard !Task.isCancelled else { return }
+            leftDiffIndex = left
+            rightDiffIndex = right
         }
     }
     
