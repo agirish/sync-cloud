@@ -15,8 +15,9 @@ Install the most recent SyncCloud build into /Applications:
    ```bash
    rm -rf /Applications/SyncCloud.app && ditto "$APP" /Applications/SyncCloud.app
    ```
-5. Unregister the DerivedData copy from LaunchServices so macOS search shows only the installed app (each build re-registers it):
+5. Unregister the DerivedData copy from LaunchServices AND delete it, so macOS search (Spotlight indexes the bundle on disk) shows only the installed app. The next build recreates it:
    ```bash
-   /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP"
+   /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP" && rm -rf "$APP"
    ```
-6. Confirm by reporting the installed binary's timestamp.
+6. If Spotlight still shows extra SyncCloud entries, other sessions' worktree builds left bundles behind — find them with `mdfind "kMDItemFSName == 'SyncCloud.app'"` and delete any DerivedData copies not part of an active build (`pgrep -fl xcodebuild` first).
+7. Confirm by reporting the installed binary's timestamp.
