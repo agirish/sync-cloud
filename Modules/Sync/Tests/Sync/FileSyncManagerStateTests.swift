@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import Sync
 
 /// Coverage for FileSyncManager state-machine behavior the audit found untested: the Google-Drive
@@ -85,6 +86,35 @@ import Foundation
         #expect(manager.verifiedSameDifferenceIds.isEmpty)
         #expect(manager.differences.count == 1)
         #expect(manager.differences.first?.relativePath == "new.txt")
+    }
+
+    // MARK: applyFilters — no-op republish suppression (dead-click guard)
+
+    @MainActor
+    @Test func testUnchangedFilterPassDoesNotRepublish() async {
+        let manager = FileSyncManager()
+        manager.rawLeftTree = [FileNode(id: "/l/a", name: "a", isDirectory: false)]
+        manager.rawRightTree = [FileNode(id: "/r/b", name: "b", isDirectory: false)]
+        manager.rawDifferences = [dateDiff("a", action: .copyToRight, leftSize: 1, rightSize: 2)]
+
+        // First pass settles the published state.
+        await manager.applyFilters()
+
+        // A load+scan cycle runs several filter passes over unchanged inputs. Each rebuilds
+        // fresh arrays, but republishing an equal tree makes SwiftUI rebuild the pane List,
+        // and a rebuild landing mid-click drops it ("dead clicks"). So an identical pass must
+        // touch no @Published property — ObservableObject must not announce a change.
+        var willChangeCount = 0
+        let cancellable = manager.objectWillChange.sink { _ in willChangeCount += 1 }
+        defer { cancellable.cancel() }
+
+        await manager.applyFilters()
+        #expect(willChangeCount == 0)
+
+        // Sanity: a genuine change must still publish, so the guard isn't over-suppressing.
+        manager.rawDifferences = []
+        await manager.applyFilters()
+        #expect(willChangeCount > 0)
     }
 
     // MARK: syncAll bulk copy + undo

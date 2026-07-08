@@ -291,11 +291,18 @@ public class FileSyncManager: ObservableObject {
         // finish out of entry order, and stale state must never overwrite fresher state.
         guard generation > lastPublishedFilterGeneration else { return }
         lastPublishedFilterGeneration = generation
-        self.leftTree = state.leftTree
-        self.rightTree = state.rightTree
-        self.leftItemCount = state.leftItemCount
-        self.rightItemCount = state.rightItemCount
-        self.differences = state.differences
+        // Assign only what actually changed. A load+scan cycle runs several filter passes and
+        // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
+        // tear down and rebuild the whole pane List — and a rebuild landing between an
+        // NSTableView mouse-down and mouse-up drops the click ("dead clicks"). Comparing
+        // against the live published value (cheap: `!=` short-circuits at the first real
+        // change; a full walk happens only on the no-op passes we want to suppress) keeps
+        // identical passes from touching @Published state at all.
+        if self.leftTree != state.leftTree { self.leftTree = state.leftTree }
+        if self.rightTree != state.rightTree { self.rightTree = state.rightTree }
+        if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
+        if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
+        if self.differences != state.differences { self.differences = state.differences }
     }
 
     /// The pure core of `applyFilters()`: value inputs in, published-ready state out.
