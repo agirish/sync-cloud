@@ -267,7 +267,8 @@ import Events
         let copied = await manager.copyItems(nodes: [node], toPath: "/src/errCopyDir", fileManager: mockFM)
 
         #expect(copied.isEmpty)
-        #expect(manager.currentError == "Error copying items: Cannot move or copy a directory into itself or its subdirectories.")
+        #expect(manager.currentError?.title == "Copy Failed")
+        #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
     }
 
     /// …and as "Error moving items" for the move family.
@@ -281,6 +282,7 @@ import Events
         let moved = await manager.moveItems(nodes: [node], toPath: "/src/errMoveDir", fileManager: mockFM)
 
         #expect(moved.isEmpty)
-        #expect(manager.currentError == "Error moving items: Cannot move or copy a directory into itself or its subdirectories.")
+        #expect(manager.currentError?.title == "Move Failed")
+        #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
     }
 }

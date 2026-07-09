@@ -450,9 +450,10 @@ extension FileSyncManager {
         let transferredNodes = transferred.compactMap { nodesByID[$0.from.path] }
 
         if let firstError = result.errors.first {
-            let msg = "Error \(isMove ? "moving" : "copying") items: \(firstError.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
+            let reason = firstError.localizedDescription
+            present(isMove
+                ? .moveFailed(items: "the selected items", reason: reason)
+                : .copyFailed(items: "the selected items", reason: reason))
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
             if transferredNodes.count == prunedNodes.count {
@@ -472,9 +473,13 @@ extension FileSyncManager {
         
         let isCaseOnly = url.lastPathComponent.lowercased() == newName.lowercased()
         if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
-            let msg = "Error renaming item: An item named \"\(newName)\" already exists."
-            self.currentError = msg
-            Logger.shared.error(msg)
+            // Deterministic collision — renaming to the same existing name would just fail again,
+            // so it is not retryable. Reveal points at the item that is in the way.
+            present(SyncError(
+                title: "Rename Failed",
+                message: "An item named \"\(newName)\" already exists.",
+                path: newURL.path
+            ))
             return
         }
         
@@ -488,9 +493,7 @@ extension FileSyncManager {
         }
         
         if let err = result.error {
-            let msg = "Error renaming item: \(err.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
+            present(.renameFailed(reason: err.localizedDescription, path: url.path))
         } else {
             Logger.shared.debug("Renamed item to \(newName)")
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
@@ -516,9 +519,7 @@ extension FileSyncManager {
         }
         
         if let err = error {
-            let msg = "Error creating folder: \(err.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
+            present(.createFolderFailed(reason: err.localizedDescription, path: path))
         } else {
             Logger.shared.debug("Created folder \(name) at \(path)")
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
@@ -608,9 +609,7 @@ extension FileSyncManager {
         }
         
         if let firstError = result.errors.first {
-            let msg = "Error deleting items: \(firstError.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
+            present(.deleteFailed(reason: firstError.localizedDescription))
         } else if !items.isEmpty {
             Logger.shared.debug("Deleted \(items.count) items")
             let name = items.first?.original.lastPathComponent ?? "item"

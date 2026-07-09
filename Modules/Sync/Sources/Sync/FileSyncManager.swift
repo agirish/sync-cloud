@@ -151,8 +151,30 @@ public class FileSyncManager: ObservableObject {
     /// Global UndoManager injected from SwiftUI environment
     public var undoManager: UndoManager?
     
-    /// Last error message from a file operation (cleared when user dismisses the alert).
-    @Published public var currentError: String? = nil
+    /// Last failure from a file operation, structured for a rich alert (title, message,
+    /// affected path, underlying reason, retryability). Cleared when the user dismisses the alert.
+    @Published public var currentError: SyncError? = nil {
+        didSet {
+            // Clearing the error (dismissal) always drops its retry handler, so a stale
+            // closure can never outlive the error it belonged to.
+            if currentError == nil { currentErrorRetry = nil }
+        }
+    }
+
+    /// Re-attempts the operation behind `currentError`, when one is both retryable and cleanly
+    /// re-invocable (currently only single-item sync). Not `@Published`: the error alert reads it
+    /// while presenting, and `currentError` (published) already drives that presentation. Cleared
+    /// together with the error via `currentError`'s `didSet`.
+    public var currentErrorRetry: (@MainActor () -> Void)? = nil
+
+    /// Publishes a structured failure to the error alert and logs it. Centralizes the
+    /// `currentError` + retry-handler + log triple so call sites stay one line and the three
+    /// can never drift apart.
+    func present(_ error: SyncError, retry: (@MainActor () -> Void)? = nil) {
+        currentError = error
+        currentErrorRetry = retry
+        Logger.shared.error(error.logDescription)
+    }
 
     /// When non-nil, a bulk sync is in progress: (completed count, total count). Used for progress indicator.
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
@@ -411,11 +433,7 @@ public class FileSyncManager: ObservableObject {
             fileManager: fileManager
         )
         guard same == true else {
-            if same == false {
-                currentError = "Content differs — files are not identical."
-            } else {
-                currentError = "Could not verify (file may be a folder, missing, or over 100 MB)."
-            }
+            present(same == false ? .contentDiffers : .couldNotVerify)
             return false
         }
         verifiedSameDifferenceIds.insert(difference.id)
@@ -581,9 +599,11 @@ public class FileSyncManager: ObservableObject {
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         for (diff, error) in result.failures {
-            let msg = "Error copying file \(diff.relativePath): \(error.localizedDescription)"
-            currentError = msg
-            Logger.shared.error(msg)
+            present(.copyFailed(
+                items: "\"\(diff.relativePath)\"",
+                path: diff.leftItemPath,
+                reason: error.localizedDescription
+            ))
         }
         if !result.failures.isEmpty {
             banner = .warning("\(result.successes.count) copied; \(result.failures.count) failed")
@@ -766,10 +786,11 @@ public class FileSyncManager: ObservableObject {
         }
         
         if let error = result.error {
-            let msg = "Error syncing file \(difference.relativePath): \(error.localizedDescription)"
-            self.currentError = msg
-            Logger.shared.error(msg)
-            
+            present(
+                .syncFailed(item: difference.relativePath, path: fromURL.path, reason: error.localizedDescription),
+                retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove) } }
+            )
+
             if let index = differences.firstIndex(where: { $0.id == difference.id }) {
                 differences[index].isSyncing = false
             }
@@ -939,9 +960,13 @@ public class FileSyncManager: ObservableObject {
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         for (diff, error) in result.failures {
-            let msg = "Error syncing file \(diff.relativePath): \(error.localizedDescription)"
-            currentError = msg
-            Logger.shared.error(msg)
+            let sourcePath = diff.action == .copyToRight ? diff.leftItemPath : diff.rightItemPath
+            present(.syncFailed(
+                item: diff.relativePath,
+                path: sourcePath,
+                reason: error.localizedDescription,
+                isRetryable: false
+            ))
         }
     }
 

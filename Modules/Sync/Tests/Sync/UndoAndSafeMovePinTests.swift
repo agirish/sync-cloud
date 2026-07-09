@@ -170,7 +170,7 @@ import Foundation
         #expect(copied.map(\.id) == ["/src/good.txt"])
         #expect(mockFM.virtualDisk["/dst/good.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/phantom.txt"] == nil)
-        #expect(manager.currentError?.contains("copying") == true)
+        #expect(manager.currentError?.title == "Copy Failed")
 
         // The registered undo covers only the item that actually transferred.
         #expect(manager.undoManager?.canUndo == true)

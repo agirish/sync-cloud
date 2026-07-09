@@ -181,7 +181,7 @@ import Foundation
         // Rename A to B, causing a collision
         await manager.renameItem(at: "/src/fileA.txt", to: "fileB.txt", fileManager: mockFM)
         
-        let errStr = manager.currentError ?? ""
+        let errStr = manager.currentError?.message ?? ""
         // Ensure error was set since fileB exists and wasn't case only rename
         #expect(errStr.contains("already exists"))
         

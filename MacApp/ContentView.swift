@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Sync
 import Events
 import Settings
@@ -175,15 +176,21 @@ struct ContentView: View {
             .opacity(0)
         )
         .liquidGlassAppBackground(intensity: glassIntensity, hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
-        .alert("Error", isPresented: Binding(
-            get: { syncManager.currentError != nil },
-            set: { _ in syncManager.currentError = nil }
-        )) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            if let errorMsg = syncManager.currentError {
-                Text(errorMsg)
+        .alert(
+            syncManager.currentError?.title ?? "Error",
+            isPresented: Binding(
+                get: { syncManager.currentError != nil },
+                // Clearing currentError also drops its retry handler (via the manager's didSet).
+                set: { _ in syncManager.currentError = nil }
+            ),
+            presenting: syncManager.currentError
+        ) { error in
+            // Buttons come straight from the tested pure decision, so the UI can't drift from it.
+            ForEach(error.alertActions(hasRetryHandler: syncManager.currentErrorRetry != nil), id: \.self) { action in
+                errorAlertButton(action, for: error)
             }
+        } message: { error in
+            Text(errorAlertMessage(error))
         }
         .onReceive(syncManager.$isScanning) { scanning in
             withAnimation { isScanning = scanning }
@@ -409,6 +416,40 @@ struct ContentView: View {
                 .contentShape(Rectangle())
         }
         .transition(.opacity)
+    }
+
+    /// Renders one abstract `SyncErrorAction` as its concrete alert button. Dismissing is implicit
+    /// on any button, but each clears `currentError` explicitly so the alert can't linger.
+    @ViewBuilder
+    private func errorAlertButton(_ action: SyncErrorAction, for error: SyncError) -> some View {
+        switch action {
+        case .revealInFinder:
+            Button("Reveal in Finder") {
+                if let path = error.path {
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                }
+                syncManager.currentError = nil
+            }
+        case .retry:
+            Button("Retry") {
+                // Grab the handler before clearing the error — clearing it nils the handler.
+                let retry = syncManager.currentErrorRetry
+                syncManager.currentError = nil
+                retry?()
+            }
+        case .dismiss:
+            Button("Dismiss", role: .cancel) {
+                syncManager.currentError = nil
+            }
+        }
+    }
+
+    /// The alert body: the human message, then the underlying reason and affected path when known.
+    private func errorAlertMessage(_ error: SyncError) -> String {
+        var lines = [error.message]
+        if let reason = error.reason, !reason.isEmpty { lines.append(reason) }
+        if let path = error.path { lines.append(path) }
+        return lines.joined(separator: "\n")
     }
 
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
