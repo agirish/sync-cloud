@@ -126,15 +126,21 @@ public struct DifferencesView: View {
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
+    @State private var isSearchExpanded = false
+    @FocusState private var searchFocused: Bool
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
+    /// Leading accessory rendered at the start of the header row — the host passes the
+    /// Differences/Details tab picker here so the tabs merge into this single toolbar.
+    private let leadingHeader: AnyView?
     /// - Parameter onQuickLook: Presents a Quick Look preview for the given file. The app
     ///   routes this to the same `quickLookPreview` binding the spacebar shortcut uses, so
     ///   there is a single presenter; `nil` hides the Quick Look menu items.
-    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil) {
+    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, leadingHeader: AnyView? = nil) {
         self.syncManager = syncManager
         self.paneNames = paneNames
         self.onQuickLook = onQuickLook
+        self.leadingHeader = leadingHeader
     }
 
     private var isBulkSyncing: Bool {
@@ -161,78 +167,91 @@ public struct DifferencesView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    HStack(spacing: 8) {
-                        StatPill(count: syncManager.leftItemCount, label: "Left", color: .blue)
-                        StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
-                        StatPill(count: syncManager.rightItemCount, label: "Right", color: .purple)
+                HStack(spacing: 10) {
+                    if let leadingHeader {
+                        leadingHeader
                     }
+                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
+                        .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
                     Spacer()
-                    HStack(spacing: 10) {
-                        Menu {
-                            ForEach(DifferenceFilter.allCases, id: \.self) { filter in
-                                Button {
-                                    selectedFilter = filter
-                                } label: {
-                                    let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
-                                    if selectedFilter == filter {
-                                        Label(name, systemImage: "checkmark")
-                                    } else {
-                                        Text(name)
-                                    }
+                    Menu {
+                        ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                            Button {
+                                selectedFilter = filter
+                            } label: {
+                                let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
+                                if selectedFilter == filter {
+                                    Label(name, systemImage: "checkmark")
+                                } else {
+                                    Text(name)
                                 }
                             }
-                        } label: {
-                            Label(
-                                selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
-                                systemImage: "line.3.horizontal.decrease.circle"
-                            )
                         }
-                        .fixedSize(horizontal: true, vertical: false)
-                        if targets.isSelectionScoped {
-                            Button {
-                                selection.removeAll()
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text("\(targets.targets.count) selected")
-                                    Image(systemName: "xmark.circle.fill")
-                                }
-                                .font(.subheadline)
-                            }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help("Clear selection")
-                        }
-                        if targets.copyToRightCount > 0 {
-                            Button {
-                                copy(direction: .copyToRight, targets: targets)
-                            } label: {
-                                Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
-                        }
-                        if targets.copyToLeftCount > 0 {
-                            Button {
-                                copy(direction: .copyToLeft, targets: targets)
-                            } label: {
-                                Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
-                        }
-                        if targets.verifiableCount > 0 {
-                            Button {
-                                verify(targets: targets)
-                            } label: {
-                                Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
-                        }
+                    } label: {
+                        Label(
+                            selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
+                            systemImage: "line.3.horizontal.decrease.circle"
+                        )
                     }
+                    .fixedSize(horizontal: true, vertical: false)
+                    if targets.isSelectionScoped {
+                        Button {
+                            selection.removeAll()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text("\(targets.targets.count) selected")
+                                Image(systemName: "xmark.circle.fill")
+                            }
+                            .font(.subheadline)
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Clear selection")
+                    }
+                    if targets.copyToRightCount > 0 {
+                        Button {
+                            copy(direction: .copyToRight, targets: targets)
+                        } label: {
+                            Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                    }
+                    if targets.copyToLeftCount > 0 {
+                        Button {
+                            copy(direction: .copyToLeft, targets: targets)
+                        } label: {
+                            Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                    }
+                    if targets.verifiableCount > 0 {
+                        Button {
+                            verify(targets: targets)
+                        } label: {
+                            Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                    }
+                    // Search collapses to an icon; clicking it reveals the field on a second line.
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            isSearchExpanded.toggle()
+                            if !isSearchExpanded { searchText = "" }
+                        }
+                        if isSearchExpanded { searchFocused = true }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle((isSearchExpanded || !searchText.isEmpty) ? glassHue.accentColor : Color.secondary)
+                    .help("Search by name or path")
                 }
-                searchField(filteredCount: filtered.count)
+                if isSearchExpanded || !searchText.isEmpty {
+                    searchField(filteredCount: filtered.count)
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -330,10 +349,9 @@ public struct DifferencesView: View {
     /// live "N of M" match count when a filter or search narrows the list.
     private func searchField(filteredCount: Int) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
             TextField("Search by name or path", text: $searchText)
                 .textFieldStyle(.plain)
+                .focused($searchFocused)
             if !searchText.isEmpty {
                 Button {
                     searchText = ""

@@ -761,36 +761,47 @@ struct ContentView: View {
         )
     }
     
+    /// The Differences/Details segmented tabs. Shown standalone above the Details/empty states,
+    /// and passed into DifferencesView so the tabs merge into its single toolbar (Option C).
+    private var bottomTabPicker: some View {
+        Picker("", selection: manualBottomTabSelection) {
+            ForEach(BottomTab.allCases, id: \.self) { tab in
+                Text(tab.rawValue).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(glassHue.accentColor)
+        .frame(width: 200)
+        .labelsHidden()
+    }
+
     /// The tabbed workspace at the bottom of the file explorer.
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
     private var bottomPaneView: some View {
         VStack(spacing: 0) {
-            HStack {
-                Picker("", selection: manualBottomTabSelection) {
-                    ForEach(BottomTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
+            // DifferencesView (when it has data) hosts the tabs inline in its own toolbar; every
+            // other state (Details, empty, no-scan) shows the standalone tab bar here.
+            if !(selectedBottomTab == .differences && !syncManager.differences.isEmpty) {
+                HStack {
+                    bottomTabPicker
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+
+                    Spacer()
                 }
-                .pickerStyle(.segmented)
-                .tint(glassHue.accentColor)
-                .frame(width: 220)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                
-                Spacer()
+                .frame(height: 44)
+                .layoutPriority(1)
+                .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+
+                Divider()
+                    .opacity(0.6)
             }
-            .frame(height: 44)
-            .layoutPriority(1)
-            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
-            
-            Divider()
-                .opacity(0.6)
-            
+
             ZStack {
                 if selectedBottomTab == .differences {
                     if !syncManager.differences.isEmpty {
-                        DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 })
+                        DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
                             .frame(minHeight: 0)
                     } else if syncManager.hasScanned {
                         VStack(spacing: 12) {
