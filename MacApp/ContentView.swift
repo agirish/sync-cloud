@@ -140,6 +140,7 @@ struct ContentView: View {
             mainContentView
                 .frame(minWidth: 600)
                 .toolbar { mainToolbar }
+                .toolbarBackground(.visible, for: .windowToolbar)
         }
         .overlay {
             if showSettings {
