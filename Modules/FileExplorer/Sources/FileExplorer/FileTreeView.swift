@@ -85,6 +85,12 @@ public struct FileTreeView: View {
         )
     }
 
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+    }
+
     public var body: some View {
         ZStack {
             paneList
@@ -197,6 +203,10 @@ public struct FileTreeView: View {
             }
         }
         .listStyle(SidebarListStyle())
+        // Drop the sidebar list's own vibrant background so the pane picks up the selected
+        // content surface, matching the bottom workspace.
+        .scrollContentBackground(.hidden)
+        .contentSurface(surfaceStyle, intensity: glassIntensity)
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
             if !selectedNodes.isEmpty {

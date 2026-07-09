@@ -21,6 +21,10 @@ public struct PaneHeader: View {
     public let onNavigate: (String) -> Void
     public let onNavigateBoth: (String) -> Void
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+    }
 
     public init(
         title: String,
@@ -91,6 +95,6 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .glassBarStyle(intensity: glassIntensity)
+        .contentSurface(surfaceStyle, intensity: glassIntensity)
     }
 }
