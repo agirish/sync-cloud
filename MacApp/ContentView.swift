@@ -49,8 +49,10 @@ struct ContentView: View {
     /// up through the `.hiddenTitleBar` toolbar band; a SwiftUI HStack + divider respects the
     /// toolbar's safe area, so the divider now starts at the pane headers.
     @AppStorage("mainPaneSplitFraction") private var paneSplitFraction: Double = 0.5
-    /// The fraction captured when a divider drag begins, so translation is applied from a fixed base.
-    @State private var paneDragBaseFraction: Double? = nil
+    /// Live split fraction while the divider is being dragged; nil when idle. Kept in @State so a
+    /// drag updates smoothly without rewriting @AppStorage every frame — it's persisted once, on
+    /// drag end. `mainContentView` reads this in preference to `paneSplitFraction` mid-drag.
+    @State private var paneDragFraction: Double? = nil
 
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
@@ -486,7 +488,8 @@ struct ContentView: View {
             let panesWidth = max(0, geo.size.width - dividerWidth)
             // Clamp so neither pane goes below minPane (degrades gracefully in a too-narrow window).
             let minFraction = panesWidth > 0 ? min(0.5, Double(minPane / panesWidth)) : 0
-            let fraction = min(max(paneSplitFraction, minFraction), 1 - minFraction)
+            // While dragging, the live @State value drives the layout; otherwise the persisted one.
+            let fraction = min(max(paneDragFraction ?? paneSplitFraction, minFraction), 1 - minFraction)
             let leftWidth = panesWidth * fraction
             HStack(spacing: 0) {
                 paneColumn(isLeft: true)
@@ -497,32 +500,42 @@ struct ContentView: View {
                     .frame(width: panesWidth - leftWidth)
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .coordinateSpace(.named(Self.paneRowSpace))
         }
     }
 
     /// The hairline divider between the panes, with a wider invisible hit area for dragging.
+    /// The drag reads the cursor's absolute x within the pane row (a fixed coordinate space) instead
+    /// of accumulating translation on the divider itself — the divider moves as you drag, so a
+    /// translation-based gesture chases a moving target and stutters. It writes only the live @State
+    /// mid-drag and persists `paneSplitFraction` once on release.
     @ViewBuilder
     private func paneResizeDivider(panesWidth: CGFloat, minFraction: Double) -> some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
             .overlay {
                 Color.clear
-                    .frame(width: 10)
+                    .frame(width: 12)
                     .contentShape(Rectangle())
                     .pointerStyle(.columnResize)
                     .gesture(
-                        DragGesture()
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.paneRowSpace))
                             .onChanged { value in
                                 guard panesWidth > 0 else { return }
-                                let base = paneDragBaseFraction ?? paneSplitFraction
-                                if paneDragBaseFraction == nil { paneDragBaseFraction = base }
-                                let delta = Double(value.translation.width / panesWidth)
-                                paneSplitFraction = min(max(base + delta, minFraction), 1 - minFraction)
+                                let f = Double(value.location.x / panesWidth)
+                                paneDragFraction = min(max(f, minFraction), 1 - minFraction)
                             }
-                            .onEnded { _ in paneDragBaseFraction = nil }
+                            .onEnded { _ in
+                                if let f = paneDragFraction { paneSplitFraction = f }
+                                paneDragFraction = nil
+                            }
                     )
             }
     }
+
+    /// Name of the coordinate space spanning the pane row, so the divider drag can read the
+    /// cursor's absolute x position independent of the divider's own (moving) frame.
+    private static let paneRowSpace = "panesRow"
 
     @ViewBuilder
     private var mainContentView: some View {
