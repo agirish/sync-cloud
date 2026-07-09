@@ -120,6 +120,8 @@ struct StatPill: View {
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
@@ -143,6 +145,9 @@ public struct DifferencesView: View {
     }
     private var verifiedIdenticalCount: Int {
         syncManager.verifiedIdenticalForCopy?.count ?? 0
+    }
+    private var glassHue: LiquidGlassHue {
+        LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
     public var body: some View {
@@ -204,7 +209,7 @@ public struct DifferencesView: View {
                             } label: {
                                 Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
                             .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
                         }
                         if targets.copyToLeftCount > 0 {
@@ -213,7 +218,7 @@ public struct DifferencesView: View {
                             } label: {
                                 Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
                             .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
                         }
                         if targets.verifiableCount > 0 {
@@ -231,6 +236,9 @@ public struct DifferencesView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
+            .tint(glassHue.accentColor)
+            // Same strip treatment as the top action bar, so the two toolbars match.
+            .glassBarStyle(intensity: glassIntensity)
 
             if let progress = syncManager.verifyAllProgress {
                 VStack(alignment: .leading, spacing: 6) {

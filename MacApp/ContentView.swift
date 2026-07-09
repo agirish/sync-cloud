@@ -684,6 +684,7 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.bordered)
+        .tint(glassHue.accentColor)
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
         .glassBarStyle(intensity: glassIntensity)
@@ -772,6 +773,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .tint(glassHue.accentColor)
                 .frame(width: 220)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
