@@ -280,17 +280,28 @@ public extension View {
         if style == .cards { self.surfaceCard() } else { self }
     }
 
-    /// The bottom workspace's outer frame: a floating card for `.cards`, otherwise a clipped
-    /// rounded region with a hairline outline (its `contentSurface` supplies the fill).
+    /// One section of the bottom workspace (the toolbar, or the table / Details) as a self-contained
+    /// card: applies the surface fill, then frames it — a floating frosted card for `.cards`, or a
+    /// clipped hairline-outlined region for `.unified`/`.solid`. Sections are stacked with a gap so
+    /// the toolbar reads separately from the data.
     @ViewBuilder
-    func bottomWorkspaceDecoration(_ style: SurfaceStyle) -> some View {
+    func bottomSectionCard(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+        let radius = LiquidGlass.cardCornerRadius
+        let filled = self
+            .contentSurface(style, intensity: intensity, hue: hue, tint: tint)
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         if style == .cards {
-            self.surfaceCard()
-        } else {
-            self
-                .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+            filled
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.6)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+        } else {
+            filled
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
                         .strokeBorder(.quaternary, lineWidth: 0.5)
                 )
         }

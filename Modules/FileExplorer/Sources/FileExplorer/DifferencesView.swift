@@ -122,6 +122,8 @@ public struct DifferencesView: View {
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
@@ -155,6 +157,9 @@ public struct DifferencesView: View {
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
 
     public var body: some View {
         // Derive everything once per render: the header reads the target counts several times and
@@ -165,7 +170,8 @@ public struct DifferencesView: View {
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
         let anySyncing = syncManager.differences.contains { $0.isSyncing }
 
-        return VStack(alignment: .leading, spacing: 0) {
+        return VStack(spacing: 8) {
+            // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     if let leadingHeader {
@@ -253,13 +259,15 @@ public struct DifferencesView: View {
                     searchField(filteredCount: filtered.count)
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .tint(glassHue.accentColor)
-            // Same strip treatment as the top action bar, so the two toolbars match.
-            .glassBarStyle(intensity: glassIntensity)
+            .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
 
-            if let progress = syncManager.verifyAllProgress {
+            // Table card: progress (during ops) sits above the differences table.
+            VStack(spacing: 0) {
+                if let progress = syncManager.verifyAllProgress {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Verifying \(progress.completed) of \(progress.total)...")
@@ -301,9 +309,6 @@ public struct DifferencesView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
             }
-            Divider()
-                .opacity(0.6)
-            
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
                 TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
@@ -324,7 +329,11 @@ public struct DifferencesView: View {
                     emptyState
                 }
             }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
         }
+        .padding(8)
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
             // Deferred cleanup: SwiftUI writes false here on ANY dismissal, including confirm,

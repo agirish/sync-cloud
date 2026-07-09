@@ -220,7 +220,6 @@ public struct DetailsSidebar: View {
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity)
-        .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
         .onReceive(syncManager.refreshSubject) { _ in
             cache.refreshOccurred()

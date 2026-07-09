@@ -779,65 +779,52 @@ struct ContentView: View {
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
     private var bottomPaneView: some View {
-        VStack(spacing: 0) {
-            // DifferencesView (when it has data) hosts the tabs inline in its own toolbar; every
-            // other state (Details, empty, no-scan) shows the standalone tab bar here.
-            if !(selectedBottomTab == .differences && !syncManager.differences.isEmpty) {
+        if selectedBottomTab == .differences && !syncManager.differences.isEmpty {
+            // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
+            DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
+        } else {
+            // Details / empty / no-scan: a slim tabs card, then the content as its own card.
+            VStack(spacing: 8) {
                 HStack {
                     bottomTabPicker
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-
                     Spacer()
                 }
-                .frame(height: 44)
-                .layoutPriority(1)
-                .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
 
-                Divider()
-                    .opacity(0.6)
-            }
-
-            ZStack {
-                if selectedBottomTab == .differences {
-                    if !syncManager.differences.isEmpty {
-                        DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
-                            .frame(minHeight: 0)
-                    } else if syncManager.hasScanned {
-                        VStack(spacing: 12) {
-                            Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 44))
-                                .foregroundStyle(.green)
-                            Text("Everything is in sync")
-                                .font(.title3.weight(.semibold))
-                            Text("No differences found between focused directories.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                Group {
+                    if selectedBottomTab == .differences {
+                        if syncManager.hasScanned {
+                            VStack(spacing: 12) {
+                                Image(systemName: "checkmark.seal.fill")
+                                    .font(.system(size: 44))
+                                    .foregroundStyle(.green)
+                                Text("Everything is in sync")
+                                    .font(.title3.weight(.semibold))
+                                Text("No differences found between focused directories.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            VStack(spacing: 8) {
+                                Text("No Scan Performed")
+                                    .font(.headline)
+                                    .foregroundStyle(.secondary)
+                                Text("Click Scan to compare directories.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        VStack(spacing: 8) {
-                            Text("No Scan Performed")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                            Text("Click Scan to compare directories.")
-                                .font(.subheadline)
-                                .foregroundStyle(.tertiary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
                     }
-                } else {
-                    DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .frame(minHeight: 0)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
             }
-            .frame(minHeight: 0)
-            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+            .padding(8)
         }
-        // Unified/Solid: clipped rounded region with a hairline outline (fill comes from
-        // contentSurface). Cards: a floating frosted card with a shadow + gutter.
-        .bottomWorkspaceDecoration(surfaceStyle)
     }
 }
     
