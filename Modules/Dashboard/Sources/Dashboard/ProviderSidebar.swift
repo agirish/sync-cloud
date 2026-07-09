@@ -66,7 +66,8 @@ public struct ProviderSidebar: View {
             Button(action: onSwap) {
                 Label("Swap panes", systemImage: "arrow.left.arrow.right.circle")
                     .labelStyle(.iconOnly)
-                    .font(.title3)
+                    // Sized to sit alongside the 22×22 provider logos above and below.
+                    .font(.system(size: 22))
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
@@ -75,7 +76,10 @@ public struct ProviderSidebar: View {
             .help("Swap the left and right panes")
             Spacer()
         }
-        .padding(.vertical, 2)
+        // Weighted toward the bottom so the glyph reads as centered in the gap between the
+        // Left and Right sections rather than crowding the Left list above it.
+        .padding(.top, 8)
+        .padding(.bottom, 2)
         .listRowBackground(Color.clear)
     }
 
