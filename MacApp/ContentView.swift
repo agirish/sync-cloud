@@ -501,8 +501,6 @@ struct ContentView: View {
                         }
                         .frame(minWidth: 250)
                     }
-                    Divider()
-                    DashboardHeader(leftCount: syncManager.leftItemCount, rightCount: syncManager.rightItemCount, differences: syncManager.differences)
                 }
                 if showingBottomPane {
                     bottomPaneView

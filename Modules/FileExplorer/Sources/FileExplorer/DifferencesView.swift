@@ -72,6 +72,50 @@ final class ModifierTracker: ObservableObject {
     }
 }
 
+/// A compact count chip for the differences header: a colored dot (or SF Symbol), the count,
+/// and a short label. `emphasized` tints the whole capsule and colors the text — used for the
+/// differences count so the actionable number stands out from the Left/Right reference counts.
+struct StatPill: View {
+    let count: Int
+    let label: String
+    let color: Color
+    var systemImage: String? = nil
+    var emphasized: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .bold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(color)
+            } else {
+                Circle()
+                    .fill(color)
+                    .frame(width: 7, height: 7)
+            }
+            Text(count.formatted())
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(emphasized ? color : Color.primary)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(emphasized ? color : Color.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(
+            Capsule(style: .continuous)
+                .fill(emphasized ? color.opacity(0.14) : Color.secondary.opacity(0.12))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(emphasized ? color.opacity(0.45) : Color.secondary.opacity(0.22), lineWidth: 0.5)
+        )
+        .fixedSize()
+    }
+}
+
 /// List of all differences between the two panes with actions to copy or move each item left or right.
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
@@ -112,8 +156,11 @@ public struct DifferencesView: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Differences Found")
-                    .font(.headline.weight(.semibold))
+                HStack(spacing: 8) {
+                    StatPill(count: syncManager.leftItemCount, label: "Left", color: .blue)
+                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
+                    StatPill(count: syncManager.rightItemCount, label: "Right", color: .purple)
+                }
                 Spacer()
                 HStack(spacing: 10) {
                     Menu {
@@ -136,11 +183,7 @@ public struct DifferencesView: View {
                         )
                     }
                     .fixedSize(horizontal: true, vertical: false)
-                    if selectedFilter == .all {
-                        Text("\(syncManager.differences.count) items")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
+                    if selectedFilter != .all {
                         Text("\(filteredDifferences.count) of \(syncManager.differences.count) items")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
