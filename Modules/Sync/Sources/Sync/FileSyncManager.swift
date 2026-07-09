@@ -442,15 +442,13 @@ public class FileSyncManager: ObservableObject {
         return true
     }
 
-    /// Differences that qualify for checksum verification (different dates but same size; files only).
-    private var verifiableDifferences: [FileDifference] {
-        differences.filter { $0.type == .differentDates && $0.sizesMatch }
-    }
-
-    /// Runs checksum verification on all differences that meet the Verify criteria (newer/older but same size).
-    /// Runs up to 4 verifications in parallel. Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
-    public func verifyAllWithChecksum() async {
-        let toVerify = verifiableDifferences
+    /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
+    /// Pass `subset` to scope verification to specific differences (e.g. the current table selection or
+    /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
+    /// Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
+    public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
+        let candidates = subset ?? differences
+        let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
         guard !toVerify.isEmpty else { return }
 
         let progress = Progress(totalUnitCount: Int64(toVerify.count))

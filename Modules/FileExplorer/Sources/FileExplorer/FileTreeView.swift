@@ -522,7 +522,7 @@ struct FileRowView: View {
             }
             if let diffStatus {
                 // Shape encodes direction/kind so status is readable without color
-                // (colors match DifferenceRow in the Differences pane).
+                // (colors match the Differences table in the Differences pane).
                 Image(systemName: Self.badgeSymbol(for: diffStatus))
                     .font(.subheadline)
                     .foregroundStyle(Self.badgeColor(for: diffStatus))

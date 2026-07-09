@@ -122,6 +122,9 @@ public struct DifferencesView: View {
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @State private var selectedFilter: DifferenceFilter = .all
+    @State private var searchText = ""
+    @State private var selection = Set<FileDifference.ID>()
+    @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, order: .forward)]
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
     /// - Parameter onQuickLook: Presents a Quick Look preview for the given file. The app
@@ -144,84 +147,74 @@ public struct DifferencesView: View {
     }
 
     public var body: some View {
-        // Both are O(n) passes over the differences list; compute them once per render instead of
-        // once per access (the header alone reads the counts several times, and this view re-renders
-        // per file during bulk sync).
-        let filteredDifferences = syncManager.differences.filter { selectedFilter.matches($0) }
-        let summary = DifferencesSummary(differences: syncManager.differences, filter: selectedFilter)
-        let copyToRightCount = summary.copyToRightCount
-        let copyToLeftCount = summary.copyToLeftCount
-        let anySyncing = summary.anySyncing
-        let verifiableCount = summary.verifiableCount
+        // One filter+search pass and one sort per render (as before, a single O(n) filter plus an
+        // O(n log n) sort). The header reads the target counts several times and this view
+        // re-renders per file during bulk sync, so compute the derived values once here.
+        let filtered = DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
+        let sorted = filtered.sorted(using: sortOrder)
+        let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
+        let anySyncing = syncManager.differences.contains { $0.isSyncing }
 
         return VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                HStack(spacing: 8) {
-                    StatPill(count: syncManager.leftItemCount, label: "Left", color: .blue)
-                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
-                    StatPill(count: syncManager.rightItemCount, label: "Right", color: .purple)
-                }
-                Spacer()
-                HStack(spacing: 10) {
-                    Menu {
-                        ForEach(DifferenceFilter.allCases, id: \.self) { filter in
-                            Button {
-                                selectedFilter = filter
-                            } label: {
-                                let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
-                                if selectedFilter == filter {
-                                    Label(name, systemImage: "checkmark")
-                                } else {
-                                    Text(name)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    HStack(spacing: 8) {
+                        StatPill(count: syncManager.leftItemCount, label: "Left", color: .blue)
+                        StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
+                        StatPill(count: syncManager.rightItemCount, label: "Right", color: .purple)
+                    }
+                    Spacer()
+                    HStack(spacing: 10) {
+                        Menu {
+                            ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                                Button {
+                                    selectedFilter = filter
+                                } label: {
+                                    let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
+                                    if selectedFilter == filter {
+                                        Label(name, systemImage: "checkmark")
+                                    } else {
+                                        Text(name)
+                                    }
                                 }
                             }
-                        }
-                    } label: {
-                        Label(
-                            selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
-                            systemImage: "line.3.horizontal.decrease.circle"
-                        )
-                    }
-                    .fixedSize(horizontal: true, vertical: false)
-                    if selectedFilter != .all {
-                        Text("\(filteredDifferences.count) of \(syncManager.differences.count) items")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    if copyToRightCount > 0 || copyToLeftCount > 0 {
-                        Button {
-                            let isMove = modifierTracker.isMoveModifierPressed
-                            Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: filteredDifferences) }
                         } label: {
                             Label(
-                                modifierTracker.isMoveModifierPressed ? "Move \(copyToRightCount) to \(paneNames.right)" : "Copy \(copyToRightCount) to \(paneNames.right)",
-                                systemImage: "arrow.right.circle"
+                                selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
+                                systemImage: "line.3.horizontal.decrease.circle"
                             )
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(copyToRightCount == 0 || anySyncing || isBulkSyncing)
-                        Button {
-                            let isMove = modifierTracker.isMoveModifierPressed
-                            Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: filteredDifferences) }
-                        } label: {
-                            Label(
-                                modifierTracker.isMoveModifierPressed ? "Move \(copyToLeftCount) to \(paneNames.left)" : "Copy \(copyToLeftCount) to \(paneNames.left)",
-                                systemImage: "arrow.left.circle"
-                            )
+                        .fixedSize(horizontal: true, vertical: false)
+                        if targets.copyToRightCount > 0 {
+                            Button {
+                                copy(direction: .copyToRight, targets: targets)
+                            } label: {
+                                Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(anySyncing || isBulkSyncing)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(copyToLeftCount == 0 || anySyncing || isBulkSyncing)
-                    }
-                    if verifiableCount > 0 {
-                        Button {
-                            Task { await syncManager.verifyAllWithChecksum() }
-                        } label: {
-                            Label("Verify All (\(verifiableCount))", systemImage: "checkmark.shield")
+                        if targets.copyToLeftCount > 0 {
+                            Button {
+                                copy(direction: .copyToLeft, targets: targets)
+                            } label: {
+                                Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(anySyncing || isBulkSyncing)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                        if targets.verifiableCount > 0 {
+                            Button {
+                                verify(targets: targets)
+                            } label: {
+                                Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                        }
                     }
                 }
+                searchField(filteredCount: filtered.count)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -272,32 +265,21 @@ public struct DifferencesView: View {
             Divider()
                 .opacity(0.6)
             
-            ScrollView {
-                LazyVStack(spacing: 10) {
-                    if selectedFilter != .all && filteredDifferences.isEmpty {
-                        Text("No items match the current filter.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 24)
-                    }
-                    ForEach(filteredDifferences, id: \.id) { difference in
-                        DifferenceRow(
-                            difference: difference,
-                            syncManager: syncManager,
-                            isMove: modifierTracker.isMoveModifierPressed,
-                            glassIntensity: glassIntensity,
-                            paneNames: paneNames,
-                            onQuickLook: onQuickLook
-                        ) { isMove in
-                            Task {
-                                await syncManager.syncFile(difference, isMove: isMove)
-                            }
-                        }
-                        .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
-                    }
+            Table(sorted, selection: $selection, sortOrder: $sortOrder) {
+                TableColumn("Name", value: \.fileName) { DifferenceNameCell(difference: $0) }
+                TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
+                TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
+                    .width(min: 70, ideal: 90)
+                TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
+                    .width(min: 96, ideal: 140)
+            }
+            .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
+                differenceContextMenu(for: ids, in: sorted)
+            }
+            .overlay {
+                if sorted.isEmpty {
+                    emptyState
                 }
-                .padding(16)
             }
             .background(.regularMaterial.opacity(0.5))
         }
@@ -318,120 +300,113 @@ public struct DifferencesView: View {
             Text("\(verifiedIdenticalCount) files verified identical. One permission — copies all from \(paneNames.left) to \(paneNames.right) to match dates. No per-file confirmation.")
         }
     }
-}
 
-/// One row in the differences list: icon, path, description, sync button, and optional "Verify" (checksum) when same size.
-struct DifferenceRow: View {
-    let difference: FileDifference
-    @ObservedObject var syncManager: FileSyncManager
-    let isMove: Bool
-    let glassIntensity: Double
-    let paneNames: PaneProviderNames
-    let onQuickLook: ((URL) -> Void)?
-    let onSync: (Bool) -> Void
+    // MARK: Header
 
-    private var isVerifying: Bool { syncManager.verifyingDifferenceId == difference.id }
-
-    /// Folder entries carry their collapsed contents ("everything inside syncs with the folder"),
-    /// so surface that count instead of listing each item as its own row.
-    private var descriptionText: String {
-        guard let count = difference.enclosedItemCount, count > 0 else { return difference.description }
-        return "\(difference.description) — includes \(count) item\(count == 1 ? "" : "s")"
-    }
-    private var canVerify: Bool {
-        DifferencesSummary.canVerify(
-            difference,
-            isRowVerifying: isVerifying,
-            isVerifyAllInProgress: syncManager.verifyAllProgress != nil
-        )
-    }
-
-    var body: some View {
-        HStack(spacing: 16) {
-            // Icon
-            Image(systemName: DifferenceGlyph.symbol(for: difference.type, filled: true))
-                .font(.system(size: 22))
-                .foregroundStyle(DifferenceGlyph.color(for: difference.type))
-                .symbolRenderingMode(.hierarchical)
-                .frame(width: 32)
-            
-            // File Info
-            VStack(alignment: .leading, spacing: 4) {
-                let parts = difference.relativePath.split(separator: "/")
-                if parts.count > 1 {
-                    Text(parts.dropLast().joined(separator: " / "))
-                        .font(.caption2)
+    /// Inline search field (second header row): a magnifier, the query, a clear button, and a
+    /// live "N of M" match count when a filter or search narrows the list.
+    private func searchField(filteredCount: Int) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search by name or path", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
                 }
-                
-                Text(parts.last ?? "")
-                    .font(.body.weight(.medium))
-                
-                Text(descriptionText)
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+            if selectedFilter != .all || !searchText.isEmpty {
+                Text("\(filteredCount) of \(syncManager.differences.count)")
                     .font(.caption)
-                    .foregroundStyle(DifferenceGlyph.color(for: difference.type))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
             }
-            
-            Spacer()
-            
-            // Verify with checksum (when "newer" but same size)
-            if canVerify {
-                Button {
-                    Task { _ = await syncManager.verifyWithChecksum(difference) }
-                } label: {
-                    if isVerifying {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .frame(width: 20, height: 20)
-                    } else {
-                        Label("Verify", systemImage: "checkmark.shield")
-                    }
-                }
-                .buttonStyle(.bordered)
-                .disabled(isVerifying)
-            }
-            
-            // Sync Action
-            Button(action: { onSync(isMove) }) {
-                HStack {
-                    if difference.isSyncing {
-                        ProgressView()
-                            .scaleEffect(0.6)
-                            .frame(width: 16, height: 16)
-                    } else {
-                        switch difference.action {
-                        case .copyToRight:
-                            Label(isMove ? "Move to \(paneNames.right)" : "Copy to \(paneNames.right)", systemImage: "arrow.right.circle.fill")
-                        case .copyToLeft:
-                            Label(isMove ? "Move to \(paneNames.left)" : "Copy to \(paneNames.left)", systemImage: "arrow.left.circle.fill")
-                        }
-                    }
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(difference.action == .copyToRight ? .blue : .purple)
-            .disabled(difference.isSyncing)
         }
-        .padding(14)
-        .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary.opacity(0.5), lineWidth: 0.5)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(.quaternary.opacity(0.5))
         )
-        // The HStack's Spacer gap is not hit-testable on its own, and on macOS 26 the
-        // card background comes from glassEffect rather than a hit-testable material,
-        // so without an explicit content shape right-clicks over most of the card land
-        // on nothing (same convention as FileRowView's contentShape for the tree menus).
-        .contentShape(Rectangle())
-        // Context menu only — no tap/click gestures here; gesture modifiers have a
-        // history of swallowing the row buttons' clicks.
-        .contextMenu { contextMenuItems }
     }
 
-    /// Right-click menu: per-side Reveal/Quick Look/Copy Path for the sides that exist,
+    /// The Copy/Move button label, reflecting the target count and the held move modifier.
+    private func actionLabel(count: Int, to name: String) -> String {
+        "\(modifierTracker.isMoveModifierPressed ? "Move" : "Copy") \(count) to \(name)"
+    }
+
+    // MARK: Header actions
+
+    /// Fires a header Copy/Move on the current action targets (selection when any, else the
+    /// filtered set). `syncAll` filters the subset to the requested direction internally.
+    private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets) {
+        let isMove = modifierTracker.isMoveModifierPressed
+        let count = direction == .copyToRight ? targets.copyToRightCount : targets.copyToLeftCount
+        Logger.shared.debug(
+            "Bulk \(isMove ? "move" : "copy") \(direction == .copyToRight ? "to right" : "to left"): "
+            + "\(count) item(s) (\(targets.isSelectionScoped ? "selection" : "filtered set"))")
+        Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: targets.targets) }
+    }
+
+    /// Fires Verify on the current action targets; `verifyAllWithChecksum` keeps only the
+    /// verifiable (date-only, same-size) differences from the subset.
+    private func verify(targets: DifferenceActionTargets) {
+        Logger.shared.debug(
+            "Bulk verify: \(targets.verifiableCount) item(s) "
+            + "(\(targets.isSelectionScoped ? "selection" : "filtered set"))")
+        Task { await syncManager.verifyAllWithChecksum(subset: targets.targets) }
+    }
+
+    // MARK: Empty state
+
+    @ViewBuilder
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: searchText.isEmpty ? "line.3.horizontal.decrease.circle" : "magnifyingglass")
+                .font(.system(size: 28))
+                .foregroundStyle(.secondary)
+            Text(emptyStateMessage)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(24)
+    }
+
+    private var emptyStateMessage: String {
+        if !searchText.isEmpty {
+            return "No differences match “\(searchText)”."
+        }
+        if selectedFilter != .all {
+            return "No items match the current filter."
+        }
+        return "No differences."
+    }
+
+    // MARK: Context menu
+
+    /// Right-click menu for the table selection: the full per-row menu (#14) when a single row
+    /// is targeted, or bulk Copy/Move/Ignore for a multi-row selection. `visible` is the sorted,
+    /// filtered list the ids index into.
+    @ViewBuilder
+    private func differenceContextMenu(for ids: Set<FileDifference.ID>, in visible: [FileDifference]) -> some View {
+        if ids.count == 1, let id = ids.first, let difference = visible.first(where: { $0.id == id }) {
+            singleRowMenu(for: difference)
+        } else if ids.count > 1 {
+            bulkMenu(for: visible.filter { ids.contains($0.id) })
+        }
+    }
+
+    /// Per-row menu (#14): per-side Reveal/Quick Look/Copy Path for the sides that exist,
     /// plus the same ignore toggle the tree panes offer.
     @ViewBuilder
-    private var contextMenuItems: some View {
+    private func singleRowMenu(for difference: FileDifference) -> some View {
         let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
         ForEach(sides, id: \.paneName) { side in
             Button {
@@ -472,5 +447,112 @@ struct DifferenceRow: View {
                 systemImage: isIgnored ? "eye" : "eye.slash"
             )
         }
+    }
+
+    /// Bulk menu for a multi-row selection: Copy/Move the selected rows in each direction
+    /// (respecting the move modifier) and ignore them all.
+    @ViewBuilder
+    private func bulkMenu(for selected: [FileDifference]) -> some View {
+        let toRight = selected.filter { $0.action == .copyToRight }
+        let toLeft = selected.filter { $0.action == .copyToLeft }
+        let isMove = modifierTracker.isMoveModifierPressed
+        if !toRight.isEmpty {
+            Button {
+                Logger.shared.debug("Bulk \(isMove ? "move" : "copy") to right: \(toRight.count) item(s) (selection)")
+                Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: toRight) }
+            } label: {
+                Label("\(isMove ? "Move" : "Copy") \(toRight.count) to \(paneNames.right)", systemImage: "arrow.right.circle")
+            }
+        }
+        if !toLeft.isEmpty {
+            Button {
+                Logger.shared.debug("Bulk \(isMove ? "move" : "copy") to left: \(toLeft.count) item(s) (selection)")
+                Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: toLeft) }
+            } label: {
+                Label("\(isMove ? "Move" : "Copy") \(toLeft.count) to \(paneNames.left)", systemImage: "arrow.left.circle")
+            }
+        }
+        Divider()
+        Button {
+            syncManager.ignoredPaths = DifferencesQuery.ignoringAll(selected, in: syncManager.ignoredPaths)
+        } label: {
+            Label("Ignore \(selected.count) in comparison", systemImage: "eye.slash")
+        }
+    }
+}
+
+// MARK: - Table cells
+//
+// Each column's content is its own small view so the `Table` builder stays simple enough for
+// the type-checker (a single big Table literal with inline cell closures times out).
+
+/// Name column: type glyph, dimmed parent path, then the filename — single line, middle-truncated.
+private struct DifferenceNameCell: View {
+    let difference: FileDifference
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: DifferenceGlyph.symbol(for: difference.type, filled: true))
+                .foregroundStyle(DifferenceGlyph.color(for: difference.type))
+                .symbolRenderingMode(.hierarchical)
+            if !difference.parentPath.isEmpty {
+                Text(difference.parentPath + "/")
+                    .foregroundStyle(.secondary)
+            }
+            Text(difference.fileName)
+                .fontWeight(.medium)
+                .layoutPriority(1)
+        }
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .help(difference.relativePath)
+    }
+}
+
+/// Change column: the description with the folder roll-up ("… — includes N items").
+private struct DifferenceChangeCell: View {
+    let difference: FileDifference
+
+    var body: some View {
+        Text(difference.rolledUpDescription)
+            .foregroundStyle(DifferenceGlyph.color(for: difference.type))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(difference.rolledUpDescription)
+    }
+}
+
+/// Size column: the source side's byte size (right-aligned, monospaced), or "—" for folders/unknown.
+private struct DifferenceSizeCell: View {
+    let difference: FileDifference
+
+    var body: some View {
+        Text(difference.displaySizeText)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// Copy-to column: a small tinted direction chip (blue → right, purple → left) naming the destination pane.
+private struct DifferenceDirectionCell: View {
+    let difference: FileDifference
+    let paneNames: PaneProviderNames
+
+    var body: some View {
+        let toRight = difference.action == .copyToRight
+        let tint: Color = toRight ? .blue : .purple
+        HStack(spacing: 4) {
+            Image(systemName: toRight ? "arrow.right" : "arrow.left")
+                .font(.caption2.weight(.bold))
+            Text(toRight ? paneNames.right : paneNames.left)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(tint)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .background(Capsule(style: .continuous).fill(tint.opacity(0.15)))
     }
 }

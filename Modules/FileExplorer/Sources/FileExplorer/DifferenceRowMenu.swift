@@ -1,7 +1,7 @@
 import Foundation
 import Sync
 
-/// Pure logic behind `DifferenceRow`'s context menu: which per-side items to offer
+/// Pure logic behind the Differences table's row context menu: which per-side items to offer
 /// (only sides that exist on disk) and how the ignore toggle resolves.
 public enum DifferenceRowMenu {
     /// One side of a difference that actually exists on disk, ready for per-side

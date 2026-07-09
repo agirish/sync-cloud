@@ -2,7 +2,7 @@ import SwiftUI
 import Sync
 
 /// Single source of truth for how a difference type is drawn, shared by the
-/// tree-pane badges (FileRowView) and the Differences-pane cards (DifferenceRow)
+/// tree-pane badges (FileRowView) and the Differences table (DifferencesView)
 /// so the two surfaces can't drift. Shape encodes direction/kind so status is
 /// readable without color.
 enum DifferenceGlyph {
