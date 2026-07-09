@@ -2,6 +2,7 @@ import SwiftUI
 import Sync
 import Combine
 import UniformTypeIdentifiers
+import Design
 
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
 /// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
@@ -19,6 +20,12 @@ public struct DetailsSidebar: View {
     /// Memoization and invalidation rules live in DetailsMetadataCache; the view only
     /// forwards lookups and the refresh/scan events to it.
     @State private var cache = DetailsMetadataCache()
+
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+    }
 
     /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
     /// of `metadata` (DateFormatter is expensive to construct).
@@ -220,7 +227,7 @@ public struct DetailsSidebar: View {
         // Allow the sidebar to shrink slightly but wrap text elements to avoid clipping
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity)
-        .background(.regularMaterial.opacity(0.5))
+        .contentSurface(surfaceStyle, intensity: glassIntensity)
         .ignoresSafeArea(.all, edges: .top) // Blend natively into the macOS Titlebar
         .clipped()
         .onReceive(syncManager.refreshSubject) { _ in

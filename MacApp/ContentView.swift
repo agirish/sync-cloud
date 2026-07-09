@@ -41,7 +41,12 @@ struct ContentView: View {
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+    }
+
     /// Represents the available tabs in the integrated bottom workspace.
     enum BottomTab: String, CaseIterable {
         /// Displays differential scanning results and sync actions.
@@ -769,7 +774,7 @@ struct ContentView: View {
             }
             .frame(height: 44)
             .layoutPriority(1)
-            .background(.ultraThinMaterial)
+            .contentSurface(surfaceStyle, intensity: glassIntensity)
             
             Divider()
                 .opacity(0.6)
@@ -791,7 +796,7 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.regularMaterial.opacity(0.5))
+                        .contentSurface(surfaceStyle, intensity: glassIntensity)
                     } else {
                         VStack(spacing: 8) {
                             Text("No Scan Performed")
@@ -810,9 +815,9 @@ struct ContentView: View {
                 }
             }
             .frame(minHeight: 0)
-            .background(.regularMaterial.opacity(0.4))
+            .contentSurface(surfaceStyle, intensity: glassIntensity)
         }
-        .glassCardStyle(material: .regularMaterial, intensity: glassIntensity)
+        .glassCardStyle(material: surfaceStyle.cardMaterial, intensity: glassIntensity)
         .overlay(
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 0.5)

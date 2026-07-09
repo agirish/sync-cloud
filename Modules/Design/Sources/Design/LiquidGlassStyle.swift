@@ -117,6 +117,51 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     }
 }
 
+/// How the bottom workspace (Differences / Details) surfaces sit against the app's glass
+/// background. The three cases differ only in translucency, so the panel can blend into the
+/// window glass like the file panes, or read as a distinct, opaque panel for legibility.
+/// Stored in UserDefaults via `LiquidGlass.surfaceStyleKey`.
+public enum SurfaceStyle: String, CaseIterable, Identifiable {
+    /// Barely-there material: the window's tinted glass shows through, matching the file panes.
+    case unified
+    /// A soft translucent panel — present but still glassy. The balanced default.
+    case framed
+    /// A denser, near-opaque panel for maximum legibility of long lists.
+    case solid
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .unified: return "Unified"
+        case .framed: return "Framed"
+        case .solid: return "Solid"
+        }
+    }
+
+    /// One-line explanation shown under the Settings picker.
+    public var detail: String {
+        switch self {
+        case .unified:
+            return "The Differences and Details areas blend into the window's glass, matching the file panes."
+        case .framed:
+            return "The Differences and Details areas sit in a soft translucent panel."
+        case .solid:
+            return "The Differences and Details areas use an opaque panel for maximum readability."
+        }
+    }
+
+    /// Base material for the bottom-pane card. Used on macOS 15; macOS 26 draws native glass and
+    /// ignores this, so the per-content `contentSurface` fill is what varies the look there.
+    public var cardMaterial: Material {
+        switch self {
+        case .unified: return .ultraThinMaterial
+        case .framed: return .thinMaterial
+        case .solid: return .regularMaterial
+        }
+    }
+}
+
 public enum LiquidGlass {
     /// Corner radius for cards and floating panels.
     public static let cardCornerRadius: CGFloat = 14
@@ -134,6 +179,9 @@ public enum LiquidGlass {
 
     /// UserDefaults key for the selected liquid glass hue (raw value of `LiquidGlassHue`).
     public static let hueKey = "liquidGlassHue"
+
+    /// UserDefaults key for the content surface style (raw value of `SurfaceStyle`).
+    public static let surfaceStyleKey = "contentSurfaceStyle"
 }
 
 // MARK: - View Extensions
@@ -198,6 +246,24 @@ public extension View {
             self
                 .background(.ultraThinMaterial.opacity(0.55 + 0.35 * t))
                 .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous))
+        }
+    }
+
+    /// Fills the bottom workspace (Differences / Details) with the user-selected surface style.
+    /// The styles differ only in translucency — `.unified` lets the window glass show through to
+    /// match the panes, `.solid` reads as an opaque panel — and intensity nudges the opacity
+    /// within each. Applied on every OS (unlike the glass helpers) because the flat look comes
+    /// from these raw material fills, which macOS 26's native glass does not replace.
+    @ViewBuilder
+    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65) -> some View {
+        let t = max(0.0, min(1.0, intensity))
+        switch style {
+        case .unified:
+            self.background(.ultraThinMaterial.opacity(0.18 + 0.14 * t))
+        case .framed:
+            self.background(.thinMaterial.opacity(0.42 + 0.24 * t))
+        case .solid:
+            self.background(.regularMaterial.opacity(0.82 + 0.16 * t))
         }
     }
 }

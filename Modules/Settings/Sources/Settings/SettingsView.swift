@@ -158,9 +158,14 @@ struct GeneralSettingsTab: View {
 struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
+    }
+
+    private var selectedSurfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
     }
 
     var body: some View {
@@ -190,6 +195,20 @@ struct AppearanceSettingsTab: View {
                 }
             } footer: {
                 Text("Controls the translucency of window backgrounds, bars, and cards.")
+            }
+
+            Section {
+                Picker("Content surface", selection: $surfaceStyleRaw) {
+                    ForEach(SurfaceStyle.allCases) { style in
+                        Text(style.displayName).tag(style.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Content surface")
+            } footer: {
+                Text(selectedSurfaceStyle.detail)
             }
         }
         .formStyle(.grouped)

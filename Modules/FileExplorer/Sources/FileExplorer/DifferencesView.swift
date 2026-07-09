@@ -121,6 +121,7 @@ public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
@@ -144,6 +145,9 @@ public struct DifferencesView: View {
     }
     private var verifiedIdenticalCount: Int {
         syncManager.verifiedIdenticalForCopy?.count ?? 0
+    }
+    private var surfaceStyle: SurfaceStyle {
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
     }
 
     public var body: some View {
@@ -273,6 +277,9 @@ public struct DifferencesView: View {
                 TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
                     .width(min: 96, ideal: 140)
             }
+            // Let the surface fill below show through: the Table would otherwise paint its own
+            // opaque scroll background over it, defeating the translucent styles.
+            .scrollContentBackground(.hidden)
             .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
                 differenceContextMenu(for: ids, in: sorted)
             }
@@ -281,7 +288,7 @@ public struct DifferencesView: View {
                     emptyState
                 }
             }
-            .background(.regularMaterial.opacity(0.5))
+            .contentSurface(surfaceStyle, intensity: glassIntensity)
         }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
