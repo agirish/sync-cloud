@@ -779,6 +779,9 @@ struct ContentView: View {
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
     private var bottomPaneView: some View {
+        // Stable outer container: keeps the VSplitView child identity constant across tab
+        // switches, so selecting Details no longer resets the divider and collapses the panes.
+        VStack(spacing: 0) {
         if selectedBottomTab == .differences && !syncManager.differences.isEmpty {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
             DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
@@ -824,6 +827,7 @@ struct ContentView: View {
                 .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
             }
             .padding(8)
+        }
         }
     }
 }
