@@ -287,9 +287,10 @@ public struct DifferencesView: View {
                 TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
                     .width(min: 96, ideal: 140)
             }
-            // Let the surface fill below show through: the Table would otherwise paint its own
-            // opaque scroll background over it, defeating the translucent styles.
+            // Let the surface fill below show through: hide the scroll background AND the
+            // alternating row fills, or the Table paints opaque (white) rows over the surface.
             .scrollContentBackground(.hidden)
+            .tableStyle(.inset(alternatesRowBackgrounds: false))
             .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
                 differenceContextMenu(for: ids, in: sorted)
             }
