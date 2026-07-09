@@ -18,16 +18,17 @@ enum PaneLogic {
         activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
-    /// SF Symbols for the action bar's Copy/Move buttons, pointing toward the pane the
-    /// operation targets (the one opposite the selection). SF Symbols has no left-pointing
-    /// counterpart of `arrow.right.doc.on.clipboard`, so the directional states use the
-    /// symmetric circle/square arrow pairs instead of mismatched glyphs; with no selection
-    /// the buttons keep their neutral right-pointing defaults.
+    /// SF Symbols for the action bar's Copy/Move buttons. Copy uses the universal duplicate
+    /// glyph (`doc.on.doc`) in every state — instantly recognizable as "copy" — and carries
+    /// its direction in the button's "Copy to <pane>" label rather than a directional arrow,
+    /// since SF Symbols has no left-pointing copy glyph to pair with the right one. Move stays
+    /// directional: a box-with-arrow that points toward the pane the operation targets (the one
+    /// opposite the selection), falling back to right-pointing when there is no selection yet.
     static func actionBarSymbols(activePane: ActivePane?) -> (copy: String, move: String) {
         switch activePane {
-        case .left: return (copy: "arrow.right.circle", move: "arrow.right.square")
-        case .right: return (copy: "arrow.left.circle", move: "arrow.left.square")
-        case nil: return (copy: "arrow.right.doc.on.clipboard", move: "arrow.right.square")
+        case .left: return (copy: "doc.on.doc", move: "arrow.right.square")
+        case .right: return (copy: "doc.on.doc", move: "arrow.left.square")
+        case nil: return (copy: "doc.on.doc", move: "arrow.right.square")
         }
     }
 

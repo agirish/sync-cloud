@@ -29,19 +29,20 @@ import FileExplorer
 
     // MARK: actionBarSymbols
 
-    @Test func testActionBarSymbolsPointTowardTheTargetPane() {
-        // Left-pane selection targets the right pane, so the icons point right — and vice versa.
+    @Test func testActionBarSymbolsMoveArrowPointsTowardTheTargetPane() {
+        // Copy uses the universal duplicate glyph in every state; only Move is directional,
+        // pointing toward the pane it targets — right for a left selection, and vice versa.
         let fromLeft = PaneLogic.actionBarSymbols(activePane: .left)
-        #expect(fromLeft.copy == "arrow.right.circle")
+        #expect(fromLeft.copy == "doc.on.doc")
         #expect(fromLeft.move == "arrow.right.square")
         let fromRight = PaneLogic.actionBarSymbols(activePane: .right)
-        #expect(fromRight.copy == "arrow.left.circle")
+        #expect(fromRight.copy == "doc.on.doc")
         #expect(fromRight.move == "arrow.left.square")
     }
 
     @Test func testActionBarSymbolsWithoutSelectionKeepNeutralDefaults() {
         let neutral = PaneLogic.actionBarSymbols(activePane: nil)
-        #expect(neutral.copy == "arrow.right.doc.on.clipboard")
+        #expect(neutral.copy == "doc.on.doc")
         #expect(neutral.move == "arrow.right.square")
     }
 

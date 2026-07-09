@@ -588,9 +588,11 @@ struct ContentView: View {
                 let isLeft = (activePane == .left)
                 actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
-                Label("Compare", systemImage: "scope")
+                Label("Compare", systemImage: "rectangle.split.2x1")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(selectionNodes.count != 1 || !selectionNodes[0].isDirectory)
+            .help("Open the selected folder in both panes to compare them")
 
             Button(action: {
                 guard !selectionNodes.isEmpty, let activePane else { return }
@@ -599,6 +601,7 @@ struct ContentView: View {
             }) {
                 Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy)
             }
+            .labelStyle(.titleAndIcon)
             .disabled(selectionNodes.isEmpty)
             .help(copyTarget.map { "Copy the selected items to \($0)" } ?? "Copy the selected items to the other pane")
 
@@ -611,6 +614,7 @@ struct ContentView: View {
             }) {
                 Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move)
             }
+            .labelStyle(.titleAndIcon)
             .disabled(selectionNodes.isEmpty)
             .help(copyTarget.map { "Move the selected items to \($0)" } ?? "Move the selected items to the other pane")
 
@@ -620,7 +624,9 @@ struct ContentView: View {
             }) {
                 Label("New Folder", systemImage: "folder.badge.plus")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(activePane == nil)
+            .help("Create a new folder in the active pane")
 
             Button(role: .destructive, action: {
                 guard !selectionNodes.isEmpty else { return }
@@ -628,7 +634,9 @@ struct ContentView: View {
             }) {
                 Label("Delete", systemImage: "trash")
             }
+            .labelStyle(.titleAndIcon)
             .disabled(selectionNodes.isEmpty)
+            .help("Delete the selected items")
 
             Menu {
                 ForEach(SortOption.allCases, id: \.self) { option in
@@ -641,17 +649,30 @@ struct ContentView: View {
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }
+            .labelStyle(.titleAndIcon)
+            .help("Choose how items are sorted")
 
             // Raw trees/differences already include hidden entries; the showHiddenFiles didSet
-            // re-filters them in memory via applyFilters().
+            // re-filters them in memory via applyFilters(). The eye icon mirrors the current
+            // state — open when hidden files are visible, slashed when they are filtered out.
             Toggle(isOn: $syncManager.showHiddenFiles) {
-                Label("Hidden", systemImage: "eye")
+                Label("Hidden Files", systemImage: syncManager.showHiddenFiles ? "eye" : "eye.slash")
             }
             .toggleStyle(.button)
-            .help("Toggle visibility of hidden files")
+            .labelStyle(.titleAndIcon)
+            .help(syncManager.showHiddenFiles
+                  ? "Hidden files are visible — click to hide them"
+                  : "Hidden files are hidden — click to show them")
             .onChange(of: syncManager.showHiddenFiles) { _, newValue in
                 Logger.shared.info("User toggled hidden files to: \(newValue)")
             }
+        }
+
+        // Push the utility actions to the trailing edge of the titlebar. macOS 26's grouped
+        // toolbar no longer trails `.primaryAction` on its own, so a flexible spacer separates
+        // the file actions from the utility pill; earlier systems trail primaryAction natively.
+        if #available(macOS 26.0, *) {
+            ToolbarSpacer(.flexible)
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
