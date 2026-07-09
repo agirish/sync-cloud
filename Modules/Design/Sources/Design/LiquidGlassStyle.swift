@@ -151,16 +151,6 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
             return "The Differences and Details areas use an opaque panel for maximum readability."
         }
     }
-
-    /// Base material for the bottom-pane card. Used on macOS 15; macOS 26 draws native glass and
-    /// ignores this, so the per-content `contentSurface` fill is what varies the look there.
-    public var cardMaterial: Material {
-        switch self {
-        case .unified: return .ultraThinMaterial
-        case .framed: return .thinMaterial
-        case .solid: return .regularMaterial
-        }
-    }
 }
 
 public enum LiquidGlass {

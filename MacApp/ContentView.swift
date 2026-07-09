@@ -816,7 +816,10 @@ struct ContentView: View {
             .frame(minHeight: 0)
             .contentSurface(surfaceStyle, intensity: glassIntensity)
         }
-        .glassCardStyle(material: surfaceStyle.cardMaterial, intensity: glassIntensity)
+        // Match the panes exactly: same content surface, just clipped and outlined as a card.
+        // No glassCardStyle here — its glassEffect frosting rendered neutral/white, so the bottom
+        // stopped picking up the app's hue tint the way the (card-less) panes do.
+        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                 .strokeBorder(.quaternary, lineWidth: 0.5)
