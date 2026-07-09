@@ -100,6 +100,48 @@ import Foundation
         #expect(diffs.first?.type == .differentDates) // Current engine labels size diffs under the "differentDates/size" generic catch-all
     }
 
+    @Test func testMissingFilesCarryTheirExistingSideSize() async throws {
+        // A file that exists on only one side must still report its size, so the Differences
+        // list can show it instead of "—". A missing folder has no byte size and stays nil.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let now = Date()
+        mockFM.virtualDisk["/src/only-left.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: now, .size: 4096], contents: nil)
+        mockFM.virtualDisk["/dst/only-right.txt"] = MockFileManager.FileStub(
+            isDirectory: false, attributes: [.modificationDate: now, .size: 8192], contents: nil)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folderOnly"), withIntermediateDirectories: true)
+
+        let srcProvider = CloudProvider(id: "src", displayName: "Source", imageName: "folder", path: "/src", type: .iCloud)
+        let dstProvider = CloudProvider(id: "dst", displayName: "Dest", imageName: "folder", path: "/dst", type: .iCloud)
+
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles
+        )
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+
+        // Missing on right: the item lives on the left, so its left size travels with the diff.
+        #expect(byPath["only-left.txt"]?.type == .missingOnRight)
+        #expect(byPath["only-left.txt"]?.leftFileSize == 4096)
+        #expect(byPath["only-left.txt"]?.rightFileSize == nil)
+
+        // Missing on left: mirror — the right size travels with the diff.
+        #expect(byPath["only-right.txt"]?.type == .missingOnLeft)
+        #expect(byPath["only-right.txt"]?.rightFileSize == 8192)
+        #expect(byPath["only-right.txt"]?.leftFileSize == nil)
+
+        // A missing folder carries no byte size (rendered "—", with the roll-up in the Change column).
+        #expect(byPath["folderOnly"]?.type == .missingOnRight)
+        #expect(byPath["folderOnly"]?.leftFileSize == nil)
+    }
+
     @Test func testTypeMismatchPrefersNewerDestination() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

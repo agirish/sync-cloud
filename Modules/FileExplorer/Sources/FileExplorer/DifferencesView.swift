@@ -147,9 +147,9 @@ public struct DifferencesView: View {
     }
 
     public var body: some View {
-        // One filter+search pass and one sort per render (as before, a single O(n) filter plus an
-        // O(n log n) sort). The header reads the target counts several times and this view
-        // re-renders per file during bulk sync, so compute the derived values once here.
+        // Derive everything once per render: the header reads the target counts several times and
+        // this view re-renders per file during bulk sync. One O(n) filter+search pass, then an
+        // O(n log n) sort over the (much smaller, filtered) result to match the Table's sortOrder.
         let filtered = DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
         let sorted = filtered.sorted(using: sortOrder)
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
@@ -192,7 +192,7 @@ public struct DifferencesView: View {
                                 Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(anySyncing || isBulkSyncing)
+                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
                         }
                         if targets.copyToLeftCount > 0 {
                             Button {
@@ -201,7 +201,7 @@ public struct DifferencesView: View {
                                 Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
                             }
                             .buttonStyle(.bordered)
-                            .disabled(anySyncing || isBulkSyncing)
+                            .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
                         }
                         if targets.verifiableCount > 0 {
                             Button {
@@ -526,8 +526,16 @@ private struct DifferenceChangeCell: View {
 private struct DifferenceSizeCell: View {
     let difference: FileDifference
 
+    /// One cached formatter for the whole column — `ByteCountFormatter` carries internal state, so
+    /// allocating one per row body would churn (same reason FileTreeView caches its `sizeFormatter`).
+    @MainActor private static let formatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
     var body: some View {
-        Text(difference.displaySizeText)
+        Text(difference.displaySize.map { Self.formatter.string(fromByteCount: Int64($0)) } ?? "—")
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .trailing)

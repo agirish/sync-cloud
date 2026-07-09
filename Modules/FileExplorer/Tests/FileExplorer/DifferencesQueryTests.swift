@@ -146,10 +146,10 @@ import Sync
         #expect(diff("x", type: .differentDates, action: .copyToLeft, leftSize: 100, rightSize: 200).displaySize == 200)
     }
 
-    @Test func testUnknownSizeRendersDashAndSortsAsNegativeOne() {
+    @Test func testUnknownSizeIsNilAndSortsAsNegativeOne() {
+        // Folders/unknown sizes are nil (the cell renders "—") and sort below every real size.
         let folder = diff("folder", enclosedItemCount: 4)
         #expect(folder.displaySize == nil)
-        #expect(folder.displaySizeText == "—")
         #expect(folder.displaySizeSort == -1)
     }
 

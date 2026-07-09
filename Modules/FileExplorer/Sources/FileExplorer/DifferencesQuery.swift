@@ -70,17 +70,18 @@ struct DifferenceActionTargets: Equatable {
 /// computed properties on `FileDifference` so the Table's `sortOrder` (KeyPathComparator) can
 /// order rows by them and the same keys stay unit-testable without SwiftUI.
 extension FileDifference {
-    /// The file/folder name shown in the Name column and used as the Name sort key.
+    /// The file/folder name shown in the Name column and used as the Name sort key. Sliced off the
+    /// last "/" rather than `split`, since this is the sort key the Table re-reads O(n log n) times
+    /// per sort — allocating a `[Substring]` array on every comparison would dominate the sort.
     var fileName: String {
-        let parts = relativePath.split(separator: "/")
-        return parts.last.map(String.init) ?? relativePath
+        guard let slash = relativePath.lastIndex(of: "/") else { return relativePath }
+        return String(relativePath[relativePath.index(after: slash)...])
     }
 
     /// The parent-path prefix dimmed ahead of the filename in the Name cell; empty at the root.
     var parentPath: String {
-        let parts = relativePath.split(separator: "/")
-        guard parts.count > 1 else { return "" }
-        return parts.dropLast().joined(separator: "/")
+        guard let slash = relativePath.lastIndex(of: "/") else { return "" }
+        return String(relativePath[..<slash])
     }
 
     /// Description with the folder roll-up ("… — includes N items") appended, shown in the
@@ -98,12 +99,6 @@ extension FileDifference {
         case .missingOnLeft: return rightFileSize
         case .differentDates: return action == .copyToRight ? leftFileSize : rightFileSize
         }
-    }
-
-    /// Human-readable size for the Size column ("—" when unknown), matching the tree panes' formatting.
-    var displaySizeText: String {
-        guard let size = displaySize else { return "—" }
-        return ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
     }
 
     /// Non-optional Size sort key for the Table column. Unknown/folder sizes (nil) sort as `-1`,

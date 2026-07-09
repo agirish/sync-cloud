@@ -263,7 +263,10 @@ public struct FileDiffEngine {
                     rightItemPath: rightExpectedPath,
                     type: .missingOnRight,
                     action: .copyToRight,
-                    description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))"
+                    description: leftFile.isDirectory ? "Folder missing on right (\(right.displayName))" : "Missing on right (\(right.displayName))",
+                    // The item exists on the left; carry its size so the Differences list can show it.
+                    // Directories report a nil fileSize, so folders stay sizeless (shown as "—").
+                    leftFileSize: leftFile.fileSize
                 ))
             }
         }
@@ -279,7 +282,9 @@ public struct FileDiffEngine {
                     rightItemPath: rightFile.url.path,
                     type: .missingOnLeft,
                     action: .copyToLeft,
-                    description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))"
+                    description: rightFile.isDirectory ? "Folder missing on left (\(left.displayName))" : "Missing on left (\(left.displayName))",
+                    // The item exists on the right; carry its size so the Differences list can show it.
+                    rightFileSize: rightFile.fileSize
                 ))
             }
         }
