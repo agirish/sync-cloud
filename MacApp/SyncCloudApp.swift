@@ -16,6 +16,9 @@ struct SyncCloudApp: App {
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager: FileSyncManager
     @StateObject private var settings: SettingsManager
+    /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
+    /// open it; ContentView renders the overlay and owns which tab is shown.
+    @State private var showSettings = false
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
@@ -45,14 +48,23 @@ struct SyncCloudApp: App {
                 Color.clear
                     .frame(width: 1, height: 1)
             } else {
-                ContentView(syncManager: syncManager)
+                ContentView(syncManager: syncManager, showSettings: $showSettings)
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
             }
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
-        
+        .commands {
+            // Settings is no longer a separate window (it's an in-window overlay so it floats
+            // over the content even in full screen), so re-supply the standard ⌘, menu item
+            // that the native Settings scene used to provide.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { showSettings = true }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+        }
+
         Window("Activity Log", id: "activity-log") {
             if isRunningTests {
                 Color.clear
@@ -62,17 +74,6 @@ struct SyncCloudApp: App {
             }
         }
         .windowResizability(.contentMinSize)
-        
-        // The native Settings scene gives the standard macOS preferences window: toolbar
-        // tabs, Cmd+, shortcut, and the "Settings…" item in the app menu.
-        Settings {
-            if isRunningTests {
-                Color.clear
-            } else {
-                SettingsView()
-                    .environmentObject(settings)
-            }
-        }
     }
 }
 
@@ -100,7 +101,13 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         guard let manager, manager.activeFileOperationsCount > 0 else {
             return .terminateNow
         }
-        
+
+        // Respect the General setting; default to warning when the key was never written.
+        let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
+        guard warnBeforeQuit else {
+            return .terminateNow
+        }
+
         let alert = NSAlert()
         alert.messageText = "File Operations in Progress"
         alert.informativeText = "Quitting now may cause data corruption or partial synchronization. Are you sure you want to quit?"

@@ -11,7 +11,13 @@ import Design
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
-    
+
+    /// Drives the in-window settings overlay (owned by the App so ⌘, can open it).
+    @Binding var showSettings: Bool
+    /// Which settings tab the overlay shows. Owned here so it persists across open/close and can
+    /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
+    @State private var settingsTab: SettingsView.SettingsTab = .appearance
+
     @AppStorage("selectedLeftProviderId") private var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") private var rightProviderId: String = "iCloud"
     @State private var isScanning = false
@@ -26,8 +32,7 @@ struct ContentView: View {
 
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
-    
+
     @State private var actionHandler: FileActionHandler?
     @State private var quickLookURL: URL? = nil
     @State private var showingBottomPane: Bool = true
@@ -143,13 +148,19 @@ struct ContentView: View {
                                 Label("Logs", systemImage: "list.bullet.rectangle")
                             }
                             
-                            Button(action: { openSettings() }) {
+                            Button(action: { showSettings = true }) {
                                 Label("Settings", systemImage: "gear")
                             }
                         }
                     }
                 }
         }
+        .overlay {
+            if showSettings {
+                settingsOverlay
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: showSettings)
         .quickLookPreview($quickLookURL)
         .background(
             Button(action: {
@@ -181,12 +192,16 @@ struct ContentView: View {
             refreshAction()
         }
         .onAppear {
+            // General setting: start the session with hidden files shown when the user asked for it.
+            syncManager.showHiddenFiles = UserDefaults.standard.bool(forKey: GeneralSettings.showHiddenByDefaultKey)
             // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
-            // openSettingsOnLaunch -bool YES` opens the Settings scene at startup, so
+            // openSettingsOnLaunch -bool YES` opens the Settings overlay at startup, so
             // automated verification can reach it without synthesizing input. No-op
-            // unless explicitly armed.
+            // unless explicitly armed; honors `settingsSelectedTab` for the initial tab.
             if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
-                openSettings()
+                let storedTab = UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey) ?? ""
+                settingsTab = SettingsView.SettingsTab(rawValue: storedTab) ?? .appearance
+                showSettings = true
             }
             actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
             syncManager.undoManager = undoManager
@@ -363,15 +378,37 @@ struct ContentView: View {
         refreshAction()
     }
 
-    /// Opens the native Settings scene preselected on the Providers tab — the fix-it action
-    /// for the invalid-root / disabled-provider pane placeholders. SettingsView reads the
-    /// tab default once at window creation, so it must be written before `openSettings()`.
+    /// Opens the settings overlay preselected on the Providers tab — the fix-it action for the
+    /// invalid-root / disabled-provider pane placeholders.
     private func openProviderSettings() {
-        UserDefaults.standard.set(
-            SettingsView.SettingsTab.providers.rawValue,
-            forKey: SettingsView.selectedTabDefaultsKey
-        )
-        openSettings()
+        settingsTab = .providers
+        showSettings = true
+    }
+
+    /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered
+    /// card. Because it lives inside the main window it floats over the content even in full
+    /// screen, and never kicks the user out to another Space the way a separate window would.
+    @ViewBuilder
+    private var settingsOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.black.opacity(0.35))
+                .ignoresSafeArea()
+                .onTapGesture { showSettings = false }
+
+            SettingsView(selection: $settingsTab, onClose: { showSettings = false })
+                .environmentObject(settings)
+                .background(.regularMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                )
+                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+                // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
+                .contentShape(Rectangle())
+        }
+        .transition(.opacity)
     }
 
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.

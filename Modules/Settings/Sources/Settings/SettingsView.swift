@@ -1,8 +1,19 @@
 import Events
 import Foundation
+import ServiceManagement
 import SwiftUI
 import Sync
 import Design
+
+/// UserDefaults keys for General settings that are read outside the Settings module — the app
+/// delegate's quit guard and ContentView's launch-time seeding both reference the same literals,
+/// so they live here as the single source of truth.
+public enum GeneralSettings {
+    /// Bool (default true). When false, the app quits immediately even with file operations in flight.
+    public static let warnBeforeQuitKey = "warnBeforeQuitDuringOperations"
+    /// Bool (default false). Seeds `FileSyncManager.showHiddenFiles` at launch.
+    public static let showHiddenByDefaultKey = "showHiddenFilesByDefault"
+}
 
 /// The app's settings window, hosted in the SwiftUI `Settings` scene. Follows the standard
 /// macOS preferences layout: toolbar tabs (Appearance / Providers / Sync) over grouped forms.
@@ -10,48 +21,134 @@ public struct SettingsView: View {
     /// Identifies a settings tab; raw values are the format of the `settingsSelectedTab`
     /// default read at window creation, so treat them as stable.
     public enum SettingsTab: String {
+        case general
         case appearance
         case providers
         case sync
     }
 
-    /// UserDefaults key holding the tab the Settings window opens on (a `SettingsTab` raw
-    /// value). Callers set it just before invoking `openSettings` to preselect a tab; the
-    /// GUI-verification recipe writes it via `defaults`, so the literal is a stable format.
+    /// UserDefaults key holding the tab the Settings overlay opens on (a `SettingsTab` raw
+    /// value). ContentView reads it once at launch to honor the GUI-verification recipe, which
+    /// writes it via `defaults`; the literal is a stable format.
     public static let selectedTabDefaultsKey = "settingsSelectedTab"
 
-    /// Initial tab, read once from `settingsSelectedTab`. Deliberately not written back:
-    /// binding the TabView selection to @AppStorage churns nondeterministically while the
-    /// Settings scene builds its toolbar, clobbering the stored value. Read-once keeps the
-    /// default authoritative — which automated verification relies on to open a given tab.
-    @State private var selectedTab: SettingsTab
+    /// Selected tab, owned by the host (ContentView) so it survives an overlay open/close cycle
+    /// and can be preset — e.g. the invalid-pane fix-it action opens straight to Providers.
+    @Binding private var selectedTab: SettingsTab
 
-    public init() {
-        let stored = UserDefaults.standard.string(forKey: Self.selectedTabDefaultsKey) ?? ""
-        _selectedTab = State(initialValue: SettingsTab(rawValue: stored) ?? .appearance)
+    /// Dismisses the overlay. Invoked by the ✕ button and the Escape shortcut; the host also
+    /// dismisses on a click outside the card.
+    private let onClose: () -> Void
+
+    public init(selection: Binding<SettingsTab>, onClose: @escaping () -> Void) {
+        _selectedTab = selection
+        self.onClose = onClose
     }
 
     public var body: some View {
-        TabView(selection: $selectedTab) {
-            AppearanceSettingsTab()
-                .tabItem {
-                    Label("Appearance", systemImage: "paintbrush")
+        VStack(spacing: 0) {
+            HStack {
+                Text("Settings")
+                    .font(.headline)
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .contentShape(Rectangle())
                 }
-                .tag(SettingsTab.appearance)
+                .buttonStyle(.plain)
+                // Escape closes the overlay even when focus is elsewhere in the card.
+                .keyboardShortcut(.cancelAction)
+                .help("Close settings")
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
 
-            ProvidersSettingsTab()
-                .tabItem {
-                    Label("Providers", systemImage: "externaldrive.badge.icloud")
-                }
-                .tag(SettingsTab.providers)
+            // A segmented picker rather than a TabView: a plain TabView (outside the native
+            // Settings scene) hoists its tab bar into the window toolbar. This keeps the tabs
+            // inside the overlay card.
+            Picker("Settings section", selection: $selectedTab) {
+                Text("General").tag(SettingsTab.general)
+                Text("Appearance").tag(SettingsTab.appearance)
+                Text("Providers").tag(SettingsTab.providers)
+                Text("Sync").tag(SettingsTab.sync)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
 
-            SyncSettingsTab()
-                .tabItem {
-                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+            Divider()
+
+            Group {
+                switch selectedTab {
+                case .general:
+                    GeneralSettingsTab()
+                case .appearance:
+                    AppearanceSettingsTab()
+                case .providers:
+                    ProvidersSettingsTab()
+                case .sync:
+                    SyncSettingsTab()
                 }
-                .tag(SettingsTab.sync)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 620, height: 520)
+    }
+}
+
+// MARK: - General
+
+/// App-level preferences: login item, hidden-file default, and the quit safety guard.
+struct GeneralSettingsTab: View {
+    @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
+    @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
+                    .onChange(of: launchAtLogin) { _, enabled in
+                        updateLoginItem(enabled)
+                    }
+            } footer: {
+                Text("Automatically start SyncCloud when you log in to your Mac.")
+            }
+
+            Section {
+                Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
+            } footer: {
+                Text("New launches start with hidden files shown. You can still toggle Hidden in the action bar at any time.")
+            }
+
+            Section {
+                Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
+            } footer: {
+                Text("Shows a confirmation if you try to quit while a copy, move, or delete is still running.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    /// Registers/unregisters the login item, reverting the toggle to the real service state on
+    /// failure so the UI never claims a state the system rejected.
+    private func updateLoginItem(_ enabled: Bool) {
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            launchAtLogin = (SMAppService.mainApp.status == .enabled)
+        }
     }
 }
 
