@@ -84,7 +84,7 @@ public struct DetailsSidebar: View {
             
             // Permissions
             let perms = attrs[.posixPermissions] as? NSNumber
-            let permStr = String(format: "%o", perms?.intValue ?? 0)
+            let permStr = symbolicPermissions(mode: perms?.intValue ?? 0, isDirectory: isDir.boolValue)
             
             // Kind
             var fileKind = isDir.boolValue ? "Folder" : "Document"
@@ -107,6 +107,44 @@ public struct DetailsSidebar: View {
         } catch {
             return nil
         }
+    }
+
+    /// Renders a POSIX mode as an `ls`-style symbolic string followed by the octal in
+    /// parentheses, e.g. mode `0o755` on a directory → `"drwxr-xr-x (755)"`.
+    ///
+    /// The leading char is `d` for a directory and `-` for a file, followed by the
+    /// owner/group/other `rwx` triads. Special bits are honoured: setuid/setgid show
+    /// `s` in the owner/group execute slot (`S` when the execute bit is unset), and the
+    /// sticky bit shows `t` in the other-execute slot (`T` when unset). The mode is
+    /// masked with `0o7777`, so the parenthesised octal includes any special bits
+    /// (e.g. `0o4755` → `"-rwsr-xr-x (4755)"`). Pure formatting; no I/O.
+    nonisolated static func symbolicPermissions(mode: Int, isDirectory: Bool) -> String {
+        let m = mode & 0o7777
+        let octal = String(format: "%03o", m)
+
+        // Builds one rwx triad. `specialBit` is the setuid/setgid/sticky mask for this
+        // triad and `specialChar` its lowercase glyph (`s` or `t`); it renders in the
+        // execute slot, uppercased when the underlying execute bit is unset.
+        func triad(shift: Int, specialBit: Int, specialChar: Character) -> String {
+            let bits = (m >> shift) & 0o7
+            let r = (bits & 0o4) != 0 ? "r" : "-"
+            let w = (bits & 0o2) != 0 ? "w" : "-"
+            let executable = (bits & 0o1) != 0
+            let x: String
+            if (m & specialBit) != 0 {
+                x = executable ? String(specialChar) : specialChar.uppercased()
+            } else {
+                x = executable ? "x" : "-"
+            }
+            return r + w + x
+        }
+
+        let type = isDirectory ? "d" : "-"
+        let owner = triad(shift: 6, specialBit: 0o4000, specialChar: "s")
+        let group = triad(shift: 3, specialBit: 0o2000, specialChar: "s")
+        let other = triad(shift: 0, specialBit: 0o1000, specialChar: "t")
+
+        return "\(type)\(owner)\(group)\(other) (\(octal))"
     }
 
     private func displaySize(for data: FileMetadata) -> String {
