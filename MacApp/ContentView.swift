@@ -139,31 +139,6 @@ struct ContentView: View {
         } detail: {
             mainContentView
                 .frame(minWidth: 600)
-                .toolbar {
-                    ToolbarItemGroup(placement: .navigation) {
-                        ControlGroup {
-                            Button(action: forceRefreshAction) {
-                                Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
-                            }
-                            .disabled(isScanning)
-                            
-                            Button(action: {
-                                withAnimation { showingBottomPane.toggle() }
-                            }) {
-                                Label("Toggle Bottom Pane", systemImage: "rectangle.bottomthird.inset.filled")
-                                    .foregroundColor(showingBottomPane ? .accentColor : .primary)
-                            }
-                            
-                            Button(action: { openWindow(id: "activity-log") }) {
-                                Label("Logs", systemImage: "list.bullet.rectangle")
-                            }
-                            
-                            Button(action: { showSettings = true }) {
-                                Label("Settings", systemImage: "gear")
-                            }
-                        }
-                    }
-                }
         }
         .overlay {
             if showSettings {
@@ -470,12 +445,12 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        VStack(spacing: 0) {
-            paneActionBar
-            Divider()
-            VSplitView {
-                VStack(spacing: 0) {
-                    HSplitView {
+        VSplitView {
+            // Stack 1: the action toolbar grouped with the two pane cards.
+            VStack(spacing: 0) {
+                paneActionBar
+                    .paneCardIfNeeded(surfaceStyle)
+                HSplitView {
                         VStack(spacing: 0) {
                             PaneHeader(
                                 title: "Left",
@@ -518,7 +493,6 @@ struct ContentView: View {
                         .frame(minHeight: 150)
                 }
             }
-        }
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {
@@ -670,10 +644,8 @@ struct ContentView: View {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }
 
-            Spacer()
-
-            // No refresh here: raw trees and differences already include hidden entries, and the
-            // showHiddenFiles didSet re-filters them in memory via applyFilters().
+            // Hidden sits next to Sort. (Raw trees/differences already include hidden entries;
+            // the showHiddenFiles didSet re-filters them in memory via applyFilters().)
             Toggle(isOn: $syncManager.showHiddenFiles) {
                 Label("Hidden", systemImage: "eye")
             }
@@ -682,12 +654,49 @@ struct ContentView: View {
             .onChange(of: syncManager.showHiddenFiles) { _, newValue in
                 Logger.shared.info("User toggled hidden files to: \(newValue)")
             }
+
+            Spacer()
+
+            // Utility pill: the former window-toolbar items (Scan · Toggle pane · Logs · Settings),
+            // grouped and right-aligned in the action bar.
+            HStack(spacing: 2) {
+                Button(action: forceRefreshAction) {
+                    Image(systemName: isScanning ? "hourglass" : "arrow.clockwise")
+                }
+                .disabled(isScanning)
+                .help("Scan for changes")
+
+                Button(action: { withAnimation { showingBottomPane.toggle() } }) {
+                    Image(systemName: "rectangle.bottomthird.inset.filled")
+                }
+                .foregroundStyle(showingBottomPane ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+                .help("Toggle the bottom pane")
+
+                Button(action: { openWindow(id: "activity-log") }) {
+                    Image(systemName: "list.bullet.rectangle")
+                }
+                .help("Activity log")
+
+                Button(action: { showSettings = true }) {
+                    Image(systemName: "gear")
+                }
+                .help("Settings")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .imageScale(.large)
+            .padding(4)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.quaternary.opacity(0.4))
+            )
         }
         .buttonStyle(.bordered)
         .tint(glassHue.accentColor)
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .glassBarStyle(intensity: glassIntensity)
+        .frame(maxWidth: .infinity)
+        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
     }
     
     /// Selection binding for one pane that enforces the one-pane-selected invariant
