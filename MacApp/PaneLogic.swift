@@ -107,6 +107,18 @@ enum PaneLogic {
         }
     }
 
+    /// The provider ids the two panes should show after a left↔right swap: each id moves to
+    /// the opposite side. Pure so ContentView's swap action and its test agree on the mapping
+    /// without a running view. This is only the @AppStorage half of a pane swap; the manager's
+    /// focused relative paths, selections, and navigation histories are swapped in lockstep by
+    /// `FileSyncManager.swapPanes()`.
+    static func swappedProviderIds(
+        leftProviderId: String,
+        rightProviderId: String
+    ) -> (leftProviderId: String, rightProviderId: String) {
+        (leftProviderId: rightProviderId, rightProviderId: leftProviderId)
+    }
+
     /// Toggle semantics of the "Ignore in comparison" menu item: when every target is
     /// already ignored the action un-ignores them all, otherwise it ignores them all
     /// (including any already-ignored ones, which stay ignored).

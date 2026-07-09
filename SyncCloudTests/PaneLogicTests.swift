@@ -234,4 +234,27 @@ import FileExplorer
         let updated = PaneLogic.toggledIgnoredPaths(targets: ["a", "b"], ignoredPaths: ["a"])
         #expect(updated == ["a", "b"])
     }
+
+    // MARK: swappedProviderIds
+
+    @Test func testSwappedProviderIdsExchangeSides() {
+        let swapped = PaneLogic.swappedProviderIds(leftProviderId: "iCloud", rightProviderId: "Dropbox")
+        #expect(swapped.leftProviderId == "Dropbox")
+        #expect(swapped.rightProviderId == "iCloud")
+    }
+
+    @Test func testSwappingProviderIdsTwiceRestoresOriginal() {
+        let once = PaneLogic.swappedProviderIds(leftProviderId: "A", rightProviderId: "B")
+        let twice = PaneLogic.swappedProviderIds(leftProviderId: once.leftProviderId, rightProviderId: once.rightProviderId)
+        #expect(twice.leftProviderId == "A")
+        #expect(twice.rightProviderId == "B")
+    }
+
+    @Test func testSwappingEqualProviderIdsIsANoOp() {
+        // Both panes on the same provider: swapping the ids changes nothing, so neither pane's
+        // id onChange fires — the swap action must not seed its suppression counter for this case.
+        let swapped = PaneLogic.swappedProviderIds(leftProviderId: "iCloud", rightProviderId: "iCloud")
+        #expect(swapped.leftProviderId == "iCloud")
+        #expect(swapped.rightProviderId == "iCloud")
+    }
 }

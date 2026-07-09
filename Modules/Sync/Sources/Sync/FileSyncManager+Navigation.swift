@@ -114,6 +114,29 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
+    /// Swaps the left and right panes wholesale: focused relative paths, selections, and each
+    /// pane's navigation history all move to the opposite side in one synchronous update, so
+    /// observers never see a half-swapped intermediate (e.g. the new left path against the old
+    /// left history). The provider ids live in @AppStorage (ContentView) and are swapped there
+    /// in lockstep; this method owns only the manager's paired @Published state. It does not
+    /// itself trigger a rescan — the caller drives the single post-swap refresh once the
+    /// provider ids are swapped too.
+    @MainActor public func swapPanes() {
+        Logger.shared.info("User swapped the left and right panes")
+
+        let relPath = leftRelativePath
+        leftRelativePath = rightRelativePath
+        rightRelativePath = relPath
+
+        let selection = selectedLeftPaths
+        selectedLeftPaths = selectedRightPaths
+        selectedRightPaths = selection
+
+        let history = leftHistory
+        leftHistory = rightHistory
+        rightHistory = history
+    }
+
     /// Publishes each pane's current history entry into its relative path and triggers a refresh.
     func syncPathsFromHistory() {
         if leftRelativePath != leftHistory.current { leftRelativePath = leftHistory.current }

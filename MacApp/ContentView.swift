@@ -15,7 +15,15 @@ struct ContentView: View {
     @AppStorage("selectedLeftProviderId") private var leftProviderId: String = "iCloud"
     @AppStorage("selectedRightProviderId") private var rightProviderId: String = "iCloud"
     @State private var isScanning = false
-    
+
+    /// Number of provider-id `onChange` notifications still expected from an in-flight pane
+    /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
+    /// drive two navigation resets that wipe the focus/selection the swap just moved to the
+    /// other side. Each suppressed onChange decrements this; the swap action seeds it with the
+    /// number of ids that actually change (2, or 0 when both panes already share a provider) so
+    /// later real provider switches are never suppressed.
+    @State private var pendingSwapProviderChanges: Int = 0
+
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openSettings) private var openSettings
@@ -110,7 +118,8 @@ struct ContentView: View {
             ProviderSidebar(
                 settings: settings,
                 leftProviderId: $leftProviderId,
-                rightProviderId: $rightProviderId
+                rightProviderId: $rightProviderId,
+                onSwap: swapPanesAction
             )
         } detail: {
             mainContentView
@@ -193,12 +202,22 @@ struct ContentView: View {
         }
         .onChange(of: leftProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
+            // A pane swap flips this id itself; its navigation was already swapped atomically,
+            // so skip the reset (which would wipe it) and let swapPanesAction drive the rescan.
+            if pendingSwapProviderChanges > 0 {
+                pendingSwapProviderChanges -= 1
+                return
+            }
             Logger.shared.info("User switched left provider to \(newId)")
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
             syncManager.resetNavigation()
         }
         .onChange(of: rightProviderId) { _, newId in
             guard !isBootstrappingProviders else { return }
+            if pendingSwapProviderChanges > 0 {
+                pendingSwapProviderChanges -= 1
+                return
+            }
             Logger.shared.info("User switched right provider to \(newId)")
             syncManager.resetNavigation()
         }
@@ -320,6 +339,28 @@ struct ContentView: View {
         Task {
             await syncManager.refreshTreesAndScan(left: leftProvider, right: rightProvider)
         }
+    }
+
+    /// Swaps the left and right panes entirely — providers, focused folders, selections, and
+    /// per-pane back/forward history all flip sides in one click. The manager's paired state is
+    /// swapped first (so the single post-swap rescan reads already-swapped focus and selection),
+    /// then the @AppStorage provider ids. Both id onChanges fire but are suppressed via
+    /// `pendingSwapProviderChanges` so they don't reset the just-swapped navigation; this method
+    /// drives the one rescan itself.
+    private func swapPanesAction() {
+        syncManager.swapPanes()
+        let swapped = PaneLogic.swappedProviderIds(
+            leftProviderId: leftProviderId,
+            rightProviderId: rightProviderId
+        )
+        // Both ids change together (unless the panes already share a provider, in which case
+        // neither onChange fires) — seed the suppression counter accordingly.
+        if leftProviderId != rightProviderId {
+            pendingSwapProviderChanges = 2
+        }
+        leftProviderId = swapped.leftProviderId
+        rightProviderId = swapped.rightProviderId
+        refreshAction()
     }
 
     /// Opens the native Settings scene preselected on the Providers tab — the fix-it action

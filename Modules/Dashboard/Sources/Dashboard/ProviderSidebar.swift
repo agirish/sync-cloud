@@ -9,11 +9,21 @@ public struct ProviderSidebar: View {
     @ObservedObject public var settings: SettingsManager
     @Binding public var leftProviderId: String
     @Binding public var rightProviderId: String
-    
-    public init(settings: SettingsManager, leftProviderId: Binding<String>, rightProviderId: Binding<String>) {
+    /// Invoked by the ⇄ button to flip the left and right panes (providers, focused folders,
+    /// selections, and history). The actual swap lives in ContentView, which owns both the
+    /// provider ids and the sync manager.
+    private let onSwap: () -> Void
+
+    public init(
+        settings: SettingsManager,
+        leftProviderId: Binding<String>,
+        rightProviderId: Binding<String>,
+        onSwap: @escaping () -> Void
+    ) {
         self.settings = settings
         self._leftProviderId = leftProviderId
         self._rightProviderId = rightProviderId
+        self.onSwap = onSwap
     }
     
     public var body: some View {
@@ -30,6 +40,7 @@ public struct ProviderSidebar: View {
                         .buttonStyle(.plain)
                     }
                 }
+                swapButton
                 Section("Right") {
                     ForEach(providers, id: \.id) { provider in
                         Button(action: { rightProviderId = provider.id }) {
@@ -43,6 +54,29 @@ public struct ProviderSidebar: View {
         .listStyle(.sidebar)
         .navigationTitle("Providers")
         .frame(minWidth: 220)
+    }
+
+    /// Flips the two panes. Sits between the Left and Right sections so the ⇄ visually reads
+    /// as "swap these two"; disabled only when there are no enabled providers, where both panes
+    /// are placeholders and there is nothing to swap.
+    @ViewBuilder
+    private var swapButton: some View {
+        HStack {
+            Spacer()
+            Button(action: onSwap) {
+                Label("Swap panes", systemImage: "arrow.left.arrow.right.circle")
+                    .labelStyle(.iconOnly)
+                    .font(.title3)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color.accentColor)
+            .disabled(settings.enabledProviders.isEmpty)
+            .accessibilityLabel("Swap left and right panes")
+            .help("Swap the left and right panes")
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        .listRowBackground(Color.clear)
     }
 
     @ViewBuilder
