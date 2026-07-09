@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 // MARK: - Liquid Glass Design (macOS 26–inspired)
 // Uses materials + rounded corners + soft shadows on macOS 15.
@@ -250,20 +251,23 @@ public extension View {
     }
 
     /// Fills the bottom workspace (Differences / Details) with the user-selected surface style.
-    /// The styles differ only in translucency — `.unified` lets the window glass show through to
-    /// match the panes, `.solid` reads as an opaque panel — and intensity nudges the opacity
-    /// within each. Applied on every OS (unlike the glass helpers) because the flat look comes
-    /// from these raw material fills, which macOS 26's native glass does not replace.
+    /// The three cases span a real range — `.unified` adds no fill so the window glass shows
+    /// straight through (matching the panes), `.framed` is a frosted translucent panel, `.solid`
+    /// is a flat opaque panel. Apply it ONCE per region (don't stack it on nested views, or two
+    /// materials compound and "framed" ends up as opaque as "solid").
     @ViewBuilder
     func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65) -> some View {
         let t = max(0.0, min(1.0, intensity))
         switch style {
         case .unified:
-            self.background(.ultraThinMaterial.opacity(0.18 + 0.14 * t))
+            // No fill of its own: the bottom workspace reads as the same glass as the panes.
+            self
         case .framed:
-            self.background(.thinMaterial.opacity(0.42 + 0.24 * t))
+            // A frosted translucent panel — clearly a surface, still glassy.
+            self.background(.thinMaterial.opacity(0.65 + 0.35 * t))
         case .solid:
-            self.background(.regularMaterial.opacity(0.82 + 0.16 * t))
+            // A flat, fully opaque panel — no vibrancy or blur — for maximum legibility.
+            self.background(Color(nsColor: .controlBackgroundColor))
         }
     }
 }

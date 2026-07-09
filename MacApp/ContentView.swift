@@ -796,7 +796,6 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .contentSurface(surfaceStyle, intensity: glassIntensity)
                     } else {
                         VStack(spacing: 8) {
                             Text("No Scan Performed")

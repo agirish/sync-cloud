@@ -121,7 +121,6 @@ public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
@@ -145,9 +144,6 @@ public struct DifferencesView: View {
     }
     private var verifiedIdenticalCount: Int {
         syncManager.verifiedIdenticalForCopy?.count ?? 0
-    }
-    private var surfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
     }
 
     public var body: some View {
@@ -302,7 +298,6 @@ public struct DifferencesView: View {
                     emptyState
                 }
             }
-            .contentSurface(surfaceStyle, intensity: glassIntensity)
         }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
