@@ -44,6 +44,14 @@ struct ContentView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
+    /// Left pane's share of the pane row's width (0…1). Persisted so the split survives relaunches.
+    /// Drives the custom two-pane split that replaced HSplitView, whose NSSplitView divider bled
+    /// up through the `.hiddenTitleBar` toolbar band; a SwiftUI HStack + divider respects the
+    /// toolbar's safe area, so the divider now starts at the pane headers.
+    @AppStorage("mainPaneSplitFraction") private var paneSplitFraction: Double = 0.5
+    /// The fraction captured when a divider drag begins, so translation is applied from a fixed base.
+    @State private var paneDragBaseFraction: Double? = nil
+
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
@@ -140,7 +148,6 @@ struct ContentView: View {
             mainContentView
                 .frame(minWidth: 600)
                 .toolbar { mainToolbar }
-                .toolbarBackground(.visible, for: .windowToolbar)
         }
         .overlay {
             if showSettings {
@@ -445,46 +452,82 @@ struct ContentView: View {
         refreshAction()
     }
 
+    /// One resizable file pane: provider header stacked over its file tree.
+    @ViewBuilder
+    private func paneColumn(isLeft: Bool) -> some View {
+        VStack(spacing: 0) {
+            PaneHeader(
+                title: isLeft ? "Left" : "Right",
+                provider: settings.availableProviders.first(where: { $0.id == (isLeft ? leftProviderId : rightProviderId) }),
+                rootPath: settings.path(for: isLeft ? leftProviderId : rightProviderId),
+                relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
+                canGoBack: isLeft ? syncManager.leftHistory.canGoBack : syncManager.rightHistory.canGoBack,
+                canGoForward: isLeft ? syncManager.leftHistory.canGoForward : syncManager.rightHistory.canGoForward,
+                onBack: { syncManager.goBack(isLeft: isLeft) },
+                onForward: { syncManager.goForward(isLeft: isLeft) },
+                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
+                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
+            )
+            if isLeft { leftTreeView } else { rightTreeView }
+        }
+        .paneCardIfNeeded(surfaceStyle)
+    }
+
+    /// Two file panes side by side with a draggable divider between them. This replaces
+    /// `HSplitView`: its NSSplitView-backed divider ignored the top safe area and drew up
+    /// through the `.hiddenTitleBar` toolbar band, whereas this SwiftUI HStack lays out
+    /// entirely within the safe area, so the divider starts at the pane headers. Drag-to-resize
+    /// is preserved via a hit-testable divider handle that updates `paneSplitFraction`.
+    @ViewBuilder
+    private var panesSplit: some View {
+        GeometryReader { geo in
+            let minPane: CGFloat = 250
+            let dividerWidth: CGFloat = 1
+            let panesWidth = max(0, geo.size.width - dividerWidth)
+            // Clamp so neither pane goes below minPane (degrades gracefully in a too-narrow window).
+            let minFraction = panesWidth > 0 ? min(0.5, Double(minPane / panesWidth)) : 0
+            let fraction = min(max(paneSplitFraction, minFraction), 1 - minFraction)
+            let leftWidth = panesWidth * fraction
+            HStack(spacing: 0) {
+                paneColumn(isLeft: true)
+                    .frame(width: leftWidth)
+                paneResizeDivider(panesWidth: panesWidth, minFraction: minFraction)
+                    .frame(width: dividerWidth)
+                paneColumn(isLeft: false)
+                    .frame(width: panesWidth - leftWidth)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
+
+    /// The hairline divider between the panes, with a wider invisible hit area for dragging.
+    @ViewBuilder
+    private func paneResizeDivider(panesWidth: CGFloat, minFraction: Double) -> some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .overlay {
+                Color.clear
+                    .frame(width: 10)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.columnResize)
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                guard panesWidth > 0 else { return }
+                                let base = paneDragBaseFraction ?? paneSplitFraction
+                                if paneDragBaseFraction == nil { paneDragBaseFraction = base }
+                                let delta = Double(value.translation.width / panesWidth)
+                                paneSplitFraction = min(max(base + delta, minFraction), 1 - minFraction)
+                            }
+                            .onEnded { _ in paneDragBaseFraction = nil }
+                    )
+            }
+    }
+
     @ViewBuilder
     private var mainContentView: some View {
         VSplitView {
-            HSplitView {
-                        VStack(spacing: 0) {
-                            PaneHeader(
-                                title: "Left",
-                                provider: settings.availableProviders.first(where: { $0.id == leftProviderId }),
-                                rootPath: settings.path(for: leftProviderId),
-                                relativePath: syncManager.leftRelativePath,
-                                canGoBack: syncManager.leftHistory.canGoBack,
-                                canGoForward: syncManager.leftHistory.canGoForward,
-                                onBack: { syncManager.goBack(isLeft: true) },
-                                onForward: { syncManager.goForward(isLeft: true) },
-                                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: true) },
-                                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
-                            )
-                            leftTreeView
-                        }
-                        .frame(minWidth: 250)
-                        .paneCardIfNeeded(surfaceStyle)
-
-                        VStack(spacing: 0) {
-                            PaneHeader(
-                                title: "Right",
-                                provider: settings.availableProviders.first(where: { $0.id == rightProviderId }),
-                                rootPath: settings.path(for: rightProviderId),
-                                relativePath: syncManager.rightRelativePath,
-                                canGoBack: syncManager.rightHistory.canGoBack,
-                                canGoForward: syncManager.rightHistory.canGoForward,
-                                onBack: { syncManager.goBack(isLeft: false) },
-                                onForward: { syncManager.goForward(isLeft: false) },
-                                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: false) },
-                                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
-                            )
-                            rightTreeView
-                        }
-                        .frame(minWidth: 250)
-                        .paneCardIfNeeded(surfaceStyle)
-                    }
+            panesSplit
                 if showingBottomPane {
                     bottomPaneView
                         .frame(minHeight: 150)
