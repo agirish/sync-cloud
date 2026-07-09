@@ -21,9 +21,13 @@ public struct PaneHeader: View {
     public let onNavigate: (String) -> Void
     public let onNavigateBoth: (String) -> Void
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var surfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
+    private var glassHue: LiquidGlassHue {
+        LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
     public init(
@@ -95,6 +99,6 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .contentSurface(surfaceStyle, intensity: glassIntensity)
+        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
     }
 }

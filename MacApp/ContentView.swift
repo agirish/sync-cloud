@@ -41,10 +41,13 @@ struct ContentView: View {
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
 
     private var surfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
+    private var glassHue: LiquidGlassHue {
+        LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
     /// Represents the available tabs in the integrated bottom workspace.
@@ -488,7 +491,8 @@ struct ContentView: View {
                             leftTreeView
                         }
                         .frame(minWidth: 250)
-                        
+                        .paneCardIfNeeded(surfaceStyle)
+
                         VStack(spacing: 0) {
                             PaneHeader(
                                 title: "Right",
@@ -505,6 +509,7 @@ struct ContentView: View {
                             rightTreeView
                         }
                         .frame(minWidth: 250)
+                        .paneCardIfNeeded(surfaceStyle)
                     }
                 }
                 if showingBottomPane {
@@ -774,7 +779,7 @@ struct ContentView: View {
             }
             .frame(height: 44)
             .layoutPriority(1)
-            .contentSurface(surfaceStyle, intensity: glassIntensity)
+            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
             
             Divider()
                 .opacity(0.6)
@@ -814,16 +819,11 @@ struct ContentView: View {
                 }
             }
             .frame(minHeight: 0)
-            .contentSurface(surfaceStyle, intensity: glassIntensity)
+            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
         }
-        // Match the panes exactly: same content surface, just clipped and outlined as a card.
-        // No glassCardStyle here — its glassEffect frosting rendered neutral/white, so the bottom
-        // stopped picking up the app's hue tint the way the (card-less) panes do.
-        .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
+        // Unified/Tinted/Solid: clipped rounded region with a hairline outline (fill comes from
+        // contentSurface). Cards: a floating frosted card with a shadow + gutter.
+        .bottomWorkspaceDecoration(surfaceStyle)
     }
 }
     

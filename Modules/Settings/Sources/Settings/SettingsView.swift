@@ -158,14 +158,14 @@ struct GeneralSettingsTab: View {
 struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.framed.rawValue
+    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
     }
 
     private var selectedSurfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .framed
+        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
 
     var body: some View {

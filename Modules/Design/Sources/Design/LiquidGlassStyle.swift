@@ -123,11 +123,13 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
 /// window glass like the file panes, or read as a distinct, opaque panel for legibility.
 /// Stored in UserDefaults via `LiquidGlass.surfaceStyleKey`.
 public enum SurfaceStyle: String, CaseIterable, Identifiable {
-    /// Barely-there material: the window's tinted glass shows through, matching the file panes.
+    /// No fill: the window's tinted glass shows straight through — one continuous surface.
     case unified
-    /// A soft translucent panel — present but still glassy. The balanced default.
-    case framed
-    /// A denser, near-opaque panel for maximum legibility of long lists.
+    /// Each pane and the Differences area float as separate frosted cards on the background.
+    case cards
+    /// Every surface takes a wash of the accent color (the hue from the picker above).
+    case tinted
+    /// Flat, fully opaque panels for maximum legibility.
     case solid
 
     public var id: String { rawValue }
@@ -135,7 +137,8 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
     public var displayName: String {
         switch self {
         case .unified: return "Unified"
-        case .framed: return "Framed"
+        case .cards: return "Cards"
+        case .tinted: return "Tinted"
         case .solid: return "Solid"
         }
     }
@@ -144,11 +147,13 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
     public var detail: String {
         switch self {
         case .unified:
-            return "The Differences and Details areas blend into the window's glass, matching the file panes."
-        case .framed:
-            return "The Differences and Details areas sit in a soft translucent panel."
+            return "The panes and Differences area blend into the window's glass as one continuous surface."
+        case .cards:
+            return "Each pane and the Differences area float as separate cards on the background."
+        case .tinted:
+            return "Every surface takes a wash of the accent color chosen above."
         case .solid:
-            return "The Differences and Details areas use an opaque panel for maximum readability."
+            return "The panes and Differences area use opaque panels for maximum readability."
         }
     }
 }
@@ -240,24 +245,58 @@ public extension View {
         }
     }
 
-    /// Fills the bottom workspace (Differences / Details) with the user-selected surface style.
-    /// The three cases span a real range — `.unified` adds no fill so the window glass shows
-    /// straight through (matching the panes), `.framed` is a frosted translucent panel, `.solid`
+    /// Fills a region (a file pane or the Differences/Details workspace) per the selected surface
+    /// style. `.unified` and `.cards` add no fill (unified shows the app glass directly; cards get
+    /// their fill from `surfaceCard`); `.tinted` washes the region with the accent hue; `.solid`
     /// is a flat opaque panel. Apply it ONCE per region (don't stack it on nested views, or two
-    /// materials compound and "framed" ends up as opaque as "solid").
+    /// fills compound).
     @ViewBuilder
-    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65) -> some View {
+    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue) -> some View {
         let t = max(0.0, min(1.0, intensity))
         switch style {
-        case .unified:
-            // No fill of its own: the bottom workspace reads as the same glass as the panes.
+        case .unified, .cards:
             self
-        case .framed:
-            // A frosted translucent panel — clearly a surface, still glassy.
-            self.background(.thinMaterial.opacity(0.65 + 0.35 * t))
+        case .tinted:
+            // A clear wash of the accent color, so the whole window reads in the picked hue.
+            self.background(hue.accentColor.opacity(0.16 + 0.12 * t))
         case .solid:
             // A flat, fully opaque panel — no vibrancy or blur — for maximum legibility.
             self.background(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    /// Frosted floating-card decoration for the `.cards` style: material fill, rounded corners,
+    /// hairline border, soft shadow, and an outer gutter so the background shows between cards.
+    func surfaceCard(cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
+        self
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.6)
+            )
+            .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+            .padding(5)
+    }
+
+    /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
+    @ViewBuilder
+    func paneCardIfNeeded(_ style: SurfaceStyle) -> some View {
+        if style == .cards { self.surfaceCard() } else { self }
+    }
+
+    /// The bottom workspace's outer frame: a floating card for `.cards`, otherwise a clipped
+    /// rounded region with a hairline outline (its `contentSurface` supplies the fill).
+    @ViewBuilder
+    func bottomWorkspaceDecoration(_ style: SurfaceStyle) -> some View {
+        if style == .cards {
+            self.surfaceCard()
+        } else {
+            self
+                .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                )
         }
     }
 }
