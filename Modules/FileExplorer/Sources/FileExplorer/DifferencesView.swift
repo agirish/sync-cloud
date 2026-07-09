@@ -263,6 +263,11 @@ public struct DifferencesView: View {
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .tint(glassHue.accentColor)
+            // Capsule buttons to match the top action bar's glass pills (the native toolbar
+            // renders its buttons as capsules; mirror that shape here for a consistent look).
+            // Keep the default control size so the label font matches the top bar's ~13pt rather
+            // than the larger `.large` size.
+            .buttonBorderShape(.capsule)
             .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
 
             // Table card: progress (during ops) sits above the differences table.

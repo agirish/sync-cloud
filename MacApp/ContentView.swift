@@ -150,12 +150,6 @@ struct ContentView: View {
             mainContentView
                 .frame(minWidth: 600)
                 .toolbar { mainToolbar }
-                // Give the action bar a frosted background so it reads as one full toolbar rather
-                // than scattered floating pills — consistent with the bottom Differences bar. (Safe
-                // now that the pane divider is a safe-area-respecting HStack, not HSplitView.)
-                .toolbarBackground(.visible, for: .windowToolbar)
-                // Match the bottom bar's accent so both toolbars share the app's hue.
-                .tint(glassHue.accentColor)
         }
         .overlay {
             if showSettings {
