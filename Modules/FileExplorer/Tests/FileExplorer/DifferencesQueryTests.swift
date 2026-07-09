@@ -77,10 +77,18 @@ import Sync
 
     @Test func testNameSortAscendingAndDescending() {
         let list = [diff("z/apple.txt"), diff("a/mango.txt"), diff("m/banana.txt")]
-        let asc = list.sorted(using: [KeyPathComparator(\.fileName, order: .forward)])
+        let asc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)])
         #expect(asc.map(\.fileName) == ["apple.txt", "banana.txt", "mango.txt"])
-        let desc = list.sorted(using: [KeyPathComparator(\.fileName, order: .reverse)])
+        let desc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .reverse)])
         #expect(desc.map(\.fileName) == ["mango.txt", "banana.txt", "apple.txt"])
+    }
+
+    @Test func testNameSortIsCaseInsensitiveAndNumberAware() {
+        // The Name column sorts with `.localizedStandard` (Finder-style): case doesn't shove
+        // capitals above lowercase, and numbers order numerically (File2 before File10).
+        let list = [diff("z/File2.txt"), diff("z/file10.txt"), diff("z/apple.txt"), diff("z/File1.txt")]
+        let asc = list.sorted(using: [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)])
+        #expect(asc.map(\.fileName) == ["apple.txt", "File1.txt", "File2.txt", "file10.txt"])
     }
 
     @Test func testSizeSortHandlesUnknownSizes() {
@@ -183,16 +191,27 @@ import Sync
         #expect(targets.copyToLeftCount == 1)
     }
 
-    @Test func testSelectionOfFilteredOutRowsYieldsNoTargets() {
+    @Test func testSelectionMatchingNoVisibleRowFallsBackToFilteredSet() {
+        // A selection that resolves to no visible row — a rescan replaced every id, the synced
+        // rows were removed, or a filter now hides them — must fall back to the full filtered
+        // set so the header keeps actionable buttons instead of going dead.
         let visible = diff("visible", action: .copyToRight)
-        let hidden = diff("hidden", action: .copyToRight)
-        // `hidden` is not in the filtered list, so selecting it targets nothing.
-        let targets = DifferenceActionTargets(filtered: [visible], selection: [hidden.id])
+        let stale = diff("stale", action: .copyToRight)
+        let targets = DifferenceActionTargets(filtered: [visible], selection: [stale.id])
+        #expect(!targets.isSelectionScoped)
+        #expect(targets.targets.map(\.relativePath) == ["visible"])
+        #expect(targets.copyToRightCount == 1)
+    }
+
+    @Test func testPartlyStaleSelectionKeepsOnlyVisibleRows() {
+        // One selected row is gone (e.g. already synced and dropped), one is still visible:
+        // stay scoped to the surviving visible row.
+        let a = diff("a", action: .copyToRight)
+        let removed = diff("removed", action: .copyToRight)
+        let targets = DifferenceActionTargets(filtered: [a], selection: [a.id, removed.id])
         #expect(targets.isSelectionScoped)
-        #expect(targets.targets.isEmpty)
-        #expect(targets.copyToRightCount == 0)
-        #expect(targets.copyToLeftCount == 0)
-        #expect(targets.verifiableCount == 0)
+        #expect(targets.targets.map(\.relativePath) == ["a"])
+        #expect(targets.copyToRightCount == 1)
     }
 
     @Test func testVerifiableCountRequiresDateTypeAndMatchingSizes() {

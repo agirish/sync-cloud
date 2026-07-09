@@ -124,7 +124,7 @@ public struct DifferencesView: View {
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
-    @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, order: .forward)]
+    @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
     /// - Parameter onQuickLook: Presents a Quick Look preview for the given file. The app
@@ -266,7 +266,7 @@ public struct DifferencesView: View {
                 .opacity(0.6)
             
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Name", value: \.fileName) { DifferenceNameCell(difference: $0) }
+                TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
                 TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
                 TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
                     .width(min: 70, ideal: 90)

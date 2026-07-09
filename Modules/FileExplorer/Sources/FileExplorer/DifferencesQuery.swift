@@ -50,10 +50,14 @@ struct DifferenceActionTargets: Equatable {
     let verifiableCount: Int
 
     init(filtered: [FileDifference], selection: Set<FileDifference.ID>) {
-        let scoped = !selection.isEmpty
-        // A non-empty selection whose rows were all filtered out yields an empty target set,
-        // which correctly disables every button (nothing actionable is visible).
-        let targets = scoped ? filtered.filter { selection.contains($0.id) } : filtered
+        // Resolve the selection against the *visible* rows. A selection that resolves to no
+        // visible row — because a rescan replaced every id with a fresh UUID, the synced rows
+        // were removed from the list, or a filter now hides them all — falls back to the whole
+        // filtered set, so the header keeps actionable buttons instead of going dead until the
+        // next click.
+        let matched = selection.isEmpty ? [] : filtered.filter { selection.contains($0.id) }
+        let scoped = !matched.isEmpty
+        let targets = scoped ? matched : filtered
         self.targets = targets
         self.isSelectionScoped = scoped
         self.copyToRightCount = targets.reduce(0) { $0 + ($1.action == .copyToRight ? 1 : 0) }
