@@ -189,6 +189,20 @@ public struct DifferencesView: View {
                             )
                         }
                         .fixedSize(horizontal: true, vertical: false)
+                        if targets.isSelectionScoped {
+                            Button {
+                                selection.removeAll()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("\(targets.targets.count) selected")
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .font(.subheadline)
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Clear selection")
+                        }
                         if targets.copyToRightCount > 0 {
                             Button {
                                 copy(direction: .copyToRight, targets: targets)
@@ -484,6 +498,11 @@ public struct DifferencesView: View {
             syncManager.ignoredPaths = DifferencesQuery.ignoringAll(selected, in: syncManager.ignoredPaths)
         } label: {
             Label("Ignore \(selected.count) in comparison", systemImage: "eye.slash")
+        }
+        Button {
+            selection.removeAll()
+        } label: {
+            Label("Clear selection", systemImage: "xmark.circle")
         }
     }
 }
