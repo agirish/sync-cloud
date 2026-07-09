@@ -159,6 +159,7 @@ struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
@@ -195,6 +196,20 @@ struct AppearanceSettingsTab: View {
                 }
             } footer: {
                 Text("Controls the translucency of window backgrounds, bars, and cards.")
+            }
+
+            Section {
+                HStack(spacing: 12) {
+                    Slider(value: $surfaceTint, in: 0.0...1.0) {
+                        Text("Tint")
+                    }
+                    Text("\(Int(surfaceTint * 100))%")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 36, alignment: .trailing)
+                }
+            } footer: {
+                Text("Washes the panes and Differences area with the accent color chosen above.")
             }
 
             Section {

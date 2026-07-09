@@ -42,6 +42,7 @@ struct ContentView: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
 
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
@@ -779,7 +780,7 @@ struct ContentView: View {
             }
             .frame(height: 44)
             .layoutPriority(1)
-            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
+            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
             
             Divider()
                 .opacity(0.6)
@@ -819,9 +820,9 @@ struct ContentView: View {
                 }
             }
             .frame(minHeight: 0)
-            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
+            .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
         }
-        // Unified/Tinted/Solid: clipped rounded region with a hairline outline (fill comes from
+        // Unified/Solid: clipped rounded region with a hairline outline (fill comes from
         // contentSurface). Cards: a floating frosted card with a shadow + gutter.
         .bottomWorkspaceDecoration(surfaceStyle)
     }

@@ -120,7 +120,6 @@ struct StatPill: View {
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
     @StateObject private var modifierTracker = ModifierTracker()
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @State private var selectedFilter: DifferenceFilter = .all
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
@@ -232,7 +231,6 @@ public struct DifferencesView: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .glassBarStyle(intensity: glassIntensity)
 
             if let progress = syncManager.verifyAllProgress {
                 VStack(alignment: .leading, spacing: 6) {

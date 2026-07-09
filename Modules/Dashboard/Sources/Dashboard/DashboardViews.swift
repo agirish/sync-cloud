@@ -23,6 +23,7 @@ public struct PaneHeader: View {
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
@@ -99,6 +100,6 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue)
+        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
     }
 }

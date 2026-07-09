@@ -123,12 +123,10 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
 /// window glass like the file panes, or read as a distinct, opaque panel for legibility.
 /// Stored in UserDefaults via `LiquidGlass.surfaceStyleKey`.
 public enum SurfaceStyle: String, CaseIterable, Identifiable {
-    /// No fill: the window's tinted glass shows straight through — one continuous surface.
+    /// No fill: the window's glass shows straight through — one continuous surface.
     case unified
     /// Each pane and the Differences area float as separate frosted cards on the background.
     case cards
-    /// Every surface takes a wash of the accent color (the hue from the picker above).
-    case tinted
     /// Flat, fully opaque panels for maximum legibility.
     case solid
 
@@ -138,7 +136,6 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
         switch self {
         case .unified: return "Unified"
         case .cards: return "Cards"
-        case .tinted: return "Tinted"
         case .solid: return "Solid"
         }
     }
@@ -150,8 +147,6 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
             return "The panes and Differences area blend into the window's glass as one continuous surface."
         case .cards:
             return "Each pane and the Differences area float as separate cards on the background."
-        case .tinted:
-            return "Every surface takes a wash of the accent color chosen above."
         case .solid:
             return "The panes and Differences area use opaque panels for maximum readability."
         }
@@ -178,6 +173,9 @@ public enum LiquidGlass {
 
     /// UserDefaults key for the content surface style (raw value of `SurfaceStyle`).
     public static let surfaceStyleKey = "contentSurfaceStyle"
+
+    /// UserDefaults key for the accent-color tint strength applied to surfaces (Double, 0...1).
+    public static let tintKey = "contentSurfaceTint"
 }
 
 // MARK: - View Extensions
@@ -246,22 +244,20 @@ public extension View {
     }
 
     /// Fills a region (a file pane or the Differences/Details workspace) per the selected surface
-    /// style. `.unified` and `.cards` add no fill (unified shows the app glass directly; cards get
-    /// their fill from `surfaceCard`); `.tinted` washes the region with the accent hue; `.solid`
-    /// is a flat opaque panel. Apply it ONCE per region (don't stack it on nested views, or two
-    /// fills compound).
+    /// style, plus an optional accent-color wash driven by the Tint slider (`tint`, 0...1) that
+    /// applies to every style. `.unified` and `.cards` add no base fill (unified shows the app
+    /// glass directly; cards get their fill from `surfaceCard`); `.solid` is a flat opaque panel.
+    /// Apply it ONCE per region (don't stack it on nested views, or fills compound).
     @ViewBuilder
-    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue) -> some View {
-        let t = max(0.0, min(1.0, intensity))
+    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+        // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1.
+        let wash = hue.accentColor.opacity(max(0.0, min(1.0, tint)) * 0.32)
         switch style {
         case .unified, .cards:
-            self
-        case .tinted:
-            // A clear wash of the accent color, so the whole window reads in the picked hue.
-            self.background(hue.accentColor.opacity(0.16 + 0.12 * t))
+            self.background(wash)
         case .solid:
-            // A flat, fully opaque panel — no vibrancy or blur — for maximum legibility.
-            self.background(Color(nsColor: .controlBackgroundColor))
+            // Opaque base, then the accent wash on top so Solid can tint too.
+            self.background(wash).background(Color(nsColor: .controlBackgroundColor))
         }
     }
 
