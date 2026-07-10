@@ -158,6 +158,100 @@ import Foundation
         #expect(inner.virtualDisk.keys.contains { $0.contains(".rollback_") } == false)
     }
 
+    /// Cross-volume move (EXDEV on the staging rename) that REPLACES an existing destination and
+    /// SUCCEEDS: the source is copied onto the destination's volume, atomically swapped in, then the
+    /// original is cleaned from its own volume. Realistic case — moving a file off an external drive
+    /// over an existing cloud file. Every other dest-exists rollback pin also fails the temp rename,
+    /// so this is the only coverage of the cross-volume replace success path.
+    @Test func testSafeMoveCrossVolumeReplaceOverExistingSucceedsAndCleansSource() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/data.bin", size: 100)
+        seed(inner, path: "/dst/data.bin", size: 5)
+        inner.shouldFailMove = true // EXDEV on the same-volume staging rename → copy fallback
+
+        let overwritten = try FileSyncManager.safeMoveItem(
+            at: URL(fileURLWithPath: "/src/data.bin"),
+            to: URL(fileURLWithPath: "/dst/data.bin"),
+            fileManager: inner
+        )
+
+        #expect(inner.calledReplaceItem)                 // went through the atomic primitive
+        #expect(inner.calledCopyItem)                    // cross-volume staging used a copy
+        #expect(inner.virtualDisk["/src/data.bin"] == nil)   // source cleaned up (trashed)
+        #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        let backup = try #require(overwritten)               // old content recoverable in Trash
+        #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+    }
+
+    /// Cross-volume replace where BOTH source-cleanup steps fail (no Trash on the source volume and
+    /// the permanent remove is denied). The move can't complete, so it reverts the (successful)
+    /// replace and throws — consistent with the dest-absent cross-volume path, and avoiding a
+    /// "moved" undo entry for a source still on disk. The revert goes back through the atomic
+    /// primitive, so the destination is never left absent, and no data is lost on any side.
+    @Test func testSafeMoveCrossVolumeReplaceRevertsWhenSourceCleanupFails() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/data.bin", size: 100)
+        seed(inner, path: "/dst/data.bin", size: 5)
+        inner.shouldFailMove = true                   // EXDEV staging → copy, source not consumed
+        inner.shouldFailTrash = true                  // source volume has no Trash
+        inner.failRemovePathsOnce = ["/src/data.bin"] // and the permanent remove is denied
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(
+                at: URL(fileURLWithPath: "/src/data.bin"),
+                to: URL(fileURLWithPath: "/dst/data.bin"),
+                fileManager: inner
+            )
+        }
+
+        // Clean revert: the destination is back to its original content and the source is intact —
+        // exactly the pre-op state, with no stray temp or rollback artifacts left behind.
+        #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        #expect(inner.virtualDisk["/src/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".rollback_") } == false)
+    }
+
+    /// Pins the mock `replaceItem`'s contract as an atomicity oracle: a brand-new destination is a
+    /// plain install returning no backup, and a failure while backing up the prior destination
+    /// leaves the destination untouched with NO stray backup artifact. (Without the atomic-on-
+    /// failure cleanup this second case leaks a half-made `.rollback_` copy.)
+    @Test func testMockReplaceItemPrimitiveContract() throws {
+        // (1) No prior destination → plain install, nil backup.
+        let a = MockFileManager()
+        try a.createDirectory(at: URL(fileURLWithPath: "/d"), withIntermediateDirectories: true)
+        seed(a, path: "/d/.tmp_staged", size: 42)
+        let backup = try a.replaceItem(
+            at: URL(fileURLWithPath: "/d/new.txt"),
+            withItemAt: URL(fileURLWithPath: "/d/.tmp_staged"),
+            backupItemName: ".rollback_x"
+        )
+        #expect(backup == nil)
+        #expect(a.virtualDisk["/d/new.txt"]?.attributes?[FileAttributeKey.size] as? Int == 42)
+        #expect(a.virtualDisk["/d/.tmp_staged"] == nil)
+
+        // (2) Prior destination, but backing it up fails → destination untouched, no stray backup.
+        let b = MockFileManager()
+        try b.createDirectory(at: URL(fileURLWithPath: "/d"), withIntermediateDirectories: true)
+        seed(b, path: "/d/f.txt", size: 5)
+        seed(b, path: "/d/.tmp_staged", size: 100)
+        b.failRemovePathsOnce = ["/d/f.txt"] // the backup move is copy+remove; the remove fails
+        #expect(throws: (any Error).self) {
+            try b.replaceItem(
+                at: URL(fileURLWithPath: "/d/f.txt"),
+                withItemAt: URL(fileURLWithPath: "/d/.tmp_staged"),
+                backupItemName: ".rollback_y"
+            )
+        }
+        #expect(b.virtualDisk["/d/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5) // untouched
+        #expect(b.virtualDisk.keys.contains { $0.hasPrefix("/d/.rollback_") } == false)     // no stray backup
+    }
+
     // MARK: - Real-disk smoke: exercises the real FileManager.replaceItemAt, not the mock
 
     /// The crash-window itself is not unit-testable (a mock cannot kill the process mid-replace),

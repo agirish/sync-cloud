@@ -199,7 +199,15 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
             let backupURL = destinationURL.deletingLastPathComponent().appendingPathComponent(backupItemName)
             let hadDestination = virtualDisk[destinationURL.path] != nil
             if hadDestination {
-                try moveItem(at: destinationURL, to: backupURL)
+                do {
+                    try moveItem(at: destinationURL, to: backupURL)
+                } catch {
+                    // Backing up the destination failed; nothing was swapped, so the destination
+                    // must be left untouched (the real primitive's atomicity guarantee). Clean any
+                    // partial backup copy so no stray artifact survives a failed replace.
+                    try? removeItem(at: backupURL)
+                    throw error
+                }
             }
             do {
                 try moveItem(at: stagedURL, to: destinationURL)

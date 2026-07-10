@@ -278,13 +278,30 @@ extension FileSyncManager {
         }
 
         // Cross-volume: the source was copied, not consumed, so remove the original now that the
-        // destination holds its data. Trash first; fall back to a permanent remove. If both fail
-        // the replace still succeeded — leaving a duplicate source beats reverting a good replace.
+        // destination holds its data. Trash first; fall back to a permanent remove.
         if !sourceConsumed {
             do {
                 try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
             } catch {
-                try? fileManager.removeItem(at: sourceURL)
+                do {
+                    try fileManager.removeItem(at: sourceURL)
+                } catch let cleanupError {
+                    // Neither Trash nor remove worked, so this cross-volume move can't complete.
+                    // Restore the destination we replaced and fail — matching the dest-absent
+                    // cross-volume path, and avoiding a "moved" undo entry for a source still on
+                    // disk. The restore goes back through `replaceItem` so the destination is never
+                    // left momentarily absent; the fresh backup it takes is a copy of that
+                    // still-present source, so discard it.
+                    if let backupURL,
+                       let staleBackup = try? fileManager.replaceItem(
+                           at: destinationURL,
+                           withItemAt: backupURL,
+                           backupItemName: ".rollback_\(UUID().uuidString)"
+                       ) {
+                        try? fileManager.removeItem(at: staleBackup)
+                    }
+                    throw cleanupError
+                }
             }
         }
 
