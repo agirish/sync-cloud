@@ -100,6 +100,36 @@ import Foundation
         #expect(try String(contentsOf: url, encoding: .utf8) == history)
     }
 
+    /// The size cap must hold DURING a session, not just at the next launch: a long run of
+    /// appends (repeated scans) periodically re-trims, so the file stays bounded near the cap
+    /// instead of growing without limit until restart.
+    @Test func testMidSessionAppendsKeepFileBounded() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let maxFileSize = 1024
+        let writer = LogFileWriter(url: url, maxFileSize: maxFileSize)
+
+        // Write far more than the cap in one session (~20 KB against a 1 KB cap).
+        var lastLine = ""
+        for i in 0..<500 {
+            lastLine = "session line \(i)\n"
+            writer.append(lastLine)
+        }
+        writer.flush()
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes[.size] as? NSNumber)?.intValue ?? .max
+        // Between checks the file can drift past the cap by up to one check interval
+        // (maxFileSize / 2) plus a line, but never anywhere near the ~20 KB written.
+        #expect(size <= maxFileSize + maxFileSize / 2 + 64)
+
+        // Trimming swaps the inode; appends after a trim must still land in the live file.
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.hasSuffix(lastLine))
+        #expect(contents.hasPrefix("session line ")) // still starts at a line boundary
+    }
+
     @Test func testClearTruncatesFile() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }

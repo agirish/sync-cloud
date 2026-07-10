@@ -107,6 +107,35 @@ import Foundation
         #expect(diskOrder == expected)
     }
 
+    /// clearLogs() must also drop entries still sitting in the handoff queue: a burst logged
+    /// just before the clear previously flushed into `entries` afterward, so "cleared" lines
+    /// resurrected in the Activity Log UI.
+    @MainActor
+    @Test func testClearLogsDropsPendingEntriesFromPriorBurst() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoggerClearPendingTest-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let logger = Logger(logFileURL: url)
+        // Enqueue a burst but do NOT await: the entries are pending, their flush tasks have not
+        // run yet when clearLogs() executes (no suspension point between the loop and the clear).
+        for i in 0..<50 {
+            logger.info("PRE-CLEAR \(i)")
+        }
+        logger.clearLogs()
+
+        await logger.info("POST-CLEAR").value
+
+        #expect(logger.entries.map(\.message) == ["POST-CLEAR"])
+
+        // Disk agrees: the pre-clear appends were enqueued before the truncation on the same
+        // serial queue, so only the post-clear line survives.
+        logger.logWriter.flush()
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.contains("POST-CLEAR"))
+        #expect(!contents.contains("PRE-CLEAR"))
+    }
+
     /// Pins the on-disk line format: "[yyyy-MM-dd HH:mm:ss.SSS] [LEVEL] message". The timestamp
     /// renders in the local timezone, so assert the shape rather than exact digits.
     @Test func testFormattedStringPinsDiskLineFormat() {

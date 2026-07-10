@@ -87,6 +87,12 @@ public struct FileDiffEngine {
         }
         
         var result: [String: FileInfo] = [:]
+        // Unreadable entries are aggregated and logged once after the walk: a permission-denied
+        // or placeholder-heavy subtree can fail for tens of thousands of entries, and logging
+        // per-entry spawned that many MainActor tasks and disk writes mid-scan.
+        var unreadableCount = 0
+        var unreadableSamples: [String] = []
+        let maxIndividuallyLogged = 3
         var basePath = url.path
         if fileManager is FileManager {
             // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
@@ -144,11 +150,26 @@ public struct FileDiffEngine {
                     )
                 }
             } catch {
-                let msg = "Error reading resource values for \(fileURL): \(error)"
-                Task { @MainActor in Logger.shared.error(msg) }
+                unreadableCount += 1
+                if unreadableSamples.count < maxIndividuallyLogged {
+                    unreadableSamples.append("Error reading resource values for \(fileURL): \(error)")
+                }
             }
         }
-        
+
+        if unreadableCount > 0 {
+            let count = unreadableCount
+            let samples = unreadableSamples
+            let root = url.path
+            Task { @MainActor in
+                if count <= maxIndividuallyLogged {
+                    for message in samples { Logger.shared.error(message) }
+                } else {
+                    Logger.shared.error("Scan: \(count) entries unreadable under \(root); first: \(samples.joined(separator: " | "))")
+                }
+            }
+        }
+
         return result
     }
     

@@ -188,6 +188,9 @@ public class Logger: ObservableObject {
     
     /// Empties the public memory array and overwrites the local disk file with an empty sequence.
     public func clearLogs() {
+        // Drop entries still sitting in the handoff queue too: without this, lines enqueued just
+        // before the clear would flush into `entries` afterward and "resurrect" in the UI.
+        _ = pendingEntries.drain()
         entries.removeAll()
         logWriter.clear()
     }
@@ -226,16 +229,27 @@ private final class PendingLogEntryQueue: @unchecked Sendable {
 /// Internal (not private) so the self-heal / truncate behavior can be tested directly against an
 /// injected temp-file URL; production code only ever uses it via `Logger`.
 final class LogFileWriter: @unchecked Sendable {
-    /// Startup cap for the log file. ~5 MB is tens of thousands of lines; an oversized file is
-    /// trimmed to roughly half the cap so trims don't run on every launch.
+    /// Size cap for the log file, enforced at startup and re-checked periodically as the session
+    /// writes. ~5 MB is tens of thousands of lines; an oversized file is trimmed to roughly half
+    /// the cap so trims don't run back-to-back.
     private static let defaultMaxFileSize = 5 * 1024 * 1024
 
     private let url: URL
     private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     private var handle: FileHandle?
+    private let maxFileSize: Int
+
+    /// Bytes appended since the last mid-session size check (confined to `queue`). Re-statting
+    /// the file on every line would be wasted syscalls; instead the oversize check re-runs each
+    /// time this crosses `trimCheckInterval`, so a long-running session stays bounded near the
+    /// cap instead of growing until next launch.
+    private var bytesSinceTrimCheck = 0
+    private let trimCheckInterval: Int
 
     init(url: URL, maxFileSize: Int = LogFileWriter.defaultMaxFileSize) {
         self.url = url
+        self.maxFileSize = maxFileSize
+        trimCheckInterval = min(1024 * 1024, max(1, maxFileSize / 2))
         queue.async { [self] in
             trimTailIfOversized(maxFileSize: maxFileSize)
             if !FileManager.default.fileExists(atPath: url.path) {
@@ -288,10 +302,31 @@ final class LogFileWriter: @unchecked Sendable {
             } else {
                 // Last-resort fallback when the handle could not be opened. Append manually — a
                 // bare `.atomic` write would replace the entire log history with this one line.
+                // (Known cost: this re-reads and rewrites the whole file per line, but it only
+                // runs while the handle is unopenable, which self-heals on the next append.)
                 let existing = (try? Data(contentsOf: self.url)) ?? Data()
                 try? (existing + data).write(to: self.url, options: .atomic)
             }
+            self.bytesSinceTrimCheck += data.count
+            if self.bytesSinceTrimCheck >= self.trimCheckInterval {
+                self.bytesSinceTrimCheck = 0
+                self.trimMidSessionIfOversized()
+            }
         }
+    }
+
+    /// Mid-session counterpart to the init-time trim. Runs on `queue`. The trim rewrites the
+    /// file atomically (new inode), so the open handle must be closed first and reopened after —
+    /// otherwise subsequent appends would land in the orphaned old inode and vanish.
+    private func trimMidSessionIfOversized() {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = (attributes[.size] as? NSNumber)?.intValue,
+              size > maxFileSize else { return }
+        try? handle?.close()
+        handle = nil
+        trimTailIfOversized(maxFileSize: maxFileSize)
+        handle = try? FileHandle(forWritingTo: url)
+        _ = try? handle?.seekToEnd()
     }
 
     /// Blocks until every append/clear enqueued before this call has finished. Test-only barrier;
