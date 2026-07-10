@@ -25,6 +25,29 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(manager.activeFileOperationsCount == 5)
     }
 
+    /// The pure quit decision (the NSAlert branch itself isn't unit-testable). No active
+    /// operations means an unconditional, silent terminate — no breadcrumb is needed.
+    @Test func testQuitDecisionAllowsWhenNoActiveOperations() {
+        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: true)
+            == .allowNoActiveOperations)
+        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 0, warnBeforeQuit: false)
+            == .allowNoActiveOperations)
+    }
+
+    /// Active operations with the warning disabled skips the alert but still quits — the app
+    /// delegate logs "Quit Anyway" and flushes on this branch so the breadcrumb survives.
+    @Test func testQuitDecisionAllowsWithoutWarningWhenSettingDisabled() {
+        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 3, warnBeforeQuit: false)
+            == .allowWithoutWarning(activeOperations: 3))
+    }
+
+    /// Active operations with the warning enabled must route to the alert, carrying the count
+    /// through so the logged decision names how many operations were in flight.
+    @Test func testQuitDecisionWarnsWhenActiveOperationsAndWarningEnabled() {
+        #expect(SyncCloudAppDelegate.quitDecision(activeOperations: 5, warnBeforeQuit: true)
+            == .warn(activeOperations: 5))
+    }
+
     /// SwiftUI may re-run `App.init`, creating a throwaway `FileSyncManager` that `@StateObject`
     /// discards. Adopting that orphan would leave the quit guard watching an operation count
     /// that is always zero, so only the first adopted manager may stick.

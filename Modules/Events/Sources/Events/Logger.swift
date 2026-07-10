@@ -195,6 +195,18 @@ public class Logger: ObservableObject {
         logWriter.clear()
     }
     
+    /// Synchronously drains the disk writer's background queue so every line enqueued before this
+    /// call is committed to disk. Callers append synchronously in `log()`, so once this returns
+    /// the buffered writes are durable.
+    ///
+    /// This exists for app termination: the writer runs at `.background` qos with no implicit
+    /// flush, so an in-flight file operation's own log lines could be lost exactly when a
+    /// crash-time corruption most needs them. `applicationShouldTerminate` calls this before
+    /// allowing the quit so the breadcrumb survives.
+    public nonisolated func flushToDisk() {
+        logWriter.flush()
+    }
+
     /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
     public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)

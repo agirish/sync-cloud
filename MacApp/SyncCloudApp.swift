@@ -101,30 +101,63 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         Self.sharedSyncManager = manager
     }
 
+    /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the
+    /// decision logic is unit-testable (the alert itself is not). `applicationShouldTerminate`
+    /// maps each case to a `TerminateReply`, logging the choice and flushing the log to disk
+    /// before any branch that actually quits with operations in flight.
+    enum QuitDecision: Equatable {
+        /// Nothing is in flight — quit freely, no breadcrumb needed.
+        case allowNoActiveOperations
+        /// Operations are in flight but the user disabled the warning — quit, but log first.
+        case allowWithoutWarning(activeOperations: Int)
+        /// Operations are in flight and the warning is enabled — must show the alert.
+        case warn(activeOperations: Int)
+    }
+
+    /// Pure decision: given the in-flight operation count and the warn-before-quit setting,
+    /// which quit path applies. Kept side-effect-free so `SyncCloudTests` can pin the branches
+    /// without driving a modal alert.
+    static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool) -> QuitDecision {
+        guard activeOperations > 0 else { return .allowNoActiveOperations }
+        return warnBeforeQuit
+            ? .warn(activeOperations: activeOperations)
+            : .allowWithoutWarning(activeOperations: activeOperations)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let manager = syncManager ?? Self.sharedSyncManager
-        guard let manager, manager.activeFileOperationsCount > 0 else {
-            return .terminateNow
-        }
-
+        let activeOperations = manager?.activeFileOperationsCount ?? 0
         // Respect the General setting; default to warning when the key was never written.
         let warnBeforeQuit = UserDefaults.standard.object(forKey: GeneralSettings.warnBeforeQuitKey) as? Bool ?? true
-        guard warnBeforeQuit else {
-            return .terminateNow
-        }
 
-        let alert = NSAlert()
-        alert.messageText = "File Operations in Progress"
-        alert.informativeText = "Quitting now may cause data corruption or partial synchronization. Are you sure you want to quit?"
-        alert.addButton(withTitle: "Wait")
-        alert.addButton(withTitle: "Quit Anyway")
-        alert.alertStyle = .warning
-        
-        let response = alert.runModal()
-        if response == .alertSecondButtonReturn {
+        switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit) {
+        case .allowNoActiveOperations:
             return .terminateNow
-        } else {
-            return .terminateCancel
+
+        case .allowWithoutWarning(let count):
+            // The quit decision + flush is the single event most correlated with crash-time
+            // corruption, so record it and force the buffered lines to disk before we quit.
+            Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
+            Logger.shared.flushToDisk()
+            return .terminateNow
+
+        case .warn(let count):
+            let alert = NSAlert()
+            alert.messageText = "File Operations in Progress"
+            alert.informativeText = "Quitting now may cause data corruption or partial synchronization. Are you sure you want to quit?"
+            alert.addButton(withTitle: "Wait")
+            alert.addButton(withTitle: "Quit Anyway")
+            alert.alertStyle = .warning
+
+            let response = alert.runModal()
+            if response == .alertSecondButtonReturn {
+                Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
+                Logger.shared.flushToDisk()
+                return .terminateNow
+            } else {
+                Logger.shared.info("User chose Wait with \(count) active file operation(s) in progress")
+                return .terminateCancel
+            }
         }
     }
 }

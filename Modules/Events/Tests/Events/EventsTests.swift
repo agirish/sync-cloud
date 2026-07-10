@@ -166,6 +166,26 @@ import Foundation
         #expect(logger.entries[2].level == .debug)
     }
 
+    /// The public `flushToDisk()` barrier must make a just-logged line durable on disk. This is
+    /// what `applicationShouldTerminate` relies on to preserve the quit-decision breadcrumb (and
+    /// any in-flight operation's own lines) past a `.background`-qos writer that has no implicit
+    /// flush on quit.
+    @MainActor
+    @Test func testFlushToDiskMakesJustLoggedLineVisibleOnDisk() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LoggerFlushToDiskTest-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let logger = Logger(logFileURL: url)
+        // Do NOT await the returned task: flushToDisk() must drain the writer's background queue
+        // on its own, exactly as it does at termination when no await is possible.
+        logger.warning("User chose Quit Anyway with 3 active file operation(s)")
+        logger.flushToDisk()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.contains("[WARN] User chose Quit Anyway with 3 active file operation(s)"))
+    }
+
     /// The suites of every package log through `Logger.shared`, so under a test runner the
     /// shared instance must resolve to a temp file - never the user's real ~/sync-cloud.log.
     @Test func testDefaultLogFileURLAvoidsRealLogUnderTests() {
