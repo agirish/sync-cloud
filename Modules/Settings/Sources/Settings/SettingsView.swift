@@ -240,18 +240,17 @@ private struct HueOptionView: View {
         Button(action: action) {
             VStack(spacing: 5) {
                 ZStack {
-                    Circle()
-                        .fill(hue.accentColor)
+                    swatch
                         .frame(width: 32, height: 32)
                         .overlay(
                             Circle()
                                 .strokeBorder(isSelected ? Color.primary.opacity(0.4) : .clear, lineWidth: 2)
                         )
-                        .shadow(color: hue.accentColor.opacity(0.4), radius: isSelected ? 5 : 1.5)
+                        .shadow(color: swatchShadowColor, radius: isSelected ? 5 : 1.5)
                     if isSelected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(hue == .none ? Color.primary : .white)
                             .shadow(color: .black.opacity(0.35), radius: 0.5, x: 0, y: 0.5)
                     }
                 }
@@ -264,6 +263,28 @@ private struct HueOptionView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// The colored disc for a hue, or a neutral slashed disc for "None".
+    @ViewBuilder
+    private var swatch: some View {
+        if hue == .none {
+            ZStack {
+                Circle().fill(Color(nsColor: .controlBackgroundColor))
+                Rectangle()
+                    .fill(Color.secondary)
+                    .frame(width: 1.5, height: 44)
+                    .rotationEffect(.degrees(45))
+            }
+            .clipShape(Circle())
+            .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 1))
+        } else {
+            Circle().fill(hue.accentColor)
+        }
+    }
+
+    private var swatchShadowColor: Color {
+        hue == .none ? Color.black.opacity(0.2) : hue.accentColor.opacity(0.4)
     }
 }
 

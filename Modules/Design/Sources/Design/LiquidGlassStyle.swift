@@ -7,6 +7,8 @@ import AppKit
 
 /// Popular hue options for the liquid glass background gradient.
 public enum LiquidGlassHue: String, CaseIterable, Identifiable {
+    /// No accent: neutral materials only, following the system accent color — the stock macOS look.
+    case none
     case blue
     case cyan
     case teal
@@ -22,6 +24,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
 
     public var displayName: String {
         switch self {
+        case .none: return "None"
         case .blue: return "Blue"
         case .cyan: return "Cyan"
         case .teal: return "Teal"
@@ -38,6 +41,8 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     /// Accent color used for the hue selector swatch.
     public var accentColor: Color {
         switch self {
+        // Defer to the system accent so controls keep the user's macOS accent color.
+        case .none: return Color.accentColor
         case .blue: return Color(red: 0.2, green: 0.5, blue: 1.0)
         case .cyan: return Color(red: 0.25, green: 0.75, blue: 1.0)
         case .teal: return Color(red: 0.2, green: 0.65, blue: 0.65)
@@ -54,6 +59,9 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     /// Three gradient stop colors (topLeading → bottomTrailing) for the app background.
     public var gradientColors: [Color] {
         switch self {
+        case .none:
+            // No color wash at all — the background is just the neutral material.
+            return [.clear, .clear, .clear]
         case .blue:
             return [
                 Color(red: 0.25, green: 0.75, blue: 1.0),
