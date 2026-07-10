@@ -60,9 +60,18 @@ struct DifferenceActionTargets: Equatable {
         let targets = scoped ? matched : filtered
         self.targets = targets
         self.isSelectionScoped = scoped
-        self.copyToRightCount = targets.reduce(0) { $0 + ($1.action == .copyToRight ? 1 : 0) }
-        self.copyToLeftCount = targets.reduce(0) { $0 + ($1.action == .copyToLeft ? 1 : 0) }
-        self.verifiableCount = targets.reduce(0) { $0 + (($1.type == .differentDates && $1.sizesMatch) ? 1 : 0) }
+        // One pass for all three counts. This initializes once per Differences render, which
+        // during a bulk sync happens per file over the whole filtered set, so folding three
+        // reduces into a single loop drops two extra O(n) walks of the targets each frame.
+        var right = 0, left = 0, verifiable = 0
+        for difference in targets {
+            if difference.action == .copyToRight { right += 1 }
+            if difference.action == .copyToLeft { left += 1 }
+            if difference.type == .differentDates && difference.sizesMatch { verifiable += 1 }
+        }
+        self.copyToRightCount = right
+        self.copyToLeftCount = left
+        self.verifiableCount = verifiable
     }
 }
 

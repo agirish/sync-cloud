@@ -67,9 +67,10 @@ enum PaneLogic {
     /// The path Quick Look (and similar single-item consumers) should target for the current
     /// selection: alphabetically first path, left pane taking priority — the same ordering
     /// DetailsSidebar uses. `Set.first` is arbitrary per hash seed, so a multi-item selection
-    /// would otherwise preview a different file on every launch.
+    /// would otherwise preview a different file on every launch. `min()` is the allocation-free
+    /// equivalent of `sorted().first` (both take the least element by `<`).
     static func primarySelectionPath(leftSelection: Set<String>, rightSelection: Set<String>) -> String? {
-        leftSelection.sorted().first ?? rightSelection.sorted().first
+        leftSelection.min() ?? rightSelection.min()
     }
 
     /// Whether a pane selection change should switch the bottom pane to the Details tab.

@@ -49,9 +49,11 @@ public struct DetailsSidebar: View {
     
     /// The path to display metadata for: first selected path in either pane, or the focused folder path.
     internal var activePath: String {
-        if let leftSelection = syncManager.selectedLeftPaths.sorted().first {
+        // `min()` is the allocation-free equivalent of `sorted().first` — the alphabetically
+        // first selected path (left pane first), matching `PaneLogic.primarySelectionPath`.
+        if let leftSelection = syncManager.selectedLeftPaths.min() {
             return leftSelection
-        } else if let rightSelection = syncManager.selectedRightPaths.sorted().first {
+        } else if let rightSelection = syncManager.selectedRightPaths.min() {
             return rightSelection
         }
         
