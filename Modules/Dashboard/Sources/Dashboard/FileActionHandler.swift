@@ -198,7 +198,7 @@ public class FileActionHandler {
     // MARK: - Mutations
     
     public func beginRename(_ node: FileNode) {
-        if let newName = NativeAlerts.promptForRename(currentName: node.name), newName != node.name {
+        if let newName = NativeAlerts.promptForRename(currentName: node.name, validate: FileSyncManager.validateItemName), newName != node.name {
             Logger.shared.info("User initiated rename of '\(node.name)' to '\(newName)'")
             Task {
                 await syncManager.renameItem(at: node.id, to: newName)
@@ -207,7 +207,7 @@ public class FileActionHandler {
     }
     
     public func beginCreateFolder(in path: String) {
-        if let folderName = NativeAlerts.promptForNewFolder() {
+        if let folderName = NativeAlerts.promptForNewFolder(validate: FileSyncManager.validateItemName) {
             Logger.shared.info("User initiated create folder: '\(folderName)'")
             Task {
                 await syncManager.createFolder(named: folderName, in: path)

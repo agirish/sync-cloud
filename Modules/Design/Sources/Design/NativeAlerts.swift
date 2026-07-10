@@ -65,58 +65,83 @@ public struct NativeAlerts {
     }
     
     /// Presents a native macOS prompt requesting a new name for an existing file/folder.
+    /// When `validate` rejects the entered name, explains why and re-presents, like Finder.
     /// - Parameters:
     ///   - currentName: The current name of the file/folder.
+    ///   - validate: Returns a human-readable failure reason for an unusable name, nil when acceptable.
     /// - Returns: The new user-provided name, or nil if cancelled.
-    public static func promptForRename(currentName: String) -> String? {
-        let alert = NSAlert()
-        alert.messageText = "Rename Item"
-        alert.informativeText = "Enter a new name for this item:"
-        
-        alert.addButton(withTitle: "Rename")
-        alert.addButton(withTitle: "Cancel")
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-        textField.stringValue = currentName
-        textField.lineBreakMode = .byTruncatingTail
-        alert.accessoryView = textField
-        
-        // Focus the text field
-        alert.window.initialFirstResponder = textField
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let value = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
+    public static func promptForRename(currentName: String, validate: (String) -> String?) -> String? {
+        promptForName(
+            title: "Rename Item",
+            prompt: "Enter a new name for this item:",
+            buttonTitle: "Rename",
+            initialValue: currentName,
+            selectAllInitially: false,
+            validate: validate
+        )
     }
-    
+
     /// Presents a native macOS prompt requesting a name for a new folder.
+    /// When `validate` rejects the entered name, explains why and re-presents, like Finder.
+    /// - Parameter validate: Returns a human-readable failure reason for an unusable name, nil when acceptable.
     /// - Returns: The new user-provided folder name, or nil if cancelled.
-    public static func promptForNewFolder() -> String? {
-        let alert = NSAlert()
-        alert.messageText = "New Folder"
-        alert.informativeText = "Enter a name for the new folder:"
-        
-        alert.addButton(withTitle: "Create")
-        alert.addButton(withTitle: "Cancel")
-        
-        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
-        textField.stringValue = "untitled folder"
-        textField.lineBreakMode = .byTruncatingTail
-        alert.accessoryView = textField
-        
-        // Select all text in the text field initially natively like Finder
-        if let editor = alert.window.fieldEditor(true, for: textField) {
-            editor.selectAll(nil)
-        }
-        alert.window.initialFirstResponder = textField
-        
-        if alert.runModal() == .alertFirstButtonReturn {
-            let value = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
+    public static func promptForNewFolder(validate: (String) -> String?) -> String? {
+        promptForName(
+            title: "New Folder",
+            prompt: "Enter a name for the new folder:",
+            buttonTitle: "Create",
+            initialValue: "untitled folder",
+            selectAllInitially: true,
+            validate: validate
+        )
     }
-    
+
+    /// Shared name-entry prompt: runs until the user cancels or enters a name that passes
+    /// `validate`; rejected names get an explanatory alert and the prompt returns pre-filled
+    /// with the rejected text so the user can fix it.
+    private static func promptForName(
+        title: String,
+        prompt: String,
+        buttonTitle: String,
+        initialValue: String,
+        selectAllInitially: Bool,
+        validate: (String) -> String?
+    ) -> String? {
+        var draft = initialValue
+        while true {
+            let alert = NSAlert()
+            alert.messageText = title
+            alert.informativeText = prompt
+
+            alert.addButton(withTitle: buttonTitle)
+            alert.addButton(withTitle: "Cancel")
+
+            let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 250, height: 24))
+            textField.stringValue = draft
+            textField.lineBreakMode = .byTruncatingTail
+            alert.accessoryView = textField
+
+            // Select all text in the text field initially natively like Finder
+            if selectAllInitially, let editor = alert.window.fieldEditor(true, for: textField) {
+                editor.selectAll(nil)
+            }
+            // Focus the text field
+            alert.window.initialFirstResponder = textField
+
+            guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+
+            let value = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.isEmpty { return nil }
+            guard let reason = validate(value) else { return value }
+
+            let error = NSAlert()
+            error.alertStyle = .warning
+            error.messageText = "The name \"\(value)\" can't be used."
+            error.informativeText = "\(reason) Please choose a different name."
+            error.addButton(withTitle: "OK")
+            error.runModal()
+            draft = textField.stringValue
+        }
+    }
+
 }

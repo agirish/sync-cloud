@@ -468,6 +468,11 @@ extension FileSyncManager {
     
     /// Renames a specific file or folder on disk.
     public func renameItem(at path: String, to newName: String, fileManager fm: FileManaging = FileManager.default) async {
+        if let reason = Self.validateItemName(newName) {
+            // Deterministic — the same name would be rejected again, so not retryable.
+            present(SyncError(title: "Rename Failed", message: reason, path: path))
+            return
+        }
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
         
@@ -504,6 +509,10 @@ extension FileSyncManager {
     
     /// Creates a new empty directory on disk.
     public func createFolder(named name: String, in path: String, fileManager fm: FileManaging = FileManager.default) async {
+        if let reason = Self.validateItemName(name) {
+            present(SyncError(title: "Couldn't Create Folder", message: reason, path: path))
+            return
+        }
         let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
         
         let error = await enqueueFileOperation { () -> Error? in
