@@ -468,7 +468,8 @@ struct ContentView: View {
                 onBack: { syncManager.goBack(isLeft: isLeft) },
                 onForward: { syncManager.goForward(isLeft: isLeft) },
                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
-                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) }
+                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) },
+                showHiddenFiles: $syncManager.showHiddenFiles
             )
             if isLeft { leftTreeView } else { rightTreeView }
         }
@@ -572,6 +573,9 @@ struct ContentView: View {
             bannerDismissScheduler.bannerChanged(to: newValue) {
                 syncManager.banner = nil
             }
+        }
+        .onChange(of: syncManager.showHiddenFiles) { _, newValue in
+            Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
     }
 
@@ -708,21 +712,7 @@ struct ContentView: View {
             }
             .labelStyle(.titleAndIcon)
             .help("Choose how items are sorted")
-
-            // Raw trees/differences already include hidden entries; the showHiddenFiles didSet
-            // re-filters them in memory via applyFilters(). The eye icon mirrors the current
-            // state — open when hidden files are visible, slashed when they are filtered out.
-            Toggle(isOn: $syncManager.showHiddenFiles) {
-                Label("Hidden Files", systemImage: syncManager.showHiddenFiles ? "eye" : "eye.slash")
-            }
-            .toggleStyle(.button)
-            .labelStyle(.titleAndIcon)
-            .help(syncManager.showHiddenFiles
-                  ? "Hidden files are visible — click to hide them"
-                  : "Hidden files are hidden — click to show them")
-            .onChange(of: syncManager.showHiddenFiles) { _, newValue in
-                Logger.shared.info("User toggled hidden files to: \(newValue)")
-            }
+            // The hidden-files toggle now lives in each pane header, next to its nav buttons.
         }
 
         // Push the utility actions to the trailing edge of the titlebar. macOS 26's grouped

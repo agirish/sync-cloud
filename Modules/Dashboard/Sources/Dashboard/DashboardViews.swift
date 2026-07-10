@@ -20,6 +20,9 @@ public struct PaneHeader: View {
     public let onForward: () -> Void
     public let onNavigate: (String) -> Void
     public let onNavigateBoth: (String) -> Void
+    /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
+    /// right next to each pane's navigation buttons.
+    @Binding public var showHiddenFiles: Bool
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -41,7 +44,8 @@ public struct PaneHeader: View {
         onBack: @escaping () -> Void,
         onForward: @escaping () -> Void,
         onNavigate: @escaping (String) -> Void,
-        onNavigateBoth: @escaping (String) -> Void
+        onNavigateBoth: @escaping (String) -> Void,
+        showHiddenFiles: Binding<Bool>
     ) {
         self.title = title
         self.provider = provider
@@ -53,6 +57,7 @@ public struct PaneHeader: View {
         self.onForward = onForward
         self.onNavigate = onNavigate
         self.onNavigateBoth = onNavigateBoth
+        self._showHiddenFiles = showHiddenFiles
     }
 
     public var body: some View {
@@ -87,6 +92,17 @@ public struct PaneHeader: View {
                     }
                     .disabled(!canGoForward)
                     .help("Go forward to this pane's next folder")
+
+                    // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
+                    // mirrors the state: open when hidden files are shown, slashed when filtered.
+                    Button {
+                        showHiddenFiles.toggle()
+                    } label: {
+                        Image(systemName: showHiddenFiles ? "eye" : "eye.slash")
+                    }
+                    .help(showHiddenFiles
+                          ? "Hidden files are visible — click to hide them"
+                          : "Hidden files are hidden — click to show them")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
