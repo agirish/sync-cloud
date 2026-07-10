@@ -78,6 +78,10 @@ import Foundation
         #expect(inner.virtualDisk["/src/f.txt"] != nil)
         let backup = try #require(overwritten)
         #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        // The happy path leaves no artifacts behind in the destination directory: the staged temp
+        // was consumed and the backup was trashed out of `/dst`.
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+        #expect(inner.virtualDisk.keys.contains { $0.hasPrefix("/dst/.rollback_") } == false)
     }
 
     @Test func testSafeMoveReplaceRoutesThroughAtomicReplaceWithoutTrashingDestination() async throws {
@@ -104,6 +108,8 @@ import Foundation
         #expect(inner.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         let backup = try #require(overwritten)
         #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+        #expect(inner.virtualDisk.keys.contains { $0.hasPrefix("/dst/.rollback_") } == false)
     }
 
     /// A brand-new destination has no prior item to protect, so it must NOT pay for a backup: the
@@ -177,11 +183,43 @@ import Foundation
             fileManager: inner
         )
 
-        #expect(inner.calledReplaceItem)                 // went through the atomic primitive
-        #expect(inner.calledCopyItem)                    // cross-volume staging used a copy
+        // `shouldFailMove` forced the EXDEV copy-staging fallback (the cross-volume path); the
+        // replace still went through the atomic primitive. (calledCopyItem is not asserted: the
+        // mock's trashItem and finalizeBackup both call copyItem, so it is true even same-volume.)
+        #expect(inner.calledReplaceItem)
         #expect(inner.virtualDisk["/src/data.bin"] == nil)   // source cleaned up (trashed)
         #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 100)
         let backup = try #require(overwritten)               // old content recoverable in Trash
+        #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+    }
+
+    /// Cross-volume replace where the source volume has no Trash but the permanent remove SUCCEEDS —
+    /// the middle outcome between "trash the source" and "both cleanups fail → revert". The source is
+    /// permanently deleted, the replace stands, and the overwritten content comes back as the
+    /// in-place `.rollback_` backup (Trash is unavailable on this volume, so finalizeBackup keeps it).
+    /// Uniquely exercises finalizeBackup's trash-fallback within the cross-volume replace.
+    @Test func testSafeMoveCrossVolumeReplaceRemovesSourcePermanentlyWhenTrashUnsupported() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/data.bin", size: 100)
+        seed(inner, path: "/dst/data.bin", size: 5)
+        inner.shouldFailMove = true   // EXDEV staging → copy, source not consumed
+        inner.shouldFailTrash = true  // source volume has no Trash; the permanent remove still works
+
+        let overwritten = try FileSyncManager.safeMoveItem(
+            at: URL(fileURLWithPath: "/src/data.bin"),
+            to: URL(fileURLWithPath: "/dst/data.bin"),
+            fileManager: inner
+        )
+
+        // Source permanently removed, destination holds the new content, op completes (no throw).
+        #expect(inner.virtualDisk["/src/data.bin"] == nil)
+        #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        // The overwritten old content survives as the in-place `.rollback_` backup.
+        let backup = try #require(overwritten)
+        #expect(backup.lastPathComponent.hasPrefix(".rollback_"))
         #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
         #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
     }
@@ -351,6 +389,57 @@ import Foundation
         // The replaced directory's contents survive in the backup handle.
         let backup = try #require(overwritten)
         #expect(fm.fileExists(atPath: backup.appendingPathComponent("old.txt").path))
+    }
+
+    /// Type-mismatch replace on real disk (reachable via a manual "Replace" of a folder with a
+    /// same-named file, or vice versa). The old trash-then-move was type-agnostic; this pins that
+    /// `replaceItemAt` is too — the destination takes the source's type and the old item is
+    /// recoverable in the backup — so the atomic swap didn't regress that behavior.
+    @Test func testRealDiskReplaceAcrossTypesSwapsTypeAndKeepsBackup() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        var backups: [URL] = []
+        defer {
+            for b in backups { try? fm.removeItem(at: b) }
+            try? fm.removeItem(at: base)
+        }
+
+        func isDir(_ url: URL) -> Bool {
+            var d: ObjCBool = false
+            return fm.fileExists(atPath: url.path, isDirectory: &d) && d.boolValue
+        }
+
+        // (1) A file replaces an existing directory.
+        let srcFile = src.appendingPathComponent("item")
+        let dstDir = dst.appendingPathComponent("item")
+        try fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        try "child".data(using: .utf8)!.write(to: dstDir.appendingPathComponent("c.txt"))
+        try "FILE".data(using: .utf8)!.write(to: srcFile)
+
+        let b1 = try FileSyncManager.safeCopyItem(at: srcFile, to: dstDir)
+        if let b1 { backups.append(b1) }
+        #expect(isDir(dstDir) == false)                                   // dest is now a file
+        #expect(try String(contentsOf: dstDir, encoding: .utf8) == "FILE")
+        let backupDir = try #require(b1)
+        #expect(fm.fileExists(atPath: backupDir.appendingPathComponent("c.txt").path)) // old dir recoverable
+
+        // (2) A directory replaces an existing file.
+        let srcDir2 = src.appendingPathComponent("item2")
+        let dstFile2 = dst.appendingPathComponent("item2")
+        try fm.createDirectory(at: srcDir2, withIntermediateDirectories: true)
+        try "in".data(using: .utf8)!.write(to: srcDir2.appendingPathComponent("in.txt"))
+        try "OLDFILE".data(using: .utf8)!.write(to: dstFile2)
+
+        let b2 = try FileSyncManager.safeCopyItem(at: srcDir2, to: dstFile2)
+        if let b2 { backups.append(b2) }
+        #expect(isDir(dstFile2))                                          // dest is now a directory
+        #expect(fm.fileExists(atPath: dstFile2.appendingPathComponent("in.txt").path))
+        let backupFile = try #require(b2)
+        #expect(try String(contentsOf: backupFile, encoding: .utf8) == "OLDFILE") // old file recoverable
     }
 
     /// Sync convergence guard: after a copy replace, the destination must carry the SOURCE's

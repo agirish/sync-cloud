@@ -287,18 +287,10 @@ extension FileSyncManager {
                     try fileManager.removeItem(at: sourceURL)
                 } catch let cleanupError {
                     // Neither Trash nor remove worked, so this cross-volume move can't complete.
-                    // Restore the destination we replaced and fail — matching the dest-absent
-                    // cross-volume path, and avoiding a "moved" undo entry for a source still on
-                    // disk. The restore goes back through `replaceItem` so the destination is never
-                    // left momentarily absent; the fresh backup it takes is a copy of that
-                    // still-present source, so discard it.
-                    if let backupURL,
-                       let staleBackup = try? fileManager.replaceItem(
-                           at: destinationURL,
-                           withItemAt: backupURL,
-                           backupItemName: ".rollback_\(UUID().uuidString)"
-                       ) {
-                        try? fileManager.removeItem(at: staleBackup)
+                    // Undo the replace and fail — matching the dest-absent cross-volume path, and
+                    // avoiding a "moved" undo entry for a source still on disk.
+                    if let backupURL {
+                        revertReplace(destinationURL: destinationURL, from: backupURL, fileManager: fileManager)
                     }
                     throw cleanupError
                 }
@@ -306,6 +298,24 @@ extension FileSyncManager {
         }
 
         return finalizeBackup(backupURL, fileManager: fileManager)
+    }
+
+    /// Atomically restores a just-replaced `destinationURL` to `backupURL`'s (pre-replace) content,
+    /// then discards the redundant fresh backup the restore takes. Used to undo a replace whose
+    /// cross-volume source-cleanup failed: the restore goes back through `replaceItem`, so the
+    /// destination is never momentarily absent, and the fresh backup is a copy of that
+    /// still-present source, so it can be dropped.
+    private nonisolated static func revertReplace(
+        destinationURL: URL,
+        from backupURL: URL,
+        fileManager: FileManaging
+    ) {
+        guard let staleBackup = try? fileManager.replaceItem(
+            at: destinationURL,
+            withItemAt: backupURL,
+            backupItemName: ".rollback_\(UUID().uuidString)"
+        ) else { return }
+        try? fileManager.removeItem(at: staleBackup)
     }
     
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
