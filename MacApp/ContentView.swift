@@ -485,68 +485,130 @@ struct ContentView: View {
     private var panesSplit: some View {
         GeometryReader { geo in
             let minPane: CGFloat = 250
-            let dividerWidth: CGFloat = 1
-            let panesWidth = max(0, geo.size.width - dividerWidth)
+            let totalWidth = geo.size.width
             // Clamp so neither pane goes below minPane (degrades gracefully in a too-narrow window).
-            let minFraction = panesWidth > 0 ? min(0.5, Double(minPane / panesWidth)) : 0
+            let minFraction = totalWidth > 0 ? min(0.5, Double(minPane / totalWidth)) : 0
             // While dragging, the live @State value drives the layout; otherwise the persisted one.
             let fraction = min(max(paneDragFraction ?? paneSplitFraction, minFraction), 1 - minFraction)
-            let leftWidth = panesWidth * fraction
+            let leftWidth = totalWidth * fraction
             HStack(spacing: 0) {
                 paneColumn(isLeft: true)
                     .frame(width: leftWidth)
-                paneResizeDivider(panesWidth: panesWidth, minFraction: minFraction)
-                    .frame(width: dividerWidth)
                 paneColumn(isLeft: false)
-                    .frame(width: panesWidth - leftWidth)
+                    .frame(width: totalWidth - leftWidth)
             }
-            .frame(width: geo.size.width, height: geo.size.height)
+            .frame(width: totalWidth, height: geo.size.height)
+            // Panes sit flush (no divider element) so they read as one continuous surface with no
+            // seam. An invisible, hit-testable handle straddles the boundary to preserve resize.
+            .overlay(alignment: .leading) {
+                paneResizeHandle(totalWidth: totalWidth, minFraction: minFraction)
+                    .offset(x: leftWidth - 6)
+            }
             .coordinateSpace(.named(Self.paneRowSpace))
         }
     }
 
-    /// The hairline divider between the panes, with a wider invisible hit area for dragging.
-    /// The drag reads the cursor's absolute x within the pane row (a fixed coordinate space) instead
-    /// of accumulating translation on the divider itself — the divider moves as you drag, so a
-    /// translation-based gesture chases a moving target and stutters. It writes only the live @State
-    /// mid-drag and persists `paneSplitFraction` once on release.
+    /// Invisible 12pt-wide drag handle centered on the pane boundary. The drag reads the cursor's
+    /// absolute x within the pane row (a fixed coordinate space) rather than accumulating
+    /// translation on the moving handle — so it stays smooth — and persists `paneSplitFraction`
+    /// only on release.
     @ViewBuilder
-    private func paneResizeDivider(panesWidth: CGFloat, minFraction: Double) -> some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .overlay {
-                Color.clear
-                    .frame(width: 12)
-                    .contentShape(Rectangle())
-                    .pointerStyle(.columnResize)
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.paneRowSpace))
-                            .onChanged { value in
-                                guard panesWidth > 0 else { return }
-                                let f = Double(value.location.x / panesWidth)
-                                paneDragFraction = min(max(f, minFraction), 1 - minFraction)
-                            }
-                            .onEnded { _ in
-                                if let f = paneDragFraction { paneSplitFraction = f }
-                                paneDragFraction = nil
-                            }
-                    )
-            }
+    private func paneResizeHandle(totalWidth: CGFloat, minFraction: Double) -> some View {
+        Color.clear
+            .frame(width: 12)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .pointerStyle(.columnResize)
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.paneRowSpace))
+                    .onChanged { value in
+                        guard totalWidth > 0 else { return }
+                        let f = Double(value.location.x / totalWidth)
+                        paneDragFraction = min(max(f, minFraction), 1 - minFraction)
+                    }
+                    .onEnded { _ in
+                        if let f = paneDragFraction { paneSplitFraction = f }
+                        paneDragFraction = nil
+                    }
+            )
     }
 
     /// Name of the coordinate space spanning the pane row, so the divider drag can read the
     /// cursor's absolute x position independent of the divider's own (moving) frame.
     private static let paneRowSpace = "panesRow"
+    private static let verticalStackSpace = "verticalStack"
+
+    /// The bottom (Differences/Details) pane's share of the content height. Persisted so it
+    /// survives relaunches and never resets when switching the Differences/Details tab.
+    @AppStorage("mainBottomPaneFraction") private var bottomPaneFraction: Double = 0.4
+    /// Live vertical-split fraction while dragging; nil when idle (persisted once on release).
+    @State private var verticalDragFraction: Double? = nil
+
+    /// The panes stacked over the bottom workspace, with a draggable — but invisible — horizontal
+    /// divider between them. Replaces `VSplitView` so the divider line can be hidden (VSplitView's
+    /// divider isn't customizable) while keeping resize. Because the split ratio is driven by
+    /// `bottomPaneFraction`, it never resets when the Differences/Details tab changes.
+    @ViewBuilder
+    private var verticalSplit: some View {
+        GeometryReader { geo in
+            let totalHeight = geo.size.height
+            if showingBottomPane {
+                let minTop: CGFloat = 220
+                let minBottom: CGFloat = 150
+                let dividerHeight: CGFloat = 1
+                let panesHeight = max(0, totalHeight - dividerHeight)
+                // fraction = the bottom pane's share; clamp so neither section drops below its min.
+                let minFraction = panesHeight > 0 ? min(0.85, Double(minBottom / panesHeight)) : 0
+                let maxFraction = panesHeight > 0 ? max(minFraction, 1 - Double(minTop / panesHeight)) : 1
+                let fraction = min(max(verticalDragFraction ?? bottomPaneFraction, minFraction), maxFraction)
+                let bottomHeight = panesHeight * fraction
+                VStack(spacing: 0) {
+                    panesSplit
+                        .frame(height: panesHeight - bottomHeight)
+                    verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
+                        .frame(height: dividerHeight)
+                    bottomPaneView
+                        .frame(height: bottomHeight)
+                }
+                .frame(width: geo.size.width, height: totalHeight)
+                .coordinateSpace(.named(Self.verticalStackSpace))
+            } else {
+                panesSplit
+            }
+        }
+    }
+
+    /// The invisible, draggable horizontal divider between the panes and the bottom workspace.
+    /// Like the vertical one, it tracks the cursor's absolute y in a fixed coordinate space and
+    /// persists only on release.
+    @ViewBuilder
+    private func verticalResizeDivider(panesHeight: CGFloat, minFraction: Double, maxFraction: Double) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .overlay {
+                Color.clear
+                    .frame(height: 12)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.rowResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.verticalStackSpace))
+                            .onChanged { value in
+                                guard panesHeight > 0 else { return }
+                                let bottomH = panesHeight - value.location.y
+                                let f = Double(bottomH / panesHeight)
+                                verticalDragFraction = min(max(f, minFraction), maxFraction)
+                            }
+                            .onEnded { _ in
+                                if let f = verticalDragFraction { bottomPaneFraction = f }
+                                verticalDragFraction = nil
+                            }
+                    )
+            }
+    }
 
     @ViewBuilder
     private var mainContentView: some View {
-        VSplitView {
-            panesSplit
-                if showingBottomPane {
-                    bottomPaneView
-                        .frame(minHeight: 150)
-                }
-            }
+        verticalSplit
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {
