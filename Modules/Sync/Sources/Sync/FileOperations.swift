@@ -147,14 +147,24 @@ extension FileSyncManager {
     /// drops — recoverable by hand beats silently destroyed. Returns nil when nothing was replaced.
     private nonisolated static func finalizeBackup(
         _ backupURL: URL?,
+        replacing destinationURL: URL,
         fileManager: FileManaging
     ) -> URL? {
         guard let backupURL else { return nil }
         var trashedURL: NSURL? = nil
+        let recovered: URL?
         if (try? fileManager.trashItem(at: backupURL, resultingItemURL: &trashedURL)) != nil {
-            return trashedURL as URL?
+            recovered = trashedURL as URL?
+        } else {
+            recovered = backupURL
         }
-        return backupURL
+        if let recovered {
+            // Recovery breadcrumb: the single line that lets a replaced file be found again after
+            // an overwrite (or a bad sync). Logged at .info so it survives a normal-level trace.
+            // Hopped to the MainActor logger, matching the other nonisolated logging in this file.
+            Task { @MainActor in Logger.shared.info("Replaced \(destinationURL.path) — previous version recoverable at \(recovered.path)") }
+        }
+        return recovered
     }
 
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
@@ -182,7 +192,7 @@ extension FileSyncManager {
                 withItemAt: tempURL,
                 backupItemName: ".rollback_\(UUID().uuidString)"
             )
-            return finalizeBackup(backupURL, fileManager: fileManager)
+            return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
         }
 
         // Brand-new destination (or a case-only rename whose "destination" is the source itself on
@@ -297,7 +307,7 @@ extension FileSyncManager {
             }
         }
 
-        return finalizeBackup(backupURL, fileManager: fileManager)
+        return finalizeBackup(backupURL, replacing: destinationURL, fileManager: fileManager)
     }
 
     /// Atomically restores a just-replaced `destinationURL` to `backupURL`'s (pre-replace) content,
@@ -314,7 +324,13 @@ extension FileSyncManager {
             at: destinationURL,
             withItemAt: backupURL,
             backupItemName: ".rollback_\(UUID().uuidString)"
-        ) else { return }
+        ) else {
+            // The revert itself failed: the destination may hold the new content while the source
+            // is still on disk. Log loudly — this is the one spot where a replace can leave the
+            // two panes inconsistent without surfacing an error to the caller.
+            Task { @MainActor in Logger.shared.error("Could not revert a partial replace at \(destinationURL.path) from backup \(backupURL.path); the destination may hold new content while the original source is still present") }
+            return
+        }
         try? fileManager.removeItem(at: staleBackup)
     }
     
@@ -748,7 +764,20 @@ extension FileSyncManager {
         if let firstError = result.errors.first {
             present(.deleteFailed(reason: firstError.localizedDescription))
         } else if !items.isEmpty {
-            Logger.shared.debug("Deleted \(items.count) items")
+            // Distinguish recoverable (Trash) from irreversible (permanent) deletes: a permanent
+            // delete happens only on Trash-less volumes after the user confirmed, and cannot be
+            // undone — it deserves a named, warning-level record, not a lumped debug line.
+            let permanentlyDeleted = items.filter { $0.trashed == nil }
+            if permanentlyDeleted.isEmpty {
+                Logger.shared.info("Moved \(items.count) item(s) to Trash")
+            } else {
+                let names = permanentlyDeleted.map { $0.original.lastPathComponent }.joined(separator: ", ")
+                Logger.shared.warning("Permanently deleted \(permanentlyDeleted.count) item(s) that could not be moved to Trash (unrecoverable): \(names)")
+                let trashedCount = items.count - permanentlyDeleted.count
+                if trashedCount > 0 {
+                    Logger.shared.info("Moved \(trashedCount) other item(s) to Trash")
+                }
+            }
             let name = items.first?.original.lastPathComponent ?? "item"
             self.banner = .success(items.count == 1
                 ? "Deleted \"\(name)\""
