@@ -43,13 +43,22 @@ public enum DifferenceRowMenu {
     /// value `FileSyncManager.applyFilters()` matches differences against, and the same
     /// focal-point-relative form the tree panes' ignore produces — so ignoring here
     /// removes the row from the list and strikes it through in both trees.
+    ///
+    /// The ignored/not decision uses the same effective predicate as `isIgnored(_:ignoredPaths:)`
+    /// (which drives the Ignore/Include label), so a row covered only by an ancestor folder
+    /// entry un-ignores instead of pointlessly inserting its own path. Un-ignoring removes
+    /// every covering entry — the exact path and any ancestor — so the row actually
+    /// reappears in comparisons.
     public static func toggledIgnoredPaths(for difference: FileDifference, ignoredPaths: Set<String>) -> Set<String> {
-        var updated = ignoredPaths
-        if updated.contains(difference.relativePath) {
-            updated.remove(difference.relativePath)
+        let path = difference.relativePath
+        if FileSyncManager.isIgnoredPath(path, ignored: ignoredPaths) {
+            return ignoredPaths.filter { entry in
+                !(path == entry || path.hasPrefix(entry + "/"))
+            }
         } else {
-            updated.insert(difference.relativePath)
+            var updated = ignoredPaths
+            updated.insert(path)
+            return updated
         }
-        return updated
     }
 }

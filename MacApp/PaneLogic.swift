@@ -1,6 +1,7 @@
 import CoreGraphics
 import FileExplorer
 import Foundation
+import Sync
 
 /// Pure pane-related decision rules extracted from ContentView and its pane delegates so
 /// they are unit-testable (the views delegate here and keep only state plumbing).
@@ -98,15 +99,15 @@ enum PaneLogic {
 
     /// Reduces absolute node paths to ignore targets relative to the pane's focal path,
     /// so an ignore set applies to both panes regardless of provider roots.
-    /// Paths outside `basePath` are passed through unchanged.
+    /// Paths outside `basePath` are passed through unchanged. Stripping happens only at a
+    /// path-component boundary — "/root/ab" is not a base of "/root/abc/x", so a sibling
+    /// root that merely shares a string prefix can never alias into relative targets.
     static func relativeIgnoreTargets(nodeIds: [String], basePath: String) -> [String] {
-        nodeIds.map { id in
-            var rPath = id
-            if rPath.hasPrefix(basePath) {
-                rPath = String(rPath.dropFirst(basePath.count))
-                if rPath.hasPrefix("/") { rPath.removeFirst() }
-            }
-            return rPath
+        let base = basePath.hasSuffix("/") ? String(basePath.dropLast()) : basePath
+        return nodeIds.map { id in
+            if id == base { return "" }
+            guard id.hasPrefix(base + "/") else { return id }
+            return String(id.dropFirst(base.count + 1))
         }
     }
 
@@ -125,15 +126,24 @@ enum PaneLogic {
     /// Toggle semantics of the "Ignore in comparison" menu item: when every target is
     /// already ignored the action un-ignores them all, otherwise it ignores them all
     /// (including any already-ignored ones, which stay ignored).
+    ///
+    /// "Already ignored" uses `FileSyncManager.isIgnoredPath` — the same effective
+    /// (ancestor-covering) predicate that drives the menu's Ignore/Include label and the
+    /// differences filter — so the action always does what the label says. Un-ignoring a
+    /// target covered only by an ancestor entry ("docs" ignored, target "docs/report.txt")
+    /// therefore removes the covering "docs" entry too: the clicked item becomes visible
+    /// again, like Finder's un-hide, rather than the toggle silently doing nothing.
     static func toggledIgnoredPaths(targets: [String], ignoredPaths: Set<String>) -> Set<String> {
-        let allIgnored = targets.allSatisfy { ignoredPaths.contains($0) }
+        let allIgnored = targets.allSatisfy { FileSyncManager.isIgnoredPath($0, ignored: ignoredPaths) }
         var updated = ignoredPaths
-        for target in targets {
-            if allIgnored {
-                updated.remove(target)
-            } else {
-                updated.insert(target)
+        if allIgnored {
+            for target in targets {
+                updated = updated.filter { entry in
+                    !(target == entry || target.hasPrefix(entry + "/"))
+                }
             }
+        } else {
+            updated.formUnion(targets)
         }
         return updated
     }

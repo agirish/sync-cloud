@@ -2,6 +2,7 @@ import Testing
 import AppKit
 import Foundation
 import FileExplorer
+import Sync
 @testable import SyncCloud
 
 @Suite struct PaneLogicTests {
@@ -218,6 +219,15 @@ import FileExplorer
         #expect(targets == ["/elsewhere/c.txt"])
     }
 
+    @Test func testIgnoreTargetsStripOnlyAtComponentBoundary() {
+        // "/root/ab" is not an ancestor of "/root/abc/x" — a bare string prefix must not
+        // alias a sibling root into a bogus relative target ("c/x").
+        let targets = PaneLogic.relativeIgnoreTargets(
+            nodeIds: ["/root/abc/x", "/root/ab/y"],
+            basePath: "/root/ab")
+        #expect(targets == ["/root/abc/x", "y"])
+    }
+
     // MARK: toggledIgnoredPaths
 
     @Test func testTogglingUnignoredTargetsIgnoresThem() {
@@ -234,6 +244,45 @@ import FileExplorer
         // "a" is already ignored, "b" is not -> the action ignores ALL (a stays ignored).
         let updated = PaneLogic.toggledIgnoredPaths(targets: ["a", "b"], ignoredPaths: ["a"])
         #expect(updated == ["a", "b"])
+    }
+
+    @Test func testUnignoringChildOfIgnoredFolderRemovesCoveringAncestor() {
+        // "docs/report.txt" is effectively ignored via the "docs" entry, so the menu label
+        // reads "Include in comparison". The toggle must agree: un-ignore (removing the
+        // covering "docs" entry), NOT insert the child's own path — which would leave the
+        // row struck through and silently excluded even after "docs" is later un-ignored.
+        let updated = PaneLogic.toggledIgnoredPaths(
+            targets: ["docs/report.txt"],
+            ignoredPaths: ["docs", "other"])
+        #expect(!updated.contains("docs/report.txt"))
+        #expect(!updated.contains("docs"))
+        #expect(updated == ["other"])
+        #expect(!FileSyncManager.isIgnoredPath("docs/report.txt", ignored: updated))
+    }
+
+    @Test func testUnignoringExactEntryAlsoDropsCoveringAncestors() {
+        // Both the exact entry and a covering ancestor exist: un-ignoring must clear both,
+        // or the effective state (and the label) would not change.
+        let updated = PaneLogic.toggledIgnoredPaths(
+            targets: ["docs/report.txt"],
+            ignoredPaths: ["docs", "docs/report.txt"])
+        #expect(updated.isEmpty)
+    }
+
+    @Test func testAncestorCoveredTargetCountsAsIgnoredInMixedCheck() {
+        // "docs/report.txt" is covered by "docs" and "a" is ignored exactly -> every target
+        // is effectively ignored, so the action is un-ignore for all (not re-ignore).
+        let updated = PaneLogic.toggledIgnoredPaths(
+            targets: ["docs/report.txt", "a"],
+            ignoredPaths: ["docs", "a"])
+        #expect(updated.isEmpty)
+    }
+
+    @Test func testIgnoreUnignoreRoundTripIsIdentity() {
+        let ignored = PaneLogic.toggledIgnoredPaths(targets: ["a", "b"], ignoredPaths: [])
+        #expect(ignored == ["a", "b"])
+        let restored = PaneLogic.toggledIgnoredPaths(targets: ["a", "b"], ignoredPaths: ignored)
+        #expect(restored.isEmpty)
     }
 
     // MARK: swappedProviderIds

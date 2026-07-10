@@ -282,10 +282,14 @@ public class FileSyncManager: ObservableObject {
     }
     
     public func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
+        // Strip currentPath only at a path-component boundary so a pane rooted at
+        // "/root/ab" never claims "/root/abc/x" via a bare string prefix.
+        let base = currentPath.hasSuffix("/") ? String(currentPath.dropLast()) : currentPath
         var rPath = node.id
-        if rPath.hasPrefix(currentPath) {
-            rPath = String(rPath.dropFirst(currentPath.count))
-            if rPath.hasPrefix("/") { rPath.removeFirst() }
+        if rPath == base {
+            rPath = ""
+        } else if rPath.hasPrefix(base + "/") {
+            rPath = String(rPath.dropFirst(base.count + 1))
         }
         return Self.isIgnoredPath(rPath, ignored: ignoredPaths)
     }

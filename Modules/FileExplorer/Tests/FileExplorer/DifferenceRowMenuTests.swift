@@ -74,6 +74,23 @@ import Sync
         #expect(updated == ["keep/me", "docs/report.txt"])
     }
 
+    @Test func testToggleOnAncestorCoveredRowUnignoresByRemovingAncestor() {
+        // The row is effectively ignored via the "docs" folder entry, so isIgnored (and the
+        // menu label) says "Include". The toggle must agree: remove the covering entry, not
+        // insert "docs/report.txt" — which would leave the row ignored with a dead menu item.
+        let d = diff(.differentDates)
+        let updated = DifferenceRowMenu.toggledIgnoredPaths(for: d, ignoredPaths: ["docs", "other"])
+        #expect(updated == ["other"])
+        #expect(!DifferenceRowMenu.isIgnored(d, ignoredPaths: updated))
+    }
+
+    @Test func testToggleRemovesExactEntryAndCoveringAncestorTogether() {
+        let d = diff(.differentDates)
+        let updated = DifferenceRowMenu.toggledIgnoredPaths(
+            for: d, ignoredPaths: ["docs", "docs/report.txt"])
+        #expect(updated.isEmpty)
+    }
+
     // MARK: Ignored state (drives the Ignore/Include label)
 
     @Test func testIsIgnoredMatchesExactPath() {
