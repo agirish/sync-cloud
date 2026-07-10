@@ -197,6 +197,7 @@ extension FileSyncManager {
             )
             guard !Task.isCancelled else { return }
             self.scheduleSelectionPrune()
+            self.sweepOrphanedTempArtifacts()
         }
         
         activeRefreshTask = task
@@ -204,6 +205,38 @@ extension FileSyncManager {
         // Release the key when this refresh is still the current one; a superseding refresh
         // (different target) will have overwritten it and owns the cleanup.
         if activeRefreshKey == key { activeRefreshKey = nil }
+    }
+
+    /// Post-refresh hygiene: removes `.tmp_<UUID>` working files that a crashed or
+    /// force-quit safe copy/move left behind (every normal exit path cleans them up via
+    /// `defer`). Candidates come from the pane trees this refresh just walked — no extra
+    /// disk I/O — and only artifacts older than `OrphanSweeper.minimumAge` are reaped, so
+    /// an in-flight operation's staging file is never touched; running from the
+    /// post-refresh path also means no operation is mutating these panes right now.
+    /// `.rollback_<UUID>` replacement backups are deliberately left in place: they are
+    /// the undo stack's restorable handle and may be the only copy of a replaced file.
+    func sweepOrphanedTempArtifacts(now: Date = Date()) {
+        let scan = OrphanSweeper.findArtifacts(
+            inTrees: [rawLeftTree, rawRightTree],
+            olderThan: now.addingTimeInterval(-OrphanSweeper.minimumAge)
+        )
+        if scan.rollbackCount > 0 {
+            Logger.shared.debug("Leaving \(scan.rollbackCount) .rollback_ replacement backup(s) in place (restorable copies of replaced files)")
+        }
+        guard !scan.tempPaths.isEmpty else { return }
+
+        let fm = fileManager
+        let paths = scan.tempPaths
+        Task.detached(priority: .utility) { [weak self] in
+            let removed = OrphanSweeper.removeTempArtifacts(atPaths: paths, fileManager: fm)
+            guard removed > 0, let self else { return }
+            await MainActor.run {
+                Logger.shared.debug("Swept \(removed) orphaned .tmp_ working file(s)")
+                // The swept entries are baked into the cached deep trees; drop the cache
+                // so navigation reloads from disk instead of serving ghost entries.
+                self.prefetchedTrees.removeAll()
+            }
+        }
     }
 
     /// Runs a diff scan between the two given directory paths on a background thread. Queues a single scan if one is already running.
