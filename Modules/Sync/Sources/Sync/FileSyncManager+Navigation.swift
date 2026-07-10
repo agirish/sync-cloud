@@ -102,9 +102,14 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
-    /// Resets both panes to root, clears selection, and resets both history stacks.
+    /// Resets both panes to root, clears selection, resets both history stacks, and drops all
+    /// comparison state. Called when a pane's provider changes: differences and trees scanned
+    /// against the old roots carry absolute paths and copy directions that no longer match what
+    /// the panes claim to show, so leaving them clickable until the rescan lands (seconds on
+    /// network volumes) misdirects sync arrows and context-menu copy/move targets.
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
+        invalidateComparisonState()
         ignoredPaths.removeAll()
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
@@ -114,27 +119,108 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
-    /// Swaps the left and right panes wholesale: focused relative paths, selections, and each
-    /// pane's navigation history all move to the opposite side in one synchronous update, so
-    /// observers never see a half-swapped intermediate (e.g. the new left path against the old
-    /// left history). The provider ids live in @AppStorage (ContentView) and are swapped there
-    /// in lockstep; this method owns only the manager's paired @Published state. It does not
-    /// itself trigger a rescan — the caller drives the single post-swap refresh once the
-    /// provider ids are swapped too.
-    @MainActor public func swapPanes() {
+    /// Drops every piece of state that is only meaningful for the pane roots it was built
+    /// against: differences (raw and published), checksum-verification results, both pane
+    /// trees, and the scanned flag — synchronously, so no observer ever sees rows for roots
+    /// the panes no longer show. Also supersedes in-flight loads, scans, and filter passes,
+    /// which hold pre-change snapshots and must not publish over the cleared state. Call
+    /// whenever a pane's provider or its root path changes; the caller's rescan repopulates
+    /// (with `hasScanned` false and `differences` empty the UI shows "No Scan Performed",
+    /// never a false "Everything is in sync").
+    @MainActor public func invalidateComparisonState() {
+        supersedeInFlightPaneWork()
+        rawLeftTree = []
+        rawRightTree = []
+        if !leftTree.isEmpty { leftTree = [] }
+        if !rightTree.isEmpty { rightTree = [] }
+        if leftItemCount != 0 { leftItemCount = 0 }
+        if rightItemCount != 0 { rightItemCount = 0 }
+        lastLoadedLeftFocusPath = nil
+        lastLoadedRightFocusPath = nil
+
+        rawDifferences = []
+        if !differences.isEmpty { differences = [] }
+        verifiedSameDifferenceIds.removeAll()
+        verifiedIdenticalForCopy = nil
+        lastRightProviderType = nil
+        if hasScanned { hasScanned = false }
+
+        // A filter pass that snapshotted state before this clear may still publish after it.
+        // Start a fresh pass over the cleared raws: its newer generation supersedes the stale
+        // one, so any resurrection is corrected within one (in-memory, ms-scale) pass.
+        Task { await self.applyFilters() }
+    }
+
+    /// Cancels/supersedes work in flight for the current pane orientation and roots: per-pane
+    /// tree loads (cancelled, and their spinner-cleanup tokens invalidated), a pending or
+    /// running scan (its publish is generation-gated), and any off-main resort snapshot.
+    @MainActor private func supersedeInFlightPaneWork() {
+        activeLoadLeftTask?.cancel()
+        activeLoadRightTask?.cancel()
+        leftLoadGeneration += 1
+        rightLoadGeneration += 1
+        rawTreeGeneration += 1
+        scanRequestGeneration += 1
+        pendingScanRequest = nil
+    }
+
+    /// Swaps the left and right panes wholesale: focused relative paths, selections, each
+    /// pane's navigation history, both trees (raw and published) with their counts and
+    /// loading/focus bookkeeping, and every difference — remapped via `FileDifference.mirrored()`
+    /// so paths, sizes, direction arrows, and actions all flip with the pane labels. Everything
+    /// moves in one synchronous update, so observers never see a half-swapped intermediate
+    /// (e.g. flipped column labels over rows whose arrows still point the pre-swap way).
+    ///
+    /// Refused (returns `false`, with a warning banner) while any file operation or sync is in
+    /// flight: those operations captured pre-swap paths and directions, and remapping the rows
+    /// under them would show arrows that no longer match what the running operation does.
+    ///
+    /// The provider ids live in @AppStorage (ContentView) and are swapped there in lockstep;
+    /// this method owns only the manager's paired @Published state. It does not itself trigger
+    /// a rescan — the caller drives the single post-swap refresh once the provider ids are
+    /// swapped too.
+    @MainActor @discardableResult public func swapPanes() -> Bool {
+        guard activeFileOperationsCount == 0,
+              bulkSyncProgress == nil,
+              !differences.contains(where: { $0.isSyncing }) else {
+            Logger.shared.warning("Ignored pane swap while file operations are in flight")
+            banner = .warning("Can't swap panes while an operation is running")
+            return false
+        }
         Logger.shared.info("User swapped the left and right panes")
 
-        let relPath = leftRelativePath
-        leftRelativePath = rightRelativePath
-        rightRelativePath = relPath
+        // In-flight loads/scans/filter passes were built for the pre-swap orientation and
+        // must not publish over the swapped state; the caller's refresh rebuilds them.
+        supersedeInFlightPaneWork()
 
-        let selection = selectedLeftPaths
-        selectedLeftPaths = selectedRightPaths
-        selectedRightPaths = selection
+        swap(&leftRelativePath, &rightRelativePath)
+        swap(&selectedLeftPaths, &selectedRightPaths)
+        swap(&leftHistory, &rightHistory)
 
-        let history = leftHistory
-        leftHistory = rightHistory
-        rightHistory = history
+        swap(&rawLeftTree, &rawRightTree)
+        swap(&leftTree, &rightTree)
+        swap(&leftItemCount, &rightItemCount)
+        swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
+        swap(&isLoadingLeftTree, &isLoadingRightTree)
+
+        // Remap rather than clear: the scan results stay valid after a swap (same folders,
+        // same files), only their side labels flip — and remapping keeps the list actionable
+        // instead of flashing empty until the rescan lands (seconds on network volumes).
+        rawDifferences = rawDifferences.map { $0.mirrored() }
+        differences = differences.map { $0.mirrored() }
+        // verifiedSameDifferenceIds survives deliberately: mirrored() preserves ids and
+        // checksum equality is symmetric. The pending copy-identical offer does not — its
+        // captured differences and left→right wording are pre-swap.
+        verifiedIdenticalForCopy = nil
+        // The Drive date-noise filter is right-pane-specific; the provider just changed sides,
+        // and the post-swap rescan re-learns the new right pane's type.
+        lastRightProviderType = nil
+
+        // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
+        // pre-swap snapshot may publish after this method; a fresh pass over the swapped
+        // raws supersedes it within one in-memory recompute.
+        Task { await self.applyFilters() }
+        return true
     }
 
     /// Publishes each pane's current history entry into its relative path and triggers a refresh.

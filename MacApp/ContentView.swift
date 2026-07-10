@@ -264,6 +264,10 @@ struct ContentView: View {
                 leftId: previousLeftId,
                 rightId: previousRightId
             ) {
+                // Same pane ids, different root underneath: the current trees and
+                // differences were built against the old root, so drop them before the
+                // rescan rather than leaving their stale absolute paths clickable.
+                syncManager.invalidateComparisonState()
                 refreshAction()
             }
         }
@@ -358,14 +362,17 @@ struct ContentView: View {
         }
     }
 
-    /// Swaps the left and right panes entirely — providers, focused folders, selections, and
-    /// per-pane back/forward history all flip sides in one click. The manager's paired state is
-    /// swapped first (so the single post-swap rescan reads already-swapped focus and selection),
-    /// then the @AppStorage provider ids. Both id onChanges fire but are suppressed via
-    /// `pendingSwapProviderChanges` so they don't reset the just-swapped navigation; this method
-    /// drives the one rescan itself.
+    /// Swaps the left and right panes entirely — providers, focused folders, selections,
+    /// per-pane back/forward history, trees, and the differences list (remapped, so every
+    /// row's arrows flip with the pane labels) all flip sides in one click. The manager's
+    /// paired state is swapped first (so the single post-swap rescan reads already-swapped
+    /// focus and selection), then the @AppStorage provider ids. Both id onChanges fire but are
+    /// suppressed via `pendingSwapProviderChanges` so they don't reset the just-swapped
+    /// navigation; this method drives the one rescan itself. The manager refuses the swap
+    /// while file operations are in flight — the provider ids must then stay put too, or the
+    /// pane labels would flip over unswapped state.
     private func swapPanesAction() {
-        syncManager.swapPanes()
+        guard syncManager.swapPanes() else { return }
         let swapped = PaneLogic.swappedProviderIds(
             leftProviderId: leftProviderId,
             rightProviderId: rightProviderId
