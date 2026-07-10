@@ -274,47 +274,11 @@ public struct DifferencesView: View {
             // Table card: progress (during ops) sits above the differences table.
             VStack(spacing: 0) {
                 if let progress = syncManager.verifyAllProgress {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Verifying \(progress.completed) of \(progress.total)...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
-                            Button("Cancel") {
-                                activeProgress.cancel()
-                            }
-                            .buttonStyle(.borderless)
-                            .font(.caption)
-                        }
-                    }
-                    ProgressView(value: Double(progress.completed), total: Double(progress.total))
-                        .progressViewStyle(.linear)
+                    syncProgressRow(verb: "Verifying", completed: progress.completed, total: progress.total)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-            }
-            if let progress = syncManager.bulkSyncProgress {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("Syncing \(progress.completed) of \(progress.total)...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
-                            Button("Cancel") {
-                                activeProgress.cancel()
-                            }
-                            .buttonStyle(.borderless)
-                            .font(.caption)
-                        }
-                    }
-                    ProgressView(value: Double(progress.completed), total: Double(progress.total))
-                        .progressViewStyle(.linear)
+                if let progress = syncManager.bulkSyncProgress {
+                    syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 10)
-            }
             Table(sorted, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
                 TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
@@ -360,6 +324,32 @@ public struct DifferencesView: View {
     }
 
     // MARK: Header
+
+    /// The "<verb> N of M…" progress row shown above the table during a bulk op, with a Cancel
+    /// button while the active operation is cancellable. Shared by the Verify and Sync passes —
+    /// the only difference is the leading verb — so the two stay identical by construction.
+    @ViewBuilder
+    private func syncProgressRow(verb: String, completed: Int, total: Int) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("\(verb) \(completed) of \(total)...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
+                    Button("Cancel") {
+                        activeProgress.cancel()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+            ProgressView(value: Double(completed), total: Double(total))
+                .progressViewStyle(.linear)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+    }
 
     /// Inline search field (second header row): a magnifier, the query, a clear button, and a
     /// live "N of M" match count when a filter or search narrows the list.
