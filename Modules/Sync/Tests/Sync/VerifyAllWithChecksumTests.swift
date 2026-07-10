@@ -45,8 +45,8 @@ import Foundation
         let manager = FileSyncManager()
         // No collision or delete prompt can fire here, but the seams stay mocked so no NSAlert
         // could ever appear if that changes.
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, true) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
         manager.rawDifferences = [identical, differed, skipped]
         manager.differences = [identical, differed, skipped]

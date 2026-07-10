@@ -21,8 +21,8 @@ import Foundation
         mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let manager = FileSyncManager(fileManager: mockFM)
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, true) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
 
         let diff = FileDifference(
             relativePath: "test.txt",
@@ -104,8 +104,8 @@ import Foundation
     @Test func testSyncedDifferenceDoesNotResurrectOnApplyFilters() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, true) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
@@ -135,8 +135,8 @@ import Foundation
     @Test func testSyncAllRemovesSuccessesFromRawDifferences() async throws {
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, true) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
 
@@ -192,8 +192,8 @@ import Foundation
         manager.differences = diffs
 
         var prompted: [String] = []
-        manager.collisionResolver = { _, _ in .skip } // bulk path must not use the single-file seam
-        manager.bulkCollisionResolver = { fileName, _ in
+        manager.collisionResolver = { _, _, _ in .skip } // bulk path must not use the single-file seam
+        manager.bulkCollisionResolver = { fileName, _, _ in
             prompted.append(fileName)
             return (fileName == "a.txt" ? (.skip, false) : (.keepBoth, false))
         }
@@ -252,7 +252,7 @@ import Foundation
         let (manager, mockFM, diff) = try makeAppearedDestinationFixture()
 
         var prompted: [String] = []
-        manager.collisionResolver = { fileName, _ in
+        manager.collisionResolver = { fileName, _, _ in
             prompted.append(fileName)
             return .skip
         }
@@ -277,7 +277,7 @@ import Foundation
     @Test func testSyncFileKeepsBothWhenDestinationAppearedAfterInitialStat() async throws {
         let (manager, mockFM, diff) = try makeAppearedDestinationFixture()
 
-        manager.collisionResolver = { _, _ in .keepBoth }
+        manager.collisionResolver = { _, _, _ in .keepBoth }
 
         await manager.syncFile(diff, isMove: false, fileManager: mockFM)
 
@@ -312,7 +312,7 @@ import Foundation
         manager.differences = [diff]
 
         var promptCount = 0
-        manager.collisionResolver = { _, _ in
+        manager.collisionResolver = { _, _, _ in
             promptCount += 1
             return .replace
         }
@@ -401,8 +401,8 @@ import Foundation
         manager.differences = diffs
 
         var prompted: [String] = []
-        manager.collisionResolver = { _, _ in .skip } // bulk path must not use the single-file seam
-        manager.bulkCollisionResolver = { fileName, _ in
+        manager.collisionResolver = { _, _, _ in .skip } // bulk path must not use the single-file seam
+        manager.bulkCollisionResolver = { fileName, _, _ in
             prompted.append(fileName)
             if fileName == "a.txt" {
                 // While the user sits on a's prompt, b's destination appears externally.
@@ -444,8 +444,8 @@ import Foundation
         manager.differences = [diff]
 
         var promptCount = 0
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in
             promptCount += 1
             return (.replace, false)
         }
@@ -496,7 +496,7 @@ import Foundation
         }
         manager.rawDifferences = diffs
         manager.differences = diffs
-        manager.collisionResolver = { _, _ in .skip }
+        manager.collisionResolver = { _, _, _ in .skip }
         return (manager, mockFM, diffs)
     }
 
@@ -508,7 +508,7 @@ import Foundation
         let (manager, mockFM, _) = try makeBulkCollisionFixture(names: ["a.txt", "b.txt", "c.txt"])
 
         var prompted: [String] = []
-        manager.bulkCollisionResolver = { fileName, _ in
+        manager.bulkCollisionResolver = { fileName, _, _ in
             prompted.append(fileName)
             return (.keepBoth, true)
         }
@@ -535,7 +535,7 @@ import Foundation
         let (manager, mockFM, diffs) = try makeBulkCollisionFixture(names: ["a.txt"])
 
         var promptCount = 0
-        manager.bulkCollisionResolver = { _, _ in
+        manager.bulkCollisionResolver = { _, _, _ in
             promptCount += 1
             return promptCount == 1 ? (.replace, true) : (.skip, false)
         }
@@ -576,7 +576,7 @@ import Foundation
         let (manager, mockFM, _) = try makeBulkCollisionFixture(names: ["a.txt"])
 
         let probe = BulkRunProbe()
-        manager.bulkCollisionResolver = { _, _ in
+        manager.bulkCollisionResolver = { _, _, _ in
             probe.progressActiveAtPrompt = (manager.activeProgress != nil)
             probe.midRunObservation = Task { @MainActor in
                 probe.bulkProgressDuringIO = manager.bulkSyncProgress

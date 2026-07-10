@@ -390,7 +390,7 @@ import Foundation
 
         // /dst/folder already exists, so this hits the collision path. The resolver must be
         // mocked: the default one skips the item.
-        manager.collisionResolver = { _, _ in .replace }
+        manager.collisionResolver = { _, _, _ in .replace }
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
 
         // Replace semantics: the old destination directory is backed up out of the way and the
@@ -399,7 +399,58 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/folder/file1.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/folder/file2.txt"] == nil)
     }
-    
+
+    /// The collision seam is told whether the colliding destination is a directory, so the
+    /// app can warn that Replace trashes the whole folder. A folder collision reports
+    /// isDirectory=true and a file collision reports false — and Replace still works either way.
+    @MainActor
+    @Test func testCollisionResolverReceivesIsDirectoryFlag() async throws {
+        // Folder-vs-folder collision.
+        let folderManager = FileSyncManager()
+        let folderFM = MockFileManager()
+        folderFM.virtualDisk["/src/item"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["a.txt"])
+        folderFM.virtualDisk["/src/item/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        folderFM.virtualDisk["/dst"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["item"])
+        folderFM.virtualDisk["/dst/item"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["b.txt"])
+        folderFM.virtualDisk["/dst/item/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        var folderSeenIsDirectory: Bool?
+        folderManager.collisionResolver = { _, _, isDirectory in
+            folderSeenIsDirectory = isDirectory
+            return .replace
+        }
+        await folderManager.copyItems(
+            nodes: [FileNode(id: "/src/item", name: "item", isDirectory: true)],
+            toPath: "/dst",
+            fileManager: folderFM
+        )
+        #expect(folderSeenIsDirectory == true)
+        #expect(folderManager.currentError == nil)
+        // Replace still happened: source contents arrive, dest-only file is gone.
+        #expect(folderFM.virtualDisk["/dst/item/a.txt"] != nil)
+        #expect(folderFM.virtualDisk["/dst/item/b.txt"] == nil)
+
+        // File-vs-file collision reports isDirectory=false.
+        let fileManager = FileSyncManager()
+        let fileFM = MockFileManager()
+        fileFM.virtualDisk["/src/item.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        fileFM.virtualDisk["/dst"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["item.txt"])
+        fileFM.virtualDisk["/dst/item.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        var fileSeenIsDirectory: Bool?
+        fileManager.collisionResolver = { _, _, isDirectory in
+            fileSeenIsDirectory = isDirectory
+            return .replace
+        }
+        await fileManager.copyItems(
+            nodes: [FileNode(id: "/src/item.txt", name: "item.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: fileFM
+        )
+        #expect(fileSeenIsDirectory == false)
+        #expect(fileManager.currentError == nil)
+    }
+
     // MARK: - Safe Move & Copy Rollback Logic
     
     @Test func testSafeCopyItemRollbackOnError() async throws {

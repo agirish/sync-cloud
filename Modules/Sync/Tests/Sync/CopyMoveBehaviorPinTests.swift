@@ -27,8 +27,8 @@ import Events
     private func makeManager() -> FileSyncManager {
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, true) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
         return manager
     }
@@ -133,7 +133,7 @@ import Events
         let nodes = ["pcA.txt", "pcBB.txt", "pcCCC.txt"].map {
             FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
         }
-        manager.collisionResolver = { _, _ in .skip }
+        manager.collisionResolver = { _, _, _ in .skip }
 
         let copied = await manager.copyItems(nodes: nodes, fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
 
@@ -161,7 +161,7 @@ import Events
         let nodes = ["pmA.txt", "pmBB.txt"].map {
             FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
         }
-        manager.collisionResolver = { _, _ in .skip }
+        manager.collisionResolver = { _, _, _ in .skip }
 
         let moved = await manager.moveItems(nodes: nodes, fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
 
@@ -196,7 +196,7 @@ import Events
         let nodes = ["ptA.txt", "ptBB.txt"].map {
             FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
         }
-        manager.collisionResolver = { _, _ in .skip }
+        manager.collisionResolver = { _, _, _ in .skip }
 
         let copied = await manager.copyItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
 
@@ -222,7 +222,7 @@ import Events
         let nodes = ["pdA.txt", "pdBB.txt"].map {
             FileNode(id: "/src/\($0)", name: $0, isDirectory: false)
         }
-        manager.collisionResolver = { _, _ in .skip }
+        manager.collisionResolver = { _, _, _ in .skip }
 
         let moved = await manager.moveItems(nodes: nodes, toPath: "/dst", fileManager: mockFM)
 

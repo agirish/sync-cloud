@@ -170,4 +170,27 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         }
         #expect(ContentView.BottomTab(rawValue: "NotATab") == nil)
     }
+
+    // MARK: Collision prompt wording (file vs. folder)
+
+    @Test func testFolderCollisionPromptWarnsAboutWholesaleReplacement() {
+        // A folder collision must warn that Replace trashes the whole existing folder — the
+        // file wording ("replace it with the one you're …") does not convey that data loss.
+        let fileText = SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: false)
+        let folderText = SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: true)
+
+        #expect(fileText != folderText)
+        #expect(!fileText.contains("entire contents"))
+        #expect(folderText.contains("Replacing a folder replaces its entire contents"))
+        #expect(folderText.contains("moved to the Trash"))
+        // The base copy/move wording is preserved for both.
+        #expect(folderText.hasPrefix(fileText))
+    }
+
+    @Test func testCollisionPromptReflectsMoveVsCopyVerb() {
+        // The verb still tracks the operation, independent of the folder warning.
+        #expect(SyncOperationAlerts.collisionInformativeText(isMove: true, isDirectory: false).contains("moving"))
+        #expect(SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: false).contains("copying"))
+        #expect(SyncOperationAlerts.collisionInformativeText(isMove: true, isDirectory: true).contains("moving"))
+    }
 }

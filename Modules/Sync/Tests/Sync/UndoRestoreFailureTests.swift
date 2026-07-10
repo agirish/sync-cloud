@@ -29,8 +29,8 @@ import Foundation
     private func makeManager() -> FileSyncManager {
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
-        manager.collisionResolver = { _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _ in (.replace, false) }
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, false) }
         manager.permanentDeleteConfirmer = { _ in false }
         return manager
     }

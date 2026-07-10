@@ -25,11 +25,11 @@ struct SyncCloudApp: App {
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
         // permanent deletes). Wire the real NSAlert-backed prompts here, at the app boundary.
-        manager.collisionResolver = { fileName, isMove in
-            SyncOperationAlerts.promptForCollision(fileName: fileName, isMove: isMove)
+        manager.collisionResolver = { fileName, isMove, isDirectory in
+            SyncOperationAlerts.promptForCollision(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
         }
-        manager.bulkCollisionResolver = { fileName, isMove in
-            SyncOperationAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove)
+        manager.bulkCollisionResolver = { fileName, isMove, isDirectory in
+            SyncOperationAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
         }
         manager.permanentDeleteConfirmer = { itemNames in
             SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)

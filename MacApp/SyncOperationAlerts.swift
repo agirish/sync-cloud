@@ -9,11 +9,22 @@ import Sync
 @MainActor
 struct SyncOperationAlerts {
 
+    /// Builds the alert's informative text. For a folder collision it adds Finder's
+    /// wholesale-replacement warning, since Replace trashes the entire existing folder —
+    /// including items that exist only there — not just the same-named file.
+    /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
+    nonisolated static func collisionInformativeText(isMove: Bool, isDirectory: Bool) -> String {
+        let base = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        guard isDirectory else { return base }
+        return base + " Replacing a folder replaces its entire contents. "
+            + "Items that exist only in the destination folder will be moved to the Trash."
+    }
+
     /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
-    static func promptForCollision(fileName: String, isMove: Bool) -> CollisionResolution {
+    static func promptForCollision(fileName: String, isMove: Bool, isDirectory: Bool) -> CollisionResolution {
         let alert = NSAlert()
         alert.messageText = "An item named \"\(fileName)\" already exists in this location."
-        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        alert.informativeText = collisionInformativeText(isMove: isMove, isDirectory: isDirectory)
 
         // Buttons added right to left.
         alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
@@ -35,10 +46,10 @@ struct SyncOperationAlerts {
 
     /// Presents a collision resolution alert with an "Apply to all" option for bulk sync.
     /// - Returns: The chosen resolution and whether to apply it to all remaining conflicts in this bulk run.
-    static func promptForCollisionWithApplyToAll(fileName: String, isMove: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) {
+    static func promptForCollisionWithApplyToAll(fileName: String, isMove: Bool, isDirectory: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) {
         let alert = NSAlert()
         alert.messageText = "An item named \"\(fileName)\" already exists in this location."
-        alert.informativeText = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
+        alert.informativeText = collisionInformativeText(isMove: isMove, isDirectory: isDirectory)
 
         let checkbox = NSButton(checkboxWithTitle: "Apply to all for remaining conflicts", target: nil, action: nil)
         checkbox.state = .off

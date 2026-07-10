@@ -535,13 +535,19 @@ extension FileSyncManager {
                         continue
                     }
                     targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                } else if fm.fileExists(atPath: targetURL.path) {
-                    let tName = targetURL.lastPathComponent
-                    let resolution = await MainActor.run { resolveCollision(tName, isMove) }
-                    switch resolution {
-                    case .replace: break
-                    case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                    case .skip: continue
+                } else {
+                    // Stat with isDirectory so the collision prompt can warn that replacing a
+                    // folder replaces its whole contents (Finder-style), not just a same-named file.
+                    var targetIsDir: ObjCBool = false
+                    if fm.fileExists(atPath: targetURL.path, isDirectory: &targetIsDir) {
+                        let tName = targetURL.lastPathComponent
+                        let tIsDir = targetIsDir.boolValue
+                        let resolution = await MainActor.run { resolveCollision(tName, isMove, tIsDir) }
+                        switch resolution {
+                        case .replace: break
+                        case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
+                        case .skip: continue
+                        }
                     }
                 }
 

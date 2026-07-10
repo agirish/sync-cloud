@@ -13,13 +13,16 @@ public class FileSyncManager: ObservableObject {
     /// A closure that resolves naming collisions during file operations.
     /// Defaults to `.skip` so an unwired manager never overwrites existing files.
     /// The app wires an NSAlert-backed prompt at construction; tests inject specific resolutions.
-    public var collisionResolver: @MainActor (String, Bool) -> CollisionResolution = { _, _ in
+    /// The trailing `isDirectory` flag reflects the colliding destination item, so the prompt can
+    /// warn that replacing a folder replaces its whole contents (not just the same-named file).
+    public var collisionResolver: @MainActor (_ fileName: String, _ isMove: Bool, _ isDirectory: Bool) -> CollisionResolution = { _, _, _ in
         return .skip
     }
 
     /// The bulk-sync variant of `collisionResolver`, adding an "Apply to all" choice.
     /// Defaults to skipping the conflicting item; the app wires an NSAlert-backed prompt at construction.
-    public var bulkCollisionResolver: @MainActor (String, Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { _, _ in
+    /// The trailing `isDirectory` flag carries the same folder-replacement warning signal.
+    public var bulkCollisionResolver: @MainActor (_ fileName: String, _ isMove: Bool, _ isDirectory: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { _, _, _ in
         return (.skip, false)
     }
 
@@ -830,25 +833,28 @@ public class FileSyncManager: ObservableObject {
         // The stat runs off the main actor: on network/cloud volumes a synchronous fileExists
         // can block the UI for seconds. The prompt itself stays on the MainActor.
         let collisionCandidate = toURL
-        let destinationExists = await Task.detached(priority: .userInitiated) {
-            activeFM.fileExists(atPath: collisionCandidate.path)
+        let (destinationExists, destinationIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
+            var isDir: ObjCBool = false
+            let exists = activeFM.fileExists(atPath: collisionCandidate.path, isDirectory: &isDir)
+            return (exists, isDir.boolValue)
         }.value
 
         /// Picks a resolution for a collision at `collidingURL` (cached bulk answer, bulk
         /// prompt, or single-file prompt) and returns the URL the operation should target:
         /// `collidingURL` itself for Replace, a fresh unique sibling for Keep Both, or nil
-        /// for Skip.
-        func resolveCollision(at collidingURL: URL) async -> URL? {
+        /// for Skip. `isDirectory` reflects the colliding item so the prompt can warn about
+        /// wholesale folder replacement.
+        func resolveCollision(at collidingURL: URL, isDirectory: Bool) async -> URL? {
             let fileName = collidingURL.lastPathComponent
             let resolution: CollisionResolution
             if isBulkSync, let cached = bulkApplyToAllResolution {
                 resolution = cached
             } else if isBulkSync {
-                let (res, applyToAll) = bulkCollisionResolver(fileName, isMove)
+                let (res, applyToAll) = bulkCollisionResolver(fileName, isMove, isDirectory)
                 if applyToAll { bulkApplyToAllResolution = res }
                 resolution = res
             } else {
-                resolution = collisionResolver(fileName, isMove)
+                resolution = collisionResolver(fileName, isMove, isDirectory)
             }
             switch resolution {
             case .skip:
@@ -867,7 +873,7 @@ public class FileSyncManager: ObservableObject {
         // pre-enqueue re-stat below doesn't re-prompt for a destination that is expected to exist.
         var replaceSanctioned = false
         if destinationExists {
-            guard let resolvedURL = await resolveCollision(at: toURL) else {
+            guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: destinationIsDirectory) else {
                 clearSyncing(ids: [difference.id])
                 return
             }
@@ -885,11 +891,13 @@ public class FileSyncManager: ObservableObject {
         // detached, where no prompt is possible.
         if !replaceSanctioned {
             let recheckCandidate = toURL
-            let newlyAppeared = await Task.detached(priority: .userInitiated) {
-                activeFM.fileExists(atPath: recheckCandidate.path)
+            let (newlyAppeared, newlyAppearedIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
+                var isDir: ObjCBool = false
+                let exists = activeFM.fileExists(atPath: recheckCandidate.path, isDirectory: &isDir)
+                return (exists, isDir.boolValue)
             }.value
             if newlyAppeared {
-                guard let resolvedURL = await resolveCollision(at: toURL) else {
+                guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: newlyAppearedIsDirectory) else {
                     clearSyncing(ids: [difference.id])
                     return
                 }
@@ -1004,10 +1012,15 @@ public class FileSyncManager: ObservableObject {
 
         let statURLs = candidates.map(\.toURL)
         let statProgress = ProgressRef(progress)
-        let destinationExists = await Task.detached(priority: .userInitiated) { () -> [Bool] in
+        let destinationExists = await Task.detached(priority: .userInitiated) { () -> [(exists: Bool, isDirectory: Bool)] in
             // A cancelled run stops stat-ing; the prepare loop below breaks on the same flag
             // before ever reading the remaining (false) placeholders.
-            statURLs.map { statProgress.progress.isCancelled ? false : activeFM.fileExists(atPath: $0.path) }
+            statURLs.map { url in
+                guard !statProgress.progress.isCancelled else { return (false, false) }
+                var isDir: ObjCBool = false
+                let exists = activeFM.fileExists(atPath: url.path, isDirectory: &isDir)
+                return (exists, isDir.boolValue)
+            }
         }.value
 
         var preparedList: [(FileDifference, URL, URL, Bool)] = []
@@ -1027,11 +1040,14 @@ public class FileSyncManager: ObservableObject {
         for (index, candidate) in candidates.enumerated() {
             if progress.isCancelled { break }
             var toURL = candidate.toURL
-            var destinationOccupied = destinationExists[index]
+            var destinationOccupied = destinationExists[index].exists
+            var destinationIsDirectory = destinationExists[index].isDirectory
             if !destinationOccupied && promptShownSinceStatPass {
                 let staleCandidate = toURL
-                destinationOccupied = await Task.detached(priority: .userInitiated) {
-                    activeFM.fileExists(atPath: staleCandidate.path)
+                (destinationOccupied, destinationIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
+                    var isDir: ObjCBool = false
+                    let exists = activeFM.fileExists(atPath: staleCandidate.path, isDirectory: &isDir)
+                    return (exists, isDir.boolValue)
                 }.value
             }
             if destinationOccupied {
@@ -1041,7 +1057,7 @@ public class FileSyncManager: ObservableObject {
                     resolution = cached
                 } else {
                     promptShownSinceStatPass = true
-                    let (res, applyToAll) = bulkCollisionResolver(fileName, isMove)
+                    let (res, applyToAll) = bulkCollisionResolver(fileName, isMove, destinationIsDirectory)
                     if applyToAll { bulkApplyToAllResolution = res }
                     resolution = res
                 }

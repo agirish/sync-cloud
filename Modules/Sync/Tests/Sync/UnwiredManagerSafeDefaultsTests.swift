@@ -16,8 +16,10 @@ import Foundation
     @Test func testDefaultCollisionResolverSkips() {
         let manager = FileSyncManager()
 
-        #expect(manager.collisionResolver("collide.txt", false) == .skip)
-        #expect(manager.collisionResolver("collide.txt", true) == .skip)
+        #expect(manager.collisionResolver("collide.txt", false, false) == .skip)
+        #expect(manager.collisionResolver("collide.txt", true, false) == .skip)
+        // A folder collision defaults to skip too — the isDirectory flag only affects wording.
+        #expect(manager.collisionResolver("collideFolder", false, true) == .skip)
     }
 
     /// The default bulk resolver skips the conflicting item and does not latch "apply to all",
@@ -26,7 +28,7 @@ import Foundation
     @Test func testDefaultBulkCollisionResolverSkipsWithoutApplyToAll() {
         let manager = FileSyncManager()
 
-        let (resolution, applyToAll) = manager.bulkCollisionResolver("collide.txt", false)
+        let (resolution, applyToAll) = manager.bulkCollisionResolver("collide.txt", false, false)
         #expect(resolution == .skip)
         #expect(applyToAll == false)
     }

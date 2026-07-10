@@ -28,9 +28,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public init() {}
 
-    /// Invoked (under the lock) after each single-argument `fileExists` check, with the queried
-    /// path. Lets tests plant a file right after an existence check to simulate TOCTOU races
-    /// (e.g. a cloud placeholder hydrating between the backup stat and the final move).
+    /// Invoked (under the lock) after each `fileExists` check (both the plain and the
+    /// `isDirectory:` overloads), with the queried path. Lets tests plant a file right after an
+    /// existence check to simulate TOCTOU races (e.g. a cloud placeholder hydrating between the
+    /// backup stat and the final move, or between the collision stat and the operation running).
+    /// The returned existence reflects state *before* the callback runs, matching a real stat.
     public var onFileExists: ((String) -> Void)?
 
     public func fileExists(atPath path: String) -> Bool {
@@ -43,11 +45,11 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
         sync {
-            if let stub = virtualDisk[path] {
-                isDirectory?.pointee = ObjCBool(stub.isDirectory)
-                return true
-            }
-            return false
+            let stub = virtualDisk[path]
+            isDirectory?.pointee = ObjCBool(stub?.isDirectory ?? false)
+            let exists = stub != nil
+            onFileExists?(path)
+            return exists
         }
     }
 

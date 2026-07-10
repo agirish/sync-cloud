@@ -37,7 +37,7 @@ private actor Gate {
         mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
         mockFM.virtualDisk["/src/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        manager.bulkCollisionResolver = { _, _ in (.skip, false) }
+        manager.bulkCollisionResolver = { _, _, _ in (.skip, false) }
 
         func diff(_ name: String, type: FileDifference.DifferenceType) -> FileDifference {
             FileDifference(
