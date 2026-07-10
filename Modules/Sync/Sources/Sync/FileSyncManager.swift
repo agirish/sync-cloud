@@ -169,8 +169,9 @@ public class FileSyncManager: ObservableObject {
 
     /// Publishes a structured failure to the error alert and logs it. Centralizes the
     /// `currentError` + retry-handler + log triple so call sites stay one line and the three
-    /// can never drift apart.
-    func present(_ error: SyncError, retry: (@MainActor () -> Void)? = nil) {
+    /// can never drift apart. Public so UI-side coordinators (FileActionHandler) can surface
+    /// pre-flight failures — e.g. a pane whose provider root vanished — through the same alert.
+    public func present(_ error: SyncError, retry: (@MainActor () -> Void)? = nil) {
         currentError = error
         currentErrorRetry = retry
         Logger.shared.error(error.logDescription)

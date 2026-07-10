@@ -382,6 +382,7 @@ import Foundation
         
         mockFM.virtualDisk["/src/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["file1.txt"])
         mockFM.virtualDisk["/src/folder/file1.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["folder"])
         mockFM.virtualDisk["/dst/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["file2.txt"])
         mockFM.virtualDisk["/dst/folder/file2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 

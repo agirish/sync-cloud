@@ -285,4 +285,158 @@ import Events
         #expect(manager.currentError?.title == "Move Failed")
         #expect(manager.currentError?.reason == "Cannot move or copy a directory into itself or its subdirectories.")
     }
+
+    // MARK: - Pane-root hardening (empty roots, prefix aliasing, vanished destination)
+
+    /// An empty destination root (the pane's provider vanished from settings) aborts the whole
+    /// operation before any I/O. Previously "" produced a relative target path that
+    /// URL(fileURLWithPath:) resolved against the process CWD — a move relocated files out of
+    /// the source pane into a CWD-relative tree.
+    @MainActor
+    @Test func testMoveItemsEmptyDestinationRootAbortsWithoutWrites() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/hardEmptyDst.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/hardEmptyDst.txt", name: "hardEmptyDst.txt", isDirectory: false)
+
+        let moved = await manager.moveItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "", fileManager: mockFM)
+
+        #expect(moved.isEmpty)
+        #expect(manager.currentError?.title == "Move Failed")
+        #expect(mockFM.virtualDisk["/src/hardEmptyDst.txt"] != nil)
+        #expect(mockFM.calledCopyItem == false)
+        #expect(mockFM.attemptedRemovePaths.isEmpty)
+        #expect(manager.undoManager?.canUndo == false)
+    }
+
+    /// An empty *source* root must fail too: "" prefix-matched every node, so the old code kept
+    /// the node's near-absolute path as the "relative" part and grafted it under the destination.
+    @MainActor
+    @Test func testCopyItemsEmptySourceRootFailsInsteadOfGrafting() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/hardEmptySrc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/hardEmptySrc.txt", name: "hardEmptySrc.txt", isDirectory: false)
+
+        let copied = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "", rightRoot: "/dst", fileManager: mockFM)
+
+        #expect(copied.isEmpty)
+        #expect(manager.currentError?.title == "Copy Failed")
+        #expect(manager.currentError?.reason == "The source pane's folder is no longer available. Rescan before copying or moving items.")
+        #expect(mockFM.calledCopyItem == false)
+        #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/") })
+    }
+
+    /// A node outside the source root fails per item — the old fallback grafted its absolute
+    /// path under the destination root, the mechanism behind the misdirected
+    /// `<newRoot>/Users/…/<oldRoot>/…` copies seen during pane swaps. A sibling that IS under
+    /// the root still transfers in the same call.
+    @MainActor
+    @Test func testCopyItemsNodeOutsideSourceRootFailsPerItem() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/outside"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/hardIn.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/outside/hardOutBB.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // Strictly increasing id lengths so the length-sorted prune order equals input order.
+        let inNode = FileNode(id: "/src/hardIn.txt", name: "hardIn.txt", isDirectory: false)
+        let outNode = FileNode(id: "/outside/hardOutBB.txt", name: "hardOutBB.txt", isDirectory: false)
+
+        let copied = await manager.copyItems(nodes: [inNode, outNode], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
+
+        #expect(copied.map(\.name) == ["hardIn.txt"])
+        #expect(mockFM.virtualDisk["/dst/hardIn.txt"] != nil)
+        #expect(manager.currentError?.title == "Copy Failed")
+        #expect(manager.currentError?.reason == "\"hardOutBB.txt\" is not inside the source pane's folder. Rescan and try again.")
+        // No grafted path: the outside node landed nowhere under /dst, and its original is intact.
+        #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/outside") })
+        #expect(mockFM.virtualDisk["/outside/hardOutBB.txt"] != nil)
+    }
+
+    /// Root "/data/foo" must not claim "/data/foobar/…" via a bare prefix match: previously the
+    /// remainder after the aliased prefix ("bar/…") became the relative path and the file was
+    /// silently copied to "<toRoot>/bar/…".
+    @MainActor
+    @Test func testMoveItemsPrefixAliasedRootFailsInsteadOfMisdirecting() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/data/foo"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/data/foobar"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/data/foobar/hardAlias.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/data/foobar/hardAlias.txt", name: "hardAlias.txt", isDirectory: false)
+
+        let moved = await manager.moveItems(nodes: [node], fromLeft: true, leftRoot: "/data/foo", rightRoot: "/dst", fileManager: mockFM)
+
+        #expect(moved.isEmpty)
+        #expect(manager.currentError?.title == "Move Failed")
+        #expect(mockFM.virtualDisk["/dst/bar/hardAlias.txt"] == nil)
+        #expect(mockFM.virtualDisk["/data/foobar/hardAlias.txt"] != nil)
+        #expect(mockFM.attemptedRemovePaths.isEmpty)
+    }
+
+    /// A destination pane root that no longer exists on disk (provider unmounted, e.g. the
+    /// Google Drive app quit) fails the operation instead of being silently recreated as a
+    /// plain local folder tree the FileProvider would never sync.
+    @MainActor
+    @Test func testCopyItemsMissingDestinationRootIsNotRecreated() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/hardGone.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/hardGone.txt", name: "hardGone.txt", isDirectory: false)
+
+        let copied = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
+
+        #expect(copied.isEmpty)
+        #expect(manager.currentError?.title == "Copy Failed")
+        #expect(manager.currentError?.reason == "The destination folder is no longer available. Rescan before copying or moving items.")
+        #expect(mockFM.virtualDisk["/dst"] == nil)
+        #expect(mockFM.calledCopyItem == false)
+    }
+
+    /// Same guard on the toPath route (drag & drop and paste): a vanished drop target is an
+    /// error, not a directory to recreate — and a move leaves the originals in place.
+    @MainActor
+    @Test func testMoveItemsToPathMissingDestinationFailsWithoutWrites() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/hardDrop.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/hardDrop.txt", name: "hardDrop.txt", isDirectory: false)
+
+        let moved = await manager.moveItems(nodes: [node], toPath: "/gone", fileManager: mockFM)
+
+        #expect(moved.isEmpty)
+        #expect(manager.currentError?.title == "Move Failed")
+        #expect(mockFM.virtualDisk["/gone"] == nil)
+        #expect(mockFM.virtualDisk["/src/hardDrop.txt"] != nil)
+        #expect(mockFM.attemptedRemovePaths.isEmpty)
+    }
+
+    /// Regression guard: missing intermediate folders UNDER an existing destination root must
+    /// still be created (bulk sync of nested files relies on it) — only the root itself is
+    /// never auto-created.
+    @MainActor
+    @Test func testCopyItemsCreatesMissingIntermediatesUnderExistingRoot() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/sub"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/sub/hardDeep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let node = FileNode(id: "/src/sub/hardDeep.txt", name: "hardDeep.txt", isDirectory: false)
+
+        let copied = await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
+
+        #expect(copied.map(\.name) == ["hardDeep.txt"])
+        #expect(mockFM.virtualDisk["/dst/sub"]?.isDirectory == true)
+        #expect(mockFM.virtualDisk["/dst/sub/hardDeep.txt"] != nil)
+        #expect(manager.currentError == nil)
+    }
 }

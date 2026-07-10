@@ -81,4 +81,130 @@ import Settings
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
     }
+
+    // MARK: - Pane-root guards (vanished providers, prefix aliasing)
+
+    /// Settings with a deterministic provider list: no background discovery, isolated defaults.
+    @MainActor
+    private func makeSettings(providers: [CloudProvider]) -> SettingsManager {
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: UserDefaults(suiteName: "FileActionHandlerTests-\(UUID().uuidString)")!,
+            cloudStorageLister: { [] },
+            pathValidator: { _ in true }
+        )
+        settings.availableProviders = providers
+        return settings
+    }
+
+    @MainActor
+    private func waitForError(_ manager: FileSyncManager) async {
+        for _ in 0..<50 {
+            if manager.currentError != nil { return }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// A provider id that vanished from settings resolves to an empty root ("" from
+    /// `settings.path(for:)`). The copy must abort with an error before reaching the sync
+    /// layer — previously the empty root sent files to a CWD-relative destination.
+    @MainActor
+    @Test func testCopyItemsWithUnknownProviderPresentsErrorAndCopiesNothing() async throws {
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []))
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-guard-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let srcFile = root.appendingPathComponent("keep-me.txt")
+        try Data("hello".utf8).write(to: srcFile)
+        let node = FileNode(id: srcFile.path, name: "keep-me.txt", isDirectory: false)
+
+        handler.copyItems([node], fromLeft: true, leftProviderId: "vanished-left", rightProviderId: "vanished-right")
+        await waitForError(manager)
+
+        #expect(manager.currentError?.title == "Folder Unavailable")
+        #expect(manager.currentError?.message.contains("left") == true)
+        #expect(manager.activeFileOperationsCount == 0)
+        #expect(FileManager.default.fileExists(atPath: srcFile.path))
+    }
+
+    /// A provider that is still known but whose root folder no longer exists on disk (cloud app
+    /// unmounted) also aborts, pointing at the missing folder.
+    @MainActor
+    @Test func testCopyItemsWithVanishedSourceRootPresentsError() async throws {
+        let manager = FileSyncManager()
+        let existingRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-dest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: existingRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: existingRoot) }
+        let goneRoot = "/nonexistent/FAH-\(UUID().uuidString)"
+        let settings = makeSettings(providers: [
+            CloudProvider(id: "gone", displayName: "Gone", imageName: "icloud", path: goneRoot, type: .iCloud),
+            CloudProvider(id: "here", displayName: "Here", imageName: "icloud", path: existingRoot.path, type: .iCloud),
+        ])
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let node = FileNode(id: goneRoot + "/f.txt", name: "f.txt", isDirectory: false)
+
+        handler.copyItems([node], fromLeft: true, leftProviderId: "gone", rightProviderId: "here")
+        await waitForError(manager)
+
+        #expect(manager.currentError?.title == "Folder Unavailable")
+        #expect(manager.currentError?.message.contains("no longer exists on disk") == true)
+        #expect(manager.currentError?.path == goneRoot)
+        #expect(manager.activeFileOperationsCount == 0)
+    }
+
+    /// focusFolder with an unknown provider (empty root) presents an error instead of focusing
+    /// on a garbage relative path derived from the node's absolute path.
+    @MainActor
+    @Test func testFocusFolderWithUnknownProviderPresentsErrorAndDoesNotNavigate() async throws {
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []))
+        let node = FileNode(id: "/somewhere/folder", name: "folder", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "vanished", rightProviderId: "also-vanished")
+
+        #expect(manager.currentError?.title == "Folder Unavailable")
+        #expect(manager.leftRelativePath == "")
+    }
+
+    /// focusFolder must match the root with a path boundary: a sibling whose path merely starts
+    /// with the root string ("/rootX" under root "/root") is outside the pane, not "X" inside it.
+    @MainActor
+    @Test func testFocusFolderPrefixAliasedNodePresentsErrorAndDoesNotNavigate() async throws {
+        let manager = FileSyncManager()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = makeSettings(providers: [
+            CloudProvider(id: "p", displayName: "P", imageName: "icloud", path: root.path, type: .iCloud)
+        ])
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let aliasedNode = FileNode(id: root.path + "-alias/sub", name: "sub", isDirectory: true)
+
+        handler.focusFolder(aliasedNode, isLeft: true, leftProviderId: "p", rightProviderId: "p")
+
+        #expect(manager.currentError?.title == "Can't Focus Folder")
+        #expect(manager.leftRelativePath == "")
+    }
+
+    /// Happy-path regression guard: a folder genuinely under the root still focuses, with the
+    /// same relative path as before the boundary fix.
+    @MainActor
+    @Test func testFocusFolderUnderRootStillNavigates() async throws {
+        let manager = FileSyncManager()
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("FAH-focus-ok-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sub/inner"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = makeSettings(providers: [
+            CloudProvider(id: "p", displayName: "P", imageName: "icloud", path: root.path, type: .iCloud)
+        ])
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+        let node = FileNode(id: root.path + "/sub/inner", name: "inner", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "p", rightProviderId: "p")
+
+        #expect(manager.currentError == nil)
+        #expect(manager.leftRelativePath == "sub/inner")
+    }
 }

@@ -26,17 +26,31 @@ public class FileActionHandler {
     ///   - leftProviderId: Current left-pane provider ID (for path lookup).
     ///   - rightProviderId: Current right-pane provider ID.
     public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String) {
+        let side = isLeft ? "left" : "right"
         let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
-        
-        let expandedRoot = (rootPath as NSString).expandingTildeInPath
-        let nodePath = node.id
-        
-        var relPath = nodePath
-        if relPath.hasPrefix(expandedRoot) {
-            relPath = String(relPath.dropFirst(expandedRoot.count))
+        // path(for:) returns "" for a provider that vanished from settings; "" prefix-matches
+        // every node, which would turn the node's absolute path into the "relative" focus path.
+        guard !rootPath.isEmpty else {
+            syncManager.present(paneUnavailableError(side: side))
+            return
         }
-        if relPath.hasPrefix("/") { relPath.removeFirst() }
-        
+
+        let expandedRoot = (rootPath as NSString).expandingTildeInPath
+        // Same boundary rule as providerDisplayName(forPath:): the root itself or "root/…",
+        // never a bare string prefix ("/data/foo" must not claim "/data/foobar").
+        let relPath: String
+        if node.id == expandedRoot {
+            relPath = ""
+        } else if node.id.hasPrefix(expandedRoot + "/") {
+            relPath = String(node.id.dropFirst(expandedRoot.count + 1))
+        } else {
+            syncManager.present(SyncError(
+                title: "Can't Focus Folder",
+                message: "\"\(node.name)\" is not inside the \(side) pane's folder. Rescan and try again.",
+                path: node.id))
+            return
+        }
+
         Logger.shared.info("User focusing folder: \(relPath)")
         syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
     }
@@ -69,35 +83,76 @@ public class FileActionHandler {
     ///   - leftProviderId: Provider ID for the left pane (root path).
     ///   - rightProviderId: Provider ID for the right pane.
     public func copyItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) {
-        let leftRoot = settings.path(for: leftProviderId)
-        let rightRoot = settings.path(for: rightProviderId)
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
-        
+
         Logger.shared.info("User initiating copy of \(nodes.count) items")
         Task {
-            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+            guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
+            let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
             setBannerForCopy(copiedNodes, to: targetDisplayName)
         }
     }
-    
+
     /// Moves the given items to the opposite pane (after user confirmation). Returns the nodes that were moved.
     /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
+        // Validate the pane roots before asking for confirmation: confirming a move that can
+        // only fail — or relocate files out of a pane that no longer exists — helps nobody.
+        guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return [] }
+
         let targetLabel = fromLeft ? "Right" : "Left"
         guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: targetLabel) else {
             Logger.shared.debug("User cancelled move of \(nodes.count) items to \(targetLabel)")
             return []
         }
 
-        let leftRoot = settings.path(for: leftProviderId)
-        let rightRoot = settings.path(for: rightProviderId)
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
-        
+
         Logger.shared.info("User initiating move of \(nodes.count) items")
-        let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot)
+        let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
         setBannerForMove(movedNodes, to: targetDisplayName)
         return movedNodes
+    }
+
+    /// The roots for a pane-to-pane transfer, or nil (after presenting an error) when either
+    /// pane's provider is no longer known or the source root has vanished from disk — the
+    /// window where a rediscovery pass dropped a provider while its stale tree is still showing.
+    /// `settings.path(for:)` returns "" for an unknown id, and an empty root must never reach
+    /// the sync layer: it would resolve destinations against the process working directory.
+    private func transferRoots(fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> (left: String, right: String)? {
+        let leftRoot = settings.path(for: leftProviderId)
+        let rightRoot = settings.path(for: rightProviderId)
+        let sourceRoot = fromLeft ? leftRoot : rightRoot
+        let destinationRoot = fromLeft ? rightRoot : leftRoot
+
+        guard !sourceRoot.isEmpty else {
+            syncManager.present(paneUnavailableError(side: fromLeft ? "left" : "right"))
+            return nil
+        }
+        guard !destinationRoot.isEmpty else {
+            syncManager.present(paneUnavailableError(side: fromLeft ? "right" : "left"))
+            return nil
+        }
+
+        // One stat, off the main actor. The destination root's existence is the sync layer's
+        // check: transferItems stats it on the file-operation queue right before any I/O.
+        let expandedSource = (sourceRoot as NSString).expandingTildeInPath
+        let sourceExists = await Task.detached { FileManager.default.fileExists(atPath: expandedSource) }.value
+        guard sourceExists else {
+            syncManager.present(SyncError(
+                title: "Folder Unavailable",
+                message: "The \(fromLeft ? "left" : "right") pane's folder no longer exists on disk. Rescan before copying or moving items.",
+                path: expandedSource))
+            return nil
+        }
+        return (leftRoot, rightRoot)
+    }
+
+    private func paneUnavailableError(side: String) -> SyncError {
+        SyncError(
+            title: "Folder Unavailable",
+            message: "The \(side) pane's folder is no longer available. Rescan before continuing.")
     }
     
     /// Moves the given items into the directory at `destinationPath` (after user confirmation).

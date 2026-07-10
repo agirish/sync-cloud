@@ -15,6 +15,16 @@ extension FileSyncManager {
         case nestingViolation
         /// Parent of destination exists as a file (e.g. cloud placeholder); sync the parent folder first.
         case parentExistsAsFile(parentName: String)
+        /// The source pane's root path is empty — its provider vanished from settings while the
+        /// pane still showed a stale tree. An empty root prefix-matches every node, so proceeding
+        /// would resolve destinations against the process working directory.
+        case sourceRootUnavailable
+        /// The node's path is not inside the source pane's root (a stale tree after a pane swap
+        /// or root edit). Grafting its absolute path under the destination would misdirect it.
+        case itemOutsideSourceRoot(itemName: String)
+        /// The destination root is empty or no longer on disk (provider unmounted or removed).
+        /// Recreating it would land files in a dead local tree the provider never syncs.
+        case destinationRootUnavailable
 
         var errorDescription: String? {
             switch self {
@@ -24,6 +34,12 @@ extension FileSyncManager {
                 return "Cannot move or copy a directory into itself or its subdirectories."
             case .parentExistsAsFile(let parentName):
                 return "A file named \"\(parentName)\" already exists on the destination. Sync the parent folder first (use Replace) to replace it with the package, then sync this item."
+            case .sourceRootUnavailable:
+                return "The source pane's folder is no longer available. Rescan before copying or moving items."
+            case .itemOutsideSourceRoot(let itemName):
+                return "\"\(itemName)\" is not inside the source pane's folder. Rescan and try again."
+            case .destinationRootUnavailable:
+                return "The destination folder is no longer available. Rescan before copying or moving items."
             }
         }
     }
@@ -306,6 +322,7 @@ extension FileSyncManager {
             nodes: nodes,
             isMove: false,
             destinationDescription: "between panes",
+            destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
             fileManager: fm
         )
@@ -319,6 +336,7 @@ extension FileSyncManager {
             nodes: nodes,
             isMove: true,
             destinationDescription: "between panes",
+            destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
             fileManager: fm
         )
@@ -332,6 +350,7 @@ extension FileSyncManager {
             nodes: nodes,
             isMove: false,
             destinationDescription: "to \(destinationPath)",
+            destinationRoot: destinationPath,
             targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
             fileManager: fm
         )
@@ -345,22 +364,33 @@ extension FileSyncManager {
             nodes: nodes,
             isMove: true,
             destinationDescription: "to \(destinationPath)",
+            destinationRoot: destinationPath,
             targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
             fileManager: fm
         )
     }
 
     /// Derives the cross-pane destination for a node: its path relative to the source pane root,
-    /// re-rooted under the opposite pane's root.
-    private nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String) -> @Sendable (FileNode) -> URL {
+    /// re-rooted under the opposite pane's root. Throws instead of guessing when the node is not
+    /// actually inside the source root — including the empty-root case (a provider dropped from
+    /// settings mid-session) and prefix aliasing ("/data/foo" must not claim "/data/foobar/x").
+    /// The old fallback kept the node's near-absolute path and grafted it under the destination
+    /// root, which is how pane swaps produced misdirected `<newRoot>/Users/…/<oldRoot>/…` copies.
+    private nonisolated static func paneTargetURL(fromLeft: Bool, leftRoot: String, rightRoot: String) -> @Sendable (FileNode) throws -> URL {
         let fromRoot = ((fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         let toRoot = ((!fromLeft ? leftRoot : rightRoot) as NSString).expandingTildeInPath
         return { node in
-            var relativePath = node.id
-            if relativePath.hasPrefix(fromRoot) {
-                relativePath = String(relativePath.dropFirst(fromRoot.count))
+            guard !fromRoot.isEmpty else { throw FileOperationError.sourceRootUnavailable }
+            guard !toRoot.isEmpty else { throw FileOperationError.destinationRootUnavailable }
+            let fromRootWithSlash = fromRoot.hasSuffix("/") ? fromRoot : fromRoot + "/"
+            let relativePath: String
+            if node.id == fromRoot {
+                relativePath = ""
+            } else if node.id.hasPrefix(fromRootWithSlash) {
+                relativePath = String(node.id.dropFirst(fromRootWithSlash.count))
+            } else {
+                throw FileOperationError.itemOutsideSourceRoot(itemName: node.name)
             }
-            if relativePath.hasPrefix("/") { relativePath.removeFirst() }
             return URL(fileURLWithPath: (toRoot as NSString).appendingPathComponent(relativePath))
         }
     }
@@ -370,17 +400,30 @@ extension FileSyncManager {
     /// safeMoveItem/safeCopyItem, the Move/Copy undo registrar, and the log wording), and the
     /// same-URL policy: a copy onto itself keeps both under a uniquified name, a move onto
     /// itself is skipped.
+    ///
+    /// `destinationRoot` is the pane root or drop directory the transfer targets. It must
+    /// already exist on disk: silently recreating a vanished provider root (e.g.
+    /// `~/Library/CloudStorage/…` after the cloud app unmounted) would land files in a dead
+    /// local tree the provider never syncs — and a move would also remove the originals.
+    /// Missing intermediate folders UNDER a live root are still created per item by
+    /// `ensureParentDirectoryExists`; only the root itself is never auto-created.
     /// - Returns: The nodes that were successfully transferred, in processing order.
     private func transferItems(
         nodes: [FileNode],
         isMove: Bool,
         destinationDescription: String,
-        targetURL deriveTargetURL: @escaping @Sendable (FileNode) -> URL,
+        destinationRoot: String,
+        targetURL deriveTargetURL: @escaping @Sendable (FileNode) throws -> URL,
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
+        // Standardize away a trailing slash for the existence stat; an empty root must stay
+        // empty (URL(fileURLWithPath: "") would resolve against the process CWD).
+        let destinationRootPath = destinationRoot.isEmpty
+            ? ""
+            : URL(fileURLWithPath: (destinationRoot as NSString).expandingTildeInPath).path
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
@@ -390,6 +433,11 @@ extension FileSyncManager {
 
         let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
+            // One stat, before any I/O: a missing destination root fails the whole operation
+            // rather than being recreated by the per-item intermediate-directory pass below.
+            guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
+                return ([FileOperationError.destinationRootUnavailable], [])
+            }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
             if let progress {
@@ -405,7 +453,16 @@ extension FileSyncManager {
                     progress?.localizedAdditionalDescription = node.name
                 }
                 let sourceURL = URL(fileURLWithPath: node.id)
-                var targetURL = deriveTargetURL(node)
+                var targetURL: URL
+                do {
+                    targetURL = try deriveTargetURL(node)
+                } catch {
+                    taskErrors.append(error)
+                    await MainActor.run {
+                        progress?.completedUnitCount = Int64(index + 1)
+                    }
+                    continue
+                }
 
                 if sourceURL == targetURL {
                     if isMove {
