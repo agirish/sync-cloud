@@ -332,6 +332,27 @@ extension FileSyncManager {
                 /// buildNode is a cache hit rather than a separate stat.
                 static let childKeys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]
 
+                /// Hard ceiling on recursion depth — a backstop for a cycle the identity check
+                /// misses (or any pathological nesting). Directories at the cap come back with
+                /// `children: []`, same as the shallow-pass cap.
+                static let hardDepthCap = 64
+
+                /// Stable identity of the directory a URL ultimately refers to (through
+                /// symlinks), used to break symlink cycles. Real filesystem: volume + file
+                /// resource identifiers of the resolved target. Injected mocks — where
+                /// resourceValues would hit the real disk — fall back to the resolved path,
+                /// which is exact for mock disks (they contain no symlinks).
+                func directoryIdentity(of dirURL: URL) -> AnyHashable {
+                    let resolved = dirURL.resolvingSymlinksInPath()
+                    if fileManager is FileManager,
+                       let rv = try? resolved.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
+                       let volume = rv.volumeIdentifier as? NSObject,
+                       let file = rv.fileResourceIdentifier as? NSObject {
+                        return AnyHashable([volume, file])
+                    }
+                    return AnyHashable(resolved.standardizedFileURL.path)
+                }
+
                 /// Immediate children of a directory. For the real filesystem this batch-prefetches
                 /// child metadata in a single call; for injected mocks it reconstructs child URLs from
                 /// the enumerator names exactly as before.
@@ -368,7 +389,10 @@ extension FileSyncManager {
                     }
                 }
 
-                func buildNode(at fullURL: URL, depth: Int) -> FileNode? {
+                /// `visited` holds the identities of every directory on the current path (the
+                /// root is seeded by the caller); it is restored before returning, so it always
+                /// reflects the ancestor chain, not everything ever walked.
+                func buildNode(at fullURL: URL, depth: Int, visited: inout Set<AnyHashable>) -> FileNode? {
                     guard !Task.isCancelled else { return nil }
 
                     let name = fullURL.lastPathComponent
@@ -412,12 +436,22 @@ extension FileSyncManager {
                         if let maxDepth, depth >= maxDepth {
                             return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
                         }
+                        // Symlinked directories are deliberately followed (the panes display
+                        // linked content), but a link back into a directory already on the
+                        // current path is a cycle (A/loop -> A) that would recurse forever.
+                        // Show such a directory once, unexplored — same shape as the depth cap.
+                        let identity = directoryIdentity(of: fullURL)
+                        if visited.contains(identity) || depth >= Self.hardDepthCap {
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                        }
+                        visited.insert(identity)
                         var children: [FileNode] = []
                         for childURL in childURLs(of: fullURL) {
-                            if let childNode = buildNode(at: childURL, depth: depth + 1) {
+                            if let childNode = buildNode(at: childURL, depth: depth + 1, visited: &visited) {
                                 children.append(childNode)
                             }
                         }
+                        visited.remove(identity)
                         children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
                         return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
                     } else {
@@ -432,9 +466,12 @@ extension FileSyncManager {
 
             let rootChildURLs = builder.childURLs(of: url)
             await Logger.shared.debug("buildTree contents count: \(rootChildURLs.count)")
+            // Seed the walk root's identity so a symlink pointing back at the root is
+            // recognized as a cycle immediately.
+            var visited: Set<AnyHashable> = [builder.directoryIdentity(of: url)]
             var rootChildren: [FileNode] = []
             for childURL in rootChildURLs {
-                if let childNode = builder.buildNode(at: childURL, depth: 1) {
+                if let childNode = builder.buildNode(at: childURL, depth: 1, visited: &visited) {
                     rootChildren.append(childNode)
                 }
             }
