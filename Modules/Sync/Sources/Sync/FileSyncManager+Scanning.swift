@@ -238,6 +238,11 @@ extension FileSyncManager {
         let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
         let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
 
+        // Case-variant paths only collapse into one pair when neither volume distinguishes
+        // case; with mixed sensitivity the engine keeps exact-case matching.
+        let caseInsensitive = !Self.volumeSupportsCaseSensitiveNames(for: leftURL)
+            && !Self.volumeSupportsCaseSensitiveNames(for: rightURL)
+
         // In-memory fast path: when both focused folders have deep trees in the prefetch
         // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
         // from the trees instead of re-walking both directories on disk — the scan becomes
@@ -256,7 +261,8 @@ extension FileSyncManager {
                     right: request.right,
                     rightURL: rightURL,
                     leftFilesInfo: leftFilesInfo,
-                    rightFilesInfo: rightFilesInfo
+                    rightFilesInfo: rightFilesInfo,
+                    caseInsensitive: caseInsensitive
                 )
             }.value
         } else {
@@ -281,7 +287,8 @@ extension FileSyncManager {
                         right: request.right,
                         rightURL: rightURL,
                         leftFilesInfo: leftFilesInfo,
-                        rightFilesInfo: rightFilesInfo
+                        rightFilesInfo: rightFilesInfo,
+                        caseInsensitive: caseInsensitive
                     )
 
                 } catch {

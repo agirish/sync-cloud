@@ -84,7 +84,7 @@ extension FileSyncManager {
     /// True when the volume containing `url` distinguishes names by case. Falls back to false
     /// (the macOS default is case-insensitive) when the volume cannot be queried, e.g. for a
     /// destination that does not exist yet - the stricter comparison is the safe default.
-    nonisolated static func volumeSupportsCaseSensitiveNames(for url: URL) -> Bool {
+    public nonisolated static func volumeSupportsCaseSensitiveNames(for url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames ?? false
     }
     

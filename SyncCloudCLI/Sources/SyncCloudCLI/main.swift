@@ -78,13 +78,19 @@ private func scanForDifferences(
     let leftInfo = try FileDiffEngine.getFilesInDirectory(leftURL)
     let rightInfo = try FileDiffEngine.getFilesInDirectory(rightURL)
 
+    // Case-variant paths only collapse into one pair when neither volume distinguishes
+    // case; with mixed sensitivity the engine keeps exact-case matching.
+    let caseInsensitive = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: leftURL)
+        && !FileSyncManager.volumeSupportsCaseSensitiveNames(for: rightURL)
+
     let allDiffs = FileDiffEngine.computeDifferences(
         left: left,
         leftURL: leftURL,
         right: right,
         rightURL: rightURL,
         leftFilesInfo: leftInfo,
-        rightFilesInfo: rightInfo
+        rightFilesInfo: rightInfo,
+        caseInsensitive: caseInsensitive
     )
     let diffs = DifferenceProcessing.filterDifferences(
         allDiffs, direction: direction, showHidden: showHidden, ignore: ignore

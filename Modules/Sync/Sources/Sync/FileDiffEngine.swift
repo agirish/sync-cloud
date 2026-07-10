@@ -160,6 +160,12 @@ public struct FileDiffEngine {
     ///   - rightURL: Root directory URL for the right pane.
     ///   - leftFilesInfo: Pre-scanned file metadata for the left pane (relative path → `FileInfo`).
     ///   - rightFilesInfo: Pre-scanned file metadata for the right pane.
+    ///   - caseInsensitive: Pass true when BOTH pane volumes are case-insensitive (the macOS
+    ///     default). Paths that differ only by case then compare as a single pair instead of
+    ///     two phantom "missing" rows — syncing those would silently overwrite one side's
+    ///     content. With mixed sensitivity (either volume case-sensitive) keep this false:
+    ///     the case-sensitive side really can hold both variants, so collapsing them would
+    ///     hide a real file.
     /// - Returns: Sorted array of `FileDifference` for UI and sync actions.
     public static func computeDifferences(
         left: CloudProvider,
@@ -167,7 +173,8 @@ public struct FileDiffEngine {
         right: CloudProvider,
         rightURL: URL,
         leftFilesInfo: [String: FileInfo],
-        rightFilesInfo: [String: FileInfo]
+        rightFilesInfo: [String: FileInfo],
+        caseInsensitive: Bool = false
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
         // Folders that exist on one side only, per direction. Their descendants are collapsed
@@ -176,9 +183,38 @@ public struct FileDiffEngine {
         var missingOnRightDirs = Set<String>()
         var missingOnLeftDirs = Set<String>()
 
+        // Lowercased right key → actual right key, for the case-insensitive fallback match.
+        // Keying by the full relative path also matches children of folders whose names
+        // differ only by case ("Docs/a.txt" vs "docs/a.txt"), so they compare against each
+        // other instead of double-reporting.
+        var caseFoldedRightKeys: [String: String] = [:]
+        if caseInsensitive {
+            caseFoldedRightKeys.reserveCapacity(rightFilesInfo.count)
+            for key in rightFilesInfo.keys {
+                caseFoldedRightKeys[key.lowercased()] = key
+            }
+        }
+        // Right keys consumed by a case-variant match in pass 1; pass 2 must not report them missing.
+        var caseVariantMatchedRightKeys = Set<String>()
+
         // 1. Files on left but not on right (or compare if exists)
         for (relativePath, leftFile) in leftFilesInfo {
-            if let rightFile = rightFilesInfo[relativePath] {
+            // Exact-case match first; on case-insensitive volumes fall back to a case-variant match.
+            var rightKey = relativePath
+            var namesDifferOnlyByCase = false
+            if rightFilesInfo[rightKey] == nil,
+               caseInsensitive,
+               let variant = caseFoldedRightKeys[relativePath.lowercased()],
+               leftFilesInfo[variant] == nil { // if the variant also exists on the left, that exact pair owns it
+                rightKey = variant
+                // Only a leaf-name case difference belongs to this row. When just an ancestor
+                // folder's name differs by case, the difference is the folder's, not every
+                // descendant's — identical children under such folders must produce no rows.
+                namesDifferOnlyByCase = relativePath.split(separator: "/").last != variant.split(separator: "/").last
+                caseVariantMatchedRightKeys.insert(variant)
+            }
+            if let rightFile = rightFilesInfo[rightKey] {
+                let caseNote = namesDifferOnlyByCase ? " (names differ only by case)" : ""
                 // exists in both, compare dates and sizes in RAM
                 if leftFile.isDirectory != rightFile.isDirectory {
                     let resolution = resolveTypeMismatch(
@@ -193,14 +229,16 @@ public struct FileDiffEngine {
                         rightItemPath: rightFile.url.path,
                         type: .differentDates,
                         action: resolution.action,
-                        description: resolution.description,
+                        description: resolution.description + caseNote,
                         leftFileSize: leftFile.fileSize,
                         rightFileSize: rightFile.fileSize
                     ))
                     continue
                 }
 
-                if leftFile.isDirectory { continue } // Folders both exist, no "difference" in content but recursive scan will handle children
+                // Folders both exist (possibly under case-variant names), no "difference" in
+                // content but the children compare against each other below.
+                if leftFile.isDirectory { continue }
                 
                 let leftDate = leftFile.modificationDate
                 let rightDate = rightFile.modificationDate
@@ -224,7 +262,7 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToRight,
-                            description: sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer",
+                            description: (sizeDiffers && !dateDiffers ? "Sizes differ" : "\(left.displayName) file is newer") + caseNote,
                             leftFileSize: leftFile.fileSize,
                             rightFileSize: rightFile.fileSize
                         ))
@@ -235,7 +273,7 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToLeft,
-                            description: "\(right.displayName) file is newer",
+                            description: "\(right.displayName) file is newer" + caseNote,
                             leftFileSize: leftFile.fileSize,
                             rightFileSize: rightFile.fileSize
                         ))
@@ -247,11 +285,25 @@ public struct FileDiffEngine {
                             rightItemPath: rightFile.url.path,
                             type: .differentDates,
                             action: .copyToRight,
-                            description: "Sizes differ",
+                            description: "Sizes differ" + caseNote,
                             leftFileSize: leftFile.fileSize,
                             rightFileSize: rightFile.fileSize
                         ))
                     }
+                } else if namesDifferOnlyByCase {
+                    // Same dates and sizes, but the on-disk names differ by case. Surface it
+                    // as a single comparable row (verifiable by checksum like any same-size
+                    // pair) rather than the two phantom "missing" rows exact matching gives.
+                    diffs.append(FileDifference(
+                        relativePath: relativePath,
+                        leftItemPath: leftFile.url.path,
+                        rightItemPath: rightFile.url.path,
+                        type: .differentDates,
+                        action: .copyToRight,
+                        description: "Names differ only by case",
+                        leftFileSize: leftFile.fileSize,
+                        rightFileSize: rightFile.fileSize
+                    ))
                 }
             } else {
                 // missing on right
@@ -273,7 +325,7 @@ public struct FileDiffEngine {
         
         // 2. Files on right but not on left
         for (relativePath, rightFile) in rightFilesInfo {
-            if leftFilesInfo[relativePath] == nil {
+            if leftFilesInfo[relativePath] == nil && !caseVariantMatchedRightKeys.contains(relativePath) {
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(

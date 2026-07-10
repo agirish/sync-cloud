@@ -509,4 +509,132 @@ import Foundation
         #expect(diffs[0].enclosedItemCount == nil)
         #expect(diffs[1].enclosedItemCount == 1)
     }
+
+    // MARK: - Case-insensitive matching
+    // On the default macOS filesystem "Readme.txt" and "readme.txt" are the same file, but the
+    // comparison maps are keyed by exact-case path. Without case-insensitive matching such a
+    // pair reports as two phantom "missing" rows whose sync silently overwrites one side's
+    // content. With `caseInsensitive: true` (both volumes case-insensitive) the pair must
+    // become a single row carrying the real on-disk paths.
+
+    @Test func testCaseVariantFilePairIsSingleRowWhenCaseInsensitive() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let older = Date(timeIntervalSince1970: 5_000)
+        let newer = older.addingTimeInterval(10)
+        mockFM.virtualDisk["/src/Readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer, .size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 200], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles,
+            caseInsensitive: true)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.type == .differentDates)
+        #expect(diffs.first?.action == .copyToRight)
+        #expect(diffs.first?.description == "Source file is newer (names differ only by case)")
+        // Both paths must be the real on-disk paths, not one side's casing projected onto the other.
+        #expect(diffs.first?.leftItemPath == "/src/Readme.txt")
+        #expect(diffs.first?.rightItemPath == "/dst/readme.txt")
+        #expect(diffs.first?.leftFileSize == 100)
+        #expect(diffs.first?.rightFileSize == 200)
+    }
+
+    @Test func testCaseVariantPairWithIdenticalMetadataStillSurfacesOneRow() async throws {
+        // Same dates and sizes: the only difference is the on-disk casing. One row, and the
+        // matching sizes keep it checksum-verifiable like any same-size pair.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let now = Date(timeIntervalSince1970: 6_000)
+        mockFM.virtualDisk["/src/Readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 100], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles,
+            caseInsensitive: true)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.type == .differentDates)
+        #expect(diffs.first?.description == "Names differ only by case")
+        #expect(diffs.first?.leftItemPath == "/src/Readme.txt")
+        #expect(diffs.first?.rightItemPath == "/dst/readme.txt")
+        #expect(diffs.first?.sizesMatch == true)
+    }
+
+    @Test func testCaseVariantFilePairStaysTwoRowsWhenCaseSensitive() async throws {
+        // caseInsensitive=false (a case-sensitive volume in play): "Readme.txt" and
+        // "readme.txt" can genuinely coexist, so the old two-row behavior must hold.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let now = Date(timeIntervalSince1970: 7_000)
+        mockFM.virtualDisk["/src/Readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/readme.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: now, .size: 200], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles,
+            caseInsensitive: false)
+
+        #expect(diffs.count == 2)
+        let byPath = Dictionary(uniqueKeysWithValues: diffs.map { ($0.relativePath, $0) })
+        #expect(byPath["Readme.txt"]?.type == .missingOnRight)
+        #expect(byPath["readme.txt"]?.type == .missingOnLeft)
+    }
+
+    @Test func testCaseVariantDirectoryPairComparesChildrenInstead() async throws {
+        // Folders whose names differ only by case must match each other, so their children
+        // compare pairwise instead of the whole subtree double-reporting as missing on both
+        // sides. Identical children produce no rows; a changed child produces exactly one.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Docs"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/docs"), withIntermediateDirectories: true)
+
+        let older = Date(timeIntervalSince1970: 8_000)
+        let newer = older.addingTimeInterval(10)
+        // Identical child: same name and metadata on both sides.
+        mockFM.virtualDisk["/src/Docs/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 50], contents: nil)
+        mockFM.virtualDisk["/dst/docs/same.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 50], contents: nil)
+        // Changed child: left is newer.
+        mockFM.virtualDisk["/src/Docs/changed.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer, .size: 60], contents: nil)
+        mockFM.virtualDisk["/dst/docs/changed.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: older, .size: 60], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles,
+            caseInsensitive: true)
+
+        // Not: "Docs" missing on right + "docs" missing on left (each swallowing its children).
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Docs/changed.txt")
+        #expect(diffs.first?.type == .differentDates)
+        #expect(diffs.first?.action == .copyToRight)
+        #expect(diffs.first?.leftItemPath == "/src/Docs/changed.txt")
+        #expect(diffs.first?.rightItemPath == "/dst/docs/changed.txt")
+    }
 }
