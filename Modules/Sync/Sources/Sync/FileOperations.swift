@@ -105,7 +105,11 @@ extension FileSyncManager {
     }
     
     
-    public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default) -> URL {
+    /// Finds a free name near `url` by appending " 2", " 3", … A name counts as taken when it
+    /// exists on disk OR is in `reserved` — the latter lets a bulk run that resolves every
+    /// destination up front (before its parallel copy phase) avoid handing two items the same
+    /// path when a keep-both suffix would otherwise collide with another item's real target.
+    public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default, reserved: Set<String> = []) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension
@@ -113,7 +117,7 @@ extension FileSyncManager {
         var counter = 2
         var newURL = url
         
-        while fileManager.fileExists(atPath: newURL.path) {
+        while fileManager.fileExists(atPath: newURL.path) || reserved.contains(newURL.path) {
             let newFilename = "\(filename) \(counter)"
             if extensionStr.isEmpty {
                 newURL = directory.appendingPathComponent(newFilename)

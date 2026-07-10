@@ -1012,6 +1012,12 @@ public class FileSyncManager: ObservableObject {
 
         var preparedList: [(FileDifference, URL, URL, Bool)] = []
         var skippedCount = 0
+        // Destinations already claimed by earlier items in THIS batch. Targets are resolved here,
+        // up front, but the copies run later in parallel — so a disk-only uniqueness check can't
+        // see another pending target. Without this, a keep-both "report 2.txt" could coincide with
+        // a different item whose real target is "report 2.txt" (missing at the batch stat), and the
+        // workers would overwrite one with the other: silent data loss.
+        var reservedTargets = Set<String>()
         // The batch stat above ran before the first prompt. A prompt holds this loop for an
         // unbounded time, during which a destination the batch saw as missing can be created
         // externally — and would then be replaced without its overwrite prompt. Once a prompt
@@ -1045,13 +1051,25 @@ public class FileSyncManager: ObservableObject {
                     continue
                 case .keepBoth:
                     let collidingURL = toURL
+                    let claimed = reservedTargets
                     toURL = await Task.detached(priority: .userInitiated) {
-                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM)
+                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM, reserved: claimed)
                     }.value
                 case .replace:
                     break
                 }
             }
+            // Final guard for the non-collision paths (a "missing" target, or a Replace): its plain
+            // name may still be one an earlier item's keep-both already claimed this batch. Uniquify
+            // against disk + the reserved set so no two items ever share a destination.
+            if reservedTargets.contains(toURL.path) {
+                let claimedURL = toURL
+                let claimed = reservedTargets
+                toURL = await Task.detached(priority: .userInitiated) {
+                    Self.generateUniqueURL(for: claimedURL, fileManager: activeFM, reserved: claimed)
+                }.value
+            }
+            reservedTargets.insert(toURL.path)
             preparedList.append((candidate.difference, candidate.fromURL, toURL, isMove))
         }
 

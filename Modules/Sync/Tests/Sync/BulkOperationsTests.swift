@@ -141,6 +141,45 @@ import Foundation
         #expect(attrs[.creationDate] as? Date == Date.distantPast)
     }
 
+    /// Two items in one bulk run must never resolve to the SAME destination. A keep-both
+    /// uniquified name ("report 2.txt") can coincide with a DIFFERENT item's real target that the
+    /// up-front batch stat saw as missing — `syncAll` resolves every target before the parallel
+    /// (concurrency-4) copy phase, so a disk-only `generateUniqueURL` can't see the other pending
+    /// target. Both would then write the same path and one worker overwrites the other's file:
+    /// silent data loss. Every distinct source must survive under a distinct destination.
+    @MainActor
+    @Test func testSyncAllKeepBothDoesNotCollideWithAnotherBatchTarget() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        // "report.txt" collides with an existing dst file → keep-both wants "report 2.txt".
+        mockFM.virtualDisk["/src/report.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/report.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5], contents: nil)
+        // A DIFFERENT source literally named "report 2.txt", missing on dst → its plain target is
+        // exactly the name keep-both wants for the first item.
+        mockFM.virtualDisk["/src/report 2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 200], contents: nil)
+
+        manager.bulkCollisionResolver = { _, _ in (.keepBoth, true) }
+
+        let d1 = FileDifference(relativePath: "report.txt", leftItemPath: "/src/report.txt", rightItemPath: "/dst/report.txt", type: .differentDates, action: .copyToRight, description: "collision")
+        let d2 = FileDifference(relativePath: "report 2.txt", leftItemPath: "/src/report 2.txt", rightItemPath: "/dst/report 2.txt", type: .missingOnRight, action: .copyToRight, description: "missing")
+        manager.rawDifferences = [d1, d2]
+        manager.differences = [d1, d2]
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // Exactly three files in /dst carrying all three distinct payloads — nothing overwritten.
+        // Asserted by size (not name) so the exact keep-both suffix doesn't matter.
+        let dstSizes = mockFM.virtualDisk
+            .filter { $0.key.hasPrefix("/dst/") }
+            .compactMap { $0.value.attributes?[.size] as? Int }
+            .sorted()
+        #expect(dstSizes == [5, 100, 200])
+        #expect(manager.currentError == nil)
+    }
+
     @MainActor
     @Test func testConcurrentScanProtection() async throws {
         let mockFM = MockFileManager()
