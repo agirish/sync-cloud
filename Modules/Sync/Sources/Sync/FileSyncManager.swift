@@ -736,8 +736,13 @@ public class FileSyncManager: ObservableObject {
         let destinationExists = await Task.detached(priority: .userInitiated) {
             activeFM.fileExists(atPath: collisionCandidate.path)
         }.value
-        if destinationExists {
-            let fileName = toURL.lastPathComponent
+
+        /// Picks a resolution for a collision at `collidingURL` (cached bulk answer, bulk
+        /// prompt, or single-file prompt) and returns the URL the operation should target:
+        /// `collidingURL` itself for Replace, a fresh unique sibling for Keep Both, or nil
+        /// for Skip.
+        func resolveCollision(at collidingURL: URL) async -> URL? {
+            let fileName = collidingURL.lastPathComponent
             let resolution: CollisionResolution
             if isBulkSync, let cached = bulkApplyToAllResolution {
                 resolution = cached
@@ -750,20 +755,56 @@ public class FileSyncManager: ObservableObject {
             }
             switch resolution {
             case .skip:
+                return nil
+            case .keepBoth:
+                // generateUniqueURL stats candidate names in a loop; keep that off the main actor too.
+                return await Task.detached(priority: .userInitiated) {
+                    Self.generateUniqueURL(for: collidingURL, fileManager: activeFM)
+                }.value
+            case .replace:
+                return collidingURL
+            }
+        }
+
+        // True once the user has approved replacing whatever is at the CURRENT toURL, so the
+        // pre-enqueue re-stat below doesn't re-prompt for a destination that is expected to exist.
+        var replaceSanctioned = false
+        if destinationExists {
+            guard let resolvedURL = await resolveCollision(at: toURL) else {
                 if let index = differences.firstIndex(where: { $0.id == difference.id }) {
                     differences[index].isSyncing = false
                 }
                 return
-            case .keepBoth:
-                // generateUniqueURL stats candidate names in a loop; keep that off the main actor too.
-                toURL = await Task.detached(priority: .userInitiated) {
-                    Self.generateUniqueURL(for: collisionCandidate, fileManager: activeFM)
-                }.value
-            case .replace:
-                break
+            }
+            replaceSanctioned = (resolvedURL == toURL)
+            toURL = resolvedURL
+        }
+
+        // The stat above is stale by the time the operation runs: the collision prompt holds
+        // this call for an unbounded time, and the serial operation queue can add more. A file
+        // that appears at a destination the stat saw as missing (cloud placeholder hydration,
+        // another sync client) would be replaced without its overwrite prompt — the same gap
+        // syncAll's promptShownSinceStatPass loop closes. Re-stat once right before enqueueing
+        // and run the collision flow if a destination newly appeared. The residual window
+        // between this stat and the queued operation executing is accepted: the operation runs
+        // detached, where no prompt is possible.
+        if !replaceSanctioned {
+            let recheckCandidate = toURL
+            let newlyAppeared = await Task.detached(priority: .userInitiated) {
+                activeFM.fileExists(atPath: recheckCandidate.path)
+            }.value
+            if newlyAppeared {
+                guard let resolvedURL = await resolveCollision(at: toURL) else {
+                    if let index = differences.firstIndex(where: { $0.id == difference.id }) {
+                        differences[index].isSyncing = false
+                    }
+                    return
+                }
+                toURL = resolvedURL
             }
         }
-        
+
+
         let resolvedToURL = toURL
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, from: URL?, to: URL?) in
             do {

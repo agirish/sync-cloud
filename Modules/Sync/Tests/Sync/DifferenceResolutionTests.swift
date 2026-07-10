@@ -212,6 +212,120 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty)
     }
 
+    /// Builds a mock disk with only the source file and one missing-on-right difference, wired
+    /// so the destination appears externally right after syncFile's initial existence stat —
+    /// the single-file TOCTOU window (cloud placeholder hydration, another sync client).
+    @MainActor
+    private func makeAppearedDestinationFixture() throws -> (FileSyncManager, MockFileManager, FileDifference) {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+
+        // Absent when syncFile's initial stat runs; planted immediately after that check.
+        mockFM.onFileExists = { path in
+            guard path == "/dst/test.txt" else { return }
+            mockFM.onFileExists = nil
+            mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+        }
+
+        let diff = FileDifference(
+            relativePath: "test.txt",
+            leftItemPath: "/src/test.txt",
+            rightItemPath: "/dst/test.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing"
+        )
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        return (manager, mockFM, diff)
+    }
+
+    /// syncFile stats the destination once, then can sit behind the collision prompt and the
+    /// serial operation queue for an unbounded time. A destination that appears in that window
+    /// must get the overwrite prompt, not a silent (if Trash-backed) replace — the single-file
+    /// twin of testSyncAllPromptsForDestinationCreatedDuringEarlierPrompt. Skip must honor it.
+    @MainActor
+    @Test func testSyncFilePromptsForDestinationThatAppearedAfterInitialStat() async throws {
+        let (manager, mockFM, diff) = try makeAppearedDestinationFixture()
+
+        var prompted: [String] = []
+        manager.collisionResolver = { fileName, _ in
+            prompted.append(fileName)
+            return .skip
+        }
+
+        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        // The appeared file collided by decision time, so the resolver was consulted…
+        #expect(prompted == ["test.txt"])
+        // …and skip left it untouched: not replaced, not trashed, no keep-both twin.
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/test.txt")
+        #expect(attrs[.size] as? Int == 5)
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(mockFM.virtualDisk["/dst/test 2.txt"] == nil)
+        // Still an open difference, with its syncing spinner released.
+        #expect(manager.differences.map(\.relativePath) == ["test.txt"])
+        #expect(manager.differences.first?.isSyncing == false)
+    }
+
+    /// Same race, but the user answers Keep Both: the copy must land beside the appeared file
+    /// under a unique name, leaving the appeared file untouched.
+    @MainActor
+    @Test func testSyncFileKeepsBothWhenDestinationAppearedAfterInitialStat() async throws {
+        let (manager, mockFM, diff) = try makeAppearedDestinationFixture()
+
+        manager.collisionResolver = { _, _ in .keepBoth }
+
+        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/test.txt")
+        #expect(attrs[.size] as? Int == 5)
+        #expect(mockFM.virtualDisk["/dst/test 2.txt"] != nil)
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.differences.isEmpty)
+        #expect(manager.rawDifferences.isEmpty)
+    }
+
+    /// A destination that already existed at the initial stat prompts exactly once: the
+    /// pre-enqueue re-stat must not re-prompt for a replacement the user just approved.
+    @MainActor
+    @Test func testSyncFileDoesNotDoublePromptWhenReplaceWasApproved() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/test.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let diff = FileDifference(
+            relativePath: "test.txt",
+            leftItemPath: "/src/test.txt",
+            rightItemPath: "/dst/test.txt",
+            type: .differentDates,
+            action: .copyToRight,
+            description: "Different dates"
+        )
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+
+        var promptCount = 0
+        manager.collisionResolver = { _, _ in
+            promptCount += 1
+            return .replace
+        }
+
+        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(promptCount == 1)
+        // The approved replace really happened: old destination trashed, difference resolved.
+        #expect(mockFM.trashedPaths.count == 1)
+        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
+        #expect(manager.differences.isEmpty)
+    }
+
     /// A prefetch fast-path load must clear the loading spinner left set by the slow load it
     /// cancelled — the cancelled task cannot clear the flag itself once a newer load owns it.
     @MainActor
