@@ -30,6 +30,30 @@ extension FileSyncManager {
         }
     }
 
+    /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
+    enum UndoRestoreOutcome { case restored, failed, nothingToRestore }
+
+    /// Restores the backup a copy-undo displaced (`overwritten`) onto `destination`, surfacing any
+    /// failure via `reportUndoRestoreFailure`. Shared by `registerCopyUndo`'s two removal paths —
+    /// the Trash path and the confirmed permanent-delete fallback — so the restore-and-report logic
+    /// lives in one place.
+    nonisolated static func restoreOverwrittenBackup(
+        _ overwritten: URL?,
+        to destination: URL,
+        actionName: String,
+        fileManager fm: FileManaging,
+        on target: FileSyncManager
+    ) async -> UndoRestoreOutcome {
+        guard let overwritten else { return .nothingToRestore }
+        do {
+            try fm.moveItem(at: overwritten, to: destination)
+            return .restored
+        } catch {
+            await reportUndoRestoreFailure(of: destination, from: overwritten, actionName: actionName, error: error, on: target)
+            return .failed
+        }
+    }
+
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
@@ -60,14 +84,10 @@ extension FileSyncManager {
                                 continue
                             }
 
-                            if let trashed = item.overwritten {
-                                do {
-                                    try fm.moveItem(at: trashed, to: item.destination)
-                                    restored += 1
-                                } catch {
-                                    restoreFailures += 1
-                                    await FileSyncManager.reportUndoRestoreFailure(of: item.destination, from: trashed, actionName: actionName, error: error, on: target)
-                                }
+                            switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                            case .restored: restored += 1
+                            case .failed: restoreFailures += 1
+                            case .nothingToRestore: break
                             }
                         }
 
@@ -78,14 +98,10 @@ extension FileSyncManager {
                             guard confirmed else { return }
                             for item in trashFailures {
                                 try? fm.removeItem(at: item.destination)
-                                if let trashed = item.overwritten {
-                                    do {
-                                        try fm.moveItem(at: trashed, to: item.destination)
-                                        restored += 1
-                                    } catch {
-                                        restoreFailures += 1
-                                        await FileSyncManager.reportUndoRestoreFailure(of: item.destination, from: trashed, actionName: actionName, error: error, on: target)
-                                    }
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                case .restored: restored += 1
+                                case .failed: restoreFailures += 1
+                                case .nothingToRestore: break
                                 }
                             }
                         }

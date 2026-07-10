@@ -196,4 +196,34 @@ import Foundation
         // The copy was removed and the original could not be restored — destination is empty.
         await waitUntil("the copied file was removed") { mockFM.virtualDisk["/dst/f.txt"] == nil }
     }
+
+    /// On a trash-less volume, undoing a copy needs the permanent-delete confirmation to remove the
+    /// copied file. If the user DECLINES, the undo aborts as a safe no-op: the copied file stays in
+    /// place, nothing is removed or restored, and no failure is surfaced.
+    @MainActor
+    @Test func testCopyUndoDeclinedPermanentDeleteLeavesCopyInPlace() async throws {
+        let manager = makeManager() // permanentDeleteConfirmer defaults to { _ in false } → declines
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        // No pre-existing /dst/f.txt: the copy creates it fresh, so there is no overwrite backup.
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+
+        // Trash-less volume: undo's trashItem(copied file) fails → needs confirmation, which is declined.
+        mockFM.shouldFailTrash = true
+        manager.banner = nil
+
+        // preCountFileOperation runs synchronously inside undo(), so the count is ≥1 on return;
+        // wait for the undo's enqueued operation to drain back to 0.
+        manager.undoManager?.undo()
+        await waitUntil("the declined-confirm undo settles") { manager.activeFileOperationsCount == 0 }
+
+        // The copied file was NOT removed and nothing was surfaced — a clean no-op.
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(manager.banner == nil)
+    }
 }
