@@ -271,7 +271,9 @@ public extension View {
                     .strokeBorder(.quaternary, lineWidth: 0.6)
             )
             .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-            .padding(5)
+            // Gutter between cards. Half of this shows on outer edges and a full gap (2×) shows
+            // between two adjacent cards, so keep it small to match the sidebar-side spacing.
+            .padding(3)
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
