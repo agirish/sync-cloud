@@ -944,7 +944,8 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
             }
-            .padding(8)
+            // Match the pane cards' gutter so the bottom cards line up with the panes above.
+            .padding(LiquidGlass.cardGutter)
         }
         }
     }

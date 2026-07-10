@@ -156,6 +156,10 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
 public enum LiquidGlass {
     /// Corner radius for cards and floating panels.
     public static let cardCornerRadius: CGFloat = 14
+    /// Gutter around each floating card in Cards mode. The gap between two adjacent cards is 2×
+    /// this; outer edges (sidebar side, window edge) show 1×. Shared by `surfaceCard` (panes) and
+    /// the bottom-workspace padding so the top pane cards and the bottom cards line up.
+    public static let cardGutter: CGFloat = 3
     /// Corner radius for smaller elements (badges, buttons, inputs).
     public static let smallCornerRadius: CGFloat = 10
 
@@ -271,9 +275,7 @@ public extension View {
                     .strokeBorder(.quaternary, lineWidth: 0.6)
             )
             .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-            // Gutter between cards. Half of this shows on outer edges and a full gap (2×) shows
-            // between two adjacent cards, so keep it small to match the sidebar-side spacing.
-            .padding(3)
+            .padding(LiquidGlass.cardGutter)
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.

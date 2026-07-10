@@ -339,7 +339,8 @@ public struct DifferencesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
         }
-        .padding(8)
+        // Match the pane cards' gutter so the bottom cards line up with the panes above.
+        .padding(LiquidGlass.cardGutter)
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
             // Deferred cleanup: SwiftUI writes false here on ANY dismissal, including confirm,
