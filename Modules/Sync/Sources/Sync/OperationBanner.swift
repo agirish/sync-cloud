@@ -12,10 +12,15 @@ public struct OperationBanner: Equatable, Sendable {
         case error
     }
 
+    /// Per-publish identity, deliberately part of equality: two back-to-back banners with the
+    /// same message must still register as a change, or UI observers (`onChange`, the dismiss
+    /// timer) never see the second one and it inherits the first's nearly-elapsed timer.
+    public let id: UUID
     public var message: String
     public var severity: Severity
 
-    public init(message: String, severity: Severity) {
+    public init(message: String, severity: Severity, id: UUID = UUID()) {
+        self.id = id
         self.message = message
         self.severity = severity
     }

@@ -372,6 +372,11 @@ struct ContentView: View {
     /// while file operations are in flight — the provider ids must then stay put too, or the
     /// pane labels would flip over unswapped state.
     private func swapPanesAction() {
+        // While discoverProviders() is still awaiting, both id onChanges bail on the bootstrap
+        // guard without decrementing pendingSwapProviderChanges — a swap now would strand the
+        // counter at 2 and silently swallow the user's next two real provider switches. The
+        // window is interactive during bootstrap, so refuse the swap outright.
+        guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
         let swapped = PaneLogic.swappedProviderIds(
             leftProviderId: leftProviderId,
@@ -433,9 +438,13 @@ struct ContentView: View {
                 syncManager.currentError = nil
             }
         case .retry:
+            // Capture the handler when the button is BUILT, not when it's clicked: SwiftUI may
+            // run the alert's isPresented setter (which clears currentError and, via its didSet,
+            // nils currentErrorRetry) before the button action — the same unspecified ordering
+            // documented at FileSyncManager.verifiedCopyDialogDismissed. Read at click time,
+            // Retry would silently no-op.
+            let retry = syncManager.currentErrorRetry
             Button("Retry") {
-                // Grab the handler before clearing the error — clearing it nils the handler.
-                let retry = syncManager.currentErrorRetry
                 syncManager.currentError = nil
                 retry?()
             }

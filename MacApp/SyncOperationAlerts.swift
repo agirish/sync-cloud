@@ -86,9 +86,15 @@ struct SyncOperationAlerts {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
 
+        // This is the app's only unrecoverable action, so Return must NOT confirm it —
+        // the user reaches this alert mid-delete-flow, primed to hit Return. Cancel takes
+        // the Return default; Delete is click-only (Cancel keeps Escape automatically).
         if let deleteButton = alert.buttons.first {
             deleteButton.hasDestructiveAction = true
-            deleteButton.keyEquivalent = "\r"
+            deleteButton.keyEquivalent = ""
+        }
+        if alert.buttons.count > 1 {
+            alert.buttons[1].keyEquivalent = "\r"
         }
 
         return alert.runModal() == .alertFirstButtonReturn
