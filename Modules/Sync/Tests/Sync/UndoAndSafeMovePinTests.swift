@@ -17,8 +17,14 @@ import Foundation
         private(set) var moveCalls = 0
         private(set) var trashCalls = 0
         private(set) var removeCalls = 0
+        private(set) var replaceCalls = 0
 
         init(inner: MockFileManager) { self.inner = inner }
+
+        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+            replaceCalls += 1
+            return try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+        }
 
         func copyItem(at srcURL: URL, to dstURL: URL) throws {
             copyCalls += 1

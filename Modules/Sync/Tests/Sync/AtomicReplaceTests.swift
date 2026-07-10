@@ -1,0 +1,293 @@
+import Testing
+import Foundation
+@testable import Sync
+
+/// Finding 1 (data-corruption review): `safeCopyItem`/`safeMoveItem` used to replace an existing
+/// destination in two non-atomic steps — trash the old destination, THEN rename the staged item
+/// into its place. Between those the destination path was momentarily ABSENT, so a crash or
+/// "Quit Anyway" there left the file only in Trash. These tests pin the fix: the destination-exists
+/// replace now routes through the atomic `replaceItem` primitive, so the destination is never
+/// absent and is never trashed directly (only the post-swap `.rollback_` backup is).
+@Suite struct AtomicReplaceTests {
+
+    /// Wraps MockFileManager at the FileManaging seam, recording which primitive each replacement
+    /// used. The window bug shows up here as a `trashItem` on the destination path itself.
+    private final class ReplaceRecordingFileManager: FileManaging, @unchecked Sendable {
+        private let inner: MockFileManager
+        private(set) var replaceCalls: [(destination: String, staged: String)] = []
+        private(set) var trashedPaths: [String] = []
+
+        init(inner: MockFileManager) { self.inner = inner }
+
+        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+            replaceCalls.append((destination: destinationURL.path, staged: stagedURL.path))
+            return try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+        }
+        func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            trashedPaths.append(url.path)
+            try inner.trashItem(at: url, resultingItemURL: outResultingURL)
+        }
+        func moveItem(at srcURL: URL, to dstURL: URL) throws { try inner.moveItem(at: srcURL, to: dstURL) }
+        func copyItem(at srcURL: URL, to dstURL: URL) throws { try inner.copyItem(at: srcURL, to: dstURL) }
+        func removeItem(at URL: URL) throws { try inner.removeItem(at: URL) }
+        func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
+        func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+            inner.fileExists(atPath: path, isDirectory: isDirectory)
+        }
+        func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+            try inner.attributesOfItem(atPath: path)
+        }
+        func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
+            try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
+        }
+        func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+            inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
+        }
+    }
+
+    private func seed(_ inner: MockFileManager, path: String, size: Int) {
+        inner.virtualDisk[path] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: size], contents: nil)
+    }
+
+    // MARK: - Parity: the dest-exists replace goes through the atomic primitive, no trash-then-move
+
+    @Test func testSafeCopyReplaceRoutesThroughAtomicReplaceWithoutTrashingDestination() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/f.txt", size: 100)
+        seed(inner, path: "/dst/f.txt", size: 5) // pre-existing destination → replacement
+        let spy = ReplaceRecordingFileManager(inner: inner)
+
+        let overwritten = try FileSyncManager.safeCopyItem(
+            at: URL(fileURLWithPath: "/src/f.txt"),
+            to: URL(fileURLWithPath: "/dst/f.txt"),
+            fileManager: spy
+        )
+
+        // The replacement went through the atomic primitive, staging a temp into the destination.
+        #expect(spy.replaceCalls.count == 1)
+        #expect(spy.replaceCalls.first?.destination == "/dst/f.txt")
+        #expect(spy.replaceCalls.first?.staged.contains(".tmp_") == true)
+
+        // The destination path itself is NEVER trashed — that direct trash was the window.
+        #expect(spy.trashedPaths.contains("/dst/f.txt") == false)
+
+        // New content landed; the source is intact; the old content is recoverable (Trash here).
+        #expect(inner.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(inner.virtualDisk["/src/f.txt"] != nil)
+        let backup = try #require(overwritten)
+        #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+    }
+
+    @Test func testSafeMoveReplaceRoutesThroughAtomicReplaceWithoutTrashingDestination() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/f.txt", size: 100)
+        seed(inner, path: "/dst/f.txt", size: 5)
+        let spy = ReplaceRecordingFileManager(inner: inner)
+
+        let overwritten = try FileSyncManager.safeMoveItem(
+            at: URL(fileURLWithPath: "/src/f.txt"),
+            to: URL(fileURLWithPath: "/dst/f.txt"),
+            fileManager: spy
+        )
+
+        #expect(spy.replaceCalls.count == 1)
+        #expect(spy.replaceCalls.first?.destination == "/dst/f.txt")
+        #expect(spy.replaceCalls.first?.staged.contains(".tmp_") == true)
+        #expect(spy.trashedPaths.contains("/dst/f.txt") == false)
+
+        // Move semantics: source gone, new content at destination, old content recoverable.
+        #expect(inner.virtualDisk["/src/f.txt"] == nil)
+        #expect(inner.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        let backup = try #require(overwritten)
+        #expect(inner.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
+    }
+
+    /// A brand-new destination has no prior item to protect, so it must NOT pay for a backup: the
+    /// copy path stays a plain single rename of the staged temp (no replaceItem, no trash).
+    @Test func testSafeCopyToAbsentDestinationDoesNotBackUpOrTrash() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/f.txt", size: 100)
+        let spy = ReplaceRecordingFileManager(inner: inner)
+
+        let overwritten = try FileSyncManager.safeCopyItem(
+            at: URL(fileURLWithPath: "/src/f.txt"),
+            to: URL(fileURLWithPath: "/dst/f.txt"),
+            fileManager: spy
+        )
+
+        #expect(overwritten == nil)
+        #expect(spy.replaceCalls.isEmpty)
+        #expect(spy.trashedPaths.isEmpty)
+        #expect(inner.virtualDisk["/dst/f.txt"] != nil)
+        #expect(inner.virtualDisk["/src/f.txt"] != nil)
+    }
+
+    /// Same-volume move replace whose atomic swap fails mid-flight: the staging rename already
+    /// consumed the source, so the restore path must put BOTH back — source and destination — with
+    /// no data lost. (The existing rollback pins also set `shouldFailMove`, which routes through the
+    /// cross-volume copy path where the source is never consumed; this isolates the rename path.)
+    @Test func testSafeMoveSameVolumeReplaceFailureRestoresSourceAndDestination() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/data.bin", size: 100)
+        seed(inner, path: "/dst/data.bin", size: 5)
+
+        // Only the staged `.tmp_` swap-into-place fails; the same-volume staging rename succeeds,
+        // so the source is consumed before the replace throws.
+        inner.shouldFailMoveOnTempRename = true
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(
+                at: URL(fileURLWithPath: "/src/data.bin"),
+                to: URL(fileURLWithPath: "/dst/data.bin"),
+                fileManager: inner
+            )
+        }
+
+        // Neither side lost data: the destination keeps its old content and the source is restored.
+        #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        #expect(inner.virtualDisk["/src/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+        #expect(inner.virtualDisk.keys.contains { $0.contains(".rollback_") } == false)
+    }
+
+    // MARK: - Real-disk smoke: exercises the real FileManager.replaceItemAt, not the mock
+
+    /// The crash-window itself is not unit-testable (a mock cannot kill the process mid-replace),
+    /// so this drives the REAL primitive on a real temp directory to catch replaceItemAt quirks
+    /// the RAM mock can't model (directories, metadata, backup placement).
+    @Test func testRealDiskCopyReplaceOverExistingFilePreservesOldContent() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        // The backup can land in the real ~/.Trash (outside `base`), so clean it explicitly.
+        var backupToClean: URL?
+        defer {
+            if let b = backupToClean { try? fm.removeItem(at: b) }
+            try? fm.removeItem(at: base)
+        }
+
+        let srcFile = src.appendingPathComponent("f.txt")
+        let dstFile = dst.appendingPathComponent("f.txt")
+        try "NEW".data(using: .utf8)!.write(to: srcFile)
+        try "OLD".data(using: .utf8)!.write(to: dstFile)
+
+        let overwritten = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile)
+        backupToClean = overwritten
+
+        // Destination now holds the new content; the source is untouched (copy).
+        #expect(try String(contentsOf: dstFile, encoding: .utf8) == "NEW")
+        #expect(fm.fileExists(atPath: srcFile.path))
+        // The old content is recoverable at the returned handle (Trash on a Trash-capable volume,
+        // otherwise the in-place `.rollback_` backup).
+        let backup = try #require(overwritten)
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "OLD")
+        // At no point is the destination absent, and no stray temp is left behind.
+        let leftovers = try fm.contentsOfDirectory(atPath: dst.path).filter { $0.hasPrefix(".tmp_") }
+        #expect(leftovers.isEmpty)
+    }
+
+    @Test func testRealDiskMoveReplaceOverExistingFilePreservesOldContent() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        var backupToClean: URL?
+        defer {
+            if let b = backupToClean { try? fm.removeItem(at: b) }
+            try? fm.removeItem(at: base)
+        }
+
+        let srcFile = src.appendingPathComponent("f.txt")
+        let dstFile = dst.appendingPathComponent("f.txt")
+        try "NEW".data(using: .utf8)!.write(to: srcFile)
+        try "OLD".data(using: .utf8)!.write(to: dstFile)
+
+        let overwritten = try FileSyncManager.safeMoveItem(at: srcFile, to: dstFile)
+        backupToClean = overwritten
+
+        #expect(try String(contentsOf: dstFile, encoding: .utf8) == "NEW")
+        #expect(fm.fileExists(atPath: srcFile.path) == false) // move removes the source
+        let backup = try #require(overwritten)
+        #expect(try String(contentsOf: backup, encoding: .utf8) == "OLD")
+        let leftovers = try fm.contentsOfDirectory(atPath: dst.path).filter { $0.hasPrefix(".tmp_") }
+        #expect(leftovers.isEmpty)
+    }
+
+    /// Directory replace on real disk: replaceItemAt must swap a whole subtree in atomically and
+    /// keep the replaced directory's contents recoverable in the backup.
+    @Test func testRealDiskCopyReplaceOverExistingDirectoryKeepsOldTreeInBackup() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        var backupToClean: URL?
+        defer {
+            if let b = backupToClean { try? fm.removeItem(at: b) }
+            try? fm.removeItem(at: base)
+        }
+
+        let srcDir = src.appendingPathComponent("folder")
+        let dstDir = dst.appendingPathComponent("folder")
+        try fm.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        try "new".data(using: .utf8)!.write(to: srcDir.appendingPathComponent("new.txt"))
+        try "old".data(using: .utf8)!.write(to: dstDir.appendingPathComponent("old.txt"))
+
+        let overwritten = try FileSyncManager.safeCopyItem(at: srcDir, to: dstDir)
+        backupToClean = overwritten
+
+        // The destination folder now mirrors the source (new.txt present, old.txt gone from it).
+        #expect(fm.fileExists(atPath: dstDir.appendingPathComponent("new.txt").path))
+        #expect(fm.fileExists(atPath: dstDir.appendingPathComponent("old.txt").path) == false)
+        // The replaced directory's contents survive in the backup handle.
+        let backup = try #require(overwritten)
+        #expect(fm.fileExists(atPath: backup.appendingPathComponent("old.txt").path))
+    }
+
+    /// Sync convergence guard: after a copy replace, the destination must carry the SOURCE's
+    /// modification date, not the old destination's — otherwise a re-scan would still flag the two
+    /// as different and the sync would never "take". `replaceItemAt`'s default combined metadata
+    /// happens to take the modification date from the staged item; this pins that so a future
+    /// `.usingNewMetadataOnly`/options change can't silently break convergence.
+    @Test func testRealDiskCopyReplacePreservesSourceModificationDate() throws {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory.appendingPathComponent("AtomicReplace-\(UUID().uuidString)")
+        let src = base.appendingPathComponent("src")
+        let dst = base.appendingPathComponent("dst")
+        try fm.createDirectory(at: src, withIntermediateDirectories: true)
+        try fm.createDirectory(at: dst, withIntermediateDirectories: true)
+        var backupToClean: URL?
+        defer {
+            if let b = backupToClean { try? fm.removeItem(at: b) }
+            try? fm.removeItem(at: base)
+        }
+
+        let srcFile = src.appendingPathComponent("f.txt")
+        let dstFile = dst.appendingPathComponent("f.txt")
+        try "NEW".data(using: .utf8)!.write(to: srcFile)
+        try "OLD".data(using: .utf8)!.write(to: dstFile)
+        let srcDate = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.modificationDate: srcDate], ofItemAtPath: srcFile.path)
+        try fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: dstFile.path)
+
+        backupToClean = try FileSyncManager.safeCopyItem(at: srcFile, to: dstFile)
+
+        let dstDate = try #require(try fm.attributesOfItem(atPath: dstFile.path)[.modificationDate] as? Date)
+        #expect(abs(dstDate.timeIntervalSince(srcDate)) < 1)
+    }
+}

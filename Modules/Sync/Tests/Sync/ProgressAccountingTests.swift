@@ -46,6 +46,9 @@ import Combine
         func removeItem(at URL: URL) throws {
             try inner.removeItem(at: URL)
         }
+        func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+            try inner.replaceItem(at: destinationURL, withItemAt: stagedURL, backupItemName: backupItemName)
+        }
         func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
             inner.enumerator(at: url, includingPropertiesForKeys: keys, options: mask, errorHandler: handler)
         }

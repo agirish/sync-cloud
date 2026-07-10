@@ -185,6 +185,34 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
+    public var calledReplaceItem: Bool = false
+
+    /// Models `FileManager.replaceItemAt` atomically: the prior destination becomes the sibling
+    /// backup, then the staged item takes its place. Both steps go through `moveItem`, so the
+    /// injected failure flags still bite — in particular the staged URL is a `.tmp_`, so
+    /// `shouldFailMoveOnTempRename` fires on the swap-in and lets the rollback pin tests drive a
+    /// mid-replace failure. On failure the original destination is restored, mirroring the real
+    /// primitive's guarantee that a failed replace leaves the destination untouched.
+    public func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? {
+        try sync {
+            calledReplaceItem = true
+            let backupURL = destinationURL.deletingLastPathComponent().appendingPathComponent(backupItemName)
+            let hadDestination = virtualDisk[destinationURL.path] != nil
+            if hadDestination {
+                try moveItem(at: destinationURL, to: backupURL)
+            }
+            do {
+                try moveItem(at: stagedURL, to: destinationURL)
+            } catch {
+                if hadDestination {
+                    try? moveItem(at: backupURL, to: destinationURL)
+                }
+                throw error
+            }
+            return hadDestination ? backupURL : nil
+        }
+    }
+
     public func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
         if enumeratorDelay > 0 {
             Thread.sleep(forTimeInterval: enumeratorDelay)

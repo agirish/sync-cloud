@@ -17,6 +17,7 @@ private struct StubFileManager: FileManaging {
     func moveItem(at srcURL: URL, to dstURL: URL) throws {}
     func trashItem(at url: URL, resultingItemURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {}
     func removeItem(at URL: URL) throws {}
+    func replaceItem(at destinationURL: URL, withItemAt stagedURL: URL, backupItemName: String) throws -> URL? { nil }
     func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? { nil }
 }
 

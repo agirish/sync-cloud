@@ -3,11 +3,6 @@ import Foundation
 
 extension FileSyncManager {
 
-    private enum ReplacementBackup {
-        case trash(URL)
-        case temporary(URL)
-    }
-    
     // MARK: - Safe Atomic Replacements
     
     enum FileOperationError: LocalizedError, Equatable {
@@ -130,101 +125,70 @@ extension FileSyncManager {
         return newURL
     }
 
-    /// Moves a pre-existing destination out of the way and returns a restorable backup handle.
-    /// Prefers Trash when available; falls back to a temporary in-place move when Trash is unsupported.
-    private nonisolated static func backupDestinationForReplacement(
-        sourceURL: URL,
-        destinationURL: URL,
+    /// True when `destinationURL` holds a distinct item that a copy/move must replace. A case-only
+    /// rename ("foo" -> "Foo") on a case-insensitive volume reports its own source as the
+    /// destination, so it is excluded: it is not a replacement, and backing it up would move the
+    /// only copy of the data aside.
+    private nonisolated static func destinationExistsForReplacement(
+        source: URL,
+        destination: URL,
         fileManager: FileManaging
-    ) throws -> ReplacementBackup? {
-        guard !isCaseOnlyRenaming(source: sourceURL, destination: destinationURL),
-              fileManager.fileExists(atPath: destinationURL.path) else {
-            return nil
-        }
-
-        var trashedURL: NSURL? = nil
-        do {
-            try fileManager.trashItem(at: destinationURL, resultingItemURL: &trashedURL)
-            if let trashed = trashedURL as URL? {
-                return .trash(trashed)
-            }
-            return nil
-        } catch {
-            // Some volumes do not support Trash. Keep a temporary rollback copy in-place.
-            let backupURL = destinationURL.deletingLastPathComponent().appendingPathComponent(".rollback_\(UUID().uuidString)")
-            try fileManager.moveItem(at: destinationURL, to: backupURL)
-            return .temporary(backupURL)
-        }
+    ) -> Bool {
+        !isCaseOnlyRenaming(source: source, destination: destination)
+            && fileManager.fileExists(atPath: destination.path)
     }
 
-    /// Attempts to restore destination from backup after a failed replacement.
-    /// With no backup, nothing was moved aside and the destination is left untouched:
-    /// whatever is there (a file that appeared after the initial existence check, or the
-    /// source itself during a case-only rename on a case-insensitive volume) is not this
-    /// operation's artifact and deleting it would destroy data we never backed up.
-    private nonisolated static func rollbackDestination(
-        from backup: ReplacementBackup?,
-        to destinationURL: URL,
-        fileManager: FileManaging
-    ) {
-        guard let backup else { return }
-        try? fileManager.removeItem(at: destinationURL)
-        switch backup {
-        case .trash(let url), .temporary(let url):
-            try? fileManager.moveItem(at: url, to: destinationURL)
-        }
-    }
-
-    /// Finalizes a backup after successful replacement, returning a restorable URL for the
-    /// overwritten item: its Trash location when the volume supports Trash, otherwise the
-    /// hidden in-place `.rollback_<UUID>` backup itself.
+    /// Finalizes the in-place `.rollback_<UUID>` backup that the atomic replace left beside the
+    /// destination, returning a restorable URL for the overwritten item. Prefers the Trash so the
+    /// backup shows up where users expect. When the volume has no Trash (network shares), KEEP the
+    /// backup where it is: deleting it here would make Replace permanently destroy the old file the
+    /// instant the operation succeeds. The dot-prefixed name hides it from the panes; undo restores
+    /// it to its original location, and an unused backup is simply left behind once the undo stack
+    /// drops — recoverable by hand beats silently destroyed. Returns nil when nothing was replaced.
     private nonisolated static func finalizeBackup(
-        _ backup: ReplacementBackup?,
+        _ backupURL: URL?,
         fileManager: FileManaging
     ) -> URL? {
-        guard let backup else { return nil }
-
-        switch backup {
-        case .trash(let url):
-            return url
-        case .temporary(let url):
-            // Prefer the Trash so the backup shows up where users expect. When the volume
-            // still has no Trash (network shares), KEEP the backup: deleting it here would
-            // make Replace permanently destroy the old file the instant the operation
-            // succeeds. The dot-prefixed name hides it from the panes; undo restores it to
-            // its original location, and an unused backup is simply left behind once the
-            // undo stack drops — recoverable by hand beats silently destroyed.
-            var trashedURL: NSURL? = nil
-            if (try? fileManager.trashItem(at: url, resultingItemURL: &trashedURL)) != nil {
-                return trashedURL as URL?
-            }
-            return url
+        guard let backupURL else { return nil }
+        var trashedURL: NSURL? = nil
+        if (try? fileManager.trashItem(at: backupURL, resultingItemURL: &trashedURL)) != nil {
+            return trashedURL as URL?
         }
+        return backupURL
     }
-    
+
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
     /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
     /// backup on volumes without Trash).
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
-        
+
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
-        
+
         defer { try? fileManager.removeItem(at: tempURL) }
-        
+
         try fileManager.copyItem(at: sourceURL, to: tempURL)
-        let backup = try backupDestinationForReplacement(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
-        
-        do {
-            try fileManager.moveItem(at: tempURL, to: destinationURL)
-        } catch {
-            rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
-            throw error
+
+        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, fileManager: fileManager) {
+            // Atomically swap the staged copy into place, preserving the old destination as a
+            // sibling backup. The destination is never momentarily absent, so a crash or forced
+            // quit mid-replace cannot strand the old file in Trash with nothing at the destination.
+            // A throw here leaves the destination untouched (the primitive is atomic); the staged
+            // temp is cleaned up by `defer`.
+            let backupURL = try fileManager.replaceItem(
+                at: destinationURL,
+                withItemAt: tempURL,
+                backupItemName: ".rollback_\(UUID().uuidString)"
+            )
+            return finalizeBackup(backupURL, fileManager: fileManager)
         }
-        
-        return finalizeBackup(backup, fileManager: fileManager)
+
+        // Brand-new destination (or a case-only rename whose "destination" is the source itself on
+        // a case-insensitive volume): a single rename into place, no backup, no replacement window.
+        try fileManager.moveItem(at: tempURL, to: destinationURL)
+        return nil
     }
     
     /// Safely moves a file, atomically replacing the destination if it exists.
@@ -233,46 +197,98 @@ extension FileSyncManager {
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
-        
-        let backup = try backupDestinationForReplacement(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
-        
+
+        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, fileManager: fileManager) {
+            return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
+        }
+
+        // No existing destination (or a case-only rename whose "destination" is the source itself):
+        // a plain single rename. Nothing is backed up, so there is no replacement window.
         do {
             try fileManager.moveItem(at: sourceURL, to: destinationURL)
         } catch {
-            // Fallback for Cross-Volume moves (EXDEV) or other similar access issues.
-            // Wrap in a temporary UUID directory mathematically guaranteed to be on the *same volume*
-            // to ensure atomic replacement and prevent corrupted half-files.
+            // Fallback for cross-volume moves (EXDEV) or other similar access issues. Stage into a
+            // temp mathematically guaranteed to be on the destination's volume, then rename into
+            // place — an atomic install that avoids corrupted half-files.
             let targetDirectory = destinationURL.deletingLastPathComponent()
             let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
-            
+
             defer { try? fileManager.removeItem(at: tempURL) }
-            
+
+            try fileManager.copyItem(at: sourceURL, to: tempURL)
+            try fileManager.moveItem(at: tempURL, to: destinationURL)
+
+            // Cleanup source: try trash first, fall back to direct remove if the volume has no Trash.
+            do {
+                try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+            } catch {
                 do {
-                    try fileManager.copyItem(at: sourceURL, to: tempURL)
-                    try fileManager.moveItem(at: tempURL, to: destinationURL)
-                
-                // Cleanup source: Try trash first, fall back to direct remove if volume doesn't support trash.
-                do {
-                    try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
-                    } catch {
-                        do {
-                            try fileManager.removeItem(at: sourceURL)
-                        } catch let cleanupError {
-                            // The replacement move already succeeded, so the item at the
-                            // destination is this operation's own copy - removing it is a
-                            // clean revert even when there is no backup to restore.
-                            try? fileManager.removeItem(at: destinationURL)
-                            rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
-                            throw cleanupError
-                        }
-                    }
-                } catch let fallbackError {
-                    rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
-                    throw fallbackError
+                    try fileManager.removeItem(at: sourceURL)
+                } catch let cleanupError {
+                    // The move already landed, so the item at the destination is this operation's
+                    // own copy - removing it is a clean revert when the source can't be cleaned up.
+                    try? fileManager.removeItem(at: destinationURL)
+                    throw cleanupError
                 }
+            }
         }
-        
-        return finalizeBackup(backup, fileManager: fileManager)
+        return nil
+    }
+
+    /// Replaces an existing destination with `sourceURL`'s contents atomically. Stages the source
+    /// onto the destination's volume (a same-volume rename consumes it; a cross-volume move copies
+    /// it), then swaps it into place via `replaceItem`, preserving the old destination as a
+    /// recoverable backup. Because the swap is atomic the destination is never momentarily absent —
+    /// the crash window Finding 1 flagged. A failed swap leaves the destination untouched; if the
+    /// same-volume staging had already consumed the source, it is restored so no data is lost.
+    private nonisolated static func replaceDestinationByMoving(
+        sourceURL: URL,
+        destinationURL: URL,
+        fileManager: FileManaging
+    ) throws -> URL? {
+        let targetDirectory = destinationURL.deletingLastPathComponent()
+        let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
+        defer { try? fileManager.removeItem(at: tempURL) }
+
+        // Stage the source onto the destination's volume. Same-volume: a rename consumes the
+        // source. Cross-volume (EXDEV): copy, and remember the original still needs cleanup.
+        var sourceConsumed = true
+        do {
+            try fileManager.moveItem(at: sourceURL, to: tempURL)
+        } catch {
+            try fileManager.copyItem(at: sourceURL, to: tempURL)
+            sourceConsumed = false
+        }
+
+        let backupURL: URL?
+        do {
+            backupURL = try fileManager.replaceItem(
+                at: destinationURL,
+                withItemAt: tempURL,
+                backupItemName: ".rollback_\(UUID().uuidString)"
+            )
+        } catch {
+            // The atomic replace failed with the destination intact. But a same-volume rename has
+            // already moved the source into the staged temp (which `defer` will delete), so restore
+            // it — a failed replace must never destroy the source.
+            if sourceConsumed {
+                try? fileManager.moveItem(at: tempURL, to: sourceURL)
+            }
+            throw error
+        }
+
+        // Cross-volume: the source was copied, not consumed, so remove the original now that the
+        // destination holds its data. Trash first; fall back to a permanent remove. If both fail
+        // the replace still succeeded — leaving a duplicate source beats reverting a good replace.
+        if !sourceConsumed {
+            do {
+                try fileManager.trashItem(at: sourceURL, resultingItemURL: nil)
+            } catch {
+                try? fileManager.removeItem(at: sourceURL)
+            }
+        }
+
+        return finalizeBackup(backupURL, fileManager: fileManager)
     }
     
     /// Ensures the parent of `destinationURL` can be used as a directory (creates it or throws if it exists as a file).
