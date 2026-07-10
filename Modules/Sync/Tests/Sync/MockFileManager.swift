@@ -28,8 +28,17 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public init() {}
 
+    /// Invoked (under the lock) after each single-argument `fileExists` check, with the queried
+    /// path. Lets tests plant a file right after an existence check to simulate TOCTOU races
+    /// (e.g. a cloud placeholder hydrating between the backup stat and the final move).
+    public var onFileExists: ((String) -> Void)?
+
     public func fileExists(atPath path: String) -> Bool {
-        sync { virtualDisk.keys.contains(path) }
+        sync {
+            let exists = virtualDisk.keys.contains(path)
+            onFileExists?(path)
+            return exists
+        }
     }
 
     public func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
@@ -148,9 +157,15 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
+    /// Every path `removeItem` was called with, whether or not the removal succeeded. The mock
+    /// disk is case-sensitive, so a removal that would hit a case-variant of an existing entry
+    /// on a real (case-insensitive) volume shows up here even though the mock throws no-such-file.
+    public var attemptedRemovePaths: [String] = []
+
     public func removeItem(at URL: URL) throws {
         try sync {
             let path = URL.path
+            attemptedRemovePaths.append(path)
             if failRemovePathsOnce.contains(path) {
                 failRemovePathsOnce.remove(path)
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError)

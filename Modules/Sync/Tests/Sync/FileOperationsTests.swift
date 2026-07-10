@@ -452,6 +452,95 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
     }
     
+    /// TOCTOU: a file that appears at the destination after the backup existence check (cloud
+    /// placeholder hydration, another sync client, a parallel bulk worker) makes the final
+    /// move throw "file exists". With no backup taken, rollback has nothing to restore and
+    /// must not delete the newly-appeared file.
+    @Test func testSafeCopyPreservesDestinationThatAppearedAfterBackupCheck() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        // Destination is absent when the backup step stats it; plant it immediately after
+        // that check so the final moveItem(temp -> destination) hits "file exists".
+        mockFM.onFileExists = { path in
+            guard path == "/dst/doc.txt" else { return }
+            mockFM.onFileExists = nil
+            mockFM.virtualDisk["/dst/doc.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+        }
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeCopyItem(
+                at: URL(fileURLWithPath: "/src/doc.txt"),
+                to: URL(fileURLWithPath: "/dst/doc.txt"),
+                fileManager: mockFM
+            )
+        }
+
+        // The appeared file survives untouched - it was never backed up, so it must not be removed.
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/doc.txt")
+        #expect(attrs[.size] as? Int == 5)
+        #expect(mockFM.virtualDisk["/src/doc.txt"] != nil)
+        #expect(mockFM.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+    }
+
+    /// Same race through safeMoveItem: the direct move throws "file exists", the same-volume
+    /// fallback's final move throws again, and rollback (backup == nil) must leave both the
+    /// appeared destination file and the source intact.
+    @Test func testSafeMovePreservesDestinationThatAppearedAfterBackupCheck() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.onFileExists = { path in
+            guard path == "/dst/data.bin" else { return }
+            mockFM.onFileExists = nil
+            mockFM.virtualDisk["/dst/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+        }
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(
+                at: URL(fileURLWithPath: "/src/data.bin"),
+                to: URL(fileURLWithPath: "/dst/data.bin"),
+                fileManager: mockFM
+            )
+        }
+
+        let attrs = try mockFM.attributesOfItem(atPath: "/dst/data.bin")
+        #expect(attrs[.size] as? Int == 5)
+        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)
+        #expect(mockFM.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+    }
+
+    /// Case-only rename ("foo" -> "Foo") never takes a backup. If the direct rename fails
+    /// (SMB/FUSE volumes) and the copy-to-temp fallback's final move also fails - on a
+    /// case-insensitive volume "Foo" IS the source "foo" - rollback must not removeItem the
+    /// destination: that path resolves to the source, the only remaining copy of the data.
+    @Test func testCaseOnlyRenameFallbackFailureNeverRemovesDestination() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/foo"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.shouldFailMove = true            // direct case-only rename fails
+        mockFM.shouldFailMoveOnTempRename = true // fallback's final move fails too
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(
+                at: URL(fileURLWithPath: "/src/foo"),
+                to: URL(fileURLWithPath: "/src/Foo"),
+                fileManager: mockFM
+            )
+        }
+
+        // Source survives, and - the real pin, since the mock disk is case-sensitive - no
+        // removal was ever attempted at the destination path (only the temp copy's cleanup).
+        #expect(mockFM.virtualDisk["/src/foo"] != nil)
+        #expect(mockFM.attemptedRemovePaths.contains("/src/Foo") == false)
+        #expect(mockFM.virtualDisk.keys.contains { $0.contains(".tmp_") } == false)
+    }
+
     @Test func testSafeMoveNonExistentSource() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)

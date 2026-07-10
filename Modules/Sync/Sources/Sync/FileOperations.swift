@@ -138,13 +138,17 @@ extension FileSyncManager {
     }
 
     /// Attempts to restore destination from backup after a failed replacement.
+    /// With no backup, nothing was moved aside and the destination is left untouched:
+    /// whatever is there (a file that appeared after the initial existence check, or the
+    /// source itself during a case-only rename on a case-insensitive volume) is not this
+    /// operation's artifact and deleting it would destroy data we never backed up.
     private nonisolated static func rollbackDestination(
         from backup: ReplacementBackup?,
         to destinationURL: URL,
         fileManager: FileManaging
     ) {
-        try? fileManager.removeItem(at: destinationURL)
         guard let backup else { return }
+        try? fileManager.removeItem(at: destinationURL)
         switch backup {
         case .trash(let url), .temporary(let url):
             try? fileManager.moveItem(at: url, to: destinationURL)
@@ -226,6 +230,10 @@ extension FileSyncManager {
                         do {
                             try fileManager.removeItem(at: sourceURL)
                         } catch let cleanupError {
+                            // The replacement move already succeeded, so the item at the
+                            // destination is this operation's own copy - removing it is a
+                            // clean revert even when there is no backup to restore.
+                            try? fileManager.removeItem(at: destinationURL)
                             rollbackDestination(from: backup, to: destinationURL, fileManager: fileManager)
                             throw cleanupError
                         }
