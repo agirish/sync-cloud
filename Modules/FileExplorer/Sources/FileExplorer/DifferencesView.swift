@@ -47,9 +47,16 @@ final class ModifierTracker: ObservableObject {
         }
     }
     
+    /// Boxes the opaque monitor token so the nonisolated deinit can hand it to a MainActor task.
+    private struct MonitorBox: @unchecked Sendable { let value: Any }
+
     deinit {
+        // @StateObject teardown practically happens on the main thread, but deinit is
+        // nonisolated and nothing guarantees it — hop explicitly so the AppKit-main-thread-only
+        // removeMonitor is never called off-main.
         if let monitor = monitor {
-            NSEvent.removeMonitor(monitor)
+            let box = MonitorBox(value: monitor)
+            Task { @MainActor in NSEvent.removeMonitor(box.value) }
         }
     }
     

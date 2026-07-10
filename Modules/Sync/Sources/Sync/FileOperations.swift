@@ -524,9 +524,17 @@ extension FileSyncManager {
 
         if let firstError = result.errors.first {
             let reason = firstError.localizedDescription
+            // The errors here carry no item pairing, so the alert can't name the first item the
+            // way the bulk-sync aggregate does — but the wording still reflects the whole run
+            // (count in the message, remaining reasons logged) instead of pretending the first
+            // error was the only one.
+            let items = result.errors.count == 1 ? "the selected items" : "\(result.errors.count) items"
+            for error in result.errors.dropFirst() {
+                Logger.shared.error("\(isMove ? "Move" : "Copy") Failed: \(error.localizedDescription)")
+            }
             present(isMove
-                ? .moveFailed(items: "the selected items", reason: reason)
-                : .copyFailed(items: "the selected items", reason: reason))
+                ? .moveFailed(items: items, reason: reason)
+                : .copyFailed(items: items, reason: reason))
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
             if transferredNodes.count == prunedNodes.count {

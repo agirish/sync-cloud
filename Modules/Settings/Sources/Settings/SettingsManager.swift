@@ -35,6 +35,10 @@ public class SettingsManager: ObservableObject {
     }
 
     private let userDefaults: UserDefaults
+    /// Name of the persistent defaults domain that owns the override keys, when known.
+    /// See `overridesByProviderId` — reading the named domain alone keeps global-domain keys
+    /// from being honored as overrides. Nil falls back to the merged search list.
+    private let overridesDomainName: String?
     private let listCloudStorageFolders: CloudStorageLister
     private let validatePath: PathValidator
 
@@ -76,6 +80,10 @@ public class SettingsManager: ObservableObject {
     ///     which `await`s `discoverProviders()`) should pass false to avoid a redundant scan.
     ///   - userDefaults: Backing store for path overrides and flags. Tests inject a
     ///     `UserDefaults(suiteName:)` instance to stay isolated from the user's real settings.
+    ///   - overridesDomainName: The persistent-domain name backing `userDefaults` (the app
+    ///     and CLI pass `SettingsManager.appSuiteName`; tests pass their fresh suite name).
+    ///     When set, override keys are read from that domain alone, so keys living elsewhere
+    ///     in the defaults search list (e.g. NSGlobalDomain) are never honored as overrides.
     ///   - cloudStorageLister: Source of the mounted provider account folders. Defaults to
     ///     enumerating the real `~/Library/CloudStorage`; tests inject a canned list.
     ///   - pathValidator: Directory-existence check backing `pathValidity`. Defaults to
@@ -83,10 +91,12 @@ public class SettingsManager: ObservableObject {
     public init(
         autoDiscover: Bool = true,
         userDefaults: UserDefaults = .standard,
+        overridesDomainName: String? = nil,
         cloudStorageLister: CloudStorageLister? = nil,
         pathValidator: PathValidator? = nil
     ) {
         self.userDefaults = userDefaults
+        self.overridesDomainName = overridesDomainName
         self.listCloudStorageFolders = cloudStorageLister ?? Self.defaultCloudStorageLister
         self.validatePath = pathValidator ?? Self.defaultPathValidator
         self.ignoreGoogleDriveNewerDateOnly = userDefaults.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
@@ -281,7 +291,13 @@ public class SettingsManager: ObservableObject {
     /// snapshotted on the main actor so the discovery pass can run detached without capturing
     /// the (non-Sendable) defaults.
     private func overridesByProviderId(keyPrefix: String) -> [String: String] {
-        userDefaults.dictionaryRepresentation().reduce(into: [:]) { result, entry in
+        // dictionaryRepresentation() merges the entire defaults search list — NSGlobalDomain
+        // included — so a stray global-domain key starting with the prefix would be honored as
+        // an override. Read the owning domain alone when its name is known; fall back to the
+        // merged list when it isn't (or when nothing has been persisted to it yet).
+        let entries = overridesDomainName.flatMap { userDefaults.persistentDomain(forName: $0) }
+            ?? userDefaults.dictionaryRepresentation()
+        return entries.reduce(into: [:]) { result, entry in
             guard entry.key.hasPrefix(keyPrefix),
                   let value = entry.value as? String else { return }
             result[String(entry.key.dropFirst(keyPrefix.count))] = value

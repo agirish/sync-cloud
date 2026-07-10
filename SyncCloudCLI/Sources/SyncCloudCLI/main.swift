@@ -47,7 +47,8 @@ private func discoverProviderSnapshot() async -> [CloudProvider] {
     let settings = await MainActor.run {
         SettingsManager(
             autoDiscover: false,
-            userDefaults: UserDefaults(suiteName: SettingsManager.appSuiteName) ?? .standard
+            userDefaults: UserDefaults(suiteName: SettingsManager.appSuiteName) ?? .standard,
+            overridesDomainName: SettingsManager.appSuiteName
         )
     }
     await settings.discoverProviders()

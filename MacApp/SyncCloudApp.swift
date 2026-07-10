@@ -37,7 +37,12 @@ struct SyncCloudApp: App {
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.
-        _settings = StateObject(wrappedValue: SettingsManager(autoDiscover: false))
+        // overridesDomainName scopes path/name override reads to the app's own defaults
+        // domain, so global-domain keys can never masquerade as provider overrides.
+        _settings = StateObject(wrappedValue: SettingsManager(
+            autoDiscover: false,
+            overridesDomainName: Bundle.main.bundleIdentifier ?? SettingsManager.appSuiteName
+        ))
         // CRITICAL: Link the manager to the delegate so the termination guard is active.
         appDelegate.adoptSyncManager(manager)
     }

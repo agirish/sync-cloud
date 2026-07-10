@@ -272,14 +272,29 @@ public class FileSyncManager: ObservableObject {
     var scanRequestGeneration = 0
     var pendingScanRequest: ScanRequest?
     
+    /// Synchronously counts a file operation whose `enqueueFileOperation` call happens inside a
+    /// `Task` the caller is about to spawn (the undo/redo handlers). The counter must move
+    /// before that Task is even scheduled: the quit guard reads it, and ⌘Z immediately followed
+    /// by ⌘Q would otherwise pass `applicationShouldTerminate` before the undo's file I/O is
+    /// counted. Pair with `enqueueFileOperation(alreadyCounted: true)`; the completion decrement
+    /// there is shared and unconditional.
+    public func preCountFileOperation() {
+        activeFileOperationsCount += 1
+    }
+
     /// Enqueues a file operation to be executed sequentially.
     /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
+    /// - Parameter alreadyCounted: True when the caller already bumped the counter via
+    ///   `preCountFileOperation()`; skips the increment so the operation isn't double-counted.
     @discardableResult
     public func enqueueFileOperation<T: Sendable>(
+        alreadyCounted: Bool = false,
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
-        await MainActor.run { self.activeFileOperationsCount += 1 }
-        
+        if !alreadyCounted {
+            await MainActor.run { self.activeFileOperationsCount += 1 }
+        }
+
         let previousTask = fileOperationTask
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
@@ -663,11 +678,28 @@ public class FileSyncManager: ObservableObject {
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
-        for (diff, error) in result.failures {
+        if result.failures.count == 1, let (diff, error) = result.failures.first {
             present(.copyFailed(
                 items: "\"\(diff.relativePath)\"",
                 path: diff.leftItemPath,
                 reason: error.localizedDescription
+            ))
+        } else if result.failures.count > 1 {
+            // Same aggregation as syncAll: one alert summarizes; every failure is logged.
+            for (diff, error) in result.failures {
+                Logger.shared.error(SyncError.copyFailed(
+                    items: "\"\(diff.relativePath)\"",
+                    path: diff.leftItemPath,
+                    reason: error.localizedDescription
+                ).logDescription)
+            }
+            let (firstDiff, firstError) = result.failures[0]
+            present(.bulkFailed(
+                verb: "copy",
+                failureCount: result.failures.count,
+                firstItem: firstDiff.relativePath,
+                firstPath: firstDiff.leftItemPath,
+                firstReason: firstError.localizedDescription
             ))
         }
         if !result.failures.isEmpty {
@@ -1059,13 +1091,33 @@ public class FileSyncManager: ObservableObject {
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
-        for (diff, error) in result.failures {
+        if result.failures.count == 1, let (diff, error) = result.failures.first {
             let sourcePath = diff.action == .copyToRight ? diff.leftItemPath : diff.rightItemPath
             present(.syncFailed(
                 item: diff.relativePath,
                 path: sourcePath,
                 reason: error.localizedDescription,
                 isRetryable: false
+            ))
+        } else if result.failures.count > 1 {
+            // The alert holds one error at a time, so presenting per failure would leave only
+            // the last one visible. Log each failure individually, then present one aggregate.
+            for (diff, error) in result.failures {
+                let sourcePath = diff.action == .copyToRight ? diff.leftItemPath : diff.rightItemPath
+                Logger.shared.error(SyncError.syncFailed(
+                    item: diff.relativePath,
+                    path: sourcePath,
+                    reason: error.localizedDescription,
+                    isRetryable: false
+                ).logDescription)
+            }
+            let (firstDiff, firstError) = result.failures[0]
+            present(.bulkFailed(
+                verb: "sync",
+                failureCount: result.failures.count,
+                firstItem: firstDiff.relativePath,
+                firstPath: firstDiff.action == .copyToRight ? firstDiff.leftItemPath : firstDiff.rightItemPath,
+                firstReason: firstError.localizedDescription
             ))
         }
     }

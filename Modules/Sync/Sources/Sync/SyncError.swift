@@ -73,6 +73,27 @@ extension SyncError {
         )
     }
 
+    /// A bulk run finished with several failures. Presenting one `SyncError` per failure would
+    /// overwrite `currentError` each time (last one wins, the rest become log-only), so callers
+    /// log every failure individually and present this single summary built from the first one.
+    /// `verb` is the lowercase operation name ("sync", "copy", "move") and drives both the title
+    /// and the message.
+    public static func bulkFailed(
+        verb: String,
+        failureCount: Int,
+        firstItem: String,
+        firstPath: String?,
+        firstReason: String
+    ) -> SyncError {
+        SyncError(
+            title: "\(verb.capitalized) Failed",
+            message: "Couldn't \(verb) \(failureCount) items. The first failure was \"\(firstItem)\"; the rest are in the Activity Log.",
+            path: firstPath,
+            reason: firstReason,
+            isRetryable: false
+        )
+    }
+
     /// One or more items could not be copied to a destination folder.
     public static func copyFailed(
         items: String,
