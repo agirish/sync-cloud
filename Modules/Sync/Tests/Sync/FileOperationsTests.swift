@@ -56,16 +56,22 @@ import Foundation
         mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
         mockFM.shouldFailTrash = true
         
-        try FileSyncManager.safeCopyItem(
+        let overwritten = try FileSyncManager.safeCopyItem(
             at: URL(fileURLWithPath: "/src/new.txt"),
             to: URL(fileURLWithPath: "/dst/new.txt"),
             fileManager: mockFM
         )
-        
+
         #expect(mockFM.virtualDisk["/src/new.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/new.txt"] != nil)
         let attrs = try mockFM.attributesOfItem(atPath: "/dst/new.txt")
         #expect(attrs[.size] as? Int == 100)
+
+        // The replaced file must stay recoverable even without a Trash: the hidden in-place
+        // backup survives and is returned as the overwritten handle for undo.
+        let backup = try #require(overwritten)
+        #expect(backup.lastPathComponent.hasPrefix(".rollback_"))
+        #expect(mockFM.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
     }
     
     @Test func testSafeMoveReplaceFallsBackWhenTrashUnsupported() async throws {
@@ -73,18 +79,24 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         
-        mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
-        mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/new.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
         mockFM.shouldFailTrash = true
-        
-        try FileSyncManager.safeMoveItem(
+
+        let overwritten = try FileSyncManager.safeMoveItem(
             at: URL(fileURLWithPath: "/src/new.txt"),
             to: URL(fileURLWithPath: "/dst/new.txt"),
             fileManager: mockFM
         )
-        
+
         #expect(mockFM.virtualDisk["/src/new.txt"] == nil)
         #expect(mockFM.virtualDisk["/dst/new.txt"] != nil)
+
+        // Same recoverability guarantee as the copy variant: the old file survives as a
+        // hidden in-place backup and comes back as the overwritten handle.
+        let backup = try #require(overwritten)
+        #expect(backup.lastPathComponent.hasPrefix(".rollback_"))
+        #expect(mockFM.virtualDisk[backup.path]?.attributes?[FileAttributeKey.size] as? Int == 5)
     }
 
     @Test func testSafeMoveCrossVolumeCleanupFailureRollsBack() async throws {

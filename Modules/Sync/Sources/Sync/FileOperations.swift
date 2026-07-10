@@ -155,7 +155,9 @@ extension FileSyncManager {
         }
     }
 
-    /// Finalizes a backup after successful replacement, returning overwritten Trash URL when available.
+    /// Finalizes a backup after successful replacement, returning a restorable URL for the
+    /// overwritten item: its Trash location when the volume supports Trash, otherwise the
+    /// hidden in-place `.rollback_<UUID>` backup itself.
     private nonisolated static func finalizeBackup(
         _ backup: ReplacementBackup?,
         fileManager: FileManaging
@@ -166,18 +168,23 @@ extension FileSyncManager {
         case .trash(let url):
             return url
         case .temporary(let url):
-            // Try to preserve undo ability by moving to Trash; if unavailable, remove temporary backup.
+            // Prefer the Trash so the backup shows up where users expect. When the volume
+            // still has no Trash (network shares), KEEP the backup: deleting it here would
+            // make Replace permanently destroy the old file the instant the operation
+            // succeeds. The dot-prefixed name hides it from the panes; undo restores it to
+            // its original location, and an unused backup is simply left behind once the
+            // undo stack drops — recoverable by hand beats silently destroyed.
             var trashedURL: NSURL? = nil
             if (try? fileManager.trashItem(at: url, resultingItemURL: &trashedURL)) != nil {
                 return trashedURL as URL?
             }
-            try? fileManager.removeItem(at: url)
-            return nil
+            return url
         }
     }
     
     /// Safely copies a file, atomically replacing the destination if it exists to prevent corruption.
-    /// Returns the URL of the overwritten item in the Trash, if any.
+    /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
+    /// backup on volumes without Trash).
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)
@@ -201,7 +208,8 @@ extension FileSyncManager {
     }
     
     /// Safely moves a file, atomically replacing the destination if it exists.
-    /// Returns the URL of the overwritten item in the Trash, if any.
+    /// Returns a restorable URL for the overwritten item, if any (Trash, or a hidden in-place
+    /// backup on volumes without Trash).
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
         try validateFileOperation(source: sourceURL, destination: destinationURL)

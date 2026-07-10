@@ -178,4 +178,119 @@ import Foundation
         await waitUntil("undo removes the one successful copy") { mockFM.virtualDisk["/dst/good.txt"] == nil }
         #expect(mockFM.virtualDisk["/src/good.txt"] != nil)
     }
+
+    // MARK: Trash-less volumes (network shares)
+
+    /// Records whether the permanent-delete confirmation was requested. Runs on the main actor
+    /// (the confirmer seam is @MainActor), so plain state is race-free with the polling tests.
+    @MainActor
+    private final class ConfirmerSpy {
+        private(set) var called = false
+        func confirm(_ answer: Bool) -> @MainActor ([String]) -> Bool {
+            { [weak self] _ in
+                self?.called = true
+                return answer
+            }
+        }
+    }
+
+    /// Undoing a copy on a volume without Trash must not fall back to a silent permanent
+    /// removeItem: when the user declines the confirmation, the copied item survives.
+    @MainActor
+    @Test func testCopyUndoWithTrashFailureKeepsItemWhenConfirmerDeclines() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let spy = ConfirmerSpy()
+        manager.permanentDeleteConfirmer = spy.confirm(false)
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
+
+        // The volume loses Trash support before the undo (network share behavior).
+        mockFM.shouldFailTrash = true
+        manager.undoManager?.undo()
+
+        await waitUntil("undo asks for permanent-delete confirmation") { spy.called }
+        #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
+        #expect(mockFM.trashedPaths.isEmpty)
+    }
+
+    /// The same undo removes the copy once the user confirms the permanent deletion.
+    @MainActor
+    @Test func testCopyUndoWithTrashFailureRemovesItemWhenConfirmerAccepts() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let spy = ConfirmerSpy()
+        manager.permanentDeleteConfirmer = spy.confirm(true)
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
+
+        mockFM.shouldFailTrash = true
+        manager.undoManager?.undo()
+
+        await waitUntil("undo removes the copy after confirmation") { mockFM.virtualDisk["/dst/f.txt"] == nil }
+        #expect(spy.called)
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil)
+    }
+
+    /// End-to-end Replace + Undo on a trash-less volume: the replaced file survives as a hidden
+    /// in-place backup, and undoing the copy puts it back where it was.
+    @MainActor
+    @Test func testReplaceOnTrashlessVolumeIsUndoableViaInPlaceBackup() async throws {
+        let manager = makeManager() // collisionResolver is .replace
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/dst/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+        mockFM.shouldFailTrash = true
+        manager.permanentDeleteConfirmer = { _ in true }
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+
+        // Replace landed, and the old file survives as a hidden .rollback_ backup next to it.
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/.rollback_") })
+
+        manager.undoManager?.undo()
+
+        await waitUntil("undo restores the replaced file from the in-place backup") {
+            mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5
+        }
+        #expect(!mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/.rollback_") })
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil)
+    }
+
+    /// Undo of New Folder on a trash-less volume asks before permanently removing the folder
+    /// (it may have been filled since creation) and keeps it when the user declines.
+    @MainActor
+    @Test func testCreateFolderUndoWithTrashFailureRequiresConfirmation() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let spy = ConfirmerSpy()
+        manager.permanentDeleteConfirmer = spy.confirm(false)
+
+        await manager.createFolder(named: "New Folder", in: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
+
+        mockFM.shouldFailTrash = true
+        manager.undoManager?.undo()
+
+        await waitUntil("folder undo asks for permanent-delete confirmation") { spy.called }
+        #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
+    }
 }

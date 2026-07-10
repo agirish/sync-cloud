@@ -9,27 +9,46 @@ extension FileSyncManager {
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let redoParamResolver = AsyncValueResolver<[(source: URL, destination: URL)]>()
             target.registerCopyRedo(paramResolver: redoParamResolver, actionName: actionName, fileManager: fm)
-            
+
             Task {
                 await target.enqueueFileOperation {
                         let items = await stateResolver.get()
-                        
+
                         let redoParams = items.map { (source: $0.source, destination: $0.destination) }
                         await redoParamResolver.resolve(redoParams)
-                        
+
+                        // Undoing a copy deletes the copied item. On volumes without Trash that
+                        // deletion is permanent, so it needs the same user confirmation as
+                        // deleteItems — never a silent removeItem fallback.
+                        var trashFailures: [CopyItemState] = []
                         for item in items {
                             do {
                                 try fm.trashItem(at: item.destination, resultingItemURL: nil)
                             } catch {
-                                try? fm.removeItem(at: item.destination)
+                                trashFailures.append(item)
+                                continue
                             }
-                            
+
                             if let trashed = item.overwritten {
                                 try? fm.moveItem(at: trashed, to: item.destination)
+                            }
+                        }
+
+                        if !trashFailures.isEmpty {
+                            let confirmed = await MainActor.run {
+                                confirmPermanentDelete(trashFailures.map { $0.destination.lastPathComponent })
+                            }
+                            guard confirmed else { return }
+                            for item in trashFailures {
+                                try? fm.removeItem(at: item.destination)
+                                if let trashed = item.overwritten {
+                                    try? fm.moveItem(at: trashed, to: item.destination)
+                                }
                             }
                         }
                 }
@@ -113,14 +132,20 @@ extension FileSyncManager {
     }
     
     func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
+        let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: New Folder")
             target.registerCreateFolderRedo(url: url, fileManager: fm)
-            Task { await target.enqueueFileOperation { 
+            Task { await target.enqueueFileOperation {
                 do {
-                    try fm.trashItem(at: url, resultingItemURL: nil) 
+                    try fm.trashItem(at: url, resultingItemURL: nil)
                 } catch {
-                    try? fm.removeItem(at: url)
+                    // The folder was created empty, but the user may have filled it since —
+                    // permanent removal gets the same confirmation as everywhere else.
+                    let confirmed = await MainActor.run { confirmPermanentDelete([url.lastPathComponent]) }
+                    if confirmed {
+                        try? fm.removeItem(at: url)
+                    }
                 }
             } }
         }
