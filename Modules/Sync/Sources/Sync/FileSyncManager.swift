@@ -38,6 +38,14 @@ public class FileSyncManager: ObservableObject {
     
     /// Cached differences from the latest scan before applying hidden/ignored filters.
     internal var rawDifferences: [FileDifference] = []
+    /// IDs of differences with an in-flight sync/copy operation — the source of truth for the
+    /// row-level `isSyncing` flag. `applyFilters()` rebuilds `differences` from
+    /// `rawDifferences`, which never carries the flag, so a mid-operation filter pass (hidden
+    /// toggle, ignore change, re-sort, a scan landing) would otherwise publish every row
+    /// un-marked and re-enable the header sync actions while files are still being written.
+    /// Every transition goes through `markSyncing`/`clearSyncing` so this set and the
+    /// published rows can't drift.
+    internal private(set) var syncingDifferenceIds: Set<UUID> = []
     /// IDs of differences that were verified as same content via checksum; these are hidden from the list until next scan.
     internal var verifiedSameDifferenceIds: Set<UUID> = []
     /// ID of the difference currently being verified (for UI spinner).
@@ -186,6 +194,13 @@ public class FileSyncManager: ObservableObject {
     /// second bulk run could interleave there, reset `bulkApplyToAllResolution` mid-prompt, and
     /// tear down `bulkSyncProgress` on exit while the first run is still using it.
     private var isBulkSyncRunning = false
+    /// True while a `verifyAllWithChecksum` run is in flight. Symmetric with
+    /// `isBulkSyncRunning`: each refuses to start while the other runs. Verify All hashes both
+    /// sides of every candidate, so overlapping a bulk sync — especially its prepare phase,
+    /// where `bulkSyncProgress` is still nil — would checksum files mid-overwrite and could
+    /// record bogus "identical" results in `verifiedIdenticalForCopy`. Internal (not private)
+    /// so tests can pin the syncAll-refuses-during-verify direction without racing a real run.
+    var isVerifyAllRunning = false
 
     /// Current subfolder path relative to the left pane root (empty = root).
     @Published public var leftRelativePath: String = ""
@@ -303,6 +318,31 @@ public class FileSyncManager: ObservableObject {
         guard !ids.isEmpty else { return }
         differences.removeAll { ids.contains($0.id) }
         rawDifferences.removeAll { ids.contains($0.id) }
+        // A resolved row is gone from both lists; leaving its id marked in-flight would keep
+        // the pane swap (and Verify All) refused forever after a successful sync.
+        syncingDifferenceIds.subtract(ids)
+    }
+
+    /// Marks the given differences as having an in-flight operation, in both the authoritative
+    /// id set and the published rows. Counterpart of `clearSyncing(ids:)`; all `isSyncing`
+    /// transitions must go through these two (see `syncingDifferenceIds`).
+    internal func markSyncing(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        syncingDifferenceIds.formUnion(ids)
+        for i in differences.indices where ids.contains(differences[i].id) {
+            differences[i].isSyncing = true
+        }
+    }
+
+    /// Clears the in-flight mark set by `markSyncing(ids:)` from the id set and the published
+    /// rows. Rows already removed by `removeResolvedDifferences` are simply not found — the
+    /// set subtraction still runs, so no id can leak.
+    internal func clearSyncing(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        syncingDifferenceIds.subtract(ids)
+        for i in differences.indices where ids.contains(differences[i].id) {
+            differences[i].isSyncing = false
+        }
     }
 
     /// Everything a filter pass publishes, computed off the main actor in one shot.
@@ -330,6 +370,7 @@ public class FileSyncManager: ObservableObject {
         let showHidden = showHiddenFiles
         let ignored = ignoredPaths
         let verifiedSame = verifiedSameDifferenceIds
+        let syncingIds = syncingDifferenceIds
         let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && lastRightProviderType == .googleDrive
 
         let state = await Task.detached(priority: .userInitiated) {
@@ -340,6 +381,7 @@ public class FileSyncManager: ObservableObject {
                 showHidden: showHidden,
                 ignoredPaths: ignored,
                 verifiedSameDifferenceIds: verifiedSame,
+                syncingDifferenceIds: syncingIds,
                 dropDriveDateNoise: dropDriveDateNoise
             )
         }.value
@@ -370,6 +412,7 @@ public class FileSyncManager: ObservableObject {
         showHidden: Bool,
         ignoredPaths: Set<String>,
         verifiedSameDifferenceIds: Set<UUID>,
+        syncingDifferenceIds: Set<UUID> = [],
         dropDriveDateNoise: Bool
     ) -> FilteredState {
         let leftTree = filterTree(rawLeftTree, showHidden: showHidden)
@@ -394,6 +437,13 @@ public class FileSyncManager: ObservableObject {
                     return false
                 }
                 return true
+            }
+        }
+        // Re-stamp the in-flight flag from the authoritative set: raw differences never carry
+        // `isSyncing`, so a rebuild mid-operation would otherwise strip it from every row.
+        if !syncingDifferenceIds.isEmpty {
+            for i in filteredDifferences.indices {
+                filteredDifferences[i].isSyncing = syncingDifferenceIds.contains(filteredDifferences[i].id)
             }
         }
 
@@ -452,6 +502,22 @@ public class FileSyncManager: ObservableObject {
     /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
     /// Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
     public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
+        // Refuse to start while anything is writing — or is about to write — the files this
+        // run would hash: a file mid-overwrite can checksum as "identical" and poison
+        // `verifiedIdenticalForCopy` with a wrong bulk-copy offer. `isBulkSyncRunning` covers
+        // syncAll's prepare phase (stat pass + collision prompts, before any operation is
+        // enqueued); `syncingDifferenceIds` covers a single syncFile parked at its collision
+        // prompt; `activeFileOperationsCount` covers every queued file operation (copy, move,
+        // delete, undo). Verify is read-only, so this is purely about result validity — and
+        // the user gets a banner, not a silent no-op.
+        guard !isVerifyAllRunning, !isBulkSyncRunning,
+              activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
+            banner = .warning("Wait for the current operation to finish before verifying")
+            return
+        }
+        isVerifyAllRunning = true
+        defer { isVerifyAllRunning = false }
+
         let candidates = subset ?? differences
         let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
         guard !toVerify.isEmpty else { return }
@@ -557,9 +623,7 @@ public class FileSyncManager: ObservableObject {
         progress.isCancellable = true
         activeProgress = progress
 
-        for i in differences.indices where toCopyIDs.contains(differences[i].id) {
-            differences[i].isSyncing = true
-        }
+        markSyncing(ids: toCopyIDs)
         bulkSyncProgress = (0, total)
 
         // Yield so the progress overlay can render before we block on the copy work.
@@ -568,9 +632,7 @@ public class FileSyncManager: ObservableObject {
         defer {
             bulkSyncProgress = nil
             if activeProgress === progress { activeProgress = nil }
-            for i in differences.indices where toCopyIDs.contains(differences[i].id) {
-                differences[i].isSyncing = false
-            }
+            clearSyncing(ids: toCopyIDs)
         }
 
         let activeFM = fileManager
@@ -719,10 +781,8 @@ public class FileSyncManager: ObservableObject {
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
     public func syncFile(_ difference: FileDifference, isMove: Bool = false, isBulkSync: Bool = false, fileManager: FileManaging? = nil) async {
         let activeFM = fileManager ?? self.fileManager
-        // Find the difference in our array and mark it as syncing
-        if let index = differences.firstIndex(where: { $0.id == difference.id }) {
-            differences[index].isSyncing = true
-        }
+        // Mark the difference as syncing (published row + authoritative id set)
+        markSyncing(ids: [difference.id])
         
         let fromURL: URL
         var toURL: URL
@@ -776,9 +836,7 @@ public class FileSyncManager: ObservableObject {
         var replaceSanctioned = false
         if destinationExists {
             guard let resolvedURL = await resolveCollision(at: toURL) else {
-                if let index = differences.firstIndex(where: { $0.id == difference.id }) {
-                    differences[index].isSyncing = false
-                }
+                clearSyncing(ids: [difference.id])
                 return
             }
             replaceSanctioned = (resolvedURL == toURL)
@@ -800,9 +858,7 @@ public class FileSyncManager: ObservableObject {
             }.value
             if newlyAppeared {
                 guard let resolvedURL = await resolveCollision(at: toURL) else {
-                    if let index = differences.firstIndex(where: { $0.id == difference.id }) {
-                        differences[index].isSyncing = false
-                    }
+                    clearSyncing(ids: [difference.id])
                     return
                 }
                 toURL = resolvedURL
@@ -835,9 +891,7 @@ public class FileSyncManager: ObservableObject {
                 retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove) } }
             )
 
-            if let index = differences.firstIndex(where: { $0.id == difference.id }) {
-                differences[index].isSyncing = false
-            }
+            clearSyncing(ids: [difference.id])
         } else {
             Logger.shared.debug("Synced file: \(difference.relativePath)")
             if let from = result.from, let to = result.to {
@@ -869,6 +923,12 @@ public class FileSyncManager: ObservableObject {
         guard total > 0 else { return }
         // Drop, don't queue, a bulk run started while another is in flight (see the flag's doc).
         guard !isBulkSyncRunning else { return }
+        // A Verify All in flight is hashing the very files this run would overwrite; starting
+        // anyway would feed it half-written content. Tell the user rather than silently drop.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for the current operation to finish before syncing")
+            return
+        }
         isBulkSyncRunning = true
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
@@ -878,18 +938,14 @@ public class FileSyncManager: ObservableObject {
         progress.isCancellable = true
         activeProgress = progress
 
-        for i in differences.indices where toSyncIDs.contains(differences[i].id) {
-            differences[i].isSyncing = true
-        }
+        markSyncing(ids: toSyncIDs)
 
         defer {
             isBulkSyncRunning = false
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
             if activeProgress === progress { activeProgress = nil }
-            for i in differences.indices where toSyncIDs.contains(differences[i].id) {
-                differences[i].isSyncing = false
-            }
+            clearSyncing(ids: toSyncIDs)
         }
 
         let activeFM = fileManager

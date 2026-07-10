@@ -156,9 +156,10 @@ import Foundation
         #expect(!manager.swapPanes())
         manager.activeFileOperationsCount = 0
 
-        manager.differences[0].isSyncing = true
+        manager.markSyncing(ids: [diff.id])
+        #expect(manager.differences[0].isSyncing)
         #expect(!manager.swapPanes())
-        manager.differences[0].isSyncing = false
+        manager.clearSyncing(ids: [diff.id])
 
         // Nothing moved during either refusal.
         #expect(manager.leftRelativePath == "docs")

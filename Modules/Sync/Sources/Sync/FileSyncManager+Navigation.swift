@@ -182,7 +182,7 @@ extension FileSyncManager {
     @MainActor @discardableResult public func swapPanes() -> Bool {
         guard activeFileOperationsCount == 0,
               bulkSyncProgress == nil,
-              !differences.contains(where: { $0.isSyncing }) else {
+              syncingDifferenceIds.isEmpty else {
             Logger.shared.warning("Ignored pane swap while file operations are in flight")
             banner = .warning("Can't swap panes while an operation is running")
             return false
