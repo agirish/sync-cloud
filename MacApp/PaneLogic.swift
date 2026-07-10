@@ -1,3 +1,4 @@
+import CoreGraphics
 import FileExplorer
 import Foundation
 
@@ -134,5 +135,65 @@ enum PaneLogic {
             }
         }
         return updated
+    }
+
+    // MARK: - Resize split layout
+
+    /// Math for the two invisible resize dividers (the left↔right pane split and the panes↔bottom
+    /// split). Kept pure and out of the `GeometryReader` view builders so the clamp guards — which
+    /// are what stop a too-small window from inverting the split — are exercised by tests instead
+    /// of only ever running against live geometry.
+
+    /// The horizontal pane split's minimum fraction: the smallest share the left pane may take so
+    /// it never shrinks below `minPane` points. Capped at 0.5 so a window narrower than 2×minPane
+    /// degrades to an even split rather than demanding an impossible width — which would push the
+    /// minimum past `1 - minFraction` and invert the clamp bounds — and 0 for a degenerate
+    /// zero-width window so the arithmetic stays finite.
+    static func horizontalMinFraction(totalWidth: CGFloat, minPane: CGFloat) -> Double {
+        totalWidth > 0 ? min(0.5, Double(minPane / totalWidth)) : 0
+    }
+
+    /// The bottom (Differences/Details) pane's laid-out area: the total content height less the
+    /// 1pt divider, floored at 0 so a collapsed window never yields a negative height.
+    static func verticalPanesHeight(totalHeight: CGFloat, dividerHeight: CGFloat) -> CGFloat {
+        max(0, totalHeight - dividerHeight)
+    }
+
+    /// The vertical split's minimum fraction — the bottom pane's smallest share, so it never drops
+    /// below `minBottom` points. Capped at 0.85 (mirroring the horizontal rule) and 0 for a
+    /// zero-height area.
+    static func verticalMinFraction(panesHeight: CGFloat, minBottom: CGFloat) -> Double {
+        panesHeight > 0 ? min(0.85, Double(minBottom / panesHeight)) : 0
+    }
+
+    /// The vertical split's maximum fraction so the top panes never drop below `minTop` points.
+    /// The `max(minFraction, …)` floor is the important guard: when the window is too short to
+    /// honor both mins at once, `1 - minTop/panesHeight` can fall below `minFraction`, which would
+    /// invert the clamp bounds; keeping the upper bound at or above the lower one means the bottom
+    /// pane's minimum wins that tie and the clamp still resolves to a sane fraction.
+    static func verticalMaxFraction(panesHeight: CGFloat, minTop: CGFloat, minFraction: Double) -> Double {
+        panesHeight > 0 ? max(minFraction, 1 - Double(minTop / panesHeight)) : 1
+    }
+
+    /// Clamps a desired split fraction into `[lower, upper]`. One shared helper so the laid-out
+    /// fraction and the live drag gesture clamp identically. If the bounds are ever inverted
+    /// (`upper < lower`, an over-constrained window) the outer `min` wins and the result pins to
+    /// `upper` — the larger section's minimum is the one sacrificed.
+    static func clampedFraction(_ desired: Double, lower: Double, upper: Double) -> Double {
+        min(max(desired, lower), upper)
+    }
+
+    /// The split fraction implied by the cursor's absolute x within the pane row during a
+    /// horizontal divider drag. The caller guards `totalWidth > 0` before calling.
+    static func horizontalDragFraction(locationX: CGFloat, totalWidth: CGFloat) -> Double {
+        Double(locationX / totalWidth)
+    }
+
+    /// The bottom-pane fraction implied by the cursor's absolute y during a vertical divider drag.
+    /// The bottom pane grows as the cursor moves up, so the fraction is the cursor's distance from
+    /// the bottom of the pane area, not its distance from the top. The caller guards
+    /// `panesHeight > 0` before calling.
+    static func verticalDragFraction(locationY: CGFloat, panesHeight: CGFloat) -> Double {
+        Double((panesHeight - locationY) / panesHeight)
     }
 }

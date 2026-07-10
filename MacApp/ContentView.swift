@@ -487,9 +487,10 @@ struct ContentView: View {
             let minPane: CGFloat = 250
             let totalWidth = geo.size.width
             // Clamp so neither pane goes below minPane (degrades gracefully in a too-narrow window).
-            let minFraction = totalWidth > 0 ? min(0.5, Double(minPane / totalWidth)) : 0
+            let minFraction = PaneLogic.horizontalMinFraction(totalWidth: totalWidth, minPane: minPane)
             // While dragging, the live @State value drives the layout; otherwise the persisted one.
-            let fraction = min(max(paneDragFraction ?? paneSplitFraction, minFraction), 1 - minFraction)
+            let fraction = PaneLogic.clampedFraction(paneDragFraction ?? paneSplitFraction,
+                                                     lower: minFraction, upper: 1 - minFraction)
             let leftWidth = totalWidth * fraction
             HStack(spacing: 0) {
                 paneColumn(isLeft: true)
@@ -523,8 +524,8 @@ struct ContentView: View {
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.paneRowSpace))
                     .onChanged { value in
                         guard totalWidth > 0 else { return }
-                        let f = Double(value.location.x / totalWidth)
-                        paneDragFraction = min(max(f, minFraction), 1 - minFraction)
+                        let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
+                        paneDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: 1 - minFraction)
                     }
                     .onEnded { _ in
                         if let f = paneDragFraction { paneSplitFraction = f }
@@ -556,11 +557,12 @@ struct ContentView: View {
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
                 let dividerHeight: CGFloat = 1
-                let panesHeight = max(0, totalHeight - dividerHeight)
+                let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: totalHeight, dividerHeight: dividerHeight)
                 // fraction = the bottom pane's share; clamp so neither section drops below its min.
-                let minFraction = panesHeight > 0 ? min(0.85, Double(minBottom / panesHeight)) : 0
-                let maxFraction = panesHeight > 0 ? max(minFraction, 1 - Double(minTop / panesHeight)) : 1
-                let fraction = min(max(verticalDragFraction ?? bottomPaneFraction, minFraction), maxFraction)
+                let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
+                let maxFraction = PaneLogic.verticalMaxFraction(panesHeight: panesHeight, minTop: minTop, minFraction: minFraction)
+                let fraction = PaneLogic.clampedFraction(verticalDragFraction ?? bottomPaneFraction,
+                                                         lower: minFraction, upper: maxFraction)
                 let bottomHeight = panesHeight * fraction
                 VStack(spacing: 0) {
                     panesSplit
@@ -596,9 +598,8 @@ struct ContentView: View {
                         DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.verticalStackSpace))
                             .onChanged { value in
                                 guard panesHeight > 0 else { return }
-                                let bottomH = panesHeight - value.location.y
-                                let f = Double(bottomH / panesHeight)
-                                verticalDragFraction = min(max(f, minFraction), maxFraction)
+                                let f = PaneLogic.verticalDragFraction(locationY: value.location.y, panesHeight: panesHeight)
+                                verticalDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: maxFraction)
                             }
                             .onEnded { _ in
                                 if let f = verticalDragFraction { bottomPaneFraction = f }
