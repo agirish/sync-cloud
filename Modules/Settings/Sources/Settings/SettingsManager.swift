@@ -37,6 +37,17 @@ public class SettingsManager: ObservableObject {
     private let userDefaults: UserDefaults
     private let listCloudStorageFolders: CloudStorageLister
     private let validatePath: PathValidator
+
+    /// Monotonic token for `discoverProviders()` passes: each pass claims the next value at
+    /// entry, then publishes only if no newer pass has published yet (see
+    /// `lastPublishedDiscoveryGeneration`). Discovery runs concurrently from init, the Settings
+    /// Refresh button, and every setPath/resetPath/setCustomName — without the token, whichever
+    /// off-main pass finished *last* would win and could republish stale provider paths that
+    /// `path(for:)` then serves to file operations. Same shape as
+    /// `FileSyncManager.applyFilters`' filterGeneration.
+    private var discoveryGeneration = 0
+    /// Generation of the most recent discovery pass that published its results.
+    private var lastPublishedDiscoveryGeneration = 0
     private static let overrideKeyPrefix = "path_override_"
     private static let nameOverrideKeyPrefix = "name_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
@@ -109,11 +120,20 @@ public class SettingsManager: ObservableObject {
     /// Enumerates the local filesystem's CloudStorage mounting point.
     private static let defaultCloudStorageLister: CloudStorageLister = {
         let cloudStoragePath = (NSString(string: "~/Library/CloudStorage")).expandingTildeInPath
-        let cloudStorageURL = URL(fileURLWithPath: cloudStoragePath)
+        return cloudStorageFolders(at: URL(fileURLWithPath: cloudStoragePath))
+    }
+
+    /// The account *folders* directly under the given CloudStorage root. Plain files are
+    /// skipped: a stray file named e.g. "Dropbox" would otherwise surface as a selectable
+    /// provider whose path can never be a valid root.
+    nonisolated static func cloudStorageFolders(at rootURL: URL) -> [URL] {
         var folders: [URL] = []
-        if let enumerator = FileManager.default.enumerator(at: cloudStorageURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
+        if let enumerator = FileManager.default.enumerator(at: rootURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) {
             while let fileURL = enumerator.nextObject() as? URL {
-                folders.append(fileURL)
+                let isDirectory = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                if isDirectory {
+                    folders.append(fileURL)
+                }
             }
         }
         return folders
@@ -217,6 +237,11 @@ public class SettingsManager: ObservableObject {
     public func discoverProviders() async {
         Logger.shared.debug("Discovering cloud providers...")
 
+        // Claimed synchronously at entry (no suspension point above), so generations order
+        // by call order even when passes overlap.
+        discoveryGeneration += 1
+        let generation = discoveryGeneration
+
         let lister = listCloudStorageFolders
         let validator = validatePath
         let overrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
@@ -234,6 +259,14 @@ public class SettingsManager: ObservableObject {
             )
             return (providers, Self.validity(of: providers, using: validator))
         }.value
+
+        // A newer pass published while this one ran off-main: its defaults/disk snapshot is
+        // fresher, so drop this result instead of letting last-to-finish win.
+        guard generation > lastPublishedDiscoveryGeneration else {
+            Logger.shared.debug("Discarding stale provider discovery pass")
+            return
+        }
+        lastPublishedDiscoveryGeneration = generation
 
         // Skip no-op publishes so unrelated saves don't re-render every observer.
         if availableProviders != providers {
@@ -321,9 +354,12 @@ public class SettingsManager: ObservableObject {
 
     /// Persists a custom display name for a provider (e.g. renaming "Google Drive
     /// (someone@gmail.com)" to "Google Drive (Personal)"). An empty or whitespace-only
-    /// name clears the override, restoring the discovered default.
+    /// name clears the override, restoring the discovered default. Interior control
+    /// characters (including newlines) each become a space: the name is echoed into
+    /// single-line log records, where an embedded \n could forge extra log lines.
     public func setCustomName(_ name: String, for providerId: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = name.components(separatedBy: .controlCharacters).joined(separator: " ")
+        let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             Logger.shared.info("User cleared custom name for provider: \(providerId)")
             userDefaults.removeObject(forKey: "\(Self.nameOverrideKeyPrefix)\(providerId)")

@@ -38,6 +38,44 @@ final class CallCounter: @unchecked Sendable {
     }
 }
 
+/// A lister whose FIRST call blocks until the test releases it (returning `firstResult`);
+/// later calls return `laterResults` immediately. Lets a test hold an older discovery pass
+/// open off-main while a newer pass starts and finishes.
+final class BlockingFirstCallLister: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private let releaseFirst = DispatchSemaphore(value: 0)
+    private let firstResult: [URL]
+    private let laterResults: [URL]
+
+    init(firstResult: [URL], laterResults: [URL]) {
+        self.firstResult = firstResult
+        self.laterResults = laterResults
+    }
+
+    var firstCallHasStarted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls >= 1
+    }
+
+    func releaseFirstCall() {
+        releaseFirst.signal()
+    }
+
+    func list() -> [URL] {
+        lock.lock()
+        calls += 1
+        let call = calls
+        lock.unlock()
+        if call == 1 {
+            releaseFirst.wait()
+            return firstResult
+        }
+        return laterResults
+    }
+}
+
 private let root = URL(fileURLWithPath: "/Users/test/Library/CloudStorage")
 private func folder(_ name: String) -> URL { root.appendingPathComponent(name) }
 private let iCloudDefault = "/Users/test/Documents"
@@ -107,6 +145,24 @@ private func noOverrides(_ id: String) -> String? { nil }
             iCloudDefaultPath: iCloudDefault, pathOverride: noOverrides)
 
         #expect(providers.map(\.id) == ["iCloud"])
+    }
+}
+
+// MARK: - CloudStorage enumeration
+
+@Suite struct CloudStorageFoldersTests {
+
+    /// A stray plain FILE named like a provider (e.g. "Dropbox") in ~/Library/CloudStorage
+    /// must not surface as a selectable provider — its path can never be a valid root.
+    @Test func testPlainFilesInTheScanDirectoryAreNotOffered() throws {
+        let fm = FileManager.default
+        let scanRoot = fm.temporaryDirectory.appendingPathComponent("SettingsListerTests-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: scanRoot) }
+        try fm.createDirectory(at: scanRoot.appendingPathComponent("OneDrive-Personal"), withIntermediateDirectories: true)
+        #expect(fm.createFile(atPath: scanRoot.appendingPathComponent("Dropbox").path, contents: Data()))
+
+        let folders = SettingsManager.cloudStorageFolders(at: scanRoot)
+        #expect(folders.map(\.lastPathComponent) == ["OneDrive-Personal"])
     }
 }
 
@@ -283,6 +339,69 @@ private func noOverrides(_ id: String) -> String? { nil }
 
         await settings.discoverProviders()
         #expect(counter.count == 1)
+    }
+
+    /// Regression pin for the discovery race: each pass claims a generation at entry and may
+    /// publish only if no newer pass has published — so an OLDER pass that finishes LAST (its
+    /// off-main scan was slow) must not republish its stale provider snapshot over the newer one.
+    @MainActor
+    @Test func testStaleDiscoveryPassFinishingLastDoesNotOverwriteNewerResult() async {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let lister = BlockingFirstCallLister(
+            firstResult: [folder("Dropbox")],
+            laterResults: [folder("OneDrive-Personal")])
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: { lister.list() })
+
+        // Older pass: claims its generation, then blocks off-main inside the lister.
+        let older = Task { await settings.discoverProviders() }
+        var attempts = 0
+        while !lister.firstCallHasStarted {
+            attempts += 1
+            if attempts > 5000 {
+                Issue.record("older discovery pass never reached the lister")
+                lister.releaseFirstCall()
+                await older.value
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        // Newer pass: starts after the older one but finishes first and publishes.
+        await settings.discoverProviders()
+        #expect(settings.availableProviders.map(\.id) == ["iCloud", "OneDrive-Personal"])
+
+        // Let the older pass finish last; its stale snapshot must be discarded.
+        lister.releaseFirstCall()
+        await older.value
+        #expect(settings.availableProviders.map(\.id) == ["iCloud", "OneDrive-Personal"])
+    }
+
+    @MainActor
+    @Test func testSetCustomNameStripsInteriorControlCharacters() async {
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: { [folder("Dropbox")] })
+        await settings.discoverProviders()
+
+        // An embedded newline would forge an extra line in the single-line log records;
+        // interior control characters each persist as a plain space instead.
+        settings.setCustomName("Drop\nbox (Work)\u{07}", for: "Dropbox")
+        let persisted = test.defaults.string(forKey: "name_override_Dropbox")
+        #expect(persisted == "Drop box (Work)")
+        #expect(persisted?.rangeOfCharacter(from: .controlCharacters) == nil)
+
+        // A name that is only control characters clears the override like whitespace does.
+        settings.setCustomName("\n\u{07}\n", for: "Dropbox")
+        #expect(test.defaults.string(forKey: "name_override_Dropbox") == nil)
     }
 
     /// Every discovery pass must re-run the path validator, even when it changes no provider:

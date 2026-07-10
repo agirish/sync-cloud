@@ -105,7 +105,17 @@ public struct SettingsView: View {
 
 /// App-level preferences: login item, hidden-file default, and the quit safety guard.
 struct GeneralSettingsTab: View {
-    @State private var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    /// Mirrors `SMAppService.mainApp.status`. Deliberately not seeded in the initializer:
+    /// the status getter is a synchronous XPC call, which must not run on the main thread
+    /// during view init — `.task` reads it once the view is up.
+    @State private var launchAtLogin = false
+    /// The login item is registered but awaits the user's consent in System Settings →
+    /// Login Items; shown distinctly so a pending approval doesn't read as a broken toggle.
+    @State private var loginItemNeedsApproval = false
+    /// The last toggle value known to match the actual service state. `onChange` skips
+    /// values equal to it, so programmatic sets (the initial `.task` read, a failure
+    /// revert) don't trigger another register/unregister round-trip.
+    @State private var lastAppliedLaunchAtLogin: Bool?
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
 
@@ -114,10 +124,22 @@ struct GeneralSettingsTab: View {
             Section {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
+                        guard enabled != lastAppliedLaunchAtLogin else { return }
                         updateLoginItem(enabled)
                     }
             } footer: {
-                Text("Automatically start SyncCloud when you log in to your Mac.")
+                if loginItemNeedsApproval {
+                    HStack(spacing: 4) {
+                        Text("Approval needed — allow SyncCloud in Login Items settings.")
+                        Button("Open Login Items Settings") {
+                            SMAppService.openSystemSettingsLoginItems()
+                        }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
+                    }
+                } else {
+                    Text("Automatically start SyncCloud when you log in to your Mac.")
+                }
             }
 
             Section {
@@ -133,21 +155,39 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .task { readLoginItemState() }
+    }
+
+    /// Reflects the real service state into the toggle and approval hint. A pending
+    /// approval counts as "on": the item *is* registered, just not yet consented to.
+    private func readLoginItemState() {
+        let status = SMAppService.mainApp.status
+        launchAtLogin = (status == .enabled || status == .requiresApproval)
+        loginItemNeedsApproval = (status == .requiresApproval)
+        lastAppliedLaunchAtLogin = launchAtLogin
     }
 
     /// Registers/unregisters the login item, reverting the toggle to the real service state on
     /// failure so the UI never claims a state the system rejected.
     private func updateLoginItem(_ enabled: Bool) {
         do {
+            let status = SMAppService.mainApp.status
             if enabled {
-                if SMAppService.mainApp.status != .enabled {
+                if status != .enabled {
                     try SMAppService.mainApp.register()
                 }
-            } else if SMAppService.mainApp.status == .enabled {
+            } else if status == .enabled || status == .requiresApproval {
+                // Unregistering a pending-approval item withdraws it from Login Items.
                 try SMAppService.mainApp.unregister()
             }
+            lastAppliedLaunchAtLogin = enabled
+            loginItemNeedsApproval = (SMAppService.mainApp.status == .requiresApproval)
+            if loginItemNeedsApproval {
+                Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
+            }
         } catch {
-            launchAtLogin = (SMAppService.mainApp.status == .enabled)
+            Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
+            readLoginItemState()
         }
     }
 }
