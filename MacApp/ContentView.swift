@@ -564,6 +564,7 @@ struct ContentView: View {
                 let bottomHeight = panesHeight * fraction
                 VStack(spacing: 0) {
                     panesSplit
+                        .panesRegionFrame(surfaceStyle)
                         .frame(height: panesHeight - bottomHeight)
                     verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
                         .frame(height: dividerHeight)
@@ -574,6 +575,7 @@ struct ContentView: View {
                 .coordinateSpace(.named(Self.verticalStackSpace))
             } else {
                 panesSplit
+                    .panesRegionFrame(surfaceStyle)
             }
         }
     }

@@ -284,6 +284,29 @@ public extension View {
         if style == .cards { self.surfaceCard() } else { self }
     }
 
+    /// Frames the whole panes region (both flush panes) so the top of the window reads as a
+    /// bounded container — matching the clipped, hairline-outlined sections of the bottom workspace
+    /// (`bottomSectionCard`). Applies to `.unified`/`.solid` only; in `.cards` each pane is already
+    /// its own floating card (`paneCardIfNeeded`), so this is a no-op to avoid a card-in-cards frame.
+    /// No `contentSurface` fill is added here — the panes fill themselves — so the accent tint isn't
+    /// applied twice in the top region.
+    @ViewBuilder
+    func panesRegionFrame(_ style: SurfaceStyle) -> some View {
+        let radius = LiquidGlass.cardCornerRadius
+        switch style {
+        case .cards:
+            self
+        case .unified, .solid:
+            self
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
+                )
+                .padding(LiquidGlass.cardGutter)
+        }
+    }
+
     /// One section of the bottom workspace (the toolbar, or the table / Details) as a self-contained
     /// card: applies the surface fill, then frames it — a floating frosted card for `.cards`, or a
     /// clipped hairline-outlined region for `.unified`/`.solid`. Sections are stacked with a gap so
