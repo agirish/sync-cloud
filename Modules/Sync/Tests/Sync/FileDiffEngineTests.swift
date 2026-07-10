@@ -510,6 +510,154 @@ import Foundation
         #expect(diffs[1].enclosedItemCount == 1)
     }
 
+    // MARK: - Type-mismatch folder collapse
+    // A folder that pairs with a FILE on the other side resolves with a single action on its
+    // row (dir wins: recursive copy; file wins: the subtree is replaced wholesale). Its
+    // descendants must therefore collapse into that row like a missing folder's do — separate
+    // child rows double-copy after a dir-wins sync, race the parent's replace op in parallel
+    // bulk sync, and go stale after a file-wins sync.
+
+    @Test func testTypeMismatchFolderCollapsesDirSideChildren() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Bundle"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        // Directory on the left with two children; a plain file at the same path on the right.
+        mockFM.virtualDisk["/src/Bundle/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Bundle/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/Bundle"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Bundle")
+        #expect(diffs.first?.type == .differentDates)
+        #expect(diffs.first?.action == .copyToRight) // dates tie -> folder side wins
+        #expect(diffs.first?.enclosedItemCount == 2)
+    }
+
+    @Test func testTypeMismatchFolderStillCollapsesWhenFileWins() async throws {
+        // The file side being newer flips the action to copyToLeft, but the dir side's
+        // children must still fold into the single row — they'd otherwise point at paths
+        // the winning file is about to replace.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let older = Date(timeIntervalSince1970: 10_000)
+        let newer = older.addingTimeInterval(10)
+        mockFM.virtualDisk["/src/Bundle"] = MockFileManager.FileStub(isDirectory: true, attributes: [.modificationDate: older], contents: [])
+        mockFM.virtualDisk["/src/Bundle/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Bundle/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/Bundle"] = MockFileManager.FileStub(isDirectory: false, attributes: [.modificationDate: newer], contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Bundle")
+        #expect(diffs.first?.action == .copyToLeft)
+        #expect(diffs.first?.description == "Dest item is newer (type mismatch)")
+        #expect(diffs.first?.enclosedItemCount == 2)
+    }
+
+    @Test func testTypeMismatchFolderOnRightCollapsesItsChildren() async throws {
+        // Mirror direction: the directory is on the RIGHT, so its children surface as
+        // missingOnLeft rows — they must collapse into the mismatch row all the same.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/Bundle"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Bundle"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/Bundle/p.jpg"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/Bundle/q.jpg"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Bundle")
+        #expect(diffs.first?.action == .copyToLeft) // dates tie -> folder side wins
+        #expect(diffs.first?.enclosedItemCount == 2)
+    }
+
+    @Test func testMissingDirInsideTypeMismatchFolderCollapsesFully() async throws {
+        // A nested directory inside the type-mismatch dir is itself a missing-on-right dir;
+        // it and its contents must all roll up into the top-most (type-mismatch) row instead
+        // of surviving as a partially-collapsed subtree.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Bundle"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Bundle/Sub"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Bundle/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Bundle/Sub/deep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/Bundle"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Bundle")
+        // 3 collapsed items: a.txt, Sub, Sub/deep.txt
+        #expect(diffs.first?.enclosedItemCount == 3)
+    }
+
+    @Test func testCaseVariantTypeMismatchFolderCollapses() async throws {
+        // Case-insensitive matching pairs left file "Report" with right dir "report"; the row
+        // carries the LEFT relativePath while the dir's children carry the right-side casing.
+        // The children must still fold into the mismatch row, not survive as missingOnLeft rows.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/report"), withIntermediateDirectories: true)
+
+        mockFM.virtualDisk["/src/Report"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/report/x.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/report/y.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let (srcProvider, dstProvider) = makeProviders()
+        let srcFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        let dstFiles = try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/dst"), fileManager: mockFM)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: srcProvider, leftURL: URL(fileURLWithPath: "/src"),
+            right: dstProvider, rightURL: URL(fileURLWithPath: "/dst"),
+            leftFilesInfo: srcFiles, rightFilesInfo: dstFiles,
+            caseInsensitive: true)
+
+        #expect(diffs.count == 1)
+        #expect(diffs.first?.relativePath == "Report")
+        #expect(diffs.first?.type == .differentDates)
+        #expect(diffs.first?.action == .copyToLeft) // dates tie -> folder side wins
+        #expect(diffs.first?.leftItemPath == "/src/Report")
+        #expect(diffs.first?.rightItemPath == "/dst/report")
+        #expect(diffs.first?.enclosedItemCount == 2)
+    }
+
     // MARK: - Case-insensitive matching
     // On the default macOS filesystem "Readme.txt" and "readme.txt" are the same file, but the
     // comparison maps are keyed by exact-case path. Without case-insensitive matching such a

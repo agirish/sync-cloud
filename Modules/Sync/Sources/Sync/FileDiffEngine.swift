@@ -182,6 +182,13 @@ public struct FileDiffEngine {
         // carry no independent action).
         var missingOnRightDirs = Set<String>()
         var missingOnLeftDirs = Set<String>()
+        // Folders that pair with a FILE on the other side (type mismatch). Their descendants —
+        // which exist only on the directory side — collapse into the mismatch row the same way,
+        // since either resolution handles the whole subtree in one action (dir wins: recursive
+        // copy; file wins: the subtree is replaced wholesale). Keyed by the dir side's relative
+        // path, mapping to the row's relativePath (the LEFT key) — the two can differ in case
+        // when the pair matched via case-variant keys and the directory is on the right.
+        var typeMismatchDirs: [String: String] = [:]
 
         // Lowercased right key → actual right key, for the case-insensitive fallback match.
         // Keying by the full relative path also matches children of folders whose names
@@ -217,6 +224,9 @@ public struct FileDiffEngine {
                 let caseNote = namesDifferOnlyByCase ? " (names differ only by case)" : ""
                 // exists in both, compare dates and sizes in RAM
                 if leftFile.isDirectory != rightFile.isDirectory {
+                    // Descendants live under the dir side's own key, so record that key
+                    // (left key when the dir is on the left, right key otherwise).
+                    typeMismatchDirs[leftFile.isDirectory ? relativePath : rightKey] = relativePath
                     let resolution = resolveTypeMismatch(
                         left: leftFile,
                         leftProvider: left,
@@ -344,7 +354,8 @@ public struct FileDiffEngine {
         let result = collapseMissingFolderContents(
             diffs,
             missingOnRightDirs: missingOnRightDirs,
-            missingOnLeftDirs: missingOnLeftDirs
+            missingOnLeftDirs: missingOnLeftDirs,
+            typeMismatchDirs: typeMismatchDirs
         ).sorted { $0.relativePath < $1.relativePath }
         Task { @MainActor in
             Logger.shared.debug("Computed differences: \(result.count) items requiring action.")
@@ -352,19 +363,32 @@ public struct FileDiffEngine {
         return result
     }
 
-    /// Drops differences that live inside a folder already reported missing on the same side:
-    /// copying that folder is recursive, so its contents sync with the folder entry itself.
-    /// Listing them separately double-copies during bulk sync and leaves stale rows (with
-    /// spurious overwrite prompts) after the folder row is synced. The surviving folder entry
-    /// gets `enclosedItemCount` so the UI can still say how much it carries.
+    /// Drops differences that live inside a folder whose own row already resolves them:
+    /// a folder missing on the same side (copying it is recursive), or a type-mismatch
+    /// folder (either resolution — recursive dir copy or wholesale replacement by the
+    /// file — handles the whole subtree in one action). Listing contents separately
+    /// double-copies during bulk sync, races the parent's replace op under parallel
+    /// sync, and leaves stale rows (with spurious overwrite prompts) after the folder
+    /// row is synced. The surviving folder entry gets `enclosedItemCount` so the UI can
+    /// still say how much it carries.
     private static func collapseMissingFolderContents(
         _ diffs: [FileDifference],
         missingOnRightDirs: Set<String>,
-        missingOnLeftDirs: Set<String>
+        missingOnLeftDirs: Set<String>,
+        typeMismatchDirs: [String: String]
     ) -> [FileDifference] {
-        guard !missingOnRightDirs.isEmpty || !missingOnLeftDirs.isEmpty else { return diffs }
+        guard !missingOnRightDirs.isEmpty || !missingOnLeftDirs.isEmpty || !typeMismatchDirs.isEmpty else { return diffs }
 
-        // Top-most missing ancestor folder → number of items collapsed into it.
+        // A type-mismatch dir's descendants exist only on its directory side: the other side
+        // holds a file there, which has no children. So under a left-side dir they surface
+        // solely as .missingOnRight rows, and under a right-side dir solely as .missingOnLeft
+        // rows — one shared set safely serves both directions, since the direction that can't
+        // occur simply never produces a row to match.
+        let typeMismatchDirPaths = Set(typeMismatchDirs.keys)
+        let collapsibleOnRight = missingOnRightDirs.union(typeMismatchDirPaths)
+        let collapsibleOnLeft = missingOnLeftDirs.union(typeMismatchDirPaths)
+
+        // Top-most collapsible ancestor folder's row path → number of items collapsed into it.
         var enclosedCounts: [String: Int] = [:]
         var kept: [FileDifference] = []
         kept.reserveCapacity(diffs.count)
@@ -372,15 +396,19 @@ public struct FileDiffEngine {
         for diff in diffs {
             let dirs: Set<String>
             switch diff.type {
-            case .missingOnRight: dirs = missingOnRightDirs
-            case .missingOnLeft: dirs = missingOnLeftDirs
+            case .missingOnRight: dirs = collapsibleOnRight
+            case .missingOnLeft: dirs = collapsibleOnLeft
             case .differentDates:
-                // Items present on both sides can't sit under a folder that's missing on either.
+                // Items present on both sides (including type-mismatch rows themselves) can't
+                // sit under a missing or type-mismatch folder: every ancestor of a both-sides
+                // path exists as a directory on both sides.
                 kept.append(diff)
                 continue
             }
             if let ancestor = topMostAncestor(of: diff.relativePath, in: dirs) {
-                enclosedCounts[ancestor, default: 0] += 1
+                // A type-mismatch dir's row is keyed by the LEFT path, which can differ in
+                // case from the dir-side key the descendants carry; map back to the row.
+                enclosedCounts[typeMismatchDirs[ancestor] ?? ancestor, default: 0] += 1
             } else {
                 kept.append(diff)
             }
