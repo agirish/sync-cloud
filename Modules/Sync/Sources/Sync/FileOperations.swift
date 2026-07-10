@@ -606,10 +606,12 @@ extension FileSyncManager {
                 : .copyFailed(items: items, reason: reason))
         } else if !nodes.isEmpty {
             let verb = isMove ? "Moved" : "Copied"
+            // .info, not .debug: a copy/move is a data mutation that belongs in a normal-level
+            // audit trail, not just a diagnostic one.
             if transferredNodes.count == prunedNodes.count {
-                Logger.shared.debug("\(verb) \(transferredNodes.count) items \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) items \(destinationDescription)")
             } else {
-                Logger.shared.debug("\(verb) \(transferredNodes.count) of \(prunedNodes.count) items \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) items \(destinationDescription)")
             }
         }
 
@@ -650,7 +652,7 @@ extension FileSyncManager {
         if let err = result.error {
             present(.renameFailed(reason: err.localizedDescription, path: url.path))
         } else {
-            Logger.shared.debug("Renamed item to \(newName)")
+            Logger.shared.info("Renamed item to \(newName)")
             let initialResolver = AsyncValueResolver<[MoveItemState]>()
             Task { await initialResolver.resolve([(from: url, to: newURL, overwritten: result.trashed)]) }
             self.registerMoveUndo(stateResolver: initialResolver, actionName: "Rename Item", fileManager: fm)
@@ -680,7 +682,7 @@ extension FileSyncManager {
         if let err = error {
             present(.createFolderFailed(reason: err.localizedDescription, path: path))
         } else {
-            Logger.shared.debug("Created folder \(name) at \(path)")
+            Logger.shared.info("Created folder \(name) at \(path)")
             self.registerCreateFolderUndo(url: createdURL, fileManager: fm)
         }
     }
