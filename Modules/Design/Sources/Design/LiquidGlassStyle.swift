@@ -283,12 +283,16 @@ public extension View {
     /// so the glass variant is always `.regular` (the ≥0.33 default in `glassCardStyle`'s mapping).
     @ViewBuilder
     func surfaceCard(cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
+        // Clip the content to the card shape first — the pane's contentSurface tint wash is a
+        // square fill, and without this it pokes past the rounded glass corners into the gutters
+        // (bottomSectionCard already clips the same way).
+        let clipped = self.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         if #available(macOS 26.0, *) {
-            self
+            clipped
                 .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
                 .padding(LiquidGlass.cardGutter)
         } else {
-            self
+            clipped
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
