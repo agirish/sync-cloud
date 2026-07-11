@@ -103,6 +103,10 @@ struct SyncCloudApp: App {
 
 /// A custom app delegate for SyncCloud to handle macOS system events.
 /// Implements `applicationShouldTerminate` to prevent accidental quitting during active file operations.
+/// @MainActor because the delegate reads MainActor state (`FileSyncManager.activeFileOperationsCount`)
+/// — AppKit only ever calls it on the main thread, but without the annotation Swift 6 strict
+/// checking would reject those reads.
+@MainActor
 class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
     /// Reference to the shared sync manager for checking active operations.
     var syncManager: FileSyncManager?
@@ -135,8 +139,9 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Pure decision: given the in-flight operation count and the warn-before-quit setting,
     /// which quit path applies. Kept side-effect-free so `SyncCloudTests` can pin the branches
-    /// without driving a modal alert.
-    static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool) -> QuitDecision {
+    /// without driving a modal alert. `nonisolated`: pure over its arguments, so the tests
+    /// don't have to hop to the main actor just because the class is isolated.
+    nonisolated static func quitDecision(activeOperations: Int, warnBeforeQuit: Bool) -> QuitDecision {
         guard activeOperations > 0 else { return .allowNoActiveOperations }
         return warnBeforeQuit
             ? .warn(activeOperations: activeOperations)
