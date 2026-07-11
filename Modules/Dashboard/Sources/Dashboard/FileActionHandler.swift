@@ -89,7 +89,7 @@ public class FileActionHandler {
         Task {
             guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
             let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
-            setBannerForCopy(copiedNodes, to: targetDisplayName)
+            setTransferBanner(verb: "Copied", copiedNodes, to: targetDisplayName)
         }
     }
 
@@ -111,7 +111,7 @@ public class FileActionHandler {
 
         Logger.shared.info("User initiating move of \(nodes.count) items")
         let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
-        setBannerForMove(movedNodes, to: targetDisplayName)
+        setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName)
         return movedNodes
     }
 
@@ -167,7 +167,7 @@ public class FileActionHandler {
         Logger.shared.info("User initiating move of \(nodes.count) items to a dropped-on directory")
         Task {
             let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
-            setBannerForMove(movedNodes, to: destDisplayName)
+            setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
         }
     }
 
@@ -199,10 +199,10 @@ public class FileActionHandler {
                 if syncManager.clipboardNodes.isEmpty {
                     syncManager.clipboardIsCut = false
                 }
-                setBannerForMove(movedNodes, to: destDisplayName)
+                setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
             } else {
                 let copiedNodes = await syncManager.copyItems(nodes: nodes, toPath: destinationPath)
-                setBannerForCopy(copiedNodes, to: destDisplayName)
+                setTransferBanner(verb: "Copied", copiedNodes, to: destDisplayName)
             }
         }
     }
@@ -236,18 +236,13 @@ public class FileActionHandler {
         return "other pane"
     }
     
-    private func setBannerForCopy(_ nodes: [FileNode], to destinationName: String) {
+    /// Success banner after a transfer; no banner when nothing was actually transferred.
+    /// `verb` is the past-tense operation name ("Copied" or "Moved").
+    private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String) {
         guard !nodes.isEmpty else { return }
         syncManager.banner = .success(nodes.count == 1
-            ? "Copied \"\(nodes[0].name)\" to \(destinationName)"
-            : "Copied \(nodes.count) items to \(destinationName)")
-    }
-    
-    private func setBannerForMove(_ nodes: [FileNode], to destinationName: String) {
-        guard !nodes.isEmpty else { return }
-        syncManager.banner = .success(nodes.count == 1
-            ? "Moved \"\(nodes[0].name)\" to \(destinationName)"
-            : "Moved \(nodes.count) items to \(destinationName)")
+            ? "\(verb) \"\(nodes[0].name)\" to \(destinationName)"
+            : "\(verb) \(nodes.count) items to \(destinationName)")
     }
     
     // MARK: - Mutations

@@ -33,14 +33,10 @@ public struct LogViewer: View {
     @State private var searchText: String = ""
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
-    var filteredEntries: [LogEntry] {
-        LogEntryFilter.apply(logger.entries, level: selectedLevel, search: searchText)
-    }
-    
     public var body: some View {
         // Computed once per body evaluation; the isEmpty check and the ForEach below would
         // otherwise each run the full filter pass.
-        let filtered = filteredEntries
+        let filtered = LogEntryFilter.apply(logger.entries, level: selectedLevel, search: searchText)
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {

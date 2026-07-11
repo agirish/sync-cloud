@@ -221,10 +221,12 @@ public struct DetailsSidebar: View {
                         .padding(.trailing, 20)
 
                         Spacer(minLength: 0)
-                    } else if let data {
+                    // The cache loads the icon whenever the metadata stat succeeds, so `icon`
+                    // is non-nil exactly when `data` is — one binding, no fallback icon path.
+                    } else if let data, let icon {
                         // Icon Header
                         VStack {
-                            Image(nsImage: icon ?? NSWorkspace.shared.icon(forFile: data.path))
+                            Image(nsImage: icon)
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 80, height: 80)
