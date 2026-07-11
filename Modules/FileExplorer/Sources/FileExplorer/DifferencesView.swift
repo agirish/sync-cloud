@@ -18,6 +18,14 @@ public struct DifferencesView: View {
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
     @State private var isSearchExpanded = false
     @FocusState private var searchFocused: Bool
+    /// Non-nil while the inline guided review is active (the header's "Review…" mode).
+    @State private var reviewSession: ReviewSession? = nil
+    /// The review table's selection — doubles as the review cursor: advancing the session moves
+    /// it, and clicking a pending row jumps the session. Separate from `selection` so entering
+    /// and leaving review mode can't corrupt the normal table's selection.
+    @State private var reviewSelection = Set<FileDifference.ID>()
+    /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
+    @State private var reviewFocusNudge = 0
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
     /// Leading accessory rendered at the start of the header row — the host passes the
@@ -70,93 +78,13 @@ public struct DifferencesView: View {
                     if let leadingHeader {
                         leadingHeader
                     }
-                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
-                        .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
-                    Spacer()
-                    Menu {
-                        // A Picker inside a Menu gets the native menu check column; a per-row
-                        // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
-                        // on unselected rows). Same pattern as the main toolbar's Sort menu.
-                        Picker("Filter", selection: $selectedFilter) {
-                            ForEach(DifferenceFilter.allCases, id: \.self) { filter in
-                                Text(filter.displayName(leftName: paneNames.left, rightName: paneNames.right))
-                                    .tag(filter)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        .labelsHidden()
-                    } label: {
-                        // Uncapped provider names can be long; truncate instead of forcing the
-                        // full width (fixedSize) and clipping the header on narrow windows.
-                        Label(
-                            selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
-                            systemImage: "line.3.horizontal.decrease.circle"
-                        )
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    if let session = reviewSession {
+                        reviewHeaderControls(session)
+                    } else {
+                        standardHeaderControls(targets: targets, sorted: sorted)
                     }
-                    if targets.isSelectionScoped {
-                        Button {
-                            selection.removeAll()
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text("\(targets.targets.count) selected")
-                                Image(systemName: "xmark.circle.fill")
-                            }
-                            .font(.subheadline)
-                        }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Clear selection")
-                    }
-                    if targets.copyToRightCount > 0 {
-                        Button {
-                            copy(direction: .copyToRight, targets: targets)
-                        } label: {
-                            Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isSyncActionBlocked)
-                    }
-                    if targets.copyToLeftCount > 0 {
-                        Button {
-                            copy(direction: .copyToLeft, targets: targets)
-                        } label: {
-                            Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isSyncActionBlocked)
-                    }
-                    if targets.verifiableCount > 0 {
-                        Button {
-                            verify(targets: targets)
-                        } label: {
-                            Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(isSyncActionBlocked)
-                    }
-                    // Search collapses to an icon; clicking it reveals the field on a second
-                    // line, which takes focus itself on appear (a FocusState write here, in
-                    // the same transaction that inserts the field, can be silently dropped).
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) {
-                            isSearchExpanded.toggle()
-                            if !isSearchExpanded { searchText = "" }
-                        }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle((isSearchExpanded || !searchText.isEmpty) ? glassHue.accentColor : Color.secondary)
-                    .help("Search by name or path")
-                    .accessibilityLabel("Search by name or path")
                 }
-                if isSearchExpanded || !searchText.isEmpty {
+                if reviewSession == nil, isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
                 }
             }
@@ -172,40 +100,37 @@ public struct DifferencesView: View {
             .font(.body)
             .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
 
-            // Table card: progress (during ops) sits above the differences table.
+            // Table card: review card / progress (during ops) sits above the differences table.
             VStack(spacing: 0) {
-                if let progress = syncManager.verifyAllProgress {
-                    syncProgressRow(verb: "Verifying", completed: progress.completed, total: progress.total)
+                if let sessionBinding = Binding($reviewSession) {
+                    reviewSection(sessionBinding)
+                } else {
+                    standardTableSection(sorted: sorted)
                 }
-                if let progress = syncManager.bulkSyncProgress {
-                    syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
-                }
-            Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
-                TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
-                TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
-                    .width(min: 70, ideal: 90)
-                TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
-                    .width(min: 96, ideal: 140)
-            }
-            // Let the surface fill below show through: hide the scroll background AND the
-            // alternating row fills, or the Table paints opaque (white) rows over the surface.
-            .scrollContentBackground(.hidden)
-            .tableStyle(.inset(alternatesRowBackgrounds: false))
-            .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
-                differenceContextMenu(for: ids, in: sorted)
-            }
-            .overlay {
-                if sorted.isEmpty {
-                    emptyState
-                }
-            }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
         }
         // Match the pane cards' gutter so the bottom cards line up with the panes above.
         .padding(LiquidGlass.cardGutter)
+        // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
+        // only — decided rows snap the highlight back), and a session advance re-highlights.
+        .onChange(of: reviewSelection) { _, newSelection in
+            guard let session = reviewSession else { return }
+            // Any click hands key focus to the Table; send it back to the card.
+            reviewFocusNudge += 1
+            guard let id = newSelection.first, id != session.current?.id else { return }
+            var updated = session
+            if updated.jump(to: id) {
+                reviewSession = updated
+            } else {
+                reviewSelection = session.current.map { [$0.id] } ?? []
+            }
+        }
+        .onChange(of: reviewSession?.currentIndex) { _, _ in
+            guard let session = reviewSession else { return }
+            reviewSelection = session.current.map { [$0.id] } ?? []
+        }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
             // Deferred cleanup: SwiftUI writes false here on ANY dismissal, including confirm,
@@ -225,6 +150,280 @@ public struct DifferencesView: View {
     }
 
     // MARK: Header
+
+    /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
+    /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
+    @ViewBuilder
+    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
+        StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
+            .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+        Spacer()
+        Menu {
+            // A Picker inside a Menu gets the native menu check column; a per-row
+            // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
+            // on unselected rows). Same pattern as the main toolbar's Sort menu.
+            Picker("Filter", selection: $selectedFilter) {
+                ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                    Text(filter.displayName(leftName: paneNames.left, rightName: paneNames.right))
+                        .tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+        } label: {
+            // Uncapped provider names can be long; truncate instead of forcing the
+            // full width (fixedSize) and clipping the header on narrow windows.
+            Label(
+                selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
+                systemImage: "line.3.horizontal.decrease.circle"
+            )
+            .lineLimit(1)
+            .truncationMode(.middle)
+        }
+        if targets.isSelectionScoped {
+            Button {
+                selection.removeAll()
+            } label: {
+                HStack(spacing: 4) {
+                    Text("\(targets.targets.count) selected")
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .font(.subheadline)
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help("Clear selection")
+        }
+        if !targets.targets.isEmpty {
+            Button {
+                startReview(targets: targets, sorted: sorted)
+            } label: {
+                Label(targets.isSelectionScoped ? "Review \(targets.targets.count)…" : "Review…", systemImage: "checklist")
+                    .lineLimit(1)
+            }
+            .buttonStyle(.bordered)
+            .disabled(isSyncActionBlocked)
+            .help("Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy")
+        }
+        if targets.copyToRightCount > 0 {
+            Button {
+                copy(direction: .copyToRight, targets: targets)
+            } label: {
+                Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isSyncActionBlocked)
+        }
+        if targets.copyToLeftCount > 0 {
+            Button {
+                copy(direction: .copyToLeft, targets: targets)
+            } label: {
+                Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isSyncActionBlocked)
+        }
+        if targets.verifiableCount > 0 {
+            Button {
+                verify(targets: targets)
+            } label: {
+                Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
+            }
+            .buttonStyle(.bordered)
+            .disabled(isSyncActionBlocked)
+        }
+        // Search collapses to an icon; clicking it reveals the field on a second
+        // line, which takes focus itself on appear (a FocusState write here, in
+        // the same transaction that inserts the field, can be silently dropped).
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) {
+                isSearchExpanded.toggle()
+                if !isSearchExpanded { searchText = "" }
+            }
+        } label: {
+            Image(systemName: "magnifyingglass")
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle((isSearchExpanded || !searchText.isEmpty) ? glassHue.accentColor : Color.secondary)
+        .help("Search by name or path")
+        .accessibilityLabel("Search by name or path")
+    }
+
+    /// The header's review-mode trailing controls: position pill, running tally, and the
+    /// session-level actions (finish the rest in bulk, or exit).
+    @ViewBuilder
+    private func reviewHeaderControls(_ session: ReviewSession) -> some View {
+        StatPill(count: session.position, label: "of \(session.total) — reviewing", color: glassHue.accentColor, systemImage: "checklist")
+        Spacer()
+        if session.copiedCount + session.skippedCount > 0 {
+            Text("\(session.copiedCount) \(session.isMove ? "moved" : "copied") · \(session.skippedCount) skipped")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        if session.pending.count > 1 {
+            Button {
+                copyRemaining(session)
+            } label: {
+                Label("\(session.isMove ? "Move" : "Copy") Remaining \(session.pending.count)…", systemImage: "arrow.forward.circle")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.bordered)
+            .help("\(session.isMove ? "Move" : "Copy") every remaining item without further review")
+        }
+        Button {
+            exitReview()
+        } label: {
+            Label("Exit Review", systemImage: "xmark.circle")
+        }
+        .buttonStyle(.bordered)
+        .help("Stop reviewing (esc)")
+    }
+
+    // MARK: Table sections
+
+    /// The review-mode table card content: the docked review card above the frozen-queue table.
+    @ViewBuilder
+    private func reviewSection(_ sessionBinding: Binding<ReviewSession>) -> some View {
+        let session = sessionBinding.wrappedValue
+        ReviewCardView(
+            syncManager: syncManager,
+            session: sessionBinding,
+            paneNames: paneNames,
+            accent: glassHue.accentColor,
+            onQuickLook: onQuickLook,
+            focusNudge: reviewFocusNudge,
+            onFinished: { finishReview() },
+            onExit: { exitReview() }
+        )
+        .padding(.horizontal, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 4)
+        reviewTable(session: session)
+    }
+
+    /// The frozen review queue: same cells as the live table, but unsorted (review order is the
+    /// order captured at entry), with the direction column swapped for per-item status. Native
+    /// selection doubles as the "current item" highlight (see the `reviewSelection` onChange).
+    private func reviewTable(session: ReviewSession) -> some View {
+        Table(session.queue, selection: $reviewSelection) {
+            TableColumn("Name") { DifferenceNameCell(difference: $0) }
+            TableColumn("Change") { DifferenceChangeCell(difference: $0) }
+            TableColumn("Size") { DifferenceSizeCell(difference: $0) }
+                .width(min: 70, ideal: 90)
+            TableColumn("Status") { ReviewStatusCell(difference: $0, session: session) }
+                .width(min: 96, ideal: 140)
+        }
+        .scrollContentBackground(.hidden)
+        .tableStyle(.inset(alternatesRowBackgrounds: false))
+        // The status cell's "Reviewing" marker and the selection highlight follow the app hue.
+        .tint(glassHue.accentColor)
+        .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
+            // Inspection only mid-review: no ignore toggle (it edits the live list, not the
+            // frozen queue) and no bulk copy/move (that's what the review itself is for).
+            if ids.count == 1, let id = ids.first,
+               let difference = session.queue.first(where: { $0.id == id }) {
+                inspectionMenuItems(for: difference)
+            }
+        }
+    }
+
+    /// The normal table card content: bulk-op progress rows above the live differences table.
+    @ViewBuilder
+    private func standardTableSection(sorted: [FileDifference]) -> some View {
+        if let progress = syncManager.verifyAllProgress {
+            syncProgressRow(verb: "Verifying", completed: progress.completed, total: progress.total)
+        }
+        if let progress = syncManager.bulkSyncProgress {
+            syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
+        }
+        Table(sorted, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
+            TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
+            TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
+                .width(min: 70, ideal: 90)
+            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
+                .width(min: 96, ideal: 140)
+        }
+        // Let the surface fill below show through: hide the scroll background AND the
+        // alternating row fills, or the Table paints opaque (white) rows over the surface.
+        .scrollContentBackground(.hidden)
+        .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
+            differenceContextMenu(for: ids, in: sorted)
+        }
+        .overlay {
+            if sorted.isEmpty {
+                emptyState
+            }
+        }
+    }
+
+    // MARK: Review lifecycle
+
+    /// Enters review mode over the current action targets, in visible table order. The move
+    /// modifier is read here, at entry, and fixed for the whole session (the card and header
+    /// relabel to Move) — unlike the bulk buttons there's no long-lived press to track.
+    private func startReview(targets: DifferenceActionTargets, sorted: [FileDifference]) {
+        let targetIds = Set(targets.targets.map(\.id))
+        let queue = sorted.filter { targetIds.contains($0.id) }
+        guard let session = ReviewSession(queue: queue, isMove: ModifierTracker.moveModifierHeld) else { return }
+        Logger.shared.debug(
+            "Review started: \(queue.count) item(s)"
+            + "\(session.isMove ? " (move)" : "")"
+            + " (\(targets.isSelectionScoped ? "selection" : "filtered set"))")
+        reviewSession = session
+        selection.removeAll()
+        reviewSelection = queue.first.map { [$0.id] } ?? []
+    }
+
+    /// Tears the session down after the last item was decided, summarizing into a banner.
+    private func finishReview() {
+        guard let session = reviewSession else { return }
+        let verb = session.isMove ? "moved" : "copied"
+        Logger.shared.info("Review complete: \(session.copiedCount) \(verb), \(session.skippedCount) skipped of \(session.total)")
+        syncManager.banner = .success("Review complete — \(session.copiedCount) \(verb), \(session.skippedCount) skipped")
+        reviewSession = nil
+        reviewSelection = []
+    }
+
+    /// Exits mid-review (Esc / the header button), summarizing what already happened when
+    /// anything did.
+    private func exitReview() {
+        guard let session = reviewSession else { return }
+        Logger.shared.debug("Review exited at \(session.position) of \(session.total)")
+        if session.copiedCount > 0 {
+            let verb = session.isMove ? "moved" : "copied"
+            syncManager.banner = .success("Review ended — \(session.copiedCount) \(verb), \(session.skippedCount) skipped, \(session.pending.count) not reviewed")
+        }
+        reviewSession = nil
+        reviewSelection = []
+    }
+
+    /// "Copy Remaining N…": leaves review mode and resolves every still-pending item through
+    /// the existing bulk path (or the single-item path, whose failure alert carries Retry).
+    private func copyRemaining(_ session: ReviewSession) {
+        let remaining = session.pending
+        let isMove = session.isMove
+        Logger.shared.debug("Review: \(isMove ? "move" : "copy") remaining \(remaining.count) item(s)")
+        reviewSession = nil
+        reviewSelection = []
+        if remaining.count == 1, let single = remaining.first {
+            Task { await syncManager.syncFile(single, isMove: isMove) }
+        } else {
+            Task {
+                // syncAll takes one direction and filters the subset by it; a mixed-direction
+                // remainder needs both runs — sequential, since syncAll refuses to overlap.
+                await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: remaining)
+                await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: remaining)
+            }
+        }
+    }
 
     /// The "<verb> N of M…" progress row shown above the table during a bulk op, with a Cancel
     /// button while the active operation is cancellable. Shared by the Verify and Sync passes —
@@ -382,10 +581,29 @@ public struct DifferencesView: View {
         }
     }
 
-    /// Per-row menu (#14): per-side Reveal/Quick Look/Copy Path for the sides that exist,
-    /// plus the same ignore toggle the tree panes offer.
+    /// Per-row menu (#14): the inspection items plus the same ignore toggle the tree panes offer.
     @ViewBuilder
     private func singleRowMenu(for difference: FileDifference) -> some View {
+        inspectionMenuItems(for: difference)
+        Divider()
+        let isIgnored = DifferenceRowMenu.isIgnored(difference, ignoredPaths: syncManager.ignoredPaths)
+        Button {
+            syncManager.ignoredPaths = DifferenceRowMenu.toggledIgnoredPaths(
+                for: difference,
+                ignoredPaths: syncManager.ignoredPaths
+            )
+        } label: {
+            Label(
+                isIgnored ? "Include in comparison" : "Ignore in comparison",
+                systemImage: isIgnored ? "eye" : "eye.slash"
+            )
+        }
+    }
+
+    /// Read-only row actions — per-side Reveal/Quick Look/Copy Path for the sides that exist.
+    /// Shared by the normal single-row menu and the review table's menu (which offers only these).
+    @ViewBuilder
+    private func inspectionMenuItems(for difference: FileDifference) -> some View {
         let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
         ForEach(sides, id: \.paneName) { side in
             Button {
@@ -412,19 +630,6 @@ public struct DifferencesView: View {
             } label: {
                 Label("Copy Path (\(side.paneName))", systemImage: "doc.on.clipboard")
             }
-        }
-        Divider()
-        let isIgnored = DifferenceRowMenu.isIgnored(difference, ignoredPaths: syncManager.ignoredPaths)
-        Button {
-            syncManager.ignoredPaths = DifferenceRowMenu.toggledIgnoredPaths(
-                for: difference,
-                ignoredPaths: syncManager.ignoredPaths
-            )
-        } label: {
-            Label(
-                isIgnored ? "Include in comparison" : "Ignore in comparison",
-                systemImage: isIgnored ? "eye" : "eye.slash"
-            )
         }
     }
 
@@ -518,6 +723,35 @@ private struct DifferenceSizeCell: View {
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+}
+
+/// Status column (review mode): the per-item outcome badge — ✓ copied/moved, – skipped, the
+/// cursor marker on the item under review, or a muted "pending".
+private struct ReviewStatusCell: View {
+    let difference: FileDifference
+    let session: ReviewSession
+
+    var body: some View {
+        Group {
+            if let outcome = session.outcome(for: difference.id) {
+                switch outcome {
+                case .copied:
+                    Label(session.isMove ? "Moved" : "Copied", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                case .skipped:
+                    Label("Skipped", systemImage: "minus.circle")
+                        .foregroundStyle(.secondary)
+                }
+            } else if difference.id == session.current?.id {
+                Label("Reviewing", systemImage: "arrow.left.circle.fill")
+                    .foregroundStyle(.tint)
+            } else {
+                Text("Pending")
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .font(.caption.weight(.medium))
     }
 }
 
