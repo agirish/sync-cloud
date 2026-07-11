@@ -30,6 +30,46 @@ extension FileSyncManager {
         }
     }
 
+    /// Surfaces a failed redo re-apply instead of swallowing it. When a redo's copy/move/mkdir
+    /// fails — typically because the source vanished between the undo and the redo — the old
+    /// best-effort `try?` gave no log line and no banner, yet still registered the item in the
+    /// next undo state, so a subsequent undo operated on a phantom item (up to a confusing
+    /// permanent-delete prompt for a file not on disk). This logs the failure at `.error` and
+    /// raises a warning banner; callers must also leave the failed item out of the next undo state.
+    nonisolated static func reportRedoFailure(
+        of destination: URL,
+        actionName: String,
+        error: Error,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        // Build the message off the main actor (it reads the non-Sendable `error`), then hop once to
+        // log and raise the banner — `Logger.shared` and `banner` are both main-actor isolated.
+        let logMessage = "Undo/Redo (\(actionName)): FAILED to redo \"\(name)\" at \(destination.path) — item left out of the next undo state (\(error.localizedDescription))"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Redo couldn't re-apply \"\(name)\" — its source may no longer exist")
+        }
+    }
+
+    /// Surfaces a copy-undo permanent delete that failed after the user confirmed it. The copied
+    /// item survives on disk, so no state is changed: its `overwritten` backup must stay where it
+    /// is (restoring it would collide with the survivor), and the already-resolved redo params
+    /// remain valid — a later redo simply replaces the surviving item.
+    nonisolated static func reportUndoRemoveFailure(
+        of destination: URL,
+        actionName: String,
+        error: Error,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the copied item remains on disk (\(error.localizedDescription))"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo couldn't remove \"\(name)\" — it is still on disk")
+        }
+    }
+
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
     enum UndoRestoreOutcome { case restored, failed, nothingToRestore }
 
@@ -74,6 +114,7 @@ extension FileSyncManager {
                         // deletion is permanent, so it needs the same user confirmation as
                         // deleteItems — never a silent removeItem fallback.
                         var trashFailures: [CopyItemState] = []
+                        var removed = 0
                         var restored = 0
                         var restoreFailures = 0
                         for item in items {
@@ -83,6 +124,7 @@ extension FileSyncManager {
                                 trashFailures.append(item)
                                 continue
                             }
+                            removed += 1
 
                             switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                             case .restored: restored += 1
@@ -97,7 +139,15 @@ extension FileSyncManager {
                             }
                             guard confirmed else { return }
                             for item in trashFailures {
-                                try? fm.removeItem(at: item.destination)
+                                do {
+                                    try fm.removeItem(at: item.destination)
+                                } catch {
+                                    // The copy survives on disk, so its backup must not be
+                                    // restored over it — report and leave everything in place.
+                                    await FileSyncManager.reportUndoRemoveFailure(of: item.destination, actionName: actionName, error: error, on: target)
+                                    continue
+                                }
+                                removed += 1
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
@@ -106,7 +156,7 @@ extension FileSyncManager {
                             }
                         }
 
-                        logger.info("Undo (\(actionName)): removed \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s)")
+                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s)")
                 }
             }
         }
@@ -116,22 +166,33 @@ extension FileSyncManager {
     func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
+            let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             let nextUndoStateResolver = AsyncValueResolver<[CopyItemState]>()
             target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
-            
+
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let params = await paramResolver.get()
                         var nextState: [CopyItemState] = []
-                        
+                        var redoFailures = 0
+
                         for param in params {
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            let trashed = try? FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
-                            nextState.append((source: param.source, destination: param.destination, overwritten: trashed))
+                            do {
+                                let trashed = try FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
+                                nextState.append((source: param.source, destination: param.destination, overwritten: trashed))
+                            } catch {
+                                // A failed re-copy must stay out of the next undo state: undoing
+                                // a phantom copy would prompt to permanently delete a file that
+                                // is not on disk.
+                                redoFailures += 1
+                                await FileSyncManager.reportRedoFailure(of: param.destination, actionName: actionName, error: error, on: target)
+                            }
                         }
-                        
+
                         await nextUndoStateResolver.resolve(nextState)
+                        logger.info("Redo (\(actionName)): copied \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
                 }
             }
         }
@@ -183,22 +244,33 @@ extension FileSyncManager {
     func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
+            let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             let nextUndoStateResolver = AsyncValueResolver<[MoveItemState]>()
             target.registerMoveUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
-            
+
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let params = await paramResolver.get()
                         var nextState: [MoveItemState] = []
-                        
+                        var redoFailures = 0
+
                         for param in params {
                             try? fm.createDirectory(at: param.to.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            let trashed = try? FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
-                            nextState.append((from: param.from, to: param.to, overwritten: trashed))
+                            do {
+                                let trashed = try FileSyncManager.safeMoveItem(at: param.from, to: param.to, fileManager: fm)
+                                nextState.append((from: param.from, to: param.to, overwritten: trashed))
+                            } catch {
+                                // A failed re-move must stay out of the next undo state: undoing
+                                // a phantom move would "restore" from a destination that was
+                                // never populated.
+                                redoFailures += 1
+                                await FileSyncManager.reportRedoFailure(of: param.to, actionName: actionName, error: error, on: target)
+                            }
                         }
-                        
+
                         await nextUndoStateResolver.resolve(nextState)
+                        logger.info("Redo (\(actionName)): moved \(nextState.count) of \(params.count) item(s), \(redoFailures) redo failure(s)")
                 }
             }
         }
@@ -209,9 +281,19 @@ extension FileSyncManager {
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: New Folder")
+            let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             target.registerCreateFolderRedo(url: url, fileManager: fm)
             target.preCountFileOperation()
             Task { await target.enqueueFileOperation(alreadyCounted: true) {
+                // This undo can follow a FAILED folder redo (its registration cannot be taken
+                // back once the redo's createDirectory throws), so it only removes what it owns:
+                // an existing directory at `url`. A missing folder — or a non-folder item that
+                // has since taken the path — must not be trashed or prompt for deletion.
+                var isDirectory: ObjCBool = false
+                guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                    logger.info("Undo (New Folder): no folder to remove at \(url.path)")
+                    return
+                }
                 do {
                     try fm.trashItem(at: url, resultingItemURL: nil)
                 } catch {
@@ -232,7 +314,15 @@ extension FileSyncManager {
             Logger.shared.info("User triggered Redo: New Folder")
             target.registerCreateFolderUndo(url: url, fileManager: fm)
             target.preCountFileOperation()
-            Task { await target.enqueueFileOperation(alreadyCounted: true) { try? fm.createDirectory(at: url, withIntermediateDirectories: true) } }
+            Task { await target.enqueueFileOperation(alreadyCounted: true) {
+                do {
+                    try fm.createDirectory(at: url, withIntermediateDirectories: true)
+                } catch {
+                    // The paired undo registered above skips when no directory exists at `url`,
+                    // so a failed re-create stays a reported no-op instead of poisoning it.
+                    await FileSyncManager.reportRedoFailure(of: url, actionName: "New Folder", error: error, on: target)
+                }
+            } }
         }
         undoManager?.setActionName("New Folder")
     }
