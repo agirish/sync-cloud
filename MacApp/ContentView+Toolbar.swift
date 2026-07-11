@@ -129,13 +129,21 @@ extension ContentView {
 
         ToolbarItemGroup(placement: .primaryAction) {
             Button(action: findDuplicatesAction) {
-                Label("Find Duplicates", systemImage: syncManager.isFindingDuplicates ? "hourglass" : "wand.and.stars")
+                // Keep the wand glyph and shimmer its stars while searching, rather than
+                // swapping to a static hourglass that reads as "hung". `.variableColor`
+                // sequences color across the wand's star layers for a distinct busy motion.
+                Label("Find Duplicates", systemImage: "wand.and.stars")
+                    .symbolEffect(.variableColor, options: .repeating, isActive: syncManager.isFindingDuplicates)
             }
             .disabled(syncManager.isFindingDuplicates)
             .help("Find duplicate folders & files in \(tidyProviderName)")
 
             Button(action: forceRefreshAction) {
-                Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
+                // Keep the refresh arrow and spin it while scanning — its own motion, and
+                // visibly distinct from Find Duplicates' shimmer. `.rotate` honors
+                // reduced-motion automatically.
+                Label("Scan", systemImage: "arrow.clockwise")
+                    .symbolEffect(.rotate, options: .repeating, isActive: isScanning)
             }
             .disabled(isScanning)
             .help("Scan for changes")
