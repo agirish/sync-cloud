@@ -13,8 +13,12 @@ public struct DetailsSidebar: View {
     /// Current root path for the right pane (used when no item is selected).
     public let rightPath: String
 
-    @State private var computedDirectorySizePath: String? = nil
+    @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
+    /// Mirror of `cache.generation` (the cache is a plain class in @State, so mutating it can't
+    /// re-trigger rendering); updated in the same onReceive closures that invalidate the cache,
+    /// so the size task's id changes and it recomputes.
+    @State private var sizeGeneration = 0
 
     /// Memoization and invalidation rules live in DetailsMetadataCache; the view only
     /// forwards lookups and the refresh/scan events to it.
@@ -73,10 +77,12 @@ public struct DetailsSidebar: View {
 
     /// `.task(id:)` key for the directory-size walk. Includes the multi-selection flag so the
     /// task re-fires when the selection collapses back to one item with the same `activePath`
-    /// (the size was cleared while multi-selected and must recompute).
+    /// (the size was cleared while multi-selected and must recompute), and the cache generation
+    /// so a refresh/scan-end drops the stale total and recomputes it.
     private struct DirectorySizeTaskID: Equatable {
         let path: String
         let isMultiSelection: Bool
+        let generation: Int
     }
 
     static func loadMetadata(for activePath: String) -> FileMetadata? {
@@ -167,10 +173,12 @@ public struct DetailsSidebar: View {
         return "\(type)\(owner)\(group)\(other) (\(octal))"
     }
 
-    private func displaySize(for data: FileMetadata) -> String {
+    /// `key` matches on generation too, so an invalidated total shows "Calculating…" while the
+    /// re-keyed task recomputes it instead of serving the pre-operation value.
+    private func displaySize(for data: FileMetadata, key: DirectorySizeTaskID) -> String {
         if !data.isDirectory { return data.size }
 
-        if computedDirectorySizePath == data.path, let computedDirectorySize {
+        if computedDirectorySizeKey == key, let computedDirectorySize {
             return computedDirectorySize
         }
         return "Calculating…"
@@ -181,6 +189,7 @@ public struct DetailsSidebar: View {
         // Metadata and icon are memoized per path (they hit the filesystem). A multi-selection
         // renders the summary instead, so the single-item lookup is skipped entirely.
         let (data, icon): (FileMetadata?, NSImage?) = summary == nil ? cache.data(for: activePath) : (nil, nil)
+        let sizeKey = DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil, generation: sizeGeneration)
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
@@ -236,7 +245,7 @@ public struct DetailsSidebar: View {
                             Divider()
                             
                             metadataRow(label: "Kind:", value: data.kind)
-                            metadataRow(label: "Size:", value: displaySize(for: data))
+                            metadataRow(label: "Size:", value: displaySize(for: data, key: sizeKey))
                             metadataRow(label: "Where:", value: data.path)
                             
                             Divider()
@@ -273,32 +282,34 @@ public struct DetailsSidebar: View {
         .clipped()
         .onReceive(syncManager.refreshSubject) { _ in
             cache.refreshOccurred()
+            sizeGeneration = cache.generation
         }
         .onReceive(syncManager.$isScanning) { scanning in
             cache.scanningChanged(scanning)
+            sizeGeneration = cache.generation
         }
-        .task(id: DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil)) {
+        .task(id: sizeKey) {
             // No directory walk while multi-selected: the summary never shows a computed
             // folder size (it stays metadata-only).
             guard summary == nil, let data, data.isDirectory else {
-                computedDirectorySizePath = nil
+                computedDirectorySizeKey = nil
                 computedDirectorySize = nil
                 return
             }
 
-            // Avoid re-computing if we already have a cached value for this path.
-            if computedDirectorySizePath == data.path, computedDirectorySize != nil {
+            // Avoid re-computing if we already have a cached value for this key (same path,
+            // same generation, single-selection).
+            if computedDirectorySizeKey == sizeKey, computedDirectorySize != nil {
                 return
             }
 
-            computedDirectorySizePath = data.path
+            computedDirectorySizeKey = sizeKey
             computedDirectorySize = nil
 
-            let pathToCompute = data.path
-            let result = await Self.computeDirectorySizeString(path: pathToCompute)
+            let result = await Self.computeDirectorySizeString(path: data.path)
 
             guard !Task.isCancelled else { return }
-            if computedDirectorySizePath == pathToCompute {
+            if computedDirectorySizeKey == sizeKey {
                 computedDirectorySize = result ?? "--"
             }
         }

@@ -16,6 +16,13 @@ final class DetailsMetadataCache {
     private var metadata: DetailsSidebar.FileMetadata?
     private var icon: NSImage?
 
+    /// Monotonic count of invalidation events (refresh, scan completing). The sidebar keys its
+    /// computed-directory-size task on this so the same events that drop the memoized metadata
+    /// also clear the computed folder total and trigger a recompute — otherwise a copy/delete
+    /// inside the selected folder would leave the pre-operation size on screen until the
+    /// selection changed.
+    private(set) var generation = 0
+
     init(
         loadMetadata: @escaping @MainActor (String) -> DetailsSidebar.FileMetadata? = DetailsSidebar.loadMetadata(for:),
         loadIcon: @escaping @MainActor (String) -> NSImage = { NSWorkspace.shared.icon(forFile: $0) }
@@ -40,6 +47,7 @@ final class DetailsMetadataCache {
     /// memoized metadata so the next lookup re-stats it.
     func refreshOccurred() {
         path = nil
+        generation += 1
     }
 
     /// A completed scan is the "pick up external changes" gesture: the panes rebuild from
@@ -47,6 +55,9 @@ final class DetailsMetadataCache {
     /// showing pre-scan size/dates and contradict the trees. Only `isScanning == false`
     /// invalidates; a scan *starting* keeps the cache.
     func scanningChanged(_ isScanning: Bool) {
-        if !isScanning { path = nil }
+        if !isScanning {
+            path = nil
+            generation += 1
+        }
     }
 }

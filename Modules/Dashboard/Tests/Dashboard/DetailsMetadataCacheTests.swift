@@ -114,6 +114,39 @@ import AppKit
         #expect(fresh.metadata?.modificationDate == "Jul 6, 2026 at 3:00:00 PM")
     }
 
+    /// The computed-directory-size task keys on `generation`, so the same events that drop the
+    /// memoized metadata must bump it — that is what clears a stale folder total after a
+    /// copy/delete inside the selected folder and triggers the recompute.
+    @Test func generationBumpsOnRefreshAndScanCompletionOnly() {
+        let loader = CountingLoader()
+        let cache = makeCache(loader: loader)
+
+        #expect(cache.generation == 0)
+
+        cache.refreshOccurred()
+        #expect(cache.generation == 1)
+
+        // Scan starting keeps the metadata cache — and must keep the computed size too.
+        cache.scanningChanged(true)
+        #expect(cache.generation == 1)
+
+        cache.scanningChanged(false)
+        #expect(cache.generation == 2)
+    }
+
+    /// Lookups (hits or path changes) must not bump the generation, or every selection change
+    /// would needlessly restart the directory-size walk twice.
+    @Test func lookupsDoNotBumpGeneration() {
+        let loader = CountingLoader()
+        let cache = makeCache(loader: loader)
+
+        _ = cache.data(for: "/vault/a.txt")
+        _ = cache.data(for: "/vault/a.txt")
+        _ = cache.data(for: "/vault/b.txt")
+
+        #expect(cache.generation == 0)
+    }
+
     @Test func missingPathMemoizesNilResult() {
         let loader = CountingLoader()
         let cache = DetailsMetadataCache(
