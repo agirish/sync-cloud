@@ -7,8 +7,10 @@ import Sync
 ///
 /// `FileDifference.relativePath` is relative to the focused comparison root, while tree
 /// node IDs are absolute paths; the index joins each relative path onto the pane's root
-/// (`rootPath`) to key by absolute path. Ancestor directories of every diff (strictly
-/// below the root) are also indexed so folders can show a contained-differences count.
+/// (`rootPath`) to key by absolute path, re-aligned to the side's real casing via
+/// `sideAlignedPath` (lookups are exact-string). Ancestor directories of every diff
+/// (strictly below the root) are also indexed so folders can show a contained-differences
+/// count.
 public struct DiffStatusIndex: Equatable, Sendable {
     /// Absolute path of a differing item → its difference type.
     private let statusByPath: [String: FileDifference.DifferenceType]
@@ -37,7 +39,11 @@ public struct DiffStatusIndex: Equatable, Sendable {
         for difference in differences {
             let relative = Self.normalizedRelative(difference.relativePath)
             guard !relative.isEmpty else { continue }
-            let absolute = root + "/" + relative
+            let absolute = Self.sideAlignedPath(
+                joined: root + "/" + relative,
+                left: difference.leftItemPath,
+                right: difference.rightItemPath
+            )
             status[absolute] = difference.type
 
             // Credit every ancestor directory strictly between the root and the item.
@@ -62,6 +68,20 @@ public struct DiffStatusIndex: Equatable, Sendable {
     /// and for directories with no differing descendants).
     public func containedDiffCount(forNodeId id: String) -> Int {
         containedDiffCounts[id] ?? 0
+    }
+
+    /// The absolute key to index a difference under. `relativePath` always carries
+    /// LEFT-side casing, but on a case-insensitive volume a pair can differ in case
+    /// between the sides — then the right pane's node ids carry right-side casing and an
+    /// exact lookup on the join would miss. When the join isn't literally one of the
+    /// difference's side paths but matches one case-insensitively, that side's real path
+    /// (root included, so a right pane under a left-cased join can't be misattributed)
+    /// wins; the exact-match check first keeps the left index byte-identical to the join.
+    static func sideAlignedPath(joined: String, left: String, right: String) -> String {
+        if left == joined || right == joined { return joined }
+        if left.caseInsensitiveCompare(joined) == .orderedSame { return left }
+        if right.caseInsensitiveCompare(joined) == .orderedSame { return right }
+        return joined
     }
 
     /// Root with trailing slashes stripped, so joining with "/" never doubles a

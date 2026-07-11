@@ -122,6 +122,42 @@ private func diff(
         #expect(index.status(forNodeId: "/root/sub") == nil)
     }
 
+    @Test func testCaseVariantPairKeysEachPaneWithItsOwnSideCasing() {
+        // relativePath always carries LEFT-side casing; on a case-insensitive volume the
+        // right side of a pair can differ in case, and the right pane's node ids carry
+        // that right-side casing.
+        let difference = FileDifference(
+            relativePath: "Sub/File.txt",
+            leftItemPath: "/left/Sub/File.txt",
+            rightItemPath: "/right/sub/file.txt",
+            type: .differentDates,
+            action: .copyToRight,
+            description: "test"
+        )
+        let left = DiffStatusIndex(differences: [difference], rootPath: "/left")
+        let right = DiffStatusIndex(differences: [difference], rootPath: "/right")
+
+        #expect(left.status(forNodeId: "/left/Sub/File.txt") == .differentDates)
+        #expect(left.containedDiffCount(forNodeId: "/left/Sub") == 1)
+        // Badge and ancestor count must land on the right pane's actual node ids, not on
+        // a left-cased join that matches no row.
+        #expect(right.status(forNodeId: "/right/sub/file.txt") == .differentDates)
+        #expect(right.containedDiffCount(forNodeId: "/right/sub") == 1)
+        #expect(right.status(forNodeId: "/right/Sub/File.txt") == nil)
+    }
+
+    @Test func testSideAlignedPathPrefersExactThenCaseInsensitiveSideMatch() {
+        // Exact match keeps the join byte-identical (left index unchanged by the fix).
+        #expect(DiffStatusIndex.sideAlignedPath(
+            joined: "/l/A.txt", left: "/l/A.txt", right: "/r/a.txt") == "/l/A.txt")
+        // Case-insensitive side match re-aligns to that side's real casing.
+        #expect(DiffStatusIndex.sideAlignedPath(
+            joined: "/r/A.txt", left: "/l/A.txt", right: "/r/a.txt") == "/r/a.txt")
+        // A join matching neither side (distinct roots) stays untouched.
+        #expect(DiffStatusIndex.sideAlignedPath(
+            joined: "/x/A.txt", left: "/l/A.txt", right: "/r/a.txt") == "/x/A.txt")
+    }
+
     @Test func testPathsWithSpacesAndNonASCIINamesResolve() {
         let index = DiffStatusIndex(
             differences: [diff("Süb Fólder/日本語 メモ.txt", type: .differentDates)],
