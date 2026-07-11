@@ -511,14 +511,14 @@ struct ProviderSettingsSection: View {
     }
 
     private func commitPath() {
-        let normalized = draftPath.trimmingCharacters(in: .newlines)
+        let normalized = ProviderFieldEdit.normalized(draftPath)
         draftPath = normalized
         guard normalized != provider.path else { return }
         settings.setPath(normalized, for: provider.id)
     }
 
     private func commitName() {
-        let normalized = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = ProviderFieldEdit.normalized(draftName)
         if normalized == provider.displayName {
             draftName = normalized
             return
@@ -527,6 +527,17 @@ struct ProviderSettingsSection: View {
         // and the onChange(of: provider.displayName) refreshes the field.
         settings.setCustomName(normalized, for: provider.id)
         draftName = normalized.isEmpty ? provider.displayName : normalized
+    }
+}
+
+/// Normalization applied to the provider text fields (path and name) before committing.
+/// Pure and internal so tests can pin the trimming without instantiating the view.
+enum ProviderFieldEdit {
+    /// Pasted values often arrive with a trailing space or newline (terminal copies, drag-outs).
+    /// A path stored verbatim with trailing whitespace fails validation and scans empty with no
+    /// visual hint — the badge just goes red — so both fields trim whitespace and newlines alike.
+    static func normalized(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
