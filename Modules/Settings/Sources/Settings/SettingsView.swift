@@ -563,7 +563,7 @@ struct ProviderSettingsSection: View {
 
             LabeledContent("Location") {
                 TextField("Synchronized path", text: $draftPath)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .font(.system(.callout, design: .monospaced))
                     .labelsHidden()
                     .onSubmit { commitPath() }
