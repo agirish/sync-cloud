@@ -4,13 +4,19 @@ import AppKit
 /// Clickable breadcrumb inside each `PaneHeader`: the provider root (named after the root
 /// folder, full path in the tooltip) followed by the pane's relative-path segments. Clicking
 /// a crumb re-focuses that pane on the ancestor; ⌥-clicking any crumb (including the current
-/// folder) focuses *both* panes on the same relative path. Deep trails collapse their middle
-/// into an ellipsis menu, same as the old toolbar bar did.
+/// folder) focuses *both* panes on the same relative path. A trailing "Link both" toggle makes
+/// that both-panes behavior sticky, so a plain click keeps the two panes in lock-step while
+/// drilling down. Deep trails collapse their middle into an ellipsis menu, same as the old
+/// toolbar bar did.
 struct PaneBreadcrumb: View {
     let rootPath: String
     let relativePath: String
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
+
+    /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Shared
+    /// across both panes' breadcrumbs by design: one setting, mirrored in each toggle.
+    @AppStorage("breadcrumbLinkBothPanes") private var linkBothPanes = false
 
     var body: some View {
         let crumbs = BreadcrumbTrail.crumbs(forRelativePath: relativePath)
@@ -50,8 +56,27 @@ struct PaneBreadcrumb: View {
                 }
             }
             Spacer(minLength: 0)
+            linkBothToggle
         }
         .font(.caption)
+    }
+
+    /// A subtle, caption-scaled toggle that makes the ⌥-click "navigate both panes" trick a
+    /// visible, first-class mode. Tinted with the accent color when on, muted when off.
+    private var linkBothToggle: some View {
+        Button {
+            linkBothPanes.toggle()
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .foregroundColor(linkBothPanes ? .accentColor : .secondary)
+        }
+        .buttonStyle(.plain)
+        .help(linkBothPanes
+            ? "Linked: clicking a folder moves both panes. Click to unlink."
+            : "Link panes: clicking a folder will move both. Tip: hold ⌥ to do it once.")
+        .accessibilityLabel("Link both panes")
+        .accessibilityValue(linkBothPanes ? "On" : "Off")
+        .accessibilityAddTraits(linkBothPanes ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -62,16 +87,24 @@ struct PaneBreadcrumb: View {
             .foregroundColor(isCurrent ? .primary : .secondary)
             .lineLimit(1)
             .truncationMode(.middle)
-            .help(isCurrent
-                ? "\(helpPath) — ⌥-click to bring both panes here"
-                : "Go to \(helpPath) — ⌥-click to bring both panes here")
+            .help(crumbHelp(isCurrent: isCurrent, helpPath: helpPath))
     }
 
-    /// ⌥-click moves both panes to the crumb's path; a plain click moves only this pane.
-    /// The current folder's crumb only responds to ⌥ (a plain click would be a no-op that
-    /// still pollutes the back/forward history).
+    /// Tooltip that stays honest whether panes are linked or not: when linked, a plain click
+    /// already drives both panes, so we drop the ⌥ instruction and say so.
+    private func crumbHelp(isCurrent: Bool, helpPath: String) -> String {
+        let destination = isCurrent ? helpPath : "Go to \(helpPath)"
+        return linkBothPanes
+            ? "\(destination) — panes are linked, so both move here"
+            : "\(destination) — ⌥-click to bring both panes here"
+    }
+
+    /// Moves both panes to the crumb's path when linked or ⌥ is held; otherwise a plain click
+    /// moves only this pane. When neither applies, the current folder's crumb is a no-op (a
+    /// plain click on it would only pollute the back/forward history).
     private func navigate(to relativePath: String, isCurrent: Bool) {
-        if NSEvent.modifierFlags.contains(.option) {
+        let both = linkBothPanes || NSEvent.modifierFlags.contains(.option)
+        if both {
             onNavigateBoth(relativePath)
         } else if !isCurrent {
             onNavigate(relativePath)
