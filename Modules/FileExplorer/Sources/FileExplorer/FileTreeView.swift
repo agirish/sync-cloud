@@ -313,21 +313,14 @@ public struct FileTreeView: View {
 
     @ViewBuilder
     private var emptyAreaContextMenu: some View {
-        Button(action: { delegate.handleRefresh() }) {
-            Label("Refresh", systemImage: "arrow.clockwise")
+        SharedFileMenuItems.refresh(delegate: delegate)
+        Divider()
+        SharedFileMenuItems.newFolder(at: currentPath, delegate: delegate)
+        SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
+            delegate.handlePasteToPath(currentPath)
         }
         Divider()
-        Button(action: { delegate.handleCreateFolder(at: currentPath) }) {
-            Label("New Folder", systemImage: "folder.badge.plus")
-        }
-        Button(action: { delegate.handlePasteToPath(currentPath) }) {
-            Label("Paste here", systemImage: "doc.on.clipboard")
-        }
-        .disabled(!delegate.clipboardHasItems)
-        Divider()
-        Button(action: { delegate.handleGetInfo(for: currentPath) }) {
-            Label("Get Info", systemImage: "info.circle")
-        }
+        SharedFileMenuItems.getInfo(for: currentPath, delegate: delegate)
         Divider()
         Menu("Sort By") {
             Button("Name") { delegate.handleSort(.name) }
@@ -336,6 +329,40 @@ public struct FileTreeView: View {
             Button("Size") { delegate.handleSort(.size) }
             Button("Tags") { delegate.handleSort(.tags) }
         }
+    }
+}
+
+/// Menu items shared verbatim between the pane's empty-area menu and the row menu
+/// (FileContextMenu), so their labels, icons, and enabled states can't drift. Row-only
+/// items (Reveal, Quick Look, Rename, …) stay in FileContextMenu. The two menus target
+/// different paths, so each item takes its target explicitly.
+enum SharedFileMenuItems {
+    static func refresh(delegate: FileActionDelegate) -> some View {
+        Button(action: { delegate.handleRefresh() }) {
+            Label("Refresh", systemImage: "arrow.clockwise")
+        }
+    }
+
+    static func newFolder(at path: String, delegate: FileActionDelegate) -> some View {
+        Button(action: { delegate.handleCreateFolder(at: path) }) {
+            Label("New Folder", systemImage: "folder.badge.plus")
+        }
+    }
+
+    static func getInfo(for path: String, delegate: FileActionDelegate) -> some View {
+        Button(action: { delegate.handleGetInfo(for: path) }) {
+            Label("Get Info", systemImage: "info.circle")
+        }
+    }
+
+    /// The empty-area menu pastes into the current folder (handlePasteToPath) while the
+    /// row menu pastes relative to the clicked node (handlePaste), so the action comes
+    /// from the caller; the label and the clipboard gating stay shared.
+    static func pasteHere(clipboardHasItems: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label("Paste here", systemImage: "doc.on.clipboard")
+        }
+        .disabled(!clipboardHasItems)
     }
 }
 
@@ -412,14 +439,10 @@ struct FileContextMenu: View {
         let count = selectedNodes.count
         
         Group {
-            Button(action: { delegate.handleRefresh() }) {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
+            SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
             if count == 1, let singleNode = selectedNodes.first {
-                Button(action: { delegate.handleGetInfo(for: singleNode.id) }) {
-                    Label("Get Info", systemImage: "info.circle")
-                }
+                SharedFileMenuItems.getInfo(for: singleNode.id, delegate: delegate)
                 // Same direct reveal the Differences row menu and the error alert use;
                 // there is no FileActionHandler reveal to delegate to.
                 Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
@@ -434,9 +457,7 @@ struct FileContextMenu: View {
                 }
                 
                 if singleNode.isDirectory {
-                    Button(action: { delegate.handleCreateFolder(at: singleNode.id) }) {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                    }
+                    SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)
                     Divider()
                     Button(action: { delegate.handleFocus(singleNode) }) {
                         // Better clarifies the function which isolates a specific folder mapping
@@ -471,10 +492,9 @@ struct FileContextMenu: View {
                 Label(count > 1 ? "Copy \(count) items" : "Copy", systemImage: "doc.on.doc")
             }
             
-            Button(action: { delegate.handlePaste(node) }) {
-                Label("Paste here", systemImage: "doc.on.clipboard")
+            SharedFileMenuItems.pasteHere(clipboardHasItems: delegate.clipboardHasItems) {
+                delegate.handlePaste(node)
             }
-            .disabled(!delegate.clipboardHasItems)
 
             if !otherSelection.isEmpty {
                 let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
