@@ -99,6 +99,57 @@ import Foundation
         #expect(succeeded)
         #expect(manager.differences.isEmpty)
         #expect(manager.rawDifferences.isEmpty)
+        // The stale id marked in-flight at entry must not leak: a leaked id would refuse
+        // pane swaps and Verify All forever after the successful sync.
+        #expect(manager.syncingDifferenceIds.isEmpty)
+    }
+
+    /// Same stale-id scenario through the BULK path — Copy Remaining hands syncAll a frozen
+    /// subset whose UUIDs can predate a rescan.
+    @MainActor
+    @Test func syncAllWithStaleSubsetStillClearsTheMatchingLiveRows() async throws {
+        let (manager, mockFM, diff) = try makeFixture()
+        let reIdd = FileDifference(
+            relativePath: diff.relativePath,
+            leftItemPath: diff.leftItemPath,
+            rightItemPath: diff.rightItemPath,
+            type: diff.type,
+            action: diff.action,
+            description: diff.description
+        )
+        manager.rawDifferences = [reIdd]
+        manager.differences = [reIdd]
+
+        await manager.syncAll(direction: .copyToRight, isMove: false, subset: [diff])
+        #expect(mockFM.virtualDisk["/dst/test.txt"] != nil)
+        #expect(manager.differences.isEmpty)
+        #expect(manager.rawDifferences.isEmpty)
+        #expect(manager.syncingDifferenceIds.isEmpty)
+    }
+
+    /// Keep-both with a re-idd live row: returns true AND removes the row even though the
+    /// original destination still differs — the copy landed at a unique sibling, and the
+    /// operation's own rescan re-adds whatever still differs. Pins both halves of the
+    /// review-outcome contract so neither can silently flip.
+    @MainActor
+    @Test func keepBothWithStaleIdReturnsTrueAndRemovesTheRow() async throws {
+        let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
+        manager.collisionResolver = { _, _, _ in .keepBoth }
+        let reIdd = FileDifference(
+            relativePath: diff.relativePath,
+            leftItemPath: diff.leftItemPath,
+            rightItemPath: diff.rightItemPath,
+            type: diff.type,
+            action: diff.action,
+            description: diff.description
+        )
+        manager.rawDifferences = [reIdd]
+        manager.differences = [reIdd]
+
+        let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+        #expect(succeeded)
+        #expect(manager.differences.isEmpty)
+        #expect(mockFM.virtualDisk.keys.contains { $0.hasPrefix("/dst/test") && $0 != "/dst/test.txt" })
     }
 
     /// The path-matching fallback must not swallow OTHER rows: same path but the opposite

@@ -32,7 +32,11 @@ struct ReviewCardView: View {
     /// Called on Esc; the host exits the session (the header's Exit button is the other path).
     let onExit: () -> Void
 
-    @State private var facts = ReviewCardModel.Facts()
+    /// Facts tagged with the item they were statted for: the card renders empty facts — never
+    /// the PREVIOUS item's dates/warnings — for the frame(s) between an advance and `.task(id:)`
+    /// running (a reset inside the task body lands one render too late, flashing item A's
+    /// folder-replace banner on item B during fast ⏎-driven review).
+    @State private var loadedFacts: (itemID: UUID, facts: ReviewCardModel.Facts)? = nil
     @State private var isVerifying = false
     @FocusState private var focused: Bool
 
@@ -44,6 +48,7 @@ struct ReviewCardView: View {
 
     @ViewBuilder
     private func card(for item: FileDifference) -> some View {
+        let facts = loadedFacts?.itemID == item.id ? loadedFacts!.facts : ReviewCardModel.Facts()
         let model = ReviewCardModel.make(
             difference: item, facts: facts, paneNames: paneNames, isMove: session.isMove)
         VStack(alignment: .leading, spacing: 10) {
@@ -75,22 +80,40 @@ struct ReviewCardView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onKeyPress(.return) { keyAct { onPrimary(item) } }
-        .onKeyPress(.delete) { keyAct { onSkip(item) } }
+        .onKeyPress(.return) {
+            // Both gates: a copy mid-verify would overwrite the destination while the hash
+            // reads it (same exclusion the bulk paths enforce via isVerifyAllRunning).
+            if !isActing && !isVerifying { onPrimary(item) }
+            return .handled
+        }
+        // .down only, no .repeat: Skip is synchronous and decided rows are unrevisitable, so
+        // a held-a-beat-too-long ⌫ must not mass-skip the queue.
+        .onKeyPress(keys: [.delete], phases: .down) { _ in
+            if !isActing { onSkip(item) }
+            return .handled
+        }
         .onKeyPress(.space) { quickLookKeyPressed(item) }
         .onKeyPress(.escape) {
             onExit()
             return .handled
         }
         .task(id: item.id) {
+            isVerifying = false
             // Deferred one turn: a FocusState write in the same transaction that inserts the
             // view can be silently dropped (same gotcha as the header search field).
-            Task { @MainActor in focused = true }
-            facts = ReviewCardModel.Facts()
-            let loaded = await Self.loadFacts(for: item)
+            Task { @MainActor in
+                // Don't yank key focus mid-typing: an async outcome can advance the item while
+                // the user is in a text field (Settings overlay, rename prompt) — claiming
+                // focus then would redirect their next Return into a Copy. Field editors are
+                // NSTextView, so this covers every AppKit text-input surface.
+                if !(NSApp.keyWindow?.firstResponder is NSTextView) {
+                    focused = true
+                }
+            }
+            let loaded = await Self.loadFacts(for: item, fileManager: fileManager)
             // Stale-guard: the user may have decided/jumped while the stat ran.
             if !Task.isCancelled, session.current?.id == item.id {
-                facts = loaded
+                loadedFacts = (item.id, loaded)
             }
         }
         .onChange(of: focusNudge) { _, _ in
@@ -199,7 +222,7 @@ struct ReviewCardView: View {
                 onPrimary(item)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(isActing)
+            .disabled(isActing || isVerifying)
             Button("Skip") {
                 onSkip(item)
             }
@@ -224,7 +247,9 @@ struct ReviewCardView: View {
                     Label("Verify", systemImage: "checkmark.shield")
                 }
                 .buttonStyle(.borderless)
-                .disabled(isVerifying)
+                // isActing too: hashing a destination the in-flight copy is overwriting
+                // would record a verdict over half-written content.
+                .disabled(isVerifying || isActing)
                 .help("Checksum both sides to confirm whether the contents actually differ")
             }
             if isActing || isVerifying {
@@ -240,13 +265,6 @@ struct ReviewCardView: View {
     }
 
     // MARK: Actions
-
-    /// Runs a key-triggered decision unless one is already in flight; always consumes the key
-    /// (an ignored Return/Delete rattling around the window helps nobody mid-review).
-    private func keyAct(_ action: () -> Void) -> KeyPress.Result {
-        if !isActing { action() }
-        return .handled
-    }
 
     private func quickLookKeyPressed(_ item: FileDifference) -> KeyPress.Result {
         guard let onQuickLook else { return .ignored }
@@ -282,21 +300,23 @@ struct ReviewCardView: View {
 
     /// Stats what `FileDifference` doesn't carry: both sides' modification dates, and — for a
     /// folder about to be replaced — how much it contains. Off the main actor: on network/cloud
-    /// volumes a synchronous stat can block for seconds (same reason as `statExists`).
-    nonisolated static func loadFacts(for difference: FileDifference) async -> ReviewCardModel.Facts {
+    /// volumes a synchronous stat can block for seconds (same reason as `statExists`). Uses the
+    /// injected `FileManaging` so the facts describe the same disk the copy and Verify run
+    /// against (a mocked manager must not have the warning read the real disk).
+    nonisolated static func loadFacts(for difference: FileDifference, fileManager: FileManaging) async -> ReviewCardModel.Facts {
         let sourcePath = difference.reviewSourcePath
         let destinationPath = difference.reviewDestinationPath
         let needsDestination = difference.type == .differentDates
         return await Task.detached(priority: .userInitiated) {
-            let fm = FileManager.default
             var facts = ReviewCardModel.Facts()
-            facts.sourceModified = (try? fm.attributesOfItem(atPath: sourcePath))?[.modificationDate] as? Date
+            facts.sourceModified = (try? fileManager.attributesOfItem(atPath: sourcePath))?[.modificationDate] as? Date
             guard needsDestination else { return facts }
-            facts.destinationModified = (try? fm.attributesOfItem(atPath: destinationPath))?[.modificationDate] as? Date
+            facts.destinationModified = (try? fileManager.attributesOfItem(atPath: destinationPath))?[.modificationDate] as? Date
             var isDirectory: ObjCBool = false
-            if fm.fileExists(atPath: destinationPath, isDirectory: &isDirectory), isDirectory.boolValue {
+            if fileManager.fileExists(atPath: destinationPath, isDirectory: &isDirectory), isDirectory.boolValue {
                 facts.destinationIsDirectory = true
-                if let enumerator = fm.enumerator(atPath: destinationPath) {
+                let destinationURL = URL(fileURLWithPath: destinationPath)
+                if let enumerator = fileManager.enumerator(at: destinationURL, includingPropertiesForKeys: nil, options: [], errorHandler: nil) {
                     var count = 0
                     while enumerator.nextObject() != nil {
                         count += 1

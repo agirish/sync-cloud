@@ -247,6 +247,7 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched left provider to \(newId)")
+            endReviewForComparisonChange()
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
             syncManager.resetNavigation()
         }
@@ -257,6 +258,7 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched right provider to \(newId)")
+            endReviewForComparisonChange()
             syncManager.resetNavigation()
         }
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
@@ -288,6 +290,7 @@ struct ContentView: View {
                 // Same pane ids, different root underneath: the current trees and
                 // differences were built against the old root, so drop them before the
                 // rescan rather than leaving their stale absolute paths clickable.
+                endReviewForComparisonChange()
                 syncManager.invalidateComparisonState()
                 refreshAction()
             }
@@ -332,6 +335,9 @@ struct ContentView: View {
     /// When user selects items in a pane and the bottom pane is on Differences, switch to
     /// Details tab — unless the user manually picked Differences (see PaneLogic).
     private func switchToDetailsTabIfNeeded(whenSelectionChanges paths: Set<String>) {
+        // An active review owns the bottom pane: clicking a pane file to eyeball it mid-review
+        // must not yank the review UI away (the session survives, but invisibly).
+        guard !reviewStore.isReviewing else { return }
         guard PaneLogic.shouldAutoSwitchToDetails(
             hasSelection: !paths.isEmpty,
             bottomPaneVisible: showingBottomPane,
@@ -392,6 +398,17 @@ struct ContentView: View {
     /// navigation; this method drives the one rescan itself. The manager refuses the swap
     /// while file operations are in flight — the provider ids must then stay put too, or the
     /// pane labels would flip over unswapped state.
+    /// Ends an active guided review when the comparison itself changes (pane swap, provider
+    /// switch, root edit). The frozen queue captured the OLD comparison: its copies would
+    /// still run against the captured absolute paths, but the review card relabels each item
+    /// against the CURRENT pane names — after a swap, exactly backwards. Ending the session
+    /// beats showing directions a user could approve in reverse.
+    private func endReviewForComparisonChange() {
+        guard reviewStore.isReviewing else { return }
+        reviewStore.endSession()
+        syncManager.banner = .warning("Review ended — the comparison changed")
+    }
+
     private func swapPanesAction() {
         // While discoverProviders() is still awaiting, both id onChanges bail on the bootstrap
         // guard without decrementing pendingSwapProviderChanges — a swap now would strand the
@@ -399,6 +416,7 @@ struct ContentView: View {
         // window is interactive during bootstrap, so refuse the swap outright.
         guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
+        endReviewForComparisonChange()
         let swapped = PaneLogic.swappedProviderIds(
             leftProviderId: leftProviderId,
             rightProviderId: rightProviderId

@@ -347,13 +347,13 @@ public class FileSyncManager: ObservableObject {
         syncingDifferenceIds.subtract(ids)
     }
 
-    /// Removes resolved differences by id AND by (relativePath, action) identity. Sync callers
-    /// that operate on captured values (guided review's frozen queue, a Copy Remaining subset)
-    /// can outlive a rescan, which regenerates every row UUID — an id-only removal then no-ops
-    /// and the just-resolved row ghosts in the list until the next rescan lands. Matching by
-    /// the pending-copy identity is safe: the operation just equalized the two sides, and if
-    /// the file changed again inside that window, the operation's own triggered rescan re-adds
-    /// the row.
+    /// Removes resolved differences by id AND by pending-copy identity. Sync callers that
+    /// operate on captured values (guided review's frozen queue, a Copy Remaining subset) can
+    /// outlive a rescan, which regenerates every row UUID — an id-only removal then no-ops and
+    /// the just-resolved row ghosts in the list until the next rescan lands. Matching a row
+    /// this way is safe for replace/plain copies (the operation just equalized the two sides);
+    /// a keep-both leaves the destination differing, but its row was removed under fresh ids
+    /// too, and the operation's own triggered rescan re-adds whatever still differs.
     internal func removeResolvedDifferences(matching resolved: [FileDifference]) {
         guard !resolved.isEmpty else { return }
         let keys = Set(resolved.map(Self.pendingCopyKey))
@@ -365,9 +365,15 @@ public class FileSyncManager: ObservableObject {
         removeResolvedDifferences(ids: ids)
     }
 
-    /// The identity of "this pending copy" across rescans (ids don't survive them).
+    /// The identity of "this pending copy" across rescans (ids don't survive them): the
+    /// absolute source→destination pair. Absolute on purpose — `relativePath` is relative to
+    /// the FOCUSED folder, so a same-named file in another focus could collide and get a real
+    /// row removed. The pair is also swap-invariant (`mirrored()` flips action and sides
+    /// together, so from→to is unchanged) and naturally excludes a row whose direction flipped
+    /// since capture — that is a different pending copy and must survive.
     private nonisolated static func pendingCopyKey(for difference: FileDifference) -> String {
-        "\(difference.action == .copyToRight ? "R" : "L")|\(difference.relativePath)"
+        let urls = difference.transferURLs
+        return "\(urls.from.path)|\(urls.to.path)"
     }
 
     /// Marks the given differences as having an in-flight operation, in both the authoritative

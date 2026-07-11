@@ -73,8 +73,11 @@ public struct DifferencesView: View {
         // Derive everything once per render: the header reads the target counts several times and
         // this view re-renders per file during bulk sync. One O(n) filter+search pass, then an
         // O(n log n) sort over the (much smaller, filtered) result to match the Table's sortOrder.
-        let filtered = DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
-        let sorted = filtered.sorted(using: sortOrder)
+        // Skipped outright in review mode: nothing renders from them there, and every review
+        // decision triggers a rescan whose republished list would re-run the pass per render.
+        let isReviewing = reviewStore.session != nil
+        let filtered = isReviewing ? [] : DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
+        let sorted = isReviewing ? [] : filtered.sorted(using: sortOrder)
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
 
         return VStack(spacing: 8) {
@@ -125,7 +128,13 @@ public struct DifferencesView: View {
             guard let session = reviewStore.session else { return }
             // Any click hands key focus to the Table; send it back to the card.
             reviewFocusNudge += 1
-            guard let id = newSelection.first, id != session.current?.id else { return }
+            // Deselection (⌘-click on the selected row) must snap back too — the highlight IS
+            // the cursor and may not go dark until the next advance.
+            guard let id = newSelection.first else {
+                reviewSelection = session.current.map { [$0.id] } ?? []
+                return
+            }
+            guard id != session.current?.id else { return }
             var updated = session
             if updated.jump(to: id) {
                 reviewStore.session = updated

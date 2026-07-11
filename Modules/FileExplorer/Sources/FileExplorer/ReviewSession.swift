@@ -20,6 +20,15 @@ public final class ReviewSessionStore: ObservableObject {
 
     /// Whether a review session is active — the host's mount condition.
     public var isReviewing: Bool { session != nil }
+
+    /// Ends the session immediately. For the host's comparison-changing events (pane swap,
+    /// provider switch, root edit): the frozen queue's paths and directions describe the OLD
+    /// comparison, and the card would relabel them against the new pane names — backwards.
+    /// `isActing` is left alone: an in-flight copy's completion clears it, and its outcome
+    /// write is dropped by the host's session guard.
+    public func endSession() {
+        session = nil
+    }
 }
 
 /// State machine for the inline guided review (the Differences header's "Review…" mode):

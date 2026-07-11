@@ -44,7 +44,8 @@ import Sync
         try FileManager.default.setAttributes([.modificationDate: destinationDate], ofItemAtPath: right.appendingPathComponent("a.txt").path)
 
         let facts = await ReviewCardView.loadFacts(
-            for: difference(left: left, right: right, name: "a.txt", type: .differentDates))
+            for: difference(left: left, right: right, name: "a.txt", type: .differentDates),
+            fileManager: FileManager.default)
 
         #expect(facts.sourceModified == sourceDate)
         #expect(facts.destinationModified == destinationDate)
@@ -67,7 +68,8 @@ import Sync
         try Data("3".utf8).write(to: destinationDocs.appendingPathComponent("sub/three.txt"))
 
         let facts = await ReviewCardView.loadFacts(
-            for: difference(left: left, right: right, name: "Docs", type: .differentDates))
+            for: difference(left: left, right: right, name: "Docs", type: .differentDates),
+            fileManager: FileManager.default)
 
         #expect(facts.destinationIsDirectory)
         #expect(facts.destinationChildCount == 4)
@@ -83,7 +85,8 @@ import Sync
         try Data("new".utf8).write(to: left.appendingPathComponent("a.txt"))
 
         let facts = await ReviewCardView.loadFacts(
-            for: difference(left: left, right: right, name: "a.txt", type: .missingOnRight))
+            for: difference(left: left, right: right, name: "a.txt", type: .missingOnRight),
+            fileManager: FileManager.default)
 
         #expect(facts.sourceModified != nil)
         #expect(facts.destinationModified == nil)
