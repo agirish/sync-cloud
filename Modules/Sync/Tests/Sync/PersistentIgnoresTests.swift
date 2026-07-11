@@ -37,9 +37,27 @@ import Foundation
         let (manager, store, defaults, suite) = makeManagerWithStore()
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        manager.focusOn(relativePath: "Docs/Work", isLeft: true)
+        manager.focusBoth(relativePath: "Docs/Work")
         manager.ignoredPaths = ["draft.txt"]
         #expect(store.rootRelativePaths == ["Docs/Work/draft.txt"])
+    }
+
+    @MainActor
+    @Test func testDivergentPaneFociKeepIgnoresSessionOnly() {
+        // With the panes on different folders a focus-relative path names DIFFERENT items on
+        // the two sides, so there is no well-defined root-relative identity to store: the
+        // durable mirror must stay out of it (both directions), leaving session behavior.
+        let (manager, store, defaults, suite) = makeManagerWithStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        store.add(["x.txt"])
+        manager.focusOn(relativePath: "Docs", isLeft: false) // right pane only; left stays at root
+        manager.ignoredPaths = ["x.txt"]
+        // No new entry, and toggling off must not delete the root-level entry either.
+        #expect(store.rootRelativePaths == ["x.txt"])
+        manager.toggleIgnored(focusRelativePaths: ["x.txt"])
+        #expect(store.rootRelativePaths == ["x.txt"])
+        #expect(manager.ignoredPaths.isEmpty)
     }
 
     @MainActor
@@ -153,7 +171,7 @@ import Foundation
         let (manager, store, defaults, suite) = makeManagerWithStore()
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        manager.focusOn(relativePath: "Docs", isLeft: true)
+        manager.focusBoth(relativePath: "Docs")
         manager.ignoredPaths = ["draft.txt"]
         #expect(store.rootRelativePaths == ["Docs/draft.txt"])
 
@@ -197,7 +215,7 @@ import Foundation
     }
 
     @MainActor
-    @Test func testIsNodeIgnoredSeesStoreEntriesAndPatterns() {
+    @Test func testIsNodeIgnoredSeesStoreEntriesButNotPatterns() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
         defer { defaults.removePersistentDomain(forName: suite) }
 
@@ -207,7 +225,11 @@ import Foundation
         let pattern = FileNode(id: "/root/x/scratch.tmp", name: "scratch.tmp", isDirectory: false)
         let plain = FileNode(id: "/root/docs/other.txt", name: "other.txt", isDirectory: false)
         #expect(manager.isNodeIgnored(stored, currentPath: "/root"))
-        #expect(manager.isNodeIgnored(pattern, currentPath: "/root"))
+        // Pattern matches must NOT read as node-ignored: this predicate drives the pane menu's
+        // Ignore/Include label, and `toggleIgnored` cannot except an item from a pattern — a
+        // pattern-derived "Include" label would promise an action the toggle can't deliver
+        // (and its formUnion used to mirror a phantom entry into the durable store).
+        #expect(!manager.isNodeIgnored(pattern, currentPath: "/root"))
         #expect(!manager.isNodeIgnored(plain, currentPath: "/root"))
     }
 }

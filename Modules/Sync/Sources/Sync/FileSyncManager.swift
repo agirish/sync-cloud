@@ -168,8 +168,15 @@ public class FileSyncManager: ObservableObject {
 
     /// Mirrors a user edit of the session ignore set into the durable store, translating
     /// focus-relative paths to root-relative ones under the current left focus.
+    ///
+    /// Only while both panes share one focus: with divergent foci a focus-relative path names
+    /// DIFFERENT items on the two sides, and the left-focus translation would store an entry
+    /// that later hides an unrelated pair (e.g. right pane in Docs, left at root: ignoring
+    /// that row must not durably hide the root-level pair of the same name). Divergent-foci
+    /// ignores stay session-only — exactly the pre-durable-layer behavior.
     private func persistIgnoredPathsDelta(from oldValue: Set<String>, to newValue: Set<String>) {
-        guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore else { return }
+        guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore,
+              leftRelativePath == rightRelativePath else { return }
         let focus = leftRelativePath
         let added = newValue.subtracting(oldValue)
         let removed = oldValue.subtracting(newValue)
@@ -215,7 +222,9 @@ public class FileSyncManager: ObservableObject {
         ignoredPaths = ignoredPaths.filter { entry in
             !targets.contains { $0 == entry || $0.hasPrefix(entry + "/") }
         }
-        if rememberIgnoredItems, let store = ignoredItemsStore {
+        // Same equal-foci condition as persistIgnoredPathsDelta: with divergent foci the
+        // left-focus translation could remove a stored entry belonging to a different pair.
+        if rememberIgnoredItems, let store = ignoredItemsStore, leftRelativePath == rightRelativePath {
             let focus = leftRelativePath
             let rootTargets = targets.map { Self.rootRelativePath($0, focus: focus) }
             let covering = store.rootRelativePaths.filter { entry in
@@ -226,7 +235,9 @@ public class FileSyncManager: ObservableObject {
     }
 
     /// Removes one durable ignore entry (root-relative, as listed in Settings) plus its
-    /// session counterpart under the current focus, so the row reappears immediately.
+    /// session counterpart under the current focus. Exactly that entry: when a covering
+    /// ancestor entry also exists it keeps its own effect (and its own row in the Settings
+    /// list) until removed too — the list edits entries, it doesn't re-derive coverage.
     public func unignoreRootRelative(_ path: String) {
         ignoredItemsStore?.remove([path])
         let focus = leftRelativePath
@@ -508,8 +519,13 @@ public class FileSyncManager: ObservableObject {
         } else if rPath.hasPrefix(base + "/") {
             rPath = String(rPath.dropFirst(base.count + 1))
         }
+        // Deliberately path-layers only, NO pattern matching: this predicate drives the pane
+        // rows' ignored look AND the context menu's Ignore/Include label, whose click lands in
+        // `toggleIgnored` — which can only edit the path layers. Counting pattern matches here
+        // made the label promise an "Include" the toggle cannot deliver (a pattern can't be
+        // excepted per item), and the resulting formUnion mirrored a phantom entry into the
+        // durable store. Pattern-hidden items are managed in Settings, not per row.
         return Self.isIgnoredPath(rPath, ignored: effectiveIgnoredPaths)
-            || IgnoreRules.matches(rPath, patterns: ignorePatterns)
     }
     
     /// Removes resolved differences from both the published list and the raw backing list.

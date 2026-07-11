@@ -161,9 +161,11 @@ extension FileSyncManager {
             }
         }
 
-        // Publish only against the scan the candidates came from; a newer scan owns the rows now.
-        guard scanGeneration == scanRequestGeneration else { return }
         let identical = await collector.get().verifiedIdentical
+        // Publish only against the scan the candidates came from; a newer scan owns the rows
+        // now. Checked AFTER the last suspension point above, so a scan requested while the
+        // collector drained can't slip past the gate.
+        guard scanGeneration == scanRequestGeneration else { return }
         let liveIds = Set(rawDifferences.map(\.id))
         let ids = identical.map(\.id).filter { liveIds.contains($0) }
         guard !ids.isEmpty else { return }
