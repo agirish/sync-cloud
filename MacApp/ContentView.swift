@@ -634,15 +634,19 @@ struct ContentView: View {
             if let progress = syncManager.activeProgress {
                 ZStack {
                     Color.black.opacity(0.1)
-                        .edgesIgnoringSafeArea(.all)
-                    
+                        .ignoresSafeArea()
+
                     ProgressDialog(progress: progress)
                         .padding()
-                        .transition(AnyTransition.move(edge: Edge.top).combined(with: AnyTransition.opacity))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .animation(.spring(), value: progress)
             }
         }
+        // The animation must live on the container (like the banner's below): inside the
+        // `if let` it can't animate the overlay's own insertion/removal, so the transition
+        // above never ran. Keyed on presence — Progress is a reference type whose counters
+        // mutate in place, so the value itself is the wrong animation trigger anyway.
+        .animation(.spring(), value: syncManager.activeProgress == nil)
         .overlay(alignment: .top) {
             if let banner = syncManager.banner {
                 OperationBannerView(banner: banner)
