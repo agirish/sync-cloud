@@ -487,24 +487,64 @@ struct ContentView: View {
         refreshAction()
     }
 
+    /// The per-side values a pane is built from, resolved once per render by `paneContext` so
+    /// the header and tree builders don't each repeat the same `isLeft ?` pairs (a copy-paste
+    /// drift hazard when a side-specific argument changes on one side only).
+    struct PaneContext {
+        let isLeft: Bool
+        let title: String
+        let providerId: String
+        let relativePath: String
+        let canGoBack: Bool
+        let canGoForward: Bool
+        let tree: [FileNode]
+        let otherTree: [FileNode]
+        let isLoading: Bool
+        let currentPath: String
+        let otherSelection: Set<String>
+        let diffIndex: DiffStatusIndex
+        let otherPaneName: String?
+        let hasOnlyHiddenEntries: Bool
+    }
+
+    private func paneContext(isLeft: Bool) -> PaneContext {
+        PaneContext(
+            isLeft: isLeft,
+            title: isLeft ? "Left" : "Right",
+            providerId: isLeft ? leftProviderId : rightProviderId,
+            relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
+            canGoBack: isLeft ? syncManager.leftHistory.canGoBack : syncManager.rightHistory.canGoBack,
+            canGoForward: isLeft ? syncManager.leftHistory.canGoForward : syncManager.rightHistory.canGoForward,
+            tree: isLeft ? syncManager.leftTree : syncManager.rightTree,
+            otherTree: isLeft ? syncManager.rightTree : syncManager.leftTree,
+            isLoading: isLeft ? syncManager.isLoadingLeftTree : syncManager.isLoadingRightTree,
+            currentPath: isLeft ? currentLeftPath : currentRightPath,
+            otherSelection: isLeft ? syncManager.selectedRightPaths : syncManager.selectedLeftPaths,
+            diffIndex: isLeft ? leftDiffIndex : rightDiffIndex,
+            otherPaneName: isLeft ? paneNames.right : paneNames.left,
+            hasOnlyHiddenEntries: isLeft ? syncManager.leftTreeHasOnlyHiddenEntries : syncManager.rightTreeHasOnlyHiddenEntries
+        )
+    }
+
     /// One resizable file pane: provider header stacked over its file tree.
     @ViewBuilder
     func paneColumn(isLeft: Bool) -> some View {
+        let pane = paneContext(isLeft: isLeft)
         VStack(spacing: 0) {
             PaneHeader(
-                title: isLeft ? "Left" : "Right",
-                provider: settings.availableProviders.first(where: { $0.id == (isLeft ? leftProviderId : rightProviderId) }),
-                rootPath: settings.path(for: isLeft ? leftProviderId : rightProviderId),
-                relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
-                canGoBack: isLeft ? syncManager.leftHistory.canGoBack : syncManager.rightHistory.canGoBack,
-                canGoForward: isLeft ? syncManager.leftHistory.canGoForward : syncManager.rightHistory.canGoForward,
+                title: pane.title,
+                provider: settings.availableProviders.first(where: { $0.id == pane.providerId }),
+                rootPath: settings.path(for: pane.providerId),
+                relativePath: pane.relativePath,
+                canGoBack: pane.canGoBack,
+                canGoForward: pane.canGoForward,
                 onBack: { syncManager.goBack(isLeft: isLeft) },
                 onForward: { syncManager.goForward(isLeft: isLeft) },
                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
                 onNavigateBoth: { syncManager.focusBoth(relativePath: $0) },
                 showHiddenFiles: $syncManager.showHiddenFiles
             )
-            if isLeft { leftTreeView } else { rightTreeView }
+            treeView(pane)
         }
         .paneCardIfNeeded(surfaceStyle)
     }
@@ -605,49 +645,27 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private var leftTreeView: some View {
+    private func treeView(_ pane: PaneContext) -> some View {
         FileTreeView(
-            tree: syncManager.leftTree,
-            otherTree: syncManager.rightTree,
-            isLoading: syncManager.isLoadingLeftTree,
-            currentPath: currentLeftPath,
-            selection: paneSelectionBinding(isLeft: true),
-            otherSelection: syncManager.selectedRightPaths,
-            isLeft: true,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: true, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
+            tree: pane.tree,
+            otherTree: pane.otherTree,
+            isLoading: pane.isLoading,
+            currentPath: pane.currentPath,
+            selection: paneSelectionBinding(isLeft: pane.isLeft),
+            otherSelection: pane.otherSelection,
+            isLeft: pane.isLeft,
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
             ignoredPaths: syncManager.ignoredPaths,
-            diffIndex: leftDiffIndex,
-            otherPaneName: paneNames.right,
-            rootPathIsValid: settings.isPathValid(for: leftProviderId),
-            providerIsEnabled: settings.isEnabled(leftProviderId),
-            hasOnlyHiddenEntries: syncManager.leftTreeHasOnlyHiddenEntries,
-            rootPath: settings.path(for: leftProviderId),
+            diffIndex: pane.diffIndex,
+            otherPaneName: pane.otherPaneName,
+            rootPathIsValid: settings.isPathValid(for: pane.providerId),
+            providerIsEnabled: settings.isEnabled(pane.providerId),
+            hasOnlyHiddenEntries: pane.hasOnlyHiddenEntries,
+            rootPath: settings.path(for: pane.providerId),
             onOpenSettings: openProviderSettings
         )
     }
-    
-    @ViewBuilder
-    private var rightTreeView: some View {
-        FileTreeView(
-            tree: syncManager.rightTree, 
-            otherTree: syncManager.leftTree,
-            isLoading: syncManager.isLoadingRightTree, 
-            currentPath: currentRightPath,
-            selection: paneSelectionBinding(isLeft: false),
-            otherSelection: syncManager.selectedLeftPaths,
-            isLeft: false,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: false, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
-            ignoredPaths: syncManager.ignoredPaths,
-            diffIndex: rightDiffIndex,
-            otherPaneName: paneNames.left,
-            rootPathIsValid: settings.isPathValid(for: rightProviderId),
-            providerIsEnabled: settings.isEnabled(rightProviderId),
-            hasOnlyHiddenEntries: syncManager.rightTreeHasOnlyHiddenEntries,
-            rootPath: settings.path(for: rightProviderId),
-            onOpenSettings: openProviderSettings
-        )
-    }
-    
+
     /// The Differences/Details segmented tabs. Shown standalone above the Details/empty states,
     /// and passed into DifferencesView so the tabs merge into its single toolbar (Option C).
     private var bottomTabPicker: some View {
