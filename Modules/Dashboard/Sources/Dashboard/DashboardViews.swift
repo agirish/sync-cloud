@@ -23,7 +23,6 @@ public struct PaneHeader: View {
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -116,6 +115,6 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+        .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
     }
 }

@@ -261,7 +261,7 @@ public extension View {
     /// glass directly; cards get their fill from `surfaceCard`); `.solid` is a flat opaque panel.
     /// Apply it ONCE per region (don't stack it on nested views, or fills compound).
     @ViewBuilder
-    func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+    func contentSurface(_ style: SurfaceStyle, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
         // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1. "None" gets no
         // wash at any tint: its accentColor falls back to the system accent (for controls), which
         // would repaint the surfaces with it here.
@@ -340,7 +340,7 @@ public extension View {
     func bottomSectionCard(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let filled = self
-            .contentSurface(style, intensity: intensity, hue: hue, tint: tint)
+            .contentSurface(style, hue: hue, tint: tint)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         if style == .cards {
             // Same macOS-26 gating as `glassCardStyle`/`surfaceCard`: native glass replaces the

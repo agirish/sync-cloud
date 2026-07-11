@@ -86,7 +86,6 @@ public struct FileTreeView: View {
         )
     }
 
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -212,7 +211,7 @@ public struct FileTreeView: View {
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
-        .contentSurface(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+        .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
             if !selectedNodes.isEmpty {
