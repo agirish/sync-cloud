@@ -106,8 +106,9 @@ public struct SettingsView: View {
 /// App-level preferences: login item, hidden-file default, and the quit safety guard.
 struct GeneralSettingsTab: View {
     /// Mirrors `SMAppService.mainApp.status`. Deliberately not seeded in the initializer:
-    /// the status getter is a synchronous XPC call, which must not run on the main thread
-    /// during view init — `.task` reads it once the view is up.
+    /// the status getter is a synchronous XPC call, which must not run on the main thread —
+    /// `.task` kicks off a detached read once the view is up (and app activation re-reads,
+    /// since approval happens over in System Settings).
     @State private var launchAtLogin = false
     /// The login item is registered but awaits the user's consent in System Settings →
     /// Login Items; shown distinctly so a pending approval doesn't read as a broken toggle.
@@ -156,12 +157,26 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { readLoginItemState() }
+        // Approving the login item happens in System Settings, so the footer's "Approval
+        // needed" hint goes stale exactly while this tab is still open. Coming back to the
+        // app re-activates it — re-read so the hint clears without reopening the tab.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            readLoginItemState()
+        }
     }
 
     /// Reflects the real service state into the toggle and approval hint. A pending
     /// approval counts as "on": the item *is* registered, just not yet consented to.
     private func readLoginItemState() {
-        let status = SMAppService.mainApp.status
+        Task {
+            applyLoginItemState(await Self.readStatusOffMain())
+        }
+    }
+
+    /// Publishes a freshly read service status to the view state. Setting
+    /// `lastAppliedLaunchAtLogin` in the same main-actor turn as the toggle keeps `onChange`
+    /// from treating the programmatic set as a user gesture (initial read, failure revert).
+    private func applyLoginItemState(_ status: SMAppService.Status) {
         launchAtLogin = (status == .enabled || status == .requiresApproval)
         loginItemNeedsApproval = (status == .requiresApproval)
         lastAppliedLaunchAtLogin = launchAtLogin
@@ -170,7 +185,40 @@ struct GeneralSettingsTab: View {
     /// Registers/unregisters the login item, reverting the toggle to the real service state on
     /// failure so the UI never claims a state the system rejected.
     private func updateLoginItem(_ enabled: Bool) {
-        do {
+        Task {
+            do {
+                let needsApproval = try await Self.applyLoginItemOffMain(enabled)
+                lastAppliedLaunchAtLogin = enabled
+                loginItemNeedsApproval = needsApproval
+                if needsApproval {
+                    Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
+                }
+                // The toggle can move again while the round-trip is in flight; that flip's
+                // onChange compared against the OLD lastApplied value and was suppressed, so
+                // apply the latest position now that the echo marker is up to date.
+                if launchAtLogin != enabled {
+                    updateLoginItem(launchAtLogin)
+                }
+            } catch {
+                Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
+                applyLoginItemState(await Self.readStatusOffMain())
+            }
+        }
+    }
+
+    /// Reads `SMAppService.mainApp.status` detached: the getter is a synchronous XPC call
+    /// that must not run on the main thread (the same hazard that defers the initial read
+    /// out of view init).
+    private static func readStatusOffMain() async -> SMAppService.Status {
+        await Task.detached(priority: .userInitiated) {
+            SMAppService.mainApp.status
+        }.value
+    }
+
+    /// Runs the status check plus register/unregister round-trip detached — all three are
+    /// synchronous XPC calls. Returns whether the item now awaits approval in Login Items.
+    private static func applyLoginItemOffMain(_ enabled: Bool) async throws -> Bool {
+        try await Task.detached(priority: .userInitiated) {
             let status = SMAppService.mainApp.status
             if enabled {
                 if status != .enabled {
@@ -180,15 +228,8 @@ struct GeneralSettingsTab: View {
                 // Unregistering a pending-approval item withdraws it from Login Items.
                 try SMAppService.mainApp.unregister()
             }
-            lastAppliedLaunchAtLogin = enabled
-            loginItemNeedsApproval = (SMAppService.mainApp.status == .requiresApproval)
-            if loginItemNeedsApproval {
-                Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
-            }
-        } catch {
-            Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
-            readLoginItemState()
-        }
+            return SMAppService.mainApp.status == .requiresApproval
+        }.value
     }
 }
 
