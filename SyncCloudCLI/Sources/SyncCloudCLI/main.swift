@@ -210,8 +210,12 @@ struct SyncFiles: AsyncParsableCommand {
     @Option(name: .shortAndLong, help: "Limit to a specific direction: auto | to-right | to-left.")
     var direction: Direction = .auto
 
-    @Option(name: .shortAndLong, help: "Collision strategy when destination exists: replace | skip | keep-both.")
-    var strategy: CollisionStrategy = .skip
+    @Option(name: .shortAndLong, help: """
+    Collision strategy when the destination exists: replace (default) updates it, moving the \
+    previous version to the Trash (recoverable); skip leaves existing files untouched; \
+    keep-both copies alongside under a unique name.
+    """)
+    var strategy: CollisionStrategy = .cliDefault
 
     @Flag(name: .shortAndLong, help: "Run without interactive confirmation.")
     var yes: Bool = false
@@ -293,8 +297,10 @@ struct SyncFiles: AsyncParsableCommand {
             }
 
             do {
-                _ = try FileSyncManager.performFileSyncIO(from: sourceURL, to: targetURL, isMove: false, fileManager: fm)
-                tally.recordCopied()
+                // `trashed` is non-nil exactly when an existing destination was replaced
+                // (safeCopy backs it up to the Trash), which is what the summary reports.
+                let result = try FileSyncManager.performFileSyncIO(from: sourceURL, to: targetURL, isMove: false, fileManager: fm)
+                tally.recordCopied(replacedExisting: result.trashed != nil)
             } catch {
                 tally.recordFailed()
                 let message = "Failed to sync \(diff.relativePath): \(error.localizedDescription)"
@@ -309,12 +315,14 @@ struct SyncFiles: AsyncParsableCommand {
         }
 
         print("")
-        print("Sync complete. Copied: \(tally.copied), Skipped: \(tally.skipped), Failed: \(tally.failed).")
-        if tally.skipped > 0 {
-            print("Skipped files:")
-            for p in tally.skippedPaths {
-                print("  \(p)")
-            }
+        let summary = syncSummary(tally: tally, strategy: strategy)
+        for line in summary.stdoutLines { print(line) }
+        for line in summary.stderrLines { fputs(line + "\n", stderr) }
+        // Partial failures must be visible to scripts, not just in the text summary. Thrown
+        // after the summary so the counts still print; flushingLogToDisk flushes on this
+        // throw path too. (--fail-fast still aborts immediately above, before the summary.)
+        if summary.exitNonzero {
+            throw ExitCode.failure
         }
     }
 }
