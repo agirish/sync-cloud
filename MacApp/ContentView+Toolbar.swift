@@ -128,6 +128,12 @@ extension ContentView {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            Button(action: findDuplicatesAction) {
+                Label("Find Duplicates", systemImage: syncManager.isFindingDuplicates ? "hourglass" : "wand.and.stars")
+            }
+            .disabled(syncManager.isFindingDuplicates)
+            .help("Find duplicate folders & files in \(tidyProviderName)")
+
             Button(action: forceRefreshAction) {
                 Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
             }

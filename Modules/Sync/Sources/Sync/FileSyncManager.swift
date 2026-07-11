@@ -92,7 +92,18 @@ public class FileSyncManager: ObservableObject {
     @Published public var isScanning = false
     /// Indicates whether at least one successful scan has occurred.
     @Published public var hasScanned = false
-    
+
+    // MARK: Tidy — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
+
+    /// Duplicate/related groups from the most recent Find Duplicates scan of one provider.
+    @Published public var duplicateGroups: [DuplicateGroup] = []
+    /// True while a Find Duplicates scan (walk + hash + group) is running.
+    @Published public var isFindingDuplicates = false
+    /// Human-readable progress for the running duplicate scan (e.g. "Hashing 340 candidates").
+    @Published public var duplicateScanStatus: String? = nil
+    /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
+    @Published public var hasFoundDuplicates = false
+
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
         didSet {

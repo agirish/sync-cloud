@@ -81,6 +81,8 @@ struct ContentView: View {
         case differences = "Differences"
         /// Displays rich file metadata (size, dates, permissions).
         case details = "Details"
+        /// Finds and resolves duplicate folders & files within one provider (Tidy).
+        case tidy = "Tidy"
     }
     /// Persisted so a user who was on Details stays there across launches. Stored by
     /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
@@ -621,6 +623,32 @@ struct ContentView: View {
         refreshAction()
     }
 
+    // MARK: Tidy — Find Duplicates
+
+    /// The provider name for the pane a Tidy scan targets (the focused pane, else the left pane).
+    var tidyProviderName: String {
+        switch activePane {
+        case .right?: return paneNames.right
+        default: return paneNames.left
+        }
+    }
+
+    /// The absolute (tilde-expanded) folder a Tidy scan walks: the focused pane's current
+    /// directory, falling back to the left pane.
+    var tidyScanRootExpanded: String {
+        ((activePanePath ?? currentLeftPath) as NSString).expandingTildeInPath
+    }
+
+    /// Switches to the Tidy tab and kicks off a duplicate scan of the focused provider.
+    func findDuplicatesAction() {
+        let root = tidyScanRootExpanded
+        guard !root.isEmpty else { return }
+        Logger.shared.info("User requested Find Duplicates in \(root)")
+        selectedBottomTab = .tidy
+        showingBottomPane = true
+        Task { await syncManager.findDuplicates(root: URL(fileURLWithPath: root)) }
+    }
+
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so
     /// the header and tree builders don't each repeat the same `isLeft ?` pairs (a copy-paste
     /// drift hazard when a side-specific argument changes on one side only).
@@ -814,7 +842,7 @@ struct ContentView: View {
         }
         .pickerStyle(.segmented)
         .tint(glassHue.accentColor)
-        .frame(width: 200)
+        .frame(width: 270)
         .labelsHidden()
     }
 
@@ -827,7 +855,17 @@ struct ContentView: View {
         VStack(spacing: 0) {
         // An active review keeps the view mounted through an empty live list: an external
         // change resolving the last live difference mid-review must not vanish the session.
-        if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
+        if selectedBottomTab == .tidy {
+            // Tidy owns its own cards (toolbar + content) with the tabs inline, like Differences.
+            TidyView(
+                syncManager: syncManager,
+                providerName: tidyProviderName,
+                scanRoot: tidyScanRootExpanded,
+                leadingHeader: AnyView(bottomTabPicker),
+                onFindDuplicates: findDuplicatesAction,
+                onQuickLook: { quickLookURL = $0 }
+            )
+        } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
         } else {
