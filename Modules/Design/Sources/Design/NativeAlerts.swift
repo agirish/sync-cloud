@@ -10,28 +10,19 @@ public struct NativeAlerts {
     /// - Returns: True if the user confirmed the deletion.
     public static func confirmDelete(for itemNames: [String]) -> Bool {
         guard !itemNames.isEmpty else { return false }
-        
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        
+
         if itemNames.count == 1, let first = itemNames.first {
-            alert.messageText = "Are you sure you want to delete \"\(first)\"?"
-            alert.informativeText = "This item will be moved to the Trash."
-        } else {
-            alert.messageText = "Are you sure you want to delete \(itemNames.count) items?"
-            alert.informativeText = "These items will be moved to the Trash."
+            return confirmAction(
+                messageText: "Are you sure you want to delete \"\(first)\"?",
+                informativeText: "This item will be moved to the Trash.",
+                confirmTitle: "Delete"
+            )
         }
-        
-        alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        
-        // Make the destructive "Delete" button the default rightmost
-        if let deleteButton = alert.buttons.first {
-            deleteButton.hasDestructiveAction = true
-            deleteButton.keyEquivalent = "\r"
-        }
-        
-        return alert.runModal() == .alertFirstButtonReturn
+        return confirmAction(
+            messageText: "Are you sure you want to delete \(itemNames.count) items?",
+            informativeText: "These items will be moved to the Trash.",
+            confirmTitle: "Delete"
+        )
     }
 
     /// Presents a native macOS confirmation prompt before moving items (i.e., cut + paste).
@@ -42,23 +33,36 @@ public struct NativeAlerts {
     public static func confirmMove(for itemNames: [String], destinationLabel: String) -> Bool {
         guard !itemNames.isEmpty else { return false }
 
+        if itemNames.count == 1, let first = itemNames.first {
+            return confirmAction(
+                messageText: "Move \"\(first)\" to \(destinationLabel)?",
+                informativeText: "This will remove the item from its current location.",
+                confirmTitle: "Move"
+            )
+        }
+        return confirmAction(
+            messageText: "Move \(itemNames.count) items to \(destinationLabel)?",
+            informativeText: "This will remove the items from their current location.",
+            confirmTitle: "Move"
+        )
+    }
+
+    /// Shared confirm/cancel warning alert behind `confirmDelete` and `confirmMove` (following
+    /// the `promptForName` pattern below): the callers supply only the strings that differ.
+    /// - Returns: True if the user chose the confirm button.
+    private static func confirmAction(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
+        alert.messageText = messageText
+        alert.informativeText = informativeText
 
-        if itemNames.count == 1, let first = itemNames.first {
-            alert.messageText = "Move \"\(first)\" to \(destinationLabel)?"
-            alert.informativeText = "This will remove the item from its current location."
-        } else {
-            alert.messageText = "Move \(itemNames.count) items to \(destinationLabel)?"
-            alert.informativeText = "This will remove the items from their current location."
-        }
-
-        alert.addButton(withTitle: "Move")
+        alert.addButton(withTitle: confirmTitle)
         alert.addButton(withTitle: "Cancel")
 
-        if let moveButton = alert.buttons.first {
-            moveButton.hasDestructiveAction = true
-            moveButton.keyEquivalent = "\r"
+        // Make the destructive confirm button the default rightmost
+        if let confirmButton = alert.buttons.first {
+            confirmButton.hasDestructiveAction = true
+            confirmButton.keyEquivalent = "\r"
         }
 
         return alert.runModal() == .alertFirstButtonReturn
