@@ -106,6 +106,9 @@ public struct FileDiffEngine {
         }
         
         for case let fileURL as URL in enumerator {
+            // A superseded scan's results are discarded wholesale (generation-gated publish);
+            // abort mid-walk instead of holding the scanning slot for a walk nobody will read.
+            try Task.checkCancellation()
             do {
                 var isReg = true
                 var modDate: Date? = nil

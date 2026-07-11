@@ -1,0 +1,166 @@
+import Foundation
+import Testing
+@testable import Sync
+
+/// Regression coverage for superseded scans: a scan queued behind an in-flight one must still
+/// publish (the drain must not inherit the predecessor's cancellation), and a superseded scan's
+/// disk walk must abort instead of holding `isScanning` for results nobody will read.
+@Suite struct ScanSupersedenceTests {
+
+    private static let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: "/left", type: .iCloud)
+    private static let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: "/right", type: .iCloud)
+
+    private func file() -> MockFileManager.FileStub {
+        MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+    }
+
+    /// Polls (yielding the main actor) until `condition` holds or ~timeout elapses.
+    @MainActor
+    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() && Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+    }
+
+    // MARK: Bug: queued scan's results were discarded when drained on a cancelled task
+
+    /// The only production path that queues a pending scan: refresh A is mid-walk when refresh B
+    /// arrives; B cancels A's task, and B's scanDirectories sees `isScanning` and queues. A's
+    /// un-cancellable walk finishes and drains B's request — that drain must run B's scan on a
+    /// task that does NOT inherit A's cancellation, or B's fresh differences are silently dropped
+    /// and the list keeps showing the previous folder's rows.
+    @MainActor
+    @Test func testScanQueuedFromCancelledPredecessorStillPublishes() async throws {
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.15
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/oldL"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/oldR"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/newL"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/newR"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/oldL/old_only.txt"] = file()
+        mockFM.virtualDisk["/newL/new_only.txt"] = file()
+
+        let manager = FileSyncManager(fileManager: mockFM)
+
+        // Scan A (the "previous folder"), on a task a superseding refresh will cancel.
+        let scanA = Task {
+            await manager.scanDirectories(left: Self.left, leftPath: "/oldL", right: Self.right, rightPath: "/oldR")
+        }
+        try await waitUntil { manager.isScanning }
+        #expect(manager.isScanning)
+
+        // Refresh B: cancel A (as refreshTreesAndScan does), then request the new folders while
+        // A's walk still holds the scanning slot — the request queues.
+        scanA.cancel()
+        await manager.scanDirectories(left: Self.left, leftPath: "/newL", right: Self.right, rightPath: "/newR")
+        #expect(manager.pendingScanRequest != nil)
+
+        // A unwinds and drains the queued request.
+        await scanA.value
+        try await waitUntil { manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil }
+
+        // The queued scan's results must be published, not silently discarded.
+        #expect(manager.hasScanned)
+        #expect(manager.differences.map(\.relativePath) == ["new_only.txt"])
+    }
+
+    // MARK: Bug: superseded scans could not be cancelled mid-walk
+
+    /// A cancelled walk must abort with `CancellationError` instead of finishing a full
+    /// directory pass whose results are guaranteed to be discarded.
+    @Test func testGetFilesInDirectoryAbortsWhenCancelled() async throws {
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.05
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = file()
+        mockFM.virtualDisk["/src/b.txt"] = file()
+
+        let walk = Task.detached {
+            try FileDiffEngine.getFilesInDirectory(URL(fileURLWithPath: "/src"), fileManager: mockFM)
+        }
+        walk.cancel()
+        await #expect(throws: CancellationError.self) {
+            _ = try await walk.value
+        }
+    }
+
+    /// Wraps a mock disk with an enumerator that sleeps per yielded entry, so a full walk takes
+    /// seconds — long enough to observe whether cancelling the scan actually aborts the walk.
+    private final class SlowWalkFileManager: FileManaging, @unchecked Sendable {
+        private let inner: MockFileManager
+        let perItemDelay: TimeInterval
+        init(inner: MockFileManager, perItemDelay: TimeInterval) {
+            self.inner = inner
+            self.perItemDelay = perItemDelay
+        }
+
+        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
+        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+            inner.fileExists(atPath: p, isDirectory: d)
+        }
+        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
+        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
+            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
+        }
+        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
+        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
+        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
+            try inner.trashItem(at: u, resultingItemURL: o)
+        }
+        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
+        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
+            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
+        }
+
+        private final class SlowEnumerator: FileManager.DirectoryEnumerator {
+            private let wrapped: FileManager.DirectoryEnumerator?
+            private let delay: TimeInterval
+            init(wrapping: FileManager.DirectoryEnumerator?, delay: TimeInterval) {
+                self.wrapped = wrapping
+                self.delay = delay
+            }
+            override func nextObject() -> Any? {
+                guard let next = wrapped?.nextObject() else { return nil }
+                Thread.sleep(forTimeInterval: delay)
+                return next
+            }
+        }
+
+        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+            SlowEnumerator(wrapping: inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h), delay: perItemDelay)
+        }
+    }
+
+    /// Cancelling a running scan must propagate into the detached disk walks: the scan winds
+    /// down promptly (well under the full-walk time) and publishes nothing.
+    @MainActor
+    @Test func testCancellingScanAbortsTheDiskWalkPromptly() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/left"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/right"), withIntermediateDirectories: true)
+        // 100 entries x 40ms each = ~4s for an uncancelled walk.
+        for i in 0..<100 {
+            mockFM.virtualDisk["/left/file\(i).txt"] = file()
+        }
+        let slowFM = SlowWalkFileManager(inner: mockFM, perItemDelay: 0.04)
+        let manager = FileSyncManager(fileManager: slowFM)
+
+        let scan = Task {
+            await manager.scanDirectories(left: Self.left, leftPath: "/left", right: Self.right, rightPath: "/right")
+        }
+        try await waitUntil { manager.isScanning }
+        #expect(manager.isScanning)
+
+        let cancelledAt = Date()
+        scan.cancel()
+        await scan.value
+        try await waitUntil { !manager.isScanning }
+
+        // Aborted mid-walk: nowhere near the ~4s a full walk takes.
+        #expect(Date().timeIntervalSince(cancelledAt) < 2.0)
+        #expect(!manager.isScanning)
+        #expect(!manager.hasScanned)
+        #expect(manager.differences.isEmpty)
+    }
+}

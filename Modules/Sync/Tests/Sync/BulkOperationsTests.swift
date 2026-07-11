@@ -233,6 +233,13 @@ import Foundation
         await firstScan.value
         await secondScan.value
 
+        // The queued scan is drained on a fresh task (so it can't inherit a superseded scan's
+        // cancellation); wait for it to settle rather than piggybacking on the first task.
+        let deadline = Date().addingTimeInterval(5)
+        while !(manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil), Date() < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+
         #expect(manager.hasScanned)
         #expect(!manager.isScanning)
         #expect(manager.differences.count == 1)

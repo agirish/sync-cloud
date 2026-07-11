@@ -254,13 +254,22 @@ extension FileSyncManager {
             rightPath: rightPath,
             generation: scanRequestGeneration
         )
+        await runOrQueueScan(request)
+    }
 
+    /// Runs the request now, or queues it when a scan already holds the slot (the drain at the
+    /// end of `executeScan` picks it up). Separate from `scanDirectories` so the drain can
+    /// re-enter without minting a new generation — a re-queued request must stay OLDER than any
+    /// scan that started while it waited, so the generation-gated publish still discards it.
+    private func runOrQueueScan(_ request: ScanRequest) async {
         if isScanning {
+            // Only ever queue forward: a drain re-queueing an older request must not clobber
+            // a newer one that arrived while the drain's task was waiting to run.
+            if let queued = pendingScanRequest, queued.generation > request.generation { return }
             pendingScanRequest = request
             Logger.shared.warning("Scan already in progress, queueing latest request.")
             return
         }
-
         await executeScan(request)
     }
 
@@ -282,12 +291,18 @@ extension FileSyncManager {
         // near-instant after navigation. Tree semantics apply: the tree builder follows
         // symlinked directories (the disk enumerator does not), so their contents
         // participate in the diff exactly as the panes display them.
+        // Both compute branches run detached (so the diff never blocks the main actor) and
+        // forward this task's cancellation in explicitly, mirroring `buildTree`: detached tasks
+        // don't inherit cancellation, and a superseded scan otherwise holds `isScanning` for a
+        // full double disk walk whose results are guaranteed to be discarded.
         let newDifferences: [FileDifference]?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
             Logger.shared.debug("Scanning from cached trees (no disk walk)")
-            newDifferences = await Task.detached(priority: .userInitiated) {
+            let computeTask = Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
+                guard !Task.isCancelled else { return nil }
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
                 let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
+                guard !Task.isCancelled else { return nil }
                 return FileDiffEngine.computeDifferences(
                     left: request.left,
                     leftURL: leftURL,
@@ -297,22 +312,32 @@ extension FileSyncManager {
                     rightFilesInfo: rightFilesInfo,
                     caseInsensitive: caseInsensitive
                 )
-            }.value
+            }
+            newDifferences = await withTaskCancellationHandler {
+                await computeTask.value
+            } onCancel: {
+                computeTask.cancel()
+            }
         } else {
-            newDifferences = await Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
+            let walkTask = Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
                 do {
                     let fm = await MainActor.run { self.fileManager }
 
                     // The two walks are independent and FileManager is thread-safe, so run them
-                    // concurrently — serially they doubled the scan's disk phase.
+                    // concurrently — serially they doubled the scan's disk phase. They are
+                    // detached too, so cancellation is forwarded into both.
                     let leftWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
                     }
                     let rightWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(rightURL, fileManager: fm)
                     }
-                    let leftFilesInfo = try await leftWalk.value
-                    let rightFilesInfo = try await rightWalk.value
+                    let (leftFilesInfo, rightFilesInfo) = try await withTaskCancellationHandler {
+                        (try await leftWalk.value, try await rightWalk.value)
+                    } onCancel: {
+                        leftWalk.cancel()
+                        rightWalk.cancel()
+                    }
 
                     return FileDiffEngine.computeDifferences(
                         left: request.left,
@@ -324,12 +349,20 @@ extension FileSyncManager {
                         caseInsensitive: caseInsensitive
                     )
 
+                } catch is CancellationError {
+                    // Superseded mid-walk; the publish gate below discards the scan anyway.
+                    return nil
                 } catch {
                     let msg = "Error scanning directories: \(error)"
                     Task { @MainActor in Logger.shared.error(msg) }
                     return nil
                 }
-            }.value
+            }
+            newDifferences = await withTaskCancellationHandler {
+                await walkTask.value
+            } onCancel: {
+                walkTask.cancel()
+            }
         }
 
         let isLatestRequest = request.generation == scanRequestGeneration
@@ -348,7 +381,14 @@ extension FileSyncManager {
         if let pending = pendingScanRequest {
             pendingScanRequest = nil
             if pending.generation > request.generation {
-                await executeScan(pending)
+                // Drain on a fresh unstructured task, never on this one: the only production
+                // path that queues a request is a superseding refresh that has already
+                // cancelled THIS scan's task before queueing. Draining inline would make the
+                // pending scan's publish gate see that inherited cancellation and silently
+                // discard its fresh results (the Differences list stuck on the previous
+                // folder). Re-enters through runOrQueueScan so a scan that claims the slot
+                // in the meantime re-queues it instead of two scans running at once.
+                Task { await self.runOrQueueScan(pending) }
             }
         }
     }
