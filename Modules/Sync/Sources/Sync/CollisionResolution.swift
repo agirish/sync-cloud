@@ -12,8 +12,6 @@ public enum CollisionResolution: Sendable {
 /// Grown as a struct (not more closure parameters) so the resolver seams stop churning
 /// every test stub each time the prompt learns a new fact.
 public struct FileCollision: Sendable {
-    /// Name of the colliding item (last path component of `destinationPath`).
-    public let fileName: String
     /// Absolute path of the item being copied or moved.
     public let sourcePath: String
     /// Absolute path of the existing destination item that would be replaced.
@@ -24,8 +22,14 @@ public struct FileCollision: Sendable {
     /// replacing a folder replaces its entire contents.
     public let isDirectory: Bool
 
+    /// Name of the colliding item. Computed, not stored, so no future initializer or
+    /// decoding path can ever set it inconsistently with `destinationPath` — the alert
+    /// title must always name the same file the Replacing: line shows.
+    public var fileName: String {
+        (destinationPath as NSString).lastPathComponent
+    }
+
     public init(sourcePath: String, destinationPath: String, isMove: Bool, isDirectory: Bool) {
-        self.fileName = (destinationPath as NSString).lastPathComponent
         self.sourcePath = sourcePath
         self.destinationPath = destinationPath
         self.isMove = isMove

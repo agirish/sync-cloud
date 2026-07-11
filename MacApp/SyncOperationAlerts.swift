@@ -128,7 +128,9 @@ struct SyncOperationAlerts {
         return "\(verb) \(what) to \"\(destinationName)\"?"
     }
 
-    /// Full From/To body of the transfer confirmation, naming both folders unabridged.
+    /// Full From/To body of the transfer confirmation, naming both folders in
+    /// home-abbreviated (`~/…`) form — the message line only carries the destination's
+    /// last component, so this is where the full locations live.
     nonisolated static func transferConfirmationInformativeText(_ summary: TransferSummary) -> String {
         "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
     }

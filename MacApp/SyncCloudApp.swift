@@ -43,18 +43,12 @@ struct SyncCloudApp: App {
         // re-read per collision so a Settings change applies to the very next conflict;
         // folder collisions always fall through to the prompt (see ConflictPolicy).
         manager.collisionResolver = { collision in
-            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: collision.isDirectory) {
-                Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
-                return auto
-            }
-            return SyncOperationAlerts.promptForCollision(collision)
+            Self.policyAutoResolution(for: collision)
+                ?? SyncOperationAlerts.promptForCollision(collision)
         }
         manager.bulkCollisionResolver = { collision in
-            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: collision.isDirectory) {
-                Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
-                return (auto, false)
-            }
-            return SyncOperationAlerts.promptForCollisionWithApplyToAll(collision)
+            Self.policyAutoResolution(for: collision).map { ($0, false) }
+                ?? SyncOperationAlerts.promptForCollisionWithApplyToAll(collision)
         }
         // Copy/move confirmation, gated by Settings → Sync ("Confirm before copying or
         // moving"). Re-read per transfer so a Settings change applies to the very next one.
@@ -83,6 +77,19 @@ struct SyncCloudApp: App {
         ))
         // CRITICAL: Link the manager to the delegate so the termination guard is active.
         appDelegate.adoptSyncManager(manager)
+    }
+
+    /// The Settings conflict policy's answer for a collision, or nil when the policy says ask
+    /// (folder collisions always ask — see ConflictPolicy). Shared by both resolver wirings
+    /// so the policy check and its log line can't drift between the single and bulk prompts;
+    /// reads the persisted policy once per collision so a Settings change applies to the
+    /// very next conflict.
+    @MainActor
+    private static func policyAutoResolution(for collision: FileCollision) -> CollisionResolution? {
+        let policy = ConflictPolicy.persisted()
+        guard let auto = policy.autoResolution(isDirectory: collision.isDirectory) else { return nil }
+        Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(policy.displayName)")
+        return auto
     }
     
     var body: some Scene {

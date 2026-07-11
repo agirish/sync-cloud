@@ -130,8 +130,12 @@ extension FileSyncManager {
 
         // Confirm before any I/O is queued: this is the seam that lets a mis-clicked
         // Copy/Move be cancelled while it still costs nothing. Cancelling is not an error —
-        // no alert, no log entry, just nothing transferred.
-        if let first = prunedNodes.first {
+        // no alert, no log entry, just nothing transferred. An EMPTY destination root
+        // (provider dropped from settings mid-session) skips the prompt — asking the user to
+        // confirm `Copy "x" to ""?` and then failing anyway helps nobody; the enqueue guard
+        // below turns it into the destinationRootUnavailable error directly. (The on-disk
+        // existence stat deliberately stays on the operation queue — see the guard's doc.)
+        if let first = prunedNodes.first, !destinationRootPath.isEmpty {
             let confirmed = transferConfirmer(TransferSummary(
                 isMove: isMove,
                 itemCount: prunedNodes.count,

@@ -136,7 +136,10 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             guard path.hasSuffix("/" + relativePath) else {
                 return (path as NSString).deletingLastPathComponent
             }
-            return String(path.dropLast(relativePath.count + 1))
+            let stripped = String(path.dropLast(relativePath.count + 1))
+            // A pane rooted at the filesystem root strips to "": "/a.txt" minus "/a.txt".
+            // Blank From/To lines (and `to ""` in the prompt title) would be worse than "/".
+            return stripped.isEmpty ? "/" : stripped
         }
         return (container(of: urls.from.path), container(of: urls.to.path))
     }

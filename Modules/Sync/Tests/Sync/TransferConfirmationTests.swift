@@ -541,6 +541,29 @@ import Foundation
         #expect(mockFM.trashedPaths.count == 1) // the replace actually ran
     }
 
+    /// A vanished destination root (provider dropped from settings mid-session) must not
+    /// prompt at all: confirming `Copy "x" to ""?` and then failing anyway helps nobody.
+    /// The operation still fails with its normal destination-unavailable error.
+    @MainActor
+    @Test func testEmptyDestinationRootFailsWithoutPrompting() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+
+        let copied = await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "",
+            fileManager: mockFM
+        )
+
+        #expect(prompts == 0)
+        #expect(copied.isEmpty)
+        #expect(manager.currentError != nil)
+    }
+
     // MARK: - Container derivation
 
     /// `transferContainers` strips the shared root-relative suffix from both sides, in the
@@ -557,5 +580,38 @@ import Foundation
         let containers = diff.transferContainers
         #expect(containers.from == "/right/root")
         #expect(containers.to == "/left/root")
+    }
+
+    /// A pane rooted at the filesystem root must yield "/" — the naive suffix strip of
+    /// "/a.txt" minus "a.txt" would leave "" and render blank From/To lines in the prompt.
+    @Test func testTransferContainersAtFilesystemRootYieldSlash() {
+        let diff = FileDifference(
+            relativePath: "a.txt",
+            leftItemPath: "/a.txt",
+            rightItemPath: "/backup/a.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right"
+        )
+        let containers = diff.transferContainers
+        #expect(containers.from == "/")
+        #expect(containers.to == "/backup")
+    }
+
+    /// An item path that does not end in relativePath (never true for engine-built
+    /// differences, but constructible by hand) falls back to the immediate parent instead
+    /// of producing garbage from the suffix arithmetic.
+    @Test func testTransferContainersFallBackToImmediateParent() {
+        let diff = FileDifference(
+            relativePath: "unrelated/suffix.txt",
+            leftItemPath: "/left/root/deep/item.txt",
+            rightItemPath: "/right/root/deep/item.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right"
+        )
+        let containers = diff.transferContainers
+        #expect(containers.from == "/left/root/deep")
+        #expect(containers.to == "/right/root/deep")
     }
 }

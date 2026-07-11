@@ -3,7 +3,17 @@ import Foundation
 @testable import Sync
 
 @Suite struct FileSyncManagerTests {
-    
+
+    /// Polls until `condition` holds (or ~2s elapse). Undo/redo actions resolve through
+    /// async Tasks; a fixed post-`undo()` sleep flakes under parallel-suite main-actor
+    /// congestion, so wait for the observable effect instead of a guessed duration.
+    @MainActor
+    private func waitUntil(_ condition: () -> Bool) async throws {
+        for _ in 0..<200 where !condition() {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+    }
+
     @MainActor
     @Test func testPruneSelection() async throws {
         let manager = FileSyncManager()
@@ -87,10 +97,8 @@ import Foundation
         
         // Execute the registered Undo (restore from trash)
         manager.undoManager?.undo()
-        
-        // Let the async block for undo resolve
-        try await Task.sleep(nanoseconds: 100_000_000)
-        
+
+        try await waitUntil { mockFM.virtualDisk["/src/delete_me.txt"] != nil }
         #expect(mockFM.virtualDisk["/src/delete_me.txt"] != nil)
     }
     
@@ -112,18 +120,16 @@ import Foundation
         
         // Perform Undo -> should theoretically move the file to trash (removing it from dst)
         manager.undoManager?.undo()
-        
-        // let async block finish
-        try await Task.sleep(nanoseconds: 100_000_000)
-        
+
+        try await waitUntil { mockFM.virtualDisk["/dst/copy_me.txt"] == nil }
         // Removed from destination
         #expect(mockFM.virtualDisk["/dst/copy_me.txt"] == nil)
         // Kept in source
         #expect(mockFM.virtualDisk["/src/copy_me.txt"] != nil)
-        
+
         // Perform Redo -> should put it back
         manager.undoManager?.redo()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        try await waitUntil { mockFM.virtualDisk["/dst/copy_me.txt"] != nil }
         #expect(mockFM.virtualDisk["/dst/copy_me.txt"] != nil)
     }
     
