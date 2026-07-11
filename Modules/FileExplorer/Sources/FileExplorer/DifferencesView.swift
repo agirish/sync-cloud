@@ -253,13 +253,14 @@ public struct DifferencesView: View {
                         .buttonStyle(.bordered)
                         .disabled(isSyncActionBlocked)
                     }
-                    // Search collapses to an icon; clicking it reveals the field on a second line.
+                    // Search collapses to an icon; clicking it reveals the field on a second
+                    // line, which takes focus itself on appear (a FocusState write here, in
+                    // the same transaction that inserts the field, can be silently dropped).
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) {
                             isSearchExpanded.toggle()
                             if !isSearchExpanded { searchText = "" }
                         }
-                        if isSearchExpanded { searchFocused = true }
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
@@ -370,6 +371,11 @@ public struct DifferencesView: View {
             TextField("Search by name or path", text: $searchText)
                 .textFieldStyle(.plain)
                 .focused($searchFocused)
+                // Focus is claimed here, once the field exists — not by the reveal button,
+                // whose FocusState write lands in the transaction that inserts the field
+                // and can fail silently. The one-turn defer outlives that transaction.
+                .onAppear { Task { @MainActor in searchFocused = true } }
+                .onExitCommand { collapseSearch() }
             if !searchText.isEmpty {
                 Button {
                     searchText = ""
@@ -398,6 +404,14 @@ public struct DifferencesView: View {
     /// The Copy/Move button label, reflecting the target count and the held move modifier.
     private func actionLabel(count: Int, to name: String) -> String {
         "\(modifierTracker.isMoveModifierPressed ? "Move" : "Copy") \(count) to \(name)"
+    }
+
+    /// Escape in the search field: clear the query and collapse back to the icon.
+    private func collapseSearch() {
+        withAnimation(.easeOut(duration: 0.15)) {
+            searchText = ""
+            isSearchExpanded = false
+        }
     }
 
     // MARK: Header actions
