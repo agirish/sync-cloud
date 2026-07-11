@@ -513,16 +513,8 @@ private struct DifferenceChangeCell: View {
 private struct DifferenceSizeCell: View {
     let difference: FileDifference
 
-    /// One cached formatter for the whole column — `ByteCountFormatter` carries internal state, so
-    /// allocating one per row body would churn (same reason FileTreeView caches its `sizeFormatter`).
-    @MainActor private static let formatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     var body: some View {
-        Text(difference.displaySize.map { Self.formatter.string(fromByteCount: Int64($0)) } ?? "—")
+        Text(difference.displaySize.map { FileSizeFormat.byteCount.string(fromByteCount: Int64($0)) } ?? "—")
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .trailing)

@@ -508,13 +508,8 @@ struct FileRowView: View {
     /// Number of differences beneath this node (directories only; 0 elsewhere).
     let containedDiffCount: Int
 
-    /// Shared formatters: rows render lazily but scroll fast, so allocating a formatter
-    /// per row body would still churn.
-    @MainActor private static let sizeFormatter: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter
-    }()
+    /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
+    /// scroll fast, so allocating a formatter per row body would still churn.
     @MainActor private static let modifiedFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -530,7 +525,7 @@ struct FileRowView: View {
             return Self.modifiedFormatter.string(from: date)
         }
         guard let size = node.fileSize else { return nil }
-        return Self.sizeFormatter.string(fromByteCount: Int64(size))
+        return FileSizeFormat.byteCount.string(fromByteCount: Int64(size))
     }
 
     var body: some View {
