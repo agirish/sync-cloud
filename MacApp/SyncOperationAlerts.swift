@@ -20,19 +20,21 @@ struct SyncOperationAlerts {
             + "Items that exist only in the destination folder will be moved to the Trash."
     }
 
-    /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
-    static func promptForCollision(fileName: String, isMove: Bool, isDirectory: Bool) -> CollisionResolution {
+    /// The collision alert shared by both prompts below: identical text, buttons, and
+    /// response mapping — the only variation between them is the optional accessory view,
+    /// so the two can't drift apart.
+    private static func runCollisionAlert(fileName: String, isMove: Bool, isDirectory: Bool, accessoryView: NSView?) -> CollisionResolution {
         let alert = NSAlert()
         alert.messageText = "An item named \"\(fileName)\" already exists in this location."
         alert.informativeText = collisionInformativeText(isMove: isMove, isDirectory: isDirectory)
+        alert.accessoryView = accessoryView
 
         // Buttons added right to left.
         alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
         alert.addButton(withTitle: "Skip")      // Second added (Middle)
         alert.addButton(withTitle: "Replace")   // Third added (Leftmost)
 
-        let response = alert.runModal()
-        switch response {
+        switch alert.runModal() {
         case .alertFirstButtonReturn:
             return .keepBoth
         case .alertSecondButtonReturn:
@@ -44,37 +46,23 @@ struct SyncOperationAlerts {
         }
     }
 
+    /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
+    static func promptForCollision(fileName: String, isMove: Bool, isDirectory: Bool) -> CollisionResolution {
+        runCollisionAlert(fileName: fileName, isMove: isMove, isDirectory: isDirectory, accessoryView: nil)
+    }
+
     /// Presents a collision resolution alert with an "Apply to all" option for bulk sync.
     /// - Returns: The chosen resolution and whether to apply it to all remaining conflicts in this bulk run.
     static func promptForCollisionWithApplyToAll(fileName: String, isMove: Bool, isDirectory: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) {
-        let alert = NSAlert()
-        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
-        alert.informativeText = collisionInformativeText(isMove: isMove, isDirectory: isDirectory)
-
         let checkbox = NSButton(checkboxWithTitle: "Apply to all for remaining conflicts", target: nil, action: nil)
         checkbox.state = .off
         checkbox.sizeToFit()
         let accessory = NSView(frame: NSRect(x: 0, y: 0, width: max(checkbox.frame.width, 280), height: checkbox.frame.height + 4))
         checkbox.frame.origin = CGPoint(x: 0, y: 0)
         accessory.addSubview(checkbox)
-        alert.accessoryView = accessory
 
-        alert.addButton(withTitle: "Keep Both")
-        alert.addButton(withTitle: "Skip")
-        alert.addButton(withTitle: "Replace")
-
-        let response = alert.runModal()
-        let applyToAll = checkbox.state == .on
-        switch response {
-        case .alertFirstButtonReturn:
-            return (.keepBoth, applyToAll)
-        case .alertSecondButtonReturn:
-            return (.skip, applyToAll)
-        case .alertThirdButtonReturn:
-            return (.replace, applyToAll)
-        default:
-            return (.skip, applyToAll)
-        }
+        let resolution = runCollisionAlert(fileName: fileName, isMove: isMove, isDirectory: isDirectory, accessoryView: accessory)
+        return (resolution, checkbox.state == .on)
     }
 
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
