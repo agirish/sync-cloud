@@ -275,15 +275,26 @@ public extension View {
 
     /// Frosted floating-card decoration for the `.cards` style: material fill, rounded corners,
     /// hairline border, soft shadow, and an outer gutter so the background shows between cards.
+    /// On macOS 26 the fill/border/shadow come from native `glassEffect` instead (matching
+    /// `glassCardStyle`), so Cards mode doesn't mix raw material with Liquid Glass in one window;
+    /// the gutter is layout and applies on both branches. No intensity reaches this decoration,
+    /// so the glass variant is always `.regular` (the ≥0.33 default in `glassCardStyle`'s mapping).
+    @ViewBuilder
     func surfaceCard(cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
-        self
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 0.6)
-            )
-            .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-            .padding(LiquidGlass.cardGutter)
+        if #available(macOS 26.0, *) {
+            self
+                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+                .padding(LiquidGlass.cardGutter)
+        } else {
+            self
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(.quaternary, lineWidth: 0.6)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+                .padding(LiquidGlass.cardGutter)
+        }
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
@@ -326,13 +337,21 @@ public extension View {
             .contentSurface(style, intensity: intensity, hue: hue, tint: tint)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         if style == .cards {
-            filled
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.6)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+            // Same macOS-26 gating as `glassCardStyle`/`surfaceCard`: native glass replaces the
+            // material/border/shadow stack; the macOS-15 fallback is unchanged.
+            if #available(macOS 26.0, *) {
+                let t = max(0.0, min(1.0, intensity))
+                filled
+                    .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: radius))
+            } else {
+                filled
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .strokeBorder(.quaternary, lineWidth: 0.6)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+            }
         } else {
             filled
                 .overlay(
