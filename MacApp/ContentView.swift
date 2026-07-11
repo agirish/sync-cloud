@@ -15,6 +15,10 @@ struct ContentView: View {
 
     /// Drives the in-window settings overlay (owned by the App so ⌘, can open it).
     @Binding var showSettings: Bool
+    /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
+    /// the App (session-scoped, never persisted) because closing and Dock-reopening the single
+    /// window recreates ContentView and all its `@State` — a view-owned flag would forget.
+    @Binding var hasBootstrappedSession: Bool
     /// Which settings tab the overlay shows. Owned here so it persists across open/close and can
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
@@ -182,27 +186,46 @@ struct ContentView: View {
             refreshAction()
         }
         .onAppear {
-            // General setting: start the session with hidden files shown when the user asked for it.
-            syncManager.showHiddenFiles = UserDefaults.standard.bool(forKey: GeneralSettings.showHiddenByDefaultKey)
-            // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
-            // openSettingsOnLaunch -bool YES` opens the Settings overlay at startup, so
-            // automated verification can reach it without synthesizing input. No-op
-            // unless explicitly armed; honors `settingsSelectedTab` for the initial tab.
-            if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
-                let storedTab = UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey) ?? ""
-                settingsTab = SettingsView.SettingsTab(rawValue: storedTab) ?? .appearance
-                showSettings = true
-            }
-            actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
-            syncManager.undoManager = undoManager
-            syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
-            Task { @MainActor in
-                await settings.discoverProviders()
-                applyProviderSelection(preferDistinctPair: true)
-                if !settings.enabledProviders.isEmpty {
-                    refreshAction()
+            // Closing and Dock-reopening the single window recreates ContentView, so this
+            // block runs again mid-session. PaneLogic.bootstrapSteps owns the once-per-session
+            // vs per-window split: re-running the session steps would discard a mid-session
+            // hidden-files toggle and re-apply the distinct-pair provider selection over panes
+            // the user may have deliberately set to the same provider.
+            let isFirstAppearance = !hasBootstrappedSession
+            hasBootstrappedSession = true
+            for step in PaneLogic.bootstrapSteps(isFirstAppearance: isFirstAppearance) {
+                switch step {
+                case .resetShowHiddenFilesFromDefault:
+                    // General setting: start the session with hidden files shown when the user asked for it.
+                    syncManager.showHiddenFiles = UserDefaults.standard.bool(forKey: GeneralSettings.showHiddenByDefaultKey)
+                case .honorOpenSettingsOnLaunch:
+                    // Diagnostic hook: `defaults write com.abhishekgirish.SyncCloud
+                    // openSettingsOnLaunch -bool YES` opens the Settings overlay at startup, so
+                    // automated verification can reach it without synthesizing input. No-op
+                    // unless explicitly armed; honors `settingsSelectedTab` for the initial tab.
+                    if UserDefaults.standard.bool(forKey: "openSettingsOnLaunch") {
+                        let storedTab = UserDefaults.standard.string(forKey: SettingsView.selectedTabDefaultsKey) ?? ""
+                        settingsTab = SettingsView.SettingsTab(rawValue: storedTab) ?? .appearance
+                        showSettings = true
+                    }
+                case .createActionHandler:
+                    actionHandler = FileActionHandler(syncManager: syncManager, settings: settings)
+                case .rewireUndoManager:
+                    syncManager.undoManager = undoManager
+                case .syncProviderQuirkSettings:
+                    syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
+                case .discoverProvidersAndApplyInitialSelection:
+                    Task { @MainActor in
+                        await settings.discoverProviders()
+                        applyProviderSelection(preferDistinctPair: true)
+                        if !settings.enabledProviders.isEmpty {
+                            refreshAction()
+                        }
+                        isBootstrappingProviders = false
+                    }
+                case .endProviderBootstrapGuard:
+                    isBootstrappingProviders = false
                 }
-                isBootstrappingProviders = false
             }
         }
         .onChange(of: leftProviderId) { _, newId in

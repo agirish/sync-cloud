@@ -426,4 +426,48 @@ import Sync
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 200, panesHeight: 800), 0.75))
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 600, panesHeight: 800), 0.25))
     }
+
+    // MARK: bootstrapSteps
+
+    @Test func testFirstAppearanceRunsTheFullBootstrapInOrder() {
+        // First launch must behave exactly as before the single-window change: launch
+        // defaults, per-window wiring, then provider discovery with the distinct-pair
+        // selection and initial scan. Order is part of the contract — the undo manager and
+        // action handler must be wired before the discovery task can trigger a refresh.
+        #expect(PaneLogic.bootstrapSteps(isFirstAppearance: true) == [
+            .resetShowHiddenFilesFromDefault,
+            .honorOpenSettingsOnLaunch,
+            .createActionHandler,
+            .rewireUndoManager,
+            .syncProviderQuirkSettings,
+            .discoverProvidersAndApplyInitialSelection,
+        ])
+    }
+
+    @Test func testReappearanceRunsOnlyPerWindowWiring() {
+        // A Dock-click reopen recreates ContentView mid-session. It must NOT re-run the
+        // session steps: resetting showHiddenFiles would discard a mid-session toggle, and
+        // re-applying the distinct-pair selection would silently flip a right pane the user
+        // deliberately set to the same provider as the left.
+        let steps = PaneLogic.bootstrapSteps(isFirstAppearance: false)
+        #expect(steps == [
+            .createActionHandler,
+            .rewireUndoManager,
+            .endProviderBootstrapGuard,
+        ])
+        #expect(!steps.contains(.resetShowHiddenFilesFromDefault))
+        #expect(!steps.contains(.discoverProvidersAndApplyInitialSelection))
+    }
+
+    @Test func testEveryAppearanceRewiresTheWindowScopedState() {
+        // The recreated window brings a fresh UndoManager and a nil @State action handler;
+        // both must be rewired on every appearance, and the recreated view's
+        // isBootstrappingProviders guard must be cleared exactly when no discovery will do it.
+        for first in [true, false] {
+            let steps = PaneLogic.bootstrapSteps(isFirstAppearance: first)
+            #expect(steps.contains(.createActionHandler))
+            #expect(steps.contains(.rewireUndoManager))
+            #expect(steps.contains(.endProviderBootstrapGuard) != first)
+        }
+    }
 }

@@ -148,6 +148,59 @@ enum PaneLogic {
         return updated
     }
 
+    // MARK: - Window bootstrap
+
+    /// One step of ContentView's `onAppear` bootstrap. The app is single-window, but closing
+    /// the window and reopening it from the Dock recreates the ContentView, so `onAppear` runs
+    /// again mid-session. Each step is therefore classified once-per-session vs per-window;
+    /// `bootstrapSteps(isFirstAppearance:)` is the single source of that classification (pinned
+    /// by tests), and the view executes whatever list it returns so the two can't drift.
+    enum BootstrapStep: Equatable {
+        /// Session: seed `showHiddenFiles` from the General default. Re-running on a window
+        /// reopen would discard a mid-session toggle.
+        case resetShowHiddenFilesFromDefault
+        /// Session: the `openSettingsOnLaunch` diagnostic is a launch hook; a window reopen
+        /// must not re-open the Settings overlay.
+        case honorOpenSettingsOnLaunch
+        /// Window: `FileActionHandler` lives in view `@State`, so every fresh ContentView
+        /// starts with nil and needs its own.
+        case createActionHandler
+        /// Window: each window brings a fresh `UndoManager`; the shared sync manager must
+        /// register undos with the one actually on screen.
+        case rewireUndoManager
+        /// Session: seeds the manager from Settings once; the `onChange(of:)` observer keeps
+        /// it current afterwards (both objects outlive the window).
+        case syncProviderQuirkSettings
+        /// Session: provider discovery, the distinct-pair pane selection, and the initial
+        /// scan. Re-running would silently flip a deliberately-same right pane to a different
+        /// provider and redo discovery + rescan over live state. Clears the view's
+        /// provider-bootstrap guard when the discovery task finishes.
+        case discoverProvidersAndApplyInitialSelection
+        /// Window, re-appearance only: a recreated view's `isBootstrappingProviders` `@State`
+        /// starts true, but no discovery is pending — clear it immediately, or provider
+        /// switches and pane swaps stay refused for the rest of the session.
+        case endProviderBootstrapGuard
+    }
+
+    /// The bootstrap steps to run for an appearance of ContentView, in execution order.
+    static func bootstrapSteps(isFirstAppearance: Bool) -> [BootstrapStep] {
+        if isFirstAppearance {
+            return [
+                .resetShowHiddenFilesFromDefault,
+                .honorOpenSettingsOnLaunch,
+                .createActionHandler,
+                .rewireUndoManager,
+                .syncProviderQuirkSettings,
+                .discoverProvidersAndApplyInitialSelection,
+            ]
+        }
+        return [
+            .createActionHandler,
+            .rewireUndoManager,
+            .endProviderBootstrapGuard,
+        ]
+    }
+
     // MARK: - Resize split layout
 
     /// Math for the two invisible resize dividers (the left↔right pane split and the panes↔bottom

@@ -13,12 +13,22 @@ private let _syncCloudAppIntentsDependency: Any.Type = (any AppIntent).self
 /// Manages the lifecycle of `FileSyncManager` and configures the root `ContentView`.
 /// Integrated with `SyncCloudAppDelegate` for app-level guards and termination handling.
 struct SyncCloudApp: App {
+    /// The main scene's id. SwiftUI stamps it onto the NSWindow's `identifier`, which is how
+    /// the delegate's Dock-reopen hook tells the main window apart from auxiliary scenes
+    /// (Activity Log).
+    static let mainWindowId = "main"
+
     @NSApplicationDelegateAdaptor(SyncCloudAppDelegate.self) var appDelegate
     @StateObject private var syncManager: FileSyncManager
     @StateObject private var settings: SettingsManager
     /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
     /// open it; ContentView renders the overlay and owns which tab is shown.
     @State private var showSettings = false
+    /// Whether ContentView's once-per-session bootstrap has run. App-owned because a window
+    /// close + Dock reopen recreates ContentView (and its @State) while the session — the
+    /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
+    /// @State, not @AppStorage: it must reset on every app launch.
+    @State private var hasBootstrappedSession = false
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
@@ -48,12 +58,21 @@ struct SyncCloudApp: App {
     }
     
     var body: some Scene {
-        WindowGroup {
+        // A single-window `Window` scene, not a WindowGroup: two ContentViews would share one
+        // FileSyncManager and the App-level showSettings, so a second window re-ran the full
+        // bootstrap (redundant discovery + rescan, provider re-selection over live panes) and
+        // the settings overlay opened in every window at once. `Window` also removes
+        // File ▸ New Window / ⌘N; nothing in `.commands` re-adds it.
+        Window("SyncCloud", id: SyncCloudApp.mainWindowId) {
             if isRunningTests {
                 Color.clear
                     .frame(width: 1, height: 1)
             } else {
-                ContentView(syncManager: syncManager, showSettings: $showSettings)
+                ContentView(
+                    syncManager: syncManager,
+                    showSettings: $showSettings,
+                    hasBootstrappedSession: $hasBootstrappedSession
+                )
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
             }
@@ -122,6 +141,22 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         return warnBeforeQuit
             ? .warn(activeOperations: activeOperations)
             : .allowWithoutWarning(activeOperations: activeOperations)
+    }
+
+    /// Dock click (or any app reactivation) with no visible windows must bring the main
+    /// window back — with a single `Window` scene there is no File ▸ New Window fallback.
+    /// SwiftUI keeps a closed scene window alive rather than releasing it, so ordering the
+    /// stored window front restores it with all its state; the identifier match keeps an
+    /// auxiliary scene (Activity Log) from being resurrected as "the app". If the window is
+    /// ever genuinely gone, fall through to the default reopen handling instead of eating
+    /// the event.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        guard let mainWindow = sender.windows.first(where: {
+            $0.identifier?.rawValue.hasPrefix(SyncCloudApp.mainWindowId) == true
+        }) else { return true }
+        mainWindow.makeKeyAndOrderFront(nil)
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
