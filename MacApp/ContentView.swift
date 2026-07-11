@@ -896,13 +896,28 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                             }
                         } else {
-                            VStack(spacing: 8) {
-                                Text("No Scan Performed")
-                                    .font(.headline)
-                                    .foregroundStyle(.secondary)
-                                Text("Click Scan to compare directories.")
+                            VStack(spacing: 12) {
+                                Image(systemName: "arrow.left.arrow.right.circle")
+                                    .font(.system(size: 44))
+                                    .foregroundStyle(glassHue.accentColor)
+                                Text("Compare \(paneNames.left) ↔ \(paneNames.right)")
+                                    .font(.title3.weight(.semibold))
+                                    .multilineTextAlignment(.center)
+                                Text("Nothing scanned yet. Scan the two focused folders to see what differs.")
                                     .font(.subheadline)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                Button {
+                                    forceRefreshAction()
+                                } label: {
+                                    // Spin the refresh arrow while scanning rather than swapping
+                                    // to a static hourglass — matches the toolbar's Scan button.
+                                    Label("Scan", systemImage: "arrow.clockwise")
+                                        .symbolEffect(.rotate, options: .repeating, isActive: isScanning)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(isScanning)
+                                .padding(.top, 4)
                             }
                         }
                     } else {
