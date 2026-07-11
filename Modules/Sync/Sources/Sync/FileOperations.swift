@@ -128,13 +128,15 @@ extension FileSyncManager {
     /// True when `destinationURL` holds a distinct item that a copy/move must replace. A case-only
     /// rename ("foo" -> "Foo") on a case-insensitive volume reports its own source as the
     /// destination, so it is excluded: it is not a replacement, and backing it up would move the
-    /// only copy of the data aside.
+    /// only copy of the data aside. On a case-sensitive volume there is no such aliasing —
+    /// case-variant names are ordinary distinct items and the exclusion must not apply.
     private nonisolated static func destinationExistsForReplacement(
         source: URL,
         destination: URL,
+        caseSensitiveVolume: Bool,
         fileManager: FileManaging
     ) -> Bool {
-        !isCaseOnlyRenaming(source: source, destination: destination)
+        !isCaseOnlyRenaming(source: source, destination: destination, caseSensitiveVolume: caseSensitiveVolume)
             && fileManager.fileExists(atPath: destination.path)
     }
 
@@ -172,7 +174,18 @@ extension FileSyncManager {
     /// backup on volumes without Trash).
     @discardableResult
     public nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
-        try validateFileOperation(source: sourceURL, destination: destinationURL)
+        try safeCopyItem(
+            at: sourceURL,
+            to: destinationURL,
+            fileManager: fileManager,
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL)
+        )
+    }
+
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
+    @discardableResult
+    nonisolated static func safeCopyItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool) throws -> URL? {
+        try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
 
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
@@ -181,7 +194,7 @@ extension FileSyncManager {
 
         try fileManager.copyItem(at: sourceURL, to: tempURL)
 
-        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, fileManager: fileManager) {
+        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
             // Atomically swap the staged copy into place, preserving the old destination as a
             // sibling backup. The destination is never momentarily absent, so a crash or forced
             // quit mid-replace cannot strand the old file in Trash with nothing at the destination.
@@ -206,9 +219,20 @@ extension FileSyncManager {
     /// backup on volumes without Trash).
     @discardableResult
     public nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging = FileManager.default) throws -> URL? {
-        try validateFileOperation(source: sourceURL, destination: destinationURL)
+        try safeMoveItem(
+            at: sourceURL,
+            to: destinationURL,
+            fileManager: fileManager,
+            caseSensitiveVolume: volumeSupportsCaseSensitiveNames(for: sourceURL)
+        )
+    }
 
-        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, fileManager: fileManager) {
+    /// Testable core; production resolves `caseSensitiveVolume` from the source volume.
+    @discardableResult
+    nonisolated static func safeMoveItem(at sourceURL: URL, to destinationURL: URL, fileManager: FileManaging, caseSensitiveVolume: Bool) throws -> URL? {
+        try validateFileOperation(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume)
+
+        if destinationExistsForReplacement(source: sourceURL, destination: destinationURL, caseSensitiveVolume: caseSensitiveVolume, fileManager: fileManager) {
             return try replaceDestinationByMoving(sourceURL: sourceURL, destinationURL: destinationURL, fileManager: fileManager)
         }
 
@@ -370,8 +394,12 @@ extension FileSyncManager {
         return (trashed, sourceURL, destinationURL)
     }
     
-    private nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL) -> Bool {
-        return source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&
+    /// Only meaningful on case-insensitive volumes, where the case-variant destination IS the
+    /// source. On a case-sensitive volume "foo" and "Foo" are distinct files, so no name change
+    /// qualifies as case-only there.
+    private nonisolated static func isCaseOnlyRenaming(source: URL, destination: URL, caseSensitiveVolume: Bool) -> Bool {
+        return !caseSensitiveVolume &&
+               source.deletingLastPathComponent() == destination.deletingLastPathComponent() &&
                source.lastPathComponent.lowercased() == destination.lastPathComponent.lowercased()
     }
 
@@ -626,6 +654,16 @@ extension FileSyncManager {
     
     /// Renames a specific file or folder on disk.
     public func renameItem(at path: String, to newName: String, fileManager fm: FileManaging = FileManager.default) async {
+        await renameItem(
+            at: path,
+            to: newName,
+            fileManager: fm,
+            caseSensitiveVolume: Self.volumeSupportsCaseSensitiveNames(for: URL(fileURLWithPath: path))
+        )
+    }
+
+    /// Testable core; production resolves `caseSensitiveVolume` from the item's volume.
+    func renameItem(at path: String, to newName: String, fileManager fm: FileManaging, caseSensitiveVolume: Bool) async {
         if let reason = Self.validateItemName(newName) {
             // Deterministic — the same name would be rejected again, so not retryable.
             present(SyncError(title: "Rename Failed", message: reason, path: path))
@@ -633,8 +671,11 @@ extension FileSyncManager {
         }
         let url = URL(fileURLWithPath: path)
         let newURL = url.deletingLastPathComponent().appendingPathComponent(newName)
-        
-        let isCaseOnly = url.lastPathComponent.lowercased() == newName.lowercased()
+
+        // A case-only rename skips the collision check only where the destination stat would
+        // hit the source itself (case-insensitive volumes). On a case-sensitive volume the
+        // case variant is a distinct item and must trigger the collision alert like any other.
+        let isCaseOnly = !caseSensitiveVolume && url.lastPathComponent.lowercased() == newName.lowercased()
         if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
             // Deterministic collision — renaming to the same existing name would just fail again,
             // so it is not retryable. Reveal points at the item that is in the way.
@@ -648,7 +689,7 @@ extension FileSyncManager {
         
         let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?) in
             do {
-                let trashed = try Self.safeMoveItem(at: url, to: newURL, fileManager: fm)
+                let trashed = try Self.safeMoveItem(at: url, to: newURL, fileManager: fm, caseSensitiveVolume: caseSensitiveVolume)
                 return (nil, trashed)
             } catch {
                 return (error, nil)

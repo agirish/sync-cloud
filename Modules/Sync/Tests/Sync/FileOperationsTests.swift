@@ -405,6 +405,66 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/Notes.txt"] == nil)
     }
 
+    /// On a case-SENSITIVE volume "foo" and "Foo" are distinct files, so renaming onto the
+    /// case variant is a collision like any other: the rename must stop at the "already
+    /// exists" alert instead of skipping the check as a case-only rename and then failing
+    /// the plain move with a raw "file exists" error. (The mock's disk is case-sensitive.)
+    @MainActor
+    @Test func testRenameOntoCaseVariantCollidesOnCaseSensitiveVolume() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/foo"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/Foo"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        await manager.renameItem(at: "/src/foo", to: "Foo", fileManager: mockFM, caseSensitiveVolume: true)
+
+        #expect(manager.currentError?.message.contains("already exists") == true)
+        #expect(mockFM.virtualDisk["/src/foo"] != nil)
+        #expect(mockFM.virtualDisk["/src/Foo"] != nil)
+    }
+
+    /// A case-only rename with NO case-variant sibling stays a plain rename on a
+    /// case-sensitive volume — no collision alert, no backup.
+    @MainActor
+    @Test func testRenameCaseOnlySucceedsOnCaseSensitiveVolumeWithoutCollision() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/foo"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        await manager.renameItem(at: "/src/foo", to: "Foo", fileManager: mockFM, caseSensitiveVolume: true)
+
+        #expect(manager.currentError == nil)
+        #expect(mockFM.virtualDisk["/src/Foo"] != nil)
+        #expect(mockFM.virtualDisk["/src/foo"] == nil)
+    }
+
+    /// The same distinction one layer down: safeMoveItem onto a case-variant destination on a
+    /// case-sensitive volume is a REPLACEMENT (atomic swap with a recoverable backup), not a
+    /// case-only rename excluded from the existence check — which used to end in a raw
+    /// "file exists" throw from the plain move.
+    @Test func testSafeMoveOntoCaseVariantReplacesOnCaseSensitiveVolume() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/foo"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/src/Foo"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 5], contents: nil)
+
+        let overwritten = try FileSyncManager.safeMoveItem(
+            at: URL(fileURLWithPath: "/src/foo"),
+            to: URL(fileURLWithPath: "/src/Foo"),
+            fileManager: mockFM,
+            caseSensitiveVolume: true
+        )
+
+        #expect(mockFM.virtualDisk["/src/foo"] == nil)
+        let attrs = try mockFM.attributesOfItem(atPath: "/src/Foo")
+        #expect(attrs[.size] as? Int == 100)
+        // The replaced case-variant stays recoverable, like any other replacement.
+        #expect(overwritten != nil)
+        #expect(mockFM.calledReplaceItem)
+    }
+
     @MainActor
     @Test func testRecursiveConflictHandling() async throws {
         let manager = FileSyncManager()
