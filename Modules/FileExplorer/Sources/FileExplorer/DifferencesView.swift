@@ -423,6 +423,26 @@ public struct DifferencesView: View {
                 emptyState
             }
         }
+        // Directional Copy/Move on the selection: ⌘→/⌘← copy, ⇧ makes it a move. Scoped to the
+        // Table subtree via .onKeyPress (NOT a window-level .keyboardShortcut, which is consulted
+        // before the first responder and would hijack ⌘→ typed into the search field). Fires
+        // only while key focus is inside the table, so the search field keeps ⌘→ for its cursor.
+        // A bare arrow (no ⌘) returns .ignored so the Table's own row navigation is untouched.
+        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: .down) { press in
+            guard let intent = KeyboardCopyIntent.from(key: press.key, modifiers: press.modifiers) else {
+                return .ignored
+            }
+            keyboardCopy(direction: intent.direction, isMove: intent.isMove, in: sorted)
+            return .handled
+        }
+        // Quick Look the topmost selected row's source side — matches the pane/review Space loop.
+        .onKeyPress(.space) {
+            guard let onQuickLook, let primary = sorted.first(where: { selection.contains($0.id) }) else {
+                return .ignored
+            }
+            onQuickLook(URL(fileURLWithPath: primary.reviewSourcePath))
+            return .handled
+        }
     }
 
     // MARK: Review lifecycle
@@ -621,14 +641,29 @@ public struct DifferencesView: View {
         )
     }
 
+    /// The keyboard shortcut's Copy/Move: the same dispatch as the header's `copy`, but strictly
+    /// scoped to the current selection (a no-op when nothing is selected — never a surprise copy
+    /// of the whole list) and with the move flag taken from ⇧ rather than the global move
+    /// modifier (⌘ is always held for this chord, so `ModifierTracker` would read every ⌘→ as a
+    /// move). Filters to the rows whose `.action` matches the pressed direction, exactly like the
+    /// header. Respects the same in-flight gate the header buttons disable on.
+    private func keyboardCopy(direction: FileDifference.SyncAction, isMove: Bool, in sorted: [FileDifference]) {
+        guard !selection.isEmpty, !isSyncActionBlocked else { return }
+        let items = sorted.filter { selection.contains($0.id) && $0.action == direction }
+        guard !items.isEmpty else { return }
+        runCopyOrMove(direction: direction, items: items, scope: "selection", isMove: isMove)
+    }
+
     /// One Copy/Move dispatch shared by the header buttons and the bulk context menu, so
     /// their wiring can't drift. Reads the move modifier at invocation, not at view/menu
     /// build — an NSMenu that stays open across a modifier change would otherwise fire the
     /// stale action (drag & drop reads the modifier at drop time for the same reason).
     /// A single item goes through `syncFile`, whose failure alert carries a working Retry
     /// handler; `syncAll` (which offers no Retry) is only for genuine multi-item runs.
-    private func runCopyOrMove(direction: FileDifference.SyncAction, items: [FileDifference], scope: String) {
-        let isMove = ModifierTracker.moveModifierHeld
+    /// `isMove` overrides the live move-modifier read — the keyboard shortcut passes ⇧ explicitly
+    /// (⌘ is always held for its chord); the header and context menu omit it to read the modifier.
+    private func runCopyOrMove(direction: FileDifference.SyncAction, items: [FileDifference], scope: String, isMove overrideMove: Bool? = nil) {
+        let isMove = overrideMove ?? ModifierTracker.moveModifierHeld
         Logger.shared.debug(
             "Bulk \(isMove ? "move" : "copy") \(direction == .copyToRight ? "to right" : "to left"): "
             + "\(items.count) item(s) (\(scope))")

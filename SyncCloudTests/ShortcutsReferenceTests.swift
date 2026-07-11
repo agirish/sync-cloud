@@ -7,7 +7,7 @@ import Testing
 @Suite struct ShortcutsReferenceTests {
 
     @Test func testGroupsCoverTheExpectedAreas() {
-        #expect(ShortcutsReference.groups.map(\.title) == ["General", "Panes", "Guided review"])
+        #expect(ShortcutsReference.groups.map(\.title) == ["General", "Panes", "Differences", "Guided review"])
     }
 
     @Test func testEveryItemHasKeysAndAction() {
