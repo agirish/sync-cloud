@@ -158,6 +158,12 @@ public struct DifferencesView: View {
     private var isVerifyAllInProgress: Bool {
         syncManager.verifyAllProgress != nil
     }
+    /// One gate for every Copy/Move/Verify entry point — the header buttons AND the bulk
+    /// context menu must share it: `syncAll` silently drops re-entrant runs, so an entry
+    /// point left enabled during a bulk sync is a silent no-op.
+    private var isSyncActionBlocked: Bool {
+        syncManager.differences.contains { $0.isSyncing } || isBulkSyncing || isVerifyAllInProgress
+    }
     private var verifiedIdenticalCount: Int {
         syncManager.verifiedIdenticalForCopy?.count ?? 0
     }
@@ -175,7 +181,6 @@ public struct DifferencesView: View {
         let filtered = DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
         let sorted = filtered.sorted(using: sortOrder)
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
-        let anySyncing = syncManager.differences.contains { $0.isSyncing }
 
         return VStack(spacing: 8) {
             // Toolbar card: tabs · count · filter · actions · search.
@@ -228,7 +233,7 @@ public struct DifferencesView: View {
                             Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                        .disabled(isSyncActionBlocked)
                     }
                     if targets.copyToLeftCount > 0 {
                         Button {
@@ -237,7 +242,7 @@ public struct DifferencesView: View {
                             Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                        .disabled(isSyncActionBlocked)
                     }
                     if targets.verifiableCount > 0 {
                         Button {
@@ -246,7 +251,7 @@ public struct DifferencesView: View {
                             Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
                         }
                         .buttonStyle(.bordered)
-                        .disabled(anySyncing || isBulkSyncing || isVerifyAllInProgress)
+                        .disabled(isSyncActionBlocked)
                     }
                     // Search collapses to an icon; clicking it reveals the field on a second line.
                     Button {
@@ -398,14 +403,31 @@ public struct DifferencesView: View {
     // MARK: Header actions
 
     /// Fires a header Copy/Move on the current action targets (selection when any, else the
-    /// filtered set). `syncAll` filters the subset to the requested direction internally.
+    /// filtered set).
     private func copy(direction: FileDifference.SyncAction, targets: DifferenceActionTargets) {
-        let isMove = modifierTracker.isMoveModifierPressed
-        let count = direction == .copyToRight ? targets.copyToRightCount : targets.copyToLeftCount
+        runCopyOrMove(
+            direction: direction,
+            items: targets.targets.filter { $0.action == direction },
+            scope: targets.isSelectionScoped ? "selection" : "filtered set"
+        )
+    }
+
+    /// One Copy/Move dispatch shared by the header buttons and the bulk context menu, so
+    /// their wiring can't drift. Reads the move modifier at invocation, not at view/menu
+    /// build — an NSMenu that stays open across a modifier change would otherwise fire the
+    /// stale action (drag & drop reads the modifier at drop time for the same reason).
+    /// A single item goes through `syncFile`, whose failure alert carries a working Retry
+    /// handler; `syncAll` (which offers no Retry) is only for genuine multi-item runs.
+    private func runCopyOrMove(direction: FileDifference.SyncAction, items: [FileDifference], scope: String) {
+        let isMove = ModifierTracker.moveModifierHeld
         Logger.shared.debug(
             "Bulk \(isMove ? "move" : "copy") \(direction == .copyToRight ? "to right" : "to left"): "
-            + "\(count) item(s) (\(targets.isSelectionScoped ? "selection" : "filtered set"))")
-        Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: targets.targets) }
+            + "\(items.count) item(s) (\(scope))")
+        if items.count == 1, let single = items.first {
+            Task { await syncManager.syncFile(single, isMove: isMove) }
+        } else {
+            Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: items) }
+        }
     }
 
     /// Fires Verify on the current action targets; `verifyAllWithChecksum` keeps only the
@@ -509,22 +531,25 @@ public struct DifferencesView: View {
     private func bulkMenu(for selected: [FileDifference]) -> some View {
         let toRight = selected.filter { $0.action == .copyToRight }
         let toLeft = selected.filter { $0.action == .copyToLeft }
+        // Label-only snapshot: NSMenu can't relabel items from @Published while open, so the
+        // verb shows the modifier held when the menu was built. The ACTION re-reads the live
+        // modifier inside runCopyOrMove.
         let isMove = modifierTracker.isMoveModifierPressed
         if !toRight.isEmpty {
             Button {
-                Logger.shared.debug("Bulk \(isMove ? "move" : "copy") to right: \(toRight.count) item(s) (selection)")
-                Task { await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: toRight) }
+                runCopyOrMove(direction: .copyToRight, items: toRight, scope: "selection")
             } label: {
                 Label("\(isMove ? "Move" : "Copy") \(toRight.count) to \(paneNames.right)", systemImage: "arrow.right.circle")
             }
+            .disabled(isSyncActionBlocked)
         }
         if !toLeft.isEmpty {
             Button {
-                Logger.shared.debug("Bulk \(isMove ? "move" : "copy") to left: \(toLeft.count) item(s) (selection)")
-                Task { await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: toLeft) }
+                runCopyOrMove(direction: .copyToLeft, items: toLeft, scope: "selection")
             } label: {
                 Label("\(isMove ? "Move" : "Copy") \(toLeft.count) to \(paneNames.left)", systemImage: "arrow.left.circle")
             }
+            .disabled(isSyncActionBlocked)
         }
         Divider()
         Button {
