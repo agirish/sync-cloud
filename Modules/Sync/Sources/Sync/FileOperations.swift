@@ -437,12 +437,16 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully copied.
     @discardableResult
     public func copyItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        await transferItems(
+        // Expand once, and use the expanded value for both the root-existence guard and the
+        // per-item targets (mirroring paneTargetURL): the guard stats the expanded path, so a
+        // "~/…" caller must not derive its targets from the raw string.
+        let expandedDestination = (destinationPath as NSString).expandingTildeInPath
+        return await transferItems(
             nodes: nodes,
             isMove: false,
             destinationDescription: "to \(destinationPath)",
-            destinationRoot: destinationPath,
-            targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
+            destinationRoot: expandedDestination,
+            targetURL: { node in URL(fileURLWithPath: expandedDestination).appendingPathComponent(node.name) },
             fileManager: fm
         )
     }
@@ -451,12 +455,15 @@ extension FileSyncManager {
     /// - Returns: Nodes that were successfully moved.
     @discardableResult
     public func moveItems(nodes: [FileNode], toPath destinationPath: String, fileManager fm: FileManaging = FileManager.default) async -> [FileNode] {
-        await transferItems(
+        // Same single expansion as copyItems(toPath:) — a move also removes the sources, so a
+        // misdirected target would be worse than a stray copy.
+        let expandedDestination = (destinationPath as NSString).expandingTildeInPath
+        return await transferItems(
             nodes: nodes,
             isMove: true,
             destinationDescription: "to \(destinationPath)",
-            destinationRoot: destinationPath,
-            targetURL: { node in URL(fileURLWithPath: destinationPath).appendingPathComponent(node.name) },
+            destinationRoot: expandedDestination,
+            targetURL: { node in URL(fileURLWithPath: expandedDestination).appendingPathComponent(node.name) },
             fileManager: fm
         )
     }

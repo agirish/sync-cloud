@@ -274,6 +274,42 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/f2.txt"] == nil)
     }
     
+    /// The toPath variants must tilde-expand once and use the expanded value for BOTH the
+    /// root-existence guard and the per-item targets (like paneTargetURL). Deriving targets
+    /// from the raw "~/…" string relied on URL(fileURLWithPath:)'s expansion behavior, which
+    /// is Foundation-version dependent — on runtimes that don't expand, items landed at
+    /// "<cwd>/~/…" while the guard (which stats the expanded path) passed, and a move also
+    /// removed the sources.
+    @MainActor
+    @Test func testCopyAndMoveToTildePathExpandBeforeDerivingTargets() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        let home = NSHomeDirectory()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: home + "/dst-tilde"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/copied.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/moved.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/copied.txt", name: "copied.txt", isDirectory: false)],
+            toPath: "~/dst-tilde",
+            fileManager: mockFM
+        )
+        await manager.moveItems(
+            nodes: [FileNode(id: "/src/moved.txt", name: "moved.txt", isDirectory: false)],
+            toPath: "~/dst-tilde",
+            fileManager: mockFM
+        )
+
+        #expect(manager.currentError == nil)
+        #expect(mockFM.virtualDisk[home + "/dst-tilde/copied.txt"] != nil)
+        #expect(mockFM.virtualDisk[home + "/dst-tilde/moved.txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/copied.txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/moved.txt"] == nil)
+        // Nothing may land under a literal "~" directory (CWD-relative).
+        #expect(mockFM.virtualDisk.keys.contains { $0.contains("~") } == false)
+    }
+
     @MainActor
     @Test func testMoveCrossPane() async throws {
         let manager = FileSyncManager()
