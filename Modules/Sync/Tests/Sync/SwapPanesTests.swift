@@ -172,6 +172,32 @@ import Foundation
         #expect(manager.rightRelativePath == "docs")
     }
 
+    /// Pin: the swap is also refused while Verify All is running — a run completing after the
+    /// swap would publish a `verifiedIdenticalForCopy` offer built from pre-swap differences,
+    /// and the follow-up copy would run in the pre-swap direction under mismatched labels.
+    @MainActor
+    @Test func testSwapPanesRefusedWhileVerifyAllInFlight() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let diff = makeDifference()
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        manager.leftRelativePath = "docs"
+
+        manager.isVerifyAllRunning = true
+        #expect(!manager.swapPanes())
+        // (Field comparison — banner equality includes a per-publish id.)
+        #expect(manager.banner?.message == "Can't swap panes while an operation is running")
+        #expect(manager.banner?.severity == .warning)
+        // Nothing moved during the refusal.
+        #expect(manager.leftRelativePath == "docs")
+        #expect(manager.rawDifferences[0].action == .copyToRight)
+
+        // With the verify run finished the same swap goes through.
+        manager.isVerifyAllRunning = false
+        #expect(manager.swapPanes())
+        #expect(manager.rightRelativePath == "docs")
+    }
+
     /// Pin: a provider switch (resetNavigation) drops differences and trees synchronously —
     /// rows scanned against the old roots must not stay clickable while the new provider
     /// loads — and resets `hasScanned` so the empty list reads "No Scan Performed", never a

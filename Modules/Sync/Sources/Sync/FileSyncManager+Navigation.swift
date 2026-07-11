@@ -174,6 +174,9 @@ extension FileSyncManager {
     /// Refused (returns `false`, with a warning banner) while any file operation or sync is in
     /// flight: those operations captured pre-swap paths and directions, and remapping the rows
     /// under them would show arrows that no longer match what the running operation does.
+    /// Also refused during Verify All: a run completing after the swap would publish a
+    /// `verifiedIdenticalForCopy` offer built from pre-swap differences, and the follow-up
+    /// copy would run in the pre-swap direction under mismatched labels.
     ///
     /// The provider ids live in @AppStorage (ContentView) and are swapped there in lockstep;
     /// this method owns only the manager's paired @Published state. It does not itself trigger
@@ -182,6 +185,7 @@ extension FileSyncManager {
     @MainActor @discardableResult public func swapPanes() -> Bool {
         guard activeFileOperationsCount == 0,
               bulkSyncProgress == nil,
+              !isVerifyAllRunning,
               syncingDifferenceIds.isEmpty else {
             Logger.shared.warning("Ignored pane swap while file operations are in flight")
             banner = .warning("Can't swap panes while an operation is running")
