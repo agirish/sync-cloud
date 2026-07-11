@@ -377,6 +377,12 @@ extension FileSyncManager {
         }
 
         let isLatestRequest = request.generation == scanRequestGeneration
+        // Both gate terms are load-bearing. The generation check discards a scan any newer
+        // scanDirectories call (or invalidateComparisonState) has superseded. Task.isCancelled
+        // covers a window the generation can't: a superseding refresh cancels this task first
+        // and only reaches its own scanDirectories (bumping the generation) after both pane
+        // loads finish — until then this scan is still "latest" but its results are for
+        // folders the panes are navigating away from.
         if !Task.isCancelled, isLatestRequest, let results = newDifferences {
             self.rawDifferences = results
             self.lastRightProviderType = request.right.type
