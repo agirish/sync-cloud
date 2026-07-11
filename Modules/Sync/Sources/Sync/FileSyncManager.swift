@@ -680,9 +680,7 @@ public class FileSyncManager: ObservableObject {
 
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
-            let initialResolver = AsyncValueResolver<[CopyItemState]>()
-            Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
-            registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+            registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
         }
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
         // No per-failure isSyncing reset here: the defer above clears the flag for every
@@ -934,13 +932,9 @@ public class FileSyncManager: ObservableObject {
             if let from = result.from, let to = result.to {
                 let actionName = "Sync \(difference.relativePath.components(separatedBy: "/").last ?? "")"
                 if isMove {
-                    let initialResolver = AsyncValueResolver<[MoveItemState]>()
-                    Task { await initialResolver.resolve([(from: from, to: to, overwritten: result.trashed)]) }
-                    self.registerMoveUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                    self.registerMoveUndo(items: [(from: from, to: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 } else {
-                    let initialResolver = AsyncValueResolver<[CopyItemState]>()
-                    Task { await initialResolver.resolve([(source: from, destination: to, overwritten: result.trashed)]) }
-                    self.registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                    self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 }
             }
             removeResolvedDifferences(ids: [difference.id])
@@ -1110,13 +1104,9 @@ public class FileSyncManager: ObservableObject {
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             if isMove {
-                let initialResolver = AsyncValueResolver<[MoveItemState]>()
-                Task { await initialResolver.resolve([(from: from, to: to, overwritten: trashed)]) }
-                registerMoveUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                registerMoveUndo(items: [(from: from, to: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             } else {
-                let initialResolver = AsyncValueResolver<[CopyItemState]>()
-                Task { await initialResolver.resolve([(source: from, destination: to, overwritten: trashed)]) }
-                registerCopyUndo(stateResolver: initialResolver, actionName: actionName, fileManager: activeFM)
+                registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             }
         }
         removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))

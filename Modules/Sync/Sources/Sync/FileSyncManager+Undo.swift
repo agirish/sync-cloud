@@ -94,6 +94,31 @@ extension FileSyncManager {
         }
     }
 
+    /// Convenience for call sites whose undo state is fully known at registration time: wraps
+    /// the items in a pre-resolved `AsyncValueResolver` so the resolver-based form below stays
+    /// the single implementation. The resolver forms remain for the undo/redo chain, where the
+    /// next state genuinely resolves later (inside the queued file operation).
+    func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        let resolver = AsyncValueResolver<[CopyItemState]>()
+        Task { await resolver.resolve(items) }
+        registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
+    }
+
+    /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
+    func registerMoveUndo(items: [MoveItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        let resolver = AsyncValueResolver<[MoveItemState]>()
+        Task { await resolver.resolve(items) }
+        registerMoveUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
+    }
+
+    /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
+    /// `trashedItems[i]` is the Trash location of `urls[i]` (nil when it wasn't trashed).
+    func registerRestoreItems(urls: [URL], trashedItems: [URL?], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        let resolver = AsyncValueResolver<[URL?]>()
+        Task { await resolver.resolve(trashedItems) }
+        registerRestoreItems(urls: urls, trashResolver: resolver, actionName: actionName, fileManager: fm)
+    }
+
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in

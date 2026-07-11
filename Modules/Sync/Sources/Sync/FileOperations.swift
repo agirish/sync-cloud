@@ -612,13 +612,9 @@ extension FileSyncManager {
         let transferred = result.transferred
         if !transferred.isEmpty {
             if isMove {
-                let initialResolver = AsyncValueResolver<[MoveItemState]>()
-                Task { await initialResolver.resolve(transferred) }
-                self.registerMoveUndo(stateResolver: initialResolver, actionName: "Move \(transferred.count) Items", fileManager: fm)
+                self.registerMoveUndo(items: transferred, actionName: "Move \(transferred.count) Items", fileManager: fm)
             } else {
-                let initialResolver = AsyncValueResolver<[CopyItemState]>()
-                Task { await initialResolver.resolve(transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }) }
-                self.registerCopyUndo(stateResolver: initialResolver, actionName: "Copy \(transferred.count) Items", fileManager: fm)
+                self.registerCopyUndo(items: transferred.map { (source: $0.from, destination: $0.to, overwritten: $0.overwritten) }, actionName: "Copy \(transferred.count) Items", fileManager: fm)
             }
         }
 
@@ -707,9 +703,7 @@ extension FileSyncManager {
             present(.renameFailed(reason: err.localizedDescription, path: url.path))
         } else {
             Logger.shared.info("Renamed item to \(newName)")
-            let initialResolver = AsyncValueResolver<[MoveItemState]>()
-            Task { await initialResolver.resolve([(from: url, to: newURL, overwritten: result.trashed)]) }
-            self.registerMoveUndo(stateResolver: initialResolver, actionName: "Rename Item", fileManager: fm)
+            self.registerMoveUndo(items: [(from: url, to: newURL, overwritten: result.trashed)], actionName: "Rename Item", fileManager: fm)
         }
     }
     
@@ -833,10 +827,7 @@ extension FileSyncManager {
         let successfullyTrashed = items.compactMap { $0.trashed != nil ? $0 : nil }
         if !successfullyTrashed.isEmpty {
             let urls = successfullyTrashed.map { $0.original }
-            let initialResolver = AsyncValueResolver<[URL?]>()
-            Task { await initialResolver.resolve(successfullyTrashed.map { $0.trashed }) }
-            
-            self.registerRestoreItems(urls: urls, trashResolver: initialResolver, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
+            self.registerRestoreItems(urls: urls, trashedItems: successfullyTrashed.map { $0.trashed }, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
         }
         
         if let firstError = result.errors.first {
