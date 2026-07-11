@@ -147,8 +147,11 @@ public class FileSyncManager: ObservableObject {
     /// publishing it forced whole-window re-renders per operation.
     /// Deep trees by focused-folder path (pane roots and any folder visited since the last
     /// invalidation). Never holds shallow trees — consumers (navigation fast path, the
-    /// in-memory diff scan) rely on cached trees being fully walked. Cleared by file
-    /// operations, sort changes, and force refresh.
+    /// in-memory diff scan) rely on cached trees being fully walked. The one exception is a
+    /// cycle- or depth-capped directory inside a deep tree: it carries `isUnexplored: true`,
+    /// and `subtree(atPath:in:)` treats it as a miss so a drill-down re-walks from that path
+    /// instead of serving its artificial empty children. Cleared by file operations, sort
+    /// changes, and force refresh.
     public var prefetchedTrees: [String: [FileNode]] = [:]
     /// Focused-folder path each pane's published tree was last loaded for; distinguishes a
     /// same-focus refresh (keep showing the current tree while rebuilding) from a focus

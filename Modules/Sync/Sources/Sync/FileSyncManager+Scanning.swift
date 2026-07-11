@@ -132,11 +132,15 @@ extension FileSyncManager {
 
     /// The children of the directory at `path` inside a cached deep tree, or nil when the path
     /// is not present (or `tree` is nil). Lets navigation serve a drill-down from an ancestor's
-    /// cached tree without re-walking the disk.
+    /// cached tree without re-walking the disk. A cycle- or depth-capped node (`isUnexplored`)
+    /// is a MISS, not an empty folder: its `[]` children are a construction artifact, and
+    /// serving them as the folder's deep tree would make the in-memory diff report the entire
+    /// other side as "missing". The miss sends the caller back to a fresh disk walk, which —
+    /// rooted at that path, with a fresh cycle-visited set and depth budget — walks correctly.
     nonisolated static func subtree(atPath path: String, in tree: [FileNode]?) -> [FileNode]? {
         guard let tree else { return nil }
         for node in tree where node.isDirectory {
-            if node.id == path { return node.children ?? [] }
+            if node.id == path { return node.isUnexplored == true ? nil : (node.children ?? []) }
             if path.hasPrefix(node.id + "/") { return subtree(atPath: path, in: node.children) }
         }
         return nil
@@ -399,8 +403,9 @@ extension FileSyncManager {
     /// the detached worker doesn't inherit cancellation, so it is forwarded explicitly below —
     /// that is what makes the `Task.isCancelled` checks inside `buildNode` effective.
     /// `maxDepth` caps the walk (1 = immediate children only) for the progressive first paint;
-    /// capped directories come back with `children: []` — present and expandable-looking, but
-    /// unexplored — and nil means unlimited.
+    /// capped directories come back with `children: []` and `isUnexplored: true` — present and
+    /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
+    /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder {
@@ -514,15 +519,17 @@ extension FileSyncManager {
                         // Depth-capped (shallow) pass: report the directory but don't walk into
                         // it — empty children keep it rendering as a folder until the deep pass.
                         if let maxDepth, depth >= maxDepth {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind, isUnexplored: true)
                         }
                         // Symlinked directories are deliberately followed (the panes display
                         // linked content), but a link back into a directory already on the
                         // current path is a cycle (A/loop -> A) that would recurse forever.
                         // Show such a directory once, unexplored — same shape as the depth cap.
+                        // `isUnexplored` keeps cache consumers from mistaking the artificial
+                        // empty children for a genuinely empty (authoritative) deep tree.
                         let identity = directoryIdentity(of: fullURL)
                         if visited.contains(identity) || depth >= Self.hardDepthCap {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind, isUnexplored: true)
                         }
                         visited.insert(identity)
                         var children: [FileNode] = []

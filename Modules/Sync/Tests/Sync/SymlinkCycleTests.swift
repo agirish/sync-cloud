@@ -15,7 +15,11 @@ import Testing
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("SymlinkCycleTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        return root
+        // Canonicalize: temporaryDirectory lives behind the /var -> /private/var symlink, but
+        // contentsOfDirectory(at:) hands buildTree canonical child URLs, and the cache/subtree
+        // helpers match by exact path — an uncanonical root would never line up with the ids.
+        let canonical = try root.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
+        return URL(fileURLWithPath: canonical ?? root.path)
     }
 
     private func occurrences(named target: String, in nodes: [FileNode]) -> Int {
@@ -60,6 +64,81 @@ import Testing
 
         #expect(occurrences(named: "loop", in: tree) == 1)
         #expect(FileSyncManager.countItems(in: tree) == 2)
+    }
+
+    /// A cycle-capped directory has empty children by construction, not by observation — the
+    /// cache must treat it as a miss (forcing a fresh walk from that path), while a genuinely
+    /// empty directory is still served.
+    @Test func testSubtreeMissesCycleCappedDirectoryButServesEmptyOnes() async throws {
+        let fm = FileManager.default
+        let root = try makeTempRoot()
+        defer { try? fm.removeItem(at: root) }
+
+        let sub = root.appendingPathComponent("sub")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try "hello".write(to: sub.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: sub.appendingPathComponent("loop"), withDestinationURL: root)
+        try fm.createDirectory(at: root.appendingPathComponent("empty"), withIntermediateDirectories: true)
+
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+
+        // The capped node still renders as a folder in the pane…
+        let loop = try #require(tree.first { $0.name == "sub" }?.children?.first { $0.name == "loop" })
+        #expect(loop.isDirectory)
+        // …but is a cache MISS, never an authoritative empty deep tree.
+        #expect(FileSyncManager.subtree(atPath: sub.appendingPathComponent("loop").path, in: tree) == nil)
+        // Genuinely empty and genuinely walked directories are served as before.
+        #expect(FileSyncManager.subtree(atPath: root.appendingPathComponent("empty").path, in: tree) == [])
+        #expect(FileSyncManager.subtree(atPath: sub.path, in: tree)?.count == 2)
+    }
+
+    /// Regression: drilling into a cycle-capped directory served the capped `[]` from the cached
+    /// root tree as that folder's deep tree, and the in-memory diff then reported the entire
+    /// other side as "Missing" — phantom rows inviting a destructive bulk copy. The drill-down
+    /// must fall back to a fresh disk walk (correct from that root: fresh visited set and depth
+    /// budget), and the diff must see the real contents.
+    @MainActor
+    @Test func testDrillIntoCycleCappedDirectoryShowsRealContentsAndNoPhantomRows() async throws {
+        let fm = FileManager.default
+        let leftRoot = try makeTempRoot()
+        let rightRoot = try makeTempRoot()
+        defer {
+            try? fm.removeItem(at: leftRoot)
+            try? fm.removeItem(at: rightRoot)
+        }
+
+        // left/sub/{file.txt, loop -> left/sub}; right mirrors what left/sub/loop resolves to.
+        let sub = leftRoot.appendingPathComponent("sub")
+        try fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try "same content".write(to: sub.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: sub.appendingPathComponent("loop"), withDestinationURL: sub)
+        try "same content".write(to: rightRoot.appendingPathComponent("file.txt"), atomically: true, encoding: .utf8)
+        try fm.createDirectory(at: rightRoot.appendingPathComponent("loop"), withIntermediateDirectories: true)
+        let date = Date(timeIntervalSince1970: 1_600_000_000)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: sub.appendingPathComponent("file.txt").path)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: rightRoot.appendingPathComponent("file.txt").path)
+
+        let manager = FileSyncManager()
+        // Deep-load both panes at their roots (populates the prefetch cache).
+        await manager.loadTree(path: leftRoot.path, isLeft: true)
+        await manager.loadTree(path: rightRoot.path, isLeft: false)
+
+        // Drill the left pane into the capped directory.
+        manager.leftRelativePath = "sub/loop"
+        await manager.loadTree(path: leftRoot.path, isLeft: true)
+
+        // The pane shows the linked folder's real contents, not a phantom empty slice.
+        #expect(manager.leftTree.map(\.name).contains("file.txt"))
+
+        let left = CloudProvider(id: "l", displayName: "Left", imageName: "folder", path: leftRoot.path, type: .iCloud)
+        let right = CloudProvider(id: "r", displayName: "Right", imageName: "folder", path: rightRoot.path, type: .iCloud)
+        await manager.scanDirectories(
+            left: left, leftPath: sub.appendingPathComponent("loop").path,
+            right: right, rightPath: rightRoot.path
+        )
+
+        // Identical content on both sides: no phantom "missing" rows.
+        #expect(manager.differences.isEmpty)
     }
 
     @Test func testAcyclicSymlinkedDirectoryIsStillFollowed() async throws {

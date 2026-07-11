@@ -111,4 +111,20 @@ import Foundation
         let pruned = [one, two].pruneNestedNodes()
         #expect(pruned.map(\.id) == ["/a/dup", "/a/dup"])
     }
+
+    // MARK: Coding stability
+
+    /// FileNode is a Codable drag payload (Transferable); a payload encoded before
+    /// `isUnexplored` existed must still decode (the field is optional, nil = walked).
+    @Test func testDecodesPayloadWithoutUnexploredField() throws {
+        let legacy = Data(#"{"id":"/a/dir","name":"dir","isDirectory":true,"children":[]}"#.utf8)
+        let node = try JSONDecoder().decode(FileNode.self, from: legacy)
+        #expect(node.id == "/a/dir")
+        #expect(node.isDirectory)
+        #expect(node.isUnexplored == nil)
+
+        // Round trip: a walked node stays free of the field on the wire.
+        let reencoded = try JSONEncoder().encode(node)
+        #expect(!String(decoding: reencoded, as: UTF8.self).contains("isUnexplored"))
+    }
 }

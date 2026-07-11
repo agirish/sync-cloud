@@ -21,17 +21,25 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     public var tags: [String]?
     /// The human-readable file type or kind (e.g. "PNG image").
     public var kind: String?
-    
+    /// True when this is a directory whose children were NOT walked (the tree builder's
+    /// symlink-cycle guard, its hard depth cap, or a depth-capped shallow pass stopped there).
+    /// Its `children == []` is a construction artifact, not an observation — consumers that
+    /// treat a subtree as authoritative (the prefetch cache's `subtree` slicing, and through
+    /// it the in-memory diff) must treat such a node as a miss, never as an empty folder.
+    /// Optional so drag payloads encoded before this field existed still decode (nil = walked).
+    public var isUnexplored: Bool?
+
     /// Initializes a new FileNode with optional metadata.
     public init(
-        id: String, 
-        name: String, 
-        isDirectory: Bool, 
-        children: [FileNode]? = nil, 
-        modificationDate: Date? = nil, 
-        fileSize: Int? = nil, 
-        tags: [String]? = nil, 
-        kind: String? = nil
+        id: String,
+        name: String,
+        isDirectory: Bool,
+        children: [FileNode]? = nil,
+        modificationDate: Date? = nil,
+        fileSize: Int? = nil,
+        tags: [String]? = nil,
+        kind: String? = nil,
+        isUnexplored: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -41,6 +49,7 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.fileSize = fileSize
         self.tags = tags
         self.kind = kind
+        self.isUnexplored = isUnexplored
     }
 }
 
