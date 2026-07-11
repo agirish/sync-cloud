@@ -102,6 +102,20 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         )
     }
 
+    /// Absolute path of the item on the side this difference's `action` copies FROM
+    /// (left for `.copyToRight`, right for `.copyToLeft`). Single source of truth for the
+    /// side selection duplicated across sync error reporting and URL derivation.
+    var sourceItemPath: String {
+        action == .copyToRight ? leftItemPath : rightItemPath
+    }
+
+    /// Source and destination URLs for resolving this difference in its `action` direction.
+    var transferURLs: (from: URL, to: URL) {
+        action == .copyToRight
+            ? (URL(fileURLWithPath: leftItemPath), URL(fileURLWithPath: rightItemPath))
+            : (URL(fileURLWithPath: rightItemPath), URL(fileURLWithPath: leftItemPath))
+    }
+
     /// Flips the side-relative wording in a description ("Missing on right (iCloud)" →
     /// "Missing on left (iCloud)"). Provider display names travel with their files in a swap,
     /// so they stay correct untouched; only "on left"/"on right" phrases are side-relative,

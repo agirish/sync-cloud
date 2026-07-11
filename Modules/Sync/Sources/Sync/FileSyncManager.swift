@@ -790,6 +790,17 @@ public class FileSyncManager: ObservableObject {
         return filtered
     }
     
+    /// Stats one destination off the main actor: on network/cloud volumes a synchronous
+    /// fileExists can block the UI for seconds. Used by the collision flows, whose prompts
+    /// stay on the MainActor.
+    nonisolated static func statExists(at url: URL, fileManager activeFM: FileManaging) async -> (exists: Bool, isDirectory: Bool) {
+        await Task.detached(priority: .userInitiated) {
+            var isDir: ObjCBool = false
+            let exists = activeFM.fileExists(atPath: url.path, isDirectory: &isDir)
+            return (exists, isDir.boolValue)
+        }.value
+    }
+
     public nonisolated static func isIgnoredPath(_ path: String, ignored: Set<String>) -> Bool {
         for ignoredPath in ignored {
             if path == ignoredPath || path.hasPrefix(ignoredPath + "/") {
@@ -824,26 +835,14 @@ public class FileSyncManager: ObservableObject {
         let activeFM = fileManager ?? self.fileManager
         // Mark the difference as syncing (published row + authoritative id set)
         markSyncing(ids: [difference.id])
-        
-        let fromURL: URL
-        var toURL: URL
-        if difference.action == .copyToRight {
-            fromURL = URL(fileURLWithPath: difference.leftItemPath)
-            toURL = URL(fileURLWithPath: difference.rightItemPath)
-        } else {
-            fromURL = URL(fileURLWithPath: difference.rightItemPath)
-            toURL = URL(fileURLWithPath: difference.leftItemPath)
-        }
-        
+
+        let urls = difference.transferURLs
+        let fromURL = urls.from
+        var toURL = urls.to
+
         // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
-        // The stat runs off the main actor: on network/cloud volumes a synchronous fileExists
-        // can block the UI for seconds. The prompt itself stays on the MainActor.
-        let collisionCandidate = toURL
-        let (destinationExists, destinationIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
-            var isDir: ObjCBool = false
-            let exists = activeFM.fileExists(atPath: collisionCandidate.path, isDirectory: &isDir)
-            return (exists, isDir.boolValue)
-        }.value
+        // The prompt itself stays on the MainActor.
+        let (destinationExists, destinationIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
 
         /// Prompts for a collision at `collidingURL` and returns the URL the operation should
         /// target: `collidingURL` itself for Replace, a fresh unique sibling for Keep Both, or
@@ -885,12 +884,7 @@ public class FileSyncManager: ObservableObject {
         // between this stat and the queued operation executing is accepted: the operation runs
         // detached, where no prompt is possible.
         if !replaceSanctioned {
-            let recheckCandidate = toURL
-            let (newlyAppeared, newlyAppearedIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
-                var isDir: ObjCBool = false
-                let exists = activeFM.fileExists(atPath: recheckCandidate.path, isDirectory: &isDir)
-                return (exists, isDir.boolValue)
-            }.value
+            let (newlyAppeared, newlyAppearedIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             if newlyAppeared {
                 guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: newlyAppearedIsDirectory) else {
                     clearSyncing(ids: [difference.id])
@@ -989,16 +983,8 @@ public class FileSyncManager: ObservableObject {
         var candidates: [(difference: FileDifference, fromURL: URL, toURL: URL)] = []
         candidates.reserveCapacity(toSync.count)
         for difference in toSync {
-            let fromURL: URL
-            let toURL: URL
-            if difference.action == .copyToRight {
-                fromURL = URL(fileURLWithPath: difference.leftItemPath)
-                toURL = URL(fileURLWithPath: difference.rightItemPath)
-            } else {
-                fromURL = URL(fileURLWithPath: difference.rightItemPath)
-                toURL = URL(fileURLWithPath: difference.leftItemPath)
-            }
-            candidates.append((difference, fromURL, toURL))
+            let urls = difference.transferURLs
+            candidates.append((difference, urls.from, urls.to))
         }
 
         let statURLs = candidates.map(\.toURL)
@@ -1034,12 +1020,7 @@ public class FileSyncManager: ObservableObject {
             var destinationOccupied = destinationExists[index].exists
             var destinationIsDirectory = destinationExists[index].isDirectory
             if !destinationOccupied && promptShownSinceStatPass {
-                let staleCandidate = toURL
-                (destinationOccupied, destinationIsDirectory) = await Task.detached(priority: .userInitiated) { () -> (Bool, Bool) in
-                    var isDir: ObjCBool = false
-                    let exists = activeFM.fileExists(atPath: staleCandidate.path, isDirectory: &isDir)
-                    return (exists, isDir.boolValue)
-                }.value
+                (destinationOccupied, destinationIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             }
             if destinationOccupied {
                 let fileName = toURL.lastPathComponent
@@ -1113,10 +1094,9 @@ public class FileSyncManager: ObservableObject {
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {
-            let sourcePath = diff.action == .copyToRight ? diff.leftItemPath : diff.rightItemPath
             present(.syncFailed(
                 item: diff.relativePath,
-                path: sourcePath,
+                path: diff.sourceItemPath,
                 reason: error.localizedDescription,
                 isRetryable: false
             ))
@@ -1124,10 +1104,9 @@ public class FileSyncManager: ObservableObject {
             // The alert holds one error at a time, so presenting per failure would leave only
             // the last one visible. Log each failure individually, then present one aggregate.
             for (diff, error) in result.failures {
-                let sourcePath = diff.action == .copyToRight ? diff.leftItemPath : diff.rightItemPath
                 Logger.shared.error(SyncError.syncFailed(
                     item: diff.relativePath,
-                    path: sourcePath,
+                    path: diff.sourceItemPath,
                     reason: error.localizedDescription,
                     isRetryable: false
                 ).logDescription)
@@ -1137,7 +1116,7 @@ public class FileSyncManager: ObservableObject {
                 verb: "sync",
                 failureCount: result.failures.count,
                 firstItem: firstDiff.relativePath,
-                firstPath: firstDiff.action == .copyToRight ? firstDiff.leftItemPath : firstDiff.rightItemPath,
+                firstPath: firstDiff.sourceItemPath,
                 firstReason: firstError.localizedDescription
             ))
         }
