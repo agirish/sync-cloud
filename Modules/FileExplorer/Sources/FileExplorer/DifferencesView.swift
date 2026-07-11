@@ -528,7 +528,7 @@ private struct DifferenceDirectionCell: View {
 
     var body: some View {
         let toRight = difference.action == .copyToRight
-        let tint: Color = toRight ? .blue : .purple
+        let tint = DifferenceGlyph.color(toRight: toRight)
         HStack(spacing: 4) {
             Image(systemName: toRight ? "arrow.right" : "arrow.left")
                 .font(.caption2.weight(.bold))

@@ -23,6 +23,10 @@ import Sync
         #expect(DifferenceGlyph.color(for: .missingOnRight) == .blue)
         #expect(DifferenceGlyph.color(for: .missingOnLeft) == .purple)
         #expect(DifferenceGlyph.color(for: .differentDates) == .orange)
+
+        // The direction tint the table's "Copy to" chip uses must match the badge colors.
+        #expect(DifferenceGlyph.color(toRight: true) == .blue)
+        #expect(DifferenceGlyph.color(toRight: false) == .purple)
     }
 
     @Test func testSymbolNamesExistInSFSymbols() {
