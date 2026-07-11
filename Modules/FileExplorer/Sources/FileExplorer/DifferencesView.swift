@@ -70,7 +70,7 @@ public struct DifferencesView: View {
                     if let leadingHeader {
                         leadingHeader
                     }
-                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle", emphasized: true)
+                    StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
                         .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
                     Spacer()
                     Menu {
