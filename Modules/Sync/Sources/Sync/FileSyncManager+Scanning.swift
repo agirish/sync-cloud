@@ -473,9 +473,10 @@ extension FileSyncManager {
     /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
     /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
     ///
-    /// On the real filesystem an unlimited walk fans sibling subtrees out across cores at the
-    /// top two levels (`TreeBuilder.fanoutMaxDepth`), and Finder tags are fetched only when
-    /// sorting by them — together roughly an order of magnitude faster on large directories.
+    /// On the real filesystem an unlimited walk fans sibling directory subtrees out across
+    /// cores at the first two levels that have siblings (`TreeBuilder.maxFanLevel`, bounded
+    /// by `maxConcurrentSubtrees`), and Finder tags are fetched only when sorting by them —
+    /// together roughly an order of magnitude faster on large directories.
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
@@ -517,11 +518,20 @@ extension FileSyncManager {
                 /// `children: []`, same as the shallow-pass cap.
                 static let hardDepthCap = 64
 
-                /// Sibling subtrees at this depth or shallower walk concurrently in a task
-                /// group (each recursing sequentially below the horizon); two levels is enough
-                /// to spread even a tree dominated by one large top-level folder across cores,
-                /// while deeper fan-out just adds task overhead.
-                static let fanoutMaxDepth = 2
+                /// Sibling DIRECTORY subtrees fan out across cores at the first two levels
+                /// that actually have siblings (each subtree recursing sequentially below the
+                /// horizon); more fan-out just adds task overhead. Counted in WIDE levels, not
+                /// raw depth: a level with a single entry doesn't advance the fan level, so a
+                /// pane root holding one big folder — a common cloud-storage layout — still
+                /// parallelizes at the first level inside it.
+                static let maxFanLevel = 2
+
+                /// At most this many subtree tasks live per fan-out group. Each task blocks a
+                /// cooperative-pool thread in synchronous filesystem calls, so leaving
+                /// headroom keeps one slow volume from pinning the whole width-limited pool
+                /// (and starving the other pane's walk and every other detached task); it
+                /// also caps how many pending child tasks a huge level allocates at once.
+                static let maxConcurrentSubtrees = max(2, ProcessInfo.processInfo.activeProcessorCount - 2)
 
                 /// What `directoryIdentity(of:)` returns — Hashable for the cycle-guard set and
                 /// Sendable so ancestor-chain snapshots can cross into the fan-out's child
@@ -635,101 +645,127 @@ extension FileSyncManager {
                     return s
                 }
 
-                /// `visited` holds the identities of every directory on the current path (the
-                /// root is seeded by the caller); it is restored before returning, so it always
-                /// reflects the ancestor chain, not everything ever walked.
-                func buildNode(at fullURL: URL, depth: Int, visited: inout Set<DirectoryIdentity>) -> FileNode? {
-                    guard !Task.isCancelled, let s = stat(at: fullURL) else { return nil }
+                // The three node shapes, in one place each: any change to FileNode's fields
+                // or `isUnexplored` semantics lands on every walk path at once.
 
-                    let name = fullURL.lastPathComponent
-
-                    if s.isDirectory {
-                        // Depth-capped (shallow) pass: report the directory but don't walk into
-                        // it — empty children keep it rendering as a folder until the deep pass.
-                        if let maxDepth, depth >= maxDepth {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
-                        }
-                        // Symlinked directories are deliberately followed (the panes display
-                        // linked content), but a link back into a directory already on the
-                        // current path is a cycle (A/loop -> A) that would recurse forever.
-                        // Show such a directory once, unexplored — same shape as the depth cap.
-                        // `isUnexplored` keeps cache consumers from mistaking the artificial
-                        // empty children for a genuinely empty (authoritative) deep tree.
-                        let identity = directoryIdentity(of: fullURL)
-                        if visited.contains(identity) || depth >= Self.hardDepthCap {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
-                        }
-                        visited.insert(identity)
-                        var children: [FileNode] = []
-                        for childURL in childURLs(of: fullURL) {
-                            if let childNode = buildNode(at: childURL, depth: depth + 1, visited: &visited) {
-                                children.append(childNode)
-                            }
-                        }
-                        visited.remove(identity)
-                        children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
-                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
-                    } else {
-                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
-                    }
+                func leafNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
                 }
 
-                /// Async twin of `buildNode` used above the fan-out horizon: identical
-                /// metadata, depth-cap, and cycle handling, but the children of a directory
-                /// walk through `walkChildren`, which keeps fanning out until the horizon.
-                /// `visited` is an immutable snapshot of the ancestor chain — each branch
-                /// extends its own copy, which is exactly the per-path semantics the
-                /// sequential builder maintains with insert/remove.
-                func buildNodeParallel(at fullURL: URL, depth: Int, visited: Set<DirectoryIdentity>) async -> FileNode? {
-                    guard !Task.isCancelled, let s = stat(at: fullURL) else { return nil }
+                /// A directory reported but not walked into (shallow-pass cap, cycle guard, or
+                /// hard depth cap). `isUnexplored` keeps cache consumers from mistaking the
+                /// artificial empty children for a genuinely empty (authoritative) deep tree.
+                func cappedNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
+                }
 
-                    let name = fullURL.lastPathComponent
-                    guard s.isDirectory else {
-                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                func folderNode(_ fullURL: URL, _ s: ItemStat, children: [FileNode]) -> FileNode {
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                }
+
+                /// The one node builder for every regime — fanned-out and sequential, real
+                /// filesystem and mocks, deep and shallow passes — so their behavior can never
+                /// drift apart. `visited` holds the identities of every directory on the
+                /// current path (the root is seeded by the caller) as an immutable per-branch
+                /// snapshot: each branch extends its own copy, giving exactly the
+                /// ancestor-chain semantics a shared set with insert/remove would.
+                func buildNode(at fullURL: URL, depth: Int, fanLevel: Int, visited: Set<DirectoryIdentity>) async -> FileNode? {
+                    guard !Task.isCancelled, let s = stat(at: fullURL) else { return nil }
+                    guard s.isDirectory else { return leafNode(fullURL, s) }
+                    return await buildDirectoryNode(at: fullURL, stat: s, depth: depth, fanLevel: fanLevel, visited: visited)
+                }
+
+                /// The directory branch of `buildNode`, split out so the fan-out — which has
+                /// already statted the child to decide it's a directory — can enter without a
+                /// second stat.
+                func buildDirectoryNode(at fullURL: URL, stat s: ItemStat, depth: Int, fanLevel: Int, visited: Set<DirectoryIdentity>) async -> FileNode {
+                    // Depth-capped (shallow) pass: report the directory but don't walk into
+                    // it — empty children keep it rendering as a folder until the deep pass.
+                    if let maxDepth, depth >= maxDepth {
+                        return cappedNode(fullURL, s)
                     }
+                    // Symlinked directories are deliberately followed (the panes display
+                    // linked content), but a link back into a directory already on the
+                    // current path is a cycle (A/loop -> A) that would recurse forever.
+                    // Show such a directory once, unexplored — same shape as the depth cap.
                     let identity = directoryIdentity(of: fullURL)
                     if visited.contains(identity) || depth >= Self.hardDepthCap {
-                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
+                        return cappedNode(fullURL, s)
                     }
                     var branchVisited = visited
                     branchVisited.insert(identity)
-                    var children = await walkChildren(childURLs(of: fullURL), depth: depth + 1, visited: branchVisited)
+                    var children = await walkChildren(childURLs(of: fullURL), depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
-                    return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                    return folderNode(fullURL, s, children: children)
                 }
 
-                /// Builds the nodes for one directory level. At or above the fan-out horizon
-                /// each sibling walks in its own child task (bounded by the global executor's
-                /// core count — the tasks never suspend mid-walk); below it, and always for
-                /// depth-capped shallow passes and injected mocks (not guaranteed
-                /// thread-safe), the level recurses sequentially. Returns the level in listing
-                /// order — callers apply `sortLevel`, but equal-key ties must not depend on
-                /// task completion order.
-                func walkChildren(_ urls: [URL], depth: Int, visited: Set<DirectoryIdentity>) async -> [FileNode] {
-                    guard fileManager is FileManager, maxDepth == nil, depth <= Self.fanoutMaxDepth, urls.count > 1 else {
-                        var v = visited
+                /// Builds the nodes for one directory level, in listing order (callers apply
+                /// `sortLevel`, but equal-key ties must not depend on task completion order).
+                ///
+                /// On the real filesystem's unlimited walks, levels within the fan-out horizon
+                /// stat every child inline — plain files resolve right here, costing no task —
+                /// and give each DIRECTORY subtree its own child task, at most
+                /// `maxConcurrentSubtrees` live at a time (a sliding window: each completion
+                /// admits the next). Everything else — injected mocks (not guaranteed
+                /// thread-safe), depth-capped shallow passes (nothing to spread), and levels
+                /// below the horizon — recurses sequentially within the current task.
+                func walkChildren(_ urls: [URL], depth: Int, fanLevel: Int, visited: Set<DirectoryIdentity>) async -> [FileNode] {
+                    // A single-entry level doesn't advance the fan level: parallelism should
+                    // engage at the first level that actually HAS siblings to spread.
+                    let childFanLevel = urls.count > 1 ? fanLevel + 1 : fanLevel
+
+                    guard fileManager is FileManager, maxDepth == nil, fanLevel < Self.maxFanLevel, urls.count > 1 else {
                         var children: [FileNode] = []
                         children.reserveCapacity(urls.count)
                         for url in urls {
-                            if let node = buildNode(at: url, depth: depth, visited: &v) {
+                            if let node = await buildNode(at: url, depth: depth, fanLevel: childFanLevel, visited: visited) {
                                 children.append(node)
                             }
                         }
                         return children
                     }
-                    return await withTaskGroup(of: (Int, FileNode?).self) { group in
-                        for (index, url) in urls.enumerated() {
-                            group.addTask {
-                                (index, await self.buildNodeParallel(at: url, depth: depth, visited: visited))
-                            }
+
+                    // Inline stat pass: files resolve immediately; directories reserve their
+                    // listing-order slot and queue for the bounded fan-out below.
+                    var nodes: [FileNode?] = []
+                    nodes.reserveCapacity(urls.count)
+                    var subtrees: [(slot: Int, url: URL, stat: ItemStat)] = []
+                    for url in urls {
+                        if Task.isCancelled { break }
+                        guard let s = stat(at: url) else { continue }
+                        if s.isDirectory {
+                            nodes.append(nil)
+                            subtrees.append((slot: nodes.count - 1, url: url, stat: s))
+                        } else {
+                            nodes.append(leafNode(url, s))
                         }
-                        var results: [(Int, FileNode?)] = []
-                        results.reserveCapacity(urls.count)
-                        for await result in group {
-                            results.append(result)
-                        }
-                        return results.sorted { $0.0 < $1.0 }.compactMap { $0.1 }
                     }
+
+                    if !subtrees.isEmpty {
+                        let filled: [(Int, FileNode)] = await withTaskGroup(of: (Int, FileNode).self) { group in
+                            var iterator = subtrees.makeIterator()
+                            func addNext() -> Bool {
+                                guard let item = iterator.next() else { return false }
+                                group.addTask {
+                                    (item.slot, await self.buildDirectoryNode(at: item.url, stat: item.stat, depth: depth, fanLevel: childFanLevel, visited: visited))
+                                }
+                                return true
+                            }
+                            var started = 0
+                            while started < Self.maxConcurrentSubtrees, addNext() { started += 1 }
+                            var results: [(Int, FileNode)] = []
+                            results.reserveCapacity(subtrees.count)
+                            for await result in group {
+                                results.append(result)
+                                _ = addNext()
+                            }
+                            return results
+                        }
+                        for (slot, node) in filled {
+                            nodes[slot] = node
+                        }
+                    }
+                    return nodes.compactMap { $0 }
                 }
             }
 
@@ -742,7 +778,7 @@ extension FileSyncManager {
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
-            var rootChildren = await builder.walkChildren(rootChildURLs, depth: 1, visited: visited)
+            var rootChildren = await builder.walkChildren(rootChildURLs, depth: 1, fanLevel: 0, visited: visited)
             rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
             return rootChildren
         }

@@ -99,6 +99,56 @@ import Testing
         #expect(crossLink.children?.map(\.name) == ["sub_0", "sub_1", "sub_2", "a.txt", "b.txt"])
     }
 
+    /// A pane root holding exactly ONE folder (a lone project root, a single cloud-storage
+    /// top folder) must not degrade the walk: single-entry levels don't consume the fan-out
+    /// horizon, so parallelism engages at the first level inside that actually has siblings —
+    /// and the tree still comes back complete and sorted.
+    @Test func testSingleFolderRootStillWalksCompletely() async throws {
+        let fm = FileManager.default
+        let root = try makeTempRoot()
+        defer { try? fm.removeItem(at: root) }
+        // root/only/chain/(wide 48-node tree): two single-entry levels before any siblings.
+        let only = root.appendingPathComponent("only")
+        let chain = only.appendingPathComponent("chain")
+        try fm.createDirectory(at: chain, withIntermediateDirectories: true)
+        try makeWideTree(at: chain)
+
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+
+        #expect(FileSyncManager.countItems(in: tree) == 50)
+        let wide = try #require(tree.first { $0.name == "only" }?.children?.first { $0.name == "chain" })
+        #expect(wide.children?.map(\.name) == ["dir_0", "dir_1", "dir_2", "dir_3"])
+        for dir in wide.children ?? [] {
+            #expect(dir.children?.map(\.name) == ["sub_0", "sub_1", "sub_2", "a.txt", "b.txt"])
+        }
+    }
+
+    /// A flat level far wider than the fan-out's concurrency window: files must all resolve
+    /// (they stat inline, no task each) and the many sibling directories must all complete
+    /// through the sliding window.
+    @Test func testLevelWiderThanConcurrencyWindowCompletes() async throws {
+        let fm = FileManager.default
+        let root = try makeTempRoot()
+        defer { try? fm.removeItem(at: root) }
+        for i in 0..<40 {
+            try "x".write(to: root.appendingPathComponent("file_\(i).txt"), atomically: true, encoding: .utf8)
+            let dir = root.appendingPathComponent("dir_\(i)")
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try "y".write(to: dir.appendingPathComponent("inner.txt"), atomically: true, encoding: .utf8)
+        }
+
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+
+        // 40 files + 40 dirs + 40 inner files, none dropped or doubled.
+        #expect(FileSyncManager.countItems(in: tree) == 120)
+        #expect(tree.count == 80)
+        let firstFortyAreDirectories = tree.prefix(40).allSatisfy(\.isDirectory)
+        #expect(firstFortyAreDirectories, "directories sort first")
+        for dir in tree.prefix(40) {
+            #expect(dir.children?.map(\.name) == ["inner.txt"])
+        }
+    }
+
     /// Finder tags ride a per-file xattr fetch, so the walk skips them unless the Tags sort
     /// actually reads them (switching to that sort reloads the trees — see sortOption.didSet).
     @Test func testTagsFetchedOnlyForTagsSort() async throws {
