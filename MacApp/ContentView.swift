@@ -787,13 +787,16 @@ struct ContentView: View {
             .help("Delete the selected items")
 
             Menu {
-                ForEach(SortOption.allCases, id: \.self) { option in
-                    Button {
-                        syncManager.sortOption = option
-                    } label: {
-                        Label(option.rawValue, systemImage: syncManager.sortOption == option ? "checkmark" : "")
+                // A Picker inside a Menu gets the native menu check column; the previous
+                // per-row `systemImage: isSelected ? "checkmark" : ""` faked it and logged
+                // "No symbol named ''" for every unselected row on every open.
+                Picker("Sort By", selection: $syncManager.sortOption) {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
                     }
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
             } label: {
                 Label("Sort", systemImage: "arrow.up.arrow.down")
             }
