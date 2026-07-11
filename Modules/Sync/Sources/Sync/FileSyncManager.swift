@@ -36,6 +36,25 @@ public class FileSyncManager: ObservableObject {
         return true
     }
 
+    /// Resolves a destination name the destination provider forbids (Dropbox/OneDrive reject
+    /// trailing spaces or dots; OneDrive also certain characters and reserved names), BEFORE
+    /// any I/O: writing such a name into a provider's folder creates an item the provider
+    /// silently never uploads — a local-only doppelganger that looks identical to its
+    /// sanitized sibling. Defaults to `.skip` so an unwired manager never creates one; the
+    /// app wires an NSAlert-backed prompt (offering the sanitized name) at construction.
+    /// Only consulted when the destination lies inside a provider root known from the last
+    /// scan (see `lastScanProviders`).
+    public var invalidNameResolver: @MainActor (NameViolationPrompt) -> InvalidNameResolution = { _ in
+        return .skip
+    }
+
+    /// The pane providers of the most recent completed scan; how transfer destinations are
+    /// attributed to a provider for the `invalidNameResolver` pre-write name check. nil until
+    /// a scan lands (tests, CLI cold start) — destinations are then not name-checked, which
+    /// preserves the pure pre-seam behavior. Cleared with the rest of the comparison state
+    /// on provider changes and swapped in `swapPanes`.
+    var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
+
     /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
     /// Defaults to `false` so an unwired manager never destroys data; the app wires an
     /// NSAlert-backed confirmation at construction.
@@ -829,6 +848,20 @@ public class FileSyncManager: ObservableObject {
             sourceDirectory: fromURL.deletingLastPathComponent().path,
             destinationDirectory: toURL.deletingLastPathComponent().path
         )) else { return false }
+
+        // Provider name check, before the row is marked in-flight: a destination name the
+        // provider forbids (e.g. a trailing space on Dropbox) would be written locally and
+        // then never uploaded. The sanitized target may collide with an existing item — the
+        // collision flow below stats whatever URL comes out of here, so that case becomes a
+        // normal Replace/Keep Both/Skip prompt.
+        switch checkDestinationName(for: toURL, isMove: isMove) {
+        case .skip:
+            return false
+        case .sanitized(let sanitizedURL):
+            toURL = sanitizedURL
+        case .clean, .keepOriginal:
+            break
+        }
 
         // Mark the difference as syncing (published row + authoritative id set)
         markSyncing(ids: [difference.id])

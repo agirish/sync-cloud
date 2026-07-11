@@ -55,6 +55,29 @@ private func diff(
         #expect(index.containedDiffCount(forNodeId: "/root/clean") == 0)
     }
 
+    @Test func testNameConflictBadgesBothSidesRealSpellings() {
+        // A name conflict's two sides spell the name differently; relativePath carries only
+        // the LEFT spelling. Each pane's index must badge its OWN node's real path.
+        let conflict = FileDifference(
+            relativePath: "Fitness/Swimming ",
+            leftItemPath: "/left/Fitness/Swimming ",
+            rightItemPath: "/right/Fitness/Swimming",
+            type: .nameConflict,
+            action: .copyToRight,
+            description: "test"
+        )
+        let leftIndex = DiffStatusIndex(differences: [conflict], rootPath: "/left")
+        #expect(leftIndex.status(forNodeId: "/left/Fitness/Swimming ") == .nameConflict)
+        #expect(leftIndex.containedDiffCount(forNodeId: "/left/Fitness") == 1)
+
+        let rightIndex = DiffStatusIndex(differences: [conflict], rootPath: "/right")
+        #expect(rightIndex.status(forNodeId: "/right/Fitness/Swimming") == .nameConflict)
+        // The naive join (root + left-spelled relative) must NOT be what the right pane
+        // badges — no node has that id there.
+        #expect(rightIndex.status(forNodeId: "/right/Fitness/Swimming ") == nil)
+        #expect(rightIndex.containedDiffCount(forNodeId: "/right/Fitness") == 1)
+    }
+
     @Test func testDirectoryDiffGetsDirectStatusAndCreditsAncestors() {
         // A folder missing on one side appears as a single diff for the folder path.
         let index = DiffStatusIndex(

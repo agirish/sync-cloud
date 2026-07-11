@@ -254,6 +254,23 @@ extension FileSyncManager {
             var toURL = candidate.toURL
             var destinationOccupied = destinationExists[index].exists
             var destinationIsDirectory = destinationExists[index].isDirectory
+            // Provider name check first: it can redirect the item to a sanitized target,
+            // which invalidates this item's batch stat (re-stat below) — and its prompt holds
+            // the loop like a collision prompt does, so it sets the same re-stat flag.
+            switch checkDestinationName(for: toURL, isMove: isMove) {
+            case .skip:
+                promptShownSinceStatPass = true
+                skippedCount += 1
+                continue
+            case .sanitized(let sanitizedURL):
+                promptShownSinceStatPass = true
+                toURL = sanitizedURL
+                (destinationOccupied, destinationIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
+            case .keepOriginal:
+                promptShownSinceStatPass = true
+            case .clean:
+                break
+            }
             if !destinationOccupied && promptShownSinceStatPass {
                 (destinationOccupied, destinationIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             }

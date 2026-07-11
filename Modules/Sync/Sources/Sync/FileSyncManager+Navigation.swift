@@ -143,6 +143,7 @@ extension FileSyncManager {
         verifiedSameDifferenceIds.removeAll()
         verifiedIdenticalForCopy = nil
         lastRightProviderType = nil
+        lastScanProviders = nil
         if hasScanned { hasScanned = false }
 
         // A filter pass that snapshotted state before this clear may still publish after it.
@@ -219,6 +220,9 @@ extension FileSyncManager {
         // The Drive date-noise filter is right-pane-specific; the provider just changed sides,
         // and the post-swap rescan re-learns the new right pane's type.
         lastRightProviderType = nil
+        // The name-check provider pair stays valid across a swap — same two roots — but its
+        // side labels flip with everything else.
+        lastScanProviders = lastScanProviders.map { ($0.right, $0.left) }
 
         // Same stale-filter-pass insurance as invalidateComparisonState: a pass holding a
         // pre-swap snapshot may publish after this method; a fresh pass over the swapped

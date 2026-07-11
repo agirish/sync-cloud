@@ -77,6 +77,47 @@ struct SyncOperationAlerts {
         return (resolution, checkbox.state == .on)
     }
 
+    /// Message line of the invalid-destination-name alert.
+    /// Pure (no AppKit) so the wording is unit-testable.
+    nonisolated static func invalidNameMessage(_ prompt: NameViolationPrompt) -> String {
+        "\"\(prompt.itemName)\" can't be \(prompt.isMove ? "moved" : "copied") to \(prompt.providerName) under this name."
+    }
+
+    /// Body of the invalid-destination-name alert: the provider rule, what writing anyway
+    /// would do (a local-only item that looks identical to its sanitized sibling), and the
+    /// target location.
+    nonisolated static func invalidNameInformativeText(_ prompt: NameViolationPrompt) -> String {
+        "\(prompt.reason) Writing it anyway would create an item \(prompt.providerName) never uploads — "
+            + "it would exist only on this Mac and look identical to \"\(prompt.sanitizedName)\".\n\n"
+            + "Destination: \(displayPath(prompt.destinationPath))"
+    }
+
+    /// Asks how to handle a destination name the provider forbids: use the sanitized name
+    /// (Return key default — if an item already exists there, the normal collision prompt
+    /// follows), skip the item (Escape via "Cancel" semantics is deliberately absent; Skip is
+    /// an explicit button), or insist on the original name.
+    static func promptForInvalidName(_ prompt: NameViolationPrompt) -> InvalidNameResolution {
+        let alert = NSAlert()
+        alert.messageText = invalidNameMessage(prompt)
+        alert.informativeText = invalidNameInformativeText(prompt)
+
+        // Buttons added right to left.
+        alert.addButton(withTitle: "Use \"\(prompt.sanitizedName)\"") // Rightmost, Return key default
+        alert.addButton(withTitle: "Skip")                            // Middle
+        alert.addButton(withTitle: "Keep Invalid Name")               // Leftmost
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .useSanitizedName
+        case .alertSecondButtonReturn:
+            return .skip
+        case .alertThirdButtonReturn:
+            return .keepOriginalName
+        default:
+            return .skip
+        }
+    }
+
     /// Message line of the transfer confirmation: verb + what + where, e.g.
     /// `Copy "Resume.docx" to "Documents"?` or `Move 3 items to "Documents"?`.
     /// Pure so the single/plural and copy/move wording is unit-testable.

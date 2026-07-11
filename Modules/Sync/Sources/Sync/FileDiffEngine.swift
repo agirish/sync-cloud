@@ -249,6 +249,42 @@ public struct FileDiffEngine {
         // Right keys consumed by a case-variant match in pass 1; pass 2 must not report them missing.
         var caseVariantMatchedRightKeys = Set<String>()
 
+        // Right keys indexed by near-name form (see ProviderNameRules.nearNameKey): the
+        // fallback that pairs entries whose names differ only invisibly (trailing/leading
+        // whitespace, trailing dots, Unicode NFC/NFD) across the two sides. A form claimed
+        // by several keys on either side is ambiguous — matching it would be arbitrary (and
+        // dictionary-order nondeterministic), so those keys deterministically fall back to
+        // plain missing rows instead.
+        var nearNameRightKeys: [String: String] = [:]
+        var ambiguousNearNameRightKeys = Set<String>()
+        nearNameRightKeys.reserveCapacity(rightFilesInfo.count)
+        for key in rightFilesInfo.keys {
+            let nearKey = ProviderNameRules.nearNameKey(forRelativePath: key, foldCase: caseInsensitive)
+            if let existing = nearNameRightKeys[nearKey], existing != key {
+                ambiguousNearNameRightKeys.insert(nearKey)
+            } else {
+                nearNameRightKeys[nearKey] = key
+            }
+        }
+        var ambiguousNearNameLeftKeys = Set<String>()
+        var seenNearNameLeftKeys: [String: String] = [:]
+        seenNearNameLeftKeys.reserveCapacity(leftFilesInfo.count)
+        for key in leftFilesInfo.keys {
+            let nearKey = ProviderNameRules.nearNameKey(forRelativePath: key, foldCase: caseInsensitive)
+            if let existing = seenNearNameLeftKeys[nearKey], existing != key {
+                ambiguousNearNameLeftKeys.insert(nearKey)
+            } else {
+                seenNearNameLeftKeys[nearKey] = key
+            }
+        }
+        // Right keys consumed by a near-name match in pass 1; pass 2 must not report them missing.
+        var nearNameMatchedRightKeys = Set<String>()
+        // Directory pairs whose names differ invisibly, left spelling → right spelling. Used
+        // after the passes to re-aim one-side-only descendants at the destination's REAL
+        // folder: the naive expected path carries the source side's spelling, and copying to
+        // it would mint the very doppelganger folder the name-conflict row exists to prevent.
+        var nearNameDirPairs: [String: String] = [:]
+
         // 1. Files on left but not on right (or compare if exists)
         for (relativePath, leftFile) in leftFilesInfo {
             // Exact-case match first; on case-insensitive volumes fall back to a case-variant match.
@@ -265,7 +301,59 @@ public struct FileDiffEngine {
                 namesDifferOnlyByCase = relativePath.split(separator: "/").last != variant.split(separator: "/").last
                 caseVariantMatchedRightKeys.insert(variant)
             }
+            // Near-name fallback: pair entries whose names differ only invisibly. Guards
+            // mirror the case-variant match — the exact pair owns its keys, ambiguous forms
+            // never match, and a right key is consumed at most once.
+            var nearNameMatched = false
+            if rightFilesInfo[rightKey] == nil {
+                let nearKey = ProviderNameRules.nearNameKey(forRelativePath: relativePath, foldCase: caseInsensitive)
+                if !ambiguousNearNameLeftKeys.contains(nearKey),
+                   !ambiguousNearNameRightKeys.contains(nearKey),
+                   let candidate = nearNameRightKeys[nearKey],
+                   leftFilesInfo[candidate] == nil,
+                   !caseVariantMatchedRightKeys.contains(candidate),
+                   !nearNameMatchedRightKeys.contains(candidate) {
+                    rightKey = candidate
+                    nearNameMatched = true
+                    nearNameMatchedRightKeys.insert(candidate)
+                }
+            }
             if let rightFile = rightFilesInfo[rightKey] {
+                if nearNameMatched {
+                    let leftLeaf = String(relativePath.split(separator: "/").last ?? Substring(relativePath))
+                    let rightLeaf = String(rightKey.split(separator: "/").last ?? Substring(rightKey))
+                    // The conflict row belongs to the level whose name actually differs.
+                    // When only an ancestor folder's name differs invisibly, this pair is
+                    // the folder's ordinary content — compare it normally below (identical
+                    // children produce no rows). A leaf differing only by case is the
+                    // case-variant story, not an invisible rename.
+                    let leafInvisiblyRenamed = leftLeaf != rightLeaf
+                        && !(caseInsensitive && leftLeaf.lowercased() == rightLeaf.lowercased())
+                    if leafInvisiblyRenamed {
+                        if leftFile.isDirectory && rightFile.isDirectory {
+                            nearNameDirPairs[relativePath] = rightKey
+                        }
+                        // Both item paths are REAL: a sync in either direction writes onto
+                        // the existing counterpart (a normal collision), never a doppelganger.
+                        // Newer side wins the suggested direction; ties default left→right.
+                        let leftDate = leftFile.modificationDate ?? Date.distantPast
+                        let rightDate = rightFile.modificationDate ?? Date.distantPast
+                        diffs.append(FileDifference(
+                            relativePath: relativePath,
+                            leftItemPath: leftFile.url.path,
+                            rightItemPath: rightFile.url.path,
+                            type: .nameConflict,
+                            action: rightDate.timeIntervalSince(leftDate) > dateToleranceSeconds ? .copyToLeft : .copyToRight,
+                            description: ProviderNameRules.nameConflictDescription(
+                                leftName: leftLeaf, leftProvider: left.displayName,
+                                rightName: rightLeaf, rightProvider: right.displayName
+                            ),
+                            leftFileSize: leftFile.fileSize,
+                            rightFileSize: rightFile.fileSize
+                        ))
+                        continue
+                    }
+                }
                 let caseNote = namesDifferOnlyByCase ? " (names differ only by case)" : ""
                 // exists in both, compare dates and sizes in RAM
                 if leftFile.isDirectory != rightFile.isDirectory {
@@ -381,7 +469,9 @@ public struct FileDiffEngine {
         
         // 2. Files on right but not on left
         for (relativePath, rightFile) in rightFilesInfo {
-            if leftFilesInfo[relativePath] == nil && !caseVariantMatchedRightKeys.contains(relativePath) {
+            if leftFilesInfo[relativePath] == nil
+                && !caseVariantMatchedRightKeys.contains(relativePath)
+                && !nearNameMatchedRightKeys.contains(relativePath) {
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
@@ -397,6 +487,46 @@ public struct FileDiffEngine {
             }
         }
         
+        // Re-aim one-side-only items that live under a name-conflicted folder pair at the
+        // destination side's REAL folder spelling. Their expected paths were derived from
+        // the source side's relative path, and copying to that spelling would create the
+        // exact identical-looking, provider-unsyncable duplicate folder the `.nameConflict`
+        // classification exists to prevent.
+        if !nearNameDirPairs.isEmpty {
+            let rightToLeftDirPairs = Dictionary(
+                nearNameDirPairs.map { ($0.value, $0.key) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            diffs = diffs.map { diff in
+                let remappedExpectedPath: (left: String, right: String)?
+                switch diff.type {
+                case .missingOnRight:
+                    guard let remapped = remappedPath(diff.relativePath, via: nearNameDirPairs) else { return diff }
+                    remappedExpectedPath = (diff.leftItemPath, rightURL.appendingPathComponent(remapped).path)
+                case .missingOnLeft:
+                    // missingOnLeft rows carry RIGHT-side relative paths; remap right → left.
+                    guard let remapped = remappedPath(diff.relativePath, via: rightToLeftDirPairs) else { return diff }
+                    remappedExpectedPath = (leftURL.appendingPathComponent(remapped).path, diff.rightItemPath)
+                case .differentDates, .nameConflict:
+                    return diff
+                }
+                guard let paths = remappedExpectedPath else { return diff }
+                return FileDifference(
+                    id: diff.id,
+                    relativePath: diff.relativePath,
+                    leftItemPath: paths.left,
+                    rightItemPath: paths.right,
+                    type: diff.type,
+                    action: diff.action,
+                    description: diff.description,
+                    isSyncing: diff.isSyncing,
+                    leftFileSize: diff.leftFileSize,
+                    rightFileSize: diff.rightFileSize,
+                    enclosedItemCount: diff.enclosedItemCount
+                )
+            }
+        }
+
         let result = collapseMissingFolderContents(
             diffs,
             missingOnRightDirs: missingOnRightDirs,
@@ -444,10 +574,10 @@ public struct FileDiffEngine {
             switch diff.type {
             case .missingOnRight: dirs = collapsibleOnRight
             case .missingOnLeft: dirs = collapsibleOnLeft
-            case .differentDates:
-                // Items present on both sides (including type-mismatch rows themselves) can't
-                // sit under a missing or type-mismatch folder: every ancestor of a both-sides
-                // path exists as a directory on both sides.
+            case .differentDates, .nameConflict:
+                // Items present on both sides (including type-mismatch and name-conflict
+                // rows themselves) can't sit under a missing or type-mismatch folder: every
+                // ancestor of a both-sides path exists as a directory on both sides.
                 kept.append(diff)
                 continue
             }
@@ -477,6 +607,22 @@ public struct FileDiffEngine {
                 enclosedItemCount: count
             )
         }
+    }
+
+    /// `path` rewritten from one side's folder spelling into the other's: the LONGEST
+    /// `dirPairs` key that prefixes it at a component boundary is replaced with its
+    /// counterpart spelling. Longest wins because nested name-conflicted folders each get
+    /// their own pair entry keyed by the full source-side path, so the deepest entry already
+    /// carries every ancestor's destination spelling. nil when no conflicted ancestor applies.
+    private static func remappedPath(_ path: String, via dirPairs: [String: String]) -> String? {
+        var best: (prefix: String, replacement: String)?
+        for (sourceDir, destinationDir) in dirPairs {
+            if path.hasPrefix(sourceDir + "/"), sourceDir.count > (best?.prefix.count ?? -1) {
+                best = (sourceDir, destinationDir)
+            }
+        }
+        guard let best else { return nil }
+        return best.replacement + path.dropFirst(best.prefix.count)
     }
 
     /// Shortest strict prefix of `path` (at a "/" component boundary) that is in `dirs`, or nil.

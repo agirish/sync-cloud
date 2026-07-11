@@ -106,7 +106,7 @@ extension FileDifference {
         switch type {
         case .missingOnRight: return leftFileSize
         case .missingOnLeft: return rightFileSize
-        case .differentDates: return action == .copyToRight ? leftFileSize : rightFileSize
+        case .differentDates, .nameConflict: return action == .copyToRight ? leftFileSize : rightFileSize
         }
     }
 
@@ -122,6 +122,7 @@ extension FileDifference {
         case .missingOnLeft: return 0
         case .missingOnRight: return 1
         case .differentDates: return 2
+        case .nameConflict: return 3
         }
     }
 

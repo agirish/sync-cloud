@@ -39,19 +39,33 @@ public struct DiffStatusIndex: Equatable, Sendable {
         for difference in differences {
             let relative = Self.normalizedRelative(difference.relativePath)
             guard !relative.isEmpty else { continue }
-            let absolute = Self.sideAlignedPath(
-                joined: root + "/" + relative,
-                left: difference.leftItemPath,
-                right: difference.rightItemPath
-            )
-            status[absolute] = difference.type
+            // A name conflict's two sides spell the name differently (relativePath carries
+            // only the LEFT spelling), so index each side's REAL path — whichever lies under
+            // this pane's root badges its own node; the other side's key matches nothing here.
+            let keys: [String]
+            if difference.type == .nameConflict {
+                keys = [difference.leftItemPath, difference.rightItemPath]
+                    .filter { $0.hasPrefix(root + "/") }
+            } else {
+                keys = [Self.sideAlignedPath(
+                    joined: root + "/" + relative,
+                    left: difference.leftItemPath,
+                    right: difference.rightItemPath
+                )]
+            }
+            // A pane can show both sides of a conflict (same provider in both panes); each
+            // indexed key badges its node and credits its own ancestors — but the contained
+            // count per difference stays 1 per branch, same as every other type.
+            for absolute in keys {
+                status[absolute] = difference.type
 
-            // Credit every ancestor directory strictly between the root and the item.
-            var directory = absolute
-            while let slash = directory.lastIndex(of: "/") {
-                directory = String(directory[..<slash])
-                guard directory.count > root.count else { break }
-                counts[directory, default: 0] += 1
+                // Credit every ancestor directory strictly between the root and the item.
+                var directory = absolute
+                while let slash = directory.lastIndex(of: "/") {
+                    directory = String(directory[..<slash])
+                    guard directory.count > root.count else { break }
+                    counts[directory, default: 0] += 1
+                }
             }
         }
 

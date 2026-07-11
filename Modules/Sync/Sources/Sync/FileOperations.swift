@@ -114,6 +114,12 @@ extension FileSyncManager {
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
+        // The pre-write name check runs on the MainActor (its resolver presents UI); the
+        // detached loop below hops into this closure per item. Weak: if the manager is gone
+        // the operation is already a no-op via its own guard, so "clean" is a safe answer.
+        let checkName: @MainActor (URL) -> DestinationNameDecision = { [weak self] url in
+            self?.checkDestinationName(for: url, isMove: isMove) ?? .clean
+        }
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         // Standardize away a trailing slash for the existence stat; an empty root must stay
@@ -173,6 +179,19 @@ extension FileSyncManager {
                         progress?.completedUnitCount = Int64(index + 1)
                     }
                     continue
+                }
+
+                // Provider name check before the collision stat, so a sanitized target that
+                // collides with an existing item still gets its overwrite prompt below.
+                switch await MainActor.run(body: { checkName(targetURL) }) {
+                case .skip:
+                    // Same accounting as a collision skip: the item still counts as completed.
+                    await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
+                    continue
+                case .sanitized(let sanitizedURL):
+                    targetURL = sanitizedURL
+                case .clean, .keepOriginal:
+                    break
                 }
 
                 if sourceURL == targetURL {

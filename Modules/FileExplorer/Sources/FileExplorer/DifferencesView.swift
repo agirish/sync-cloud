@@ -771,17 +771,19 @@ private struct DifferenceNameCell: View {
             Image(systemName: DifferenceGlyph.symbol(for: difference.type, filled: true))
                 .foregroundStyle(DifferenceGlyph.color(for: difference.type))
                 .symbolRenderingMode(.hierarchical)
+            // Affix whitespace made visible (NameDisplay): a row can exist precisely because
+            // its name differs invisibly from the other side's ("Swimming␣" vs "Swimming").
             if !difference.parentPath.isEmpty {
-                Text(difference.parentPath + "/")
+                Text(NameDisplay.visiblePath(difference.parentPath) + "/")
                     .foregroundStyle(.secondary)
             }
-            Text(difference.fileName)
+            Text(NameDisplay.visibleName(difference.fileName))
                 .fontWeight(.medium)
                 .layoutPriority(1)
         }
         .lineLimit(1)
         .truncationMode(.middle)
-        .help(difference.relativePath)
+        .help(NameDisplay.visiblePath(difference.relativePath))
     }
 }
 

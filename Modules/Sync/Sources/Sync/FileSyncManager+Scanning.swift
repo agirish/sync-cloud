@@ -398,6 +398,8 @@ extension FileSyncManager {
         if !Task.isCancelled, isLatestRequest, let results = newDifferences {
             self.rawDifferences = results
             self.lastRightProviderType = request.right.type
+            // The provider pair the destination name check attributes transfer targets to.
+            self.lastScanProviders = (request.left, request.right)
             self.verifiedSameDifferenceIds.removeAll()
             await self.applyFilters()
             hasScanned = true

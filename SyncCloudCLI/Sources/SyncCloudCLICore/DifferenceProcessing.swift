@@ -95,6 +95,7 @@ public enum DifferenceProcessing {
         case .missingOnRight: return "missing-on-right"
         case .missingOnLeft: return "missing-on-left"
         case .differentDates: return "different"
+        case .nameConflict: return "name-conflict"
         }
     }
 

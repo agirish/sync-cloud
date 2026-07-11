@@ -552,7 +552,9 @@ struct FileRowView: View {
             Image(nsImage: FileIconCache.icon(name: node.name, isDirectory: node.isDirectory))
                 .resizable()
                 .frame(width: 17, height: 17)
-            Text(node.name)
+            // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
+            // have a pixel-identical sibling that is actually a different item.
+            Text(NameDisplay.visibleName(node.name))
                 .font(.system(.body, design: .rounded))
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
@@ -592,6 +594,7 @@ struct FileRowView: View {
         case .missingOnRight: return "Missing on right"
         case .missingOnLeft: return "Missing on left"
         case .differentDates: return "Different dates or sizes"
+        case .nameConflict: return "Name conflict (names differ only invisibly)"
         }
     }
 }

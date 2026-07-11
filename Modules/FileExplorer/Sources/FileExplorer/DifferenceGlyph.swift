@@ -13,6 +13,7 @@ enum DifferenceGlyph {
         case .missingOnRight: return filled ? "arrow.right.circle.fill" : "arrow.right.circle"
         case .missingOnLeft: return filled ? "arrow.left.circle.fill" : "arrow.left.circle"
         case .differentDates: return "arrow.triangle.2.circlepath"
+        case .nameConflict: return filled ? "exclamationmark.triangle.fill" : "exclamationmark.triangle"
         }
     }
 
@@ -21,6 +22,7 @@ enum DifferenceGlyph {
         case .missingOnRight: return color(toRight: true)
         case .missingOnLeft: return color(toRight: false)
         case .differentDates: return .orange
+        case .nameConflict: return .yellow
         }
     }
 

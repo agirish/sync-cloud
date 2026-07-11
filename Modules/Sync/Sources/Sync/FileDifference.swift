@@ -55,6 +55,14 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
         case missingOnLeft
         /// Item exists on both sides but has different modification dates or sizes.
         case differentDates
+        /// Item exists on both sides under names that differ only invisibly (trailing or
+        /// leading whitespace, trailing dots, or Unicode NFC/NFD form) — typically because
+        /// one provider's server normalizes names the other stores verbatim. Copying such a
+        /// pair as "missing" would mint an identical-looking duplicate the stricter provider
+        /// can never upload, so the pair is surfaced as a single conflict instead; its item
+        /// paths point at both REAL items, so a sync targets the existing counterpart (a
+        /// normal collision) rather than a doppelganger.
+        case nameConflict
 
         /// The same discrepancy as seen after the panes trade sides.
         public var mirrored: DifferenceType {
@@ -62,6 +70,7 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             case .missingOnRight: return .missingOnLeft
             case .missingOnLeft: return .missingOnRight
             case .differentDates: return .differentDates
+            case .nameConflict: return .nameConflict
             }
         }
     }

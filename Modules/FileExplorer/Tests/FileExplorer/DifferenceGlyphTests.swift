@@ -7,7 +7,7 @@ import Sync
 @Suite struct DifferenceGlyphTests {
 
     private static let allTypes: [FileDifference.DifferenceType] = [
-        .missingOnRight, .missingOnLeft, .differentDates,
+        .missingOnRight, .missingOnLeft, .differentDates, .nameConflict,
     ]
 
     @Test func testDirectionIsEncodedInShapeNotJustColor() {
@@ -20,9 +20,13 @@ import Sync
         #expect(DifferenceGlyph.symbol(for: .missingOnLeft, filled: false) == "arrow.left.circle")
         #expect(DifferenceGlyph.symbol(for: .differentDates, filled: false) == "arrow.triangle.2.circlepath")
 
+        #expect(DifferenceGlyph.symbol(for: .nameConflict, filled: true) == "exclamationmark.triangle.fill")
+        #expect(DifferenceGlyph.symbol(for: .nameConflict, filled: false) == "exclamationmark.triangle")
+
         #expect(DifferenceGlyph.color(for: .missingOnRight) == .blue)
         #expect(DifferenceGlyph.color(for: .missingOnLeft) == .purple)
         #expect(DifferenceGlyph.color(for: .differentDates) == .orange)
+        #expect(DifferenceGlyph.color(for: .nameConflict) == .yellow)
 
         // The direction tint the table's "Copy to" chip uses must match the badge colors.
         #expect(DifferenceGlyph.color(toRight: true) == .blue)

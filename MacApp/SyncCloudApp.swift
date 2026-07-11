@@ -65,6 +65,13 @@ struct SyncCloudApp: App {
         manager.permanentDeleteConfirmer = { itemNames in
             SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)
         }
+        // Destination names the target provider forbids (trailing space/dot on Dropbox,
+        // reserved names on OneDrive, …) prompt before any I/O, offering the sanitized name.
+        // No standing-policy shortcut here: each violation names a specific item and the
+        // wrong answer silently creates an unsyncable local-only duplicate.
+        manager.invalidNameResolver = { prompt in
+            SyncOperationAlerts.promptForInvalidName(prompt)
+        }
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.

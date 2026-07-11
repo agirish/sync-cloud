@@ -8,6 +8,7 @@ public enum DifferenceFilter: CaseIterable {
     case missingOnRight
     case changedCopyToRight
     case changedCopyToLeft
+    case nameConflicts
 
     /// User-facing label using the panes' provider names.
     func displayName(leftName: String, rightName: String) -> String {
@@ -17,6 +18,7 @@ public enum DifferenceFilter: CaseIterable {
         case .missingOnRight: return "Missing on \(rightName)"
         case .changedCopyToRight: return "Changed (\(leftName) newer)"
         case .changedCopyToLeft: return "Changed (\(rightName) newer)"
+        case .nameConflicts: return "Name conflicts"
         }
     }
 
@@ -27,6 +29,7 @@ public enum DifferenceFilter: CaseIterable {
         case .missingOnRight: return diff.type == .missingOnRight
         case .changedCopyToRight: return diff.type == .differentDates && diff.action == .copyToRight
         case .changedCopyToLeft: return diff.type == .differentDates && diff.action == .copyToLeft
+        case .nameConflicts: return diff.type == .nameConflict
         }
     }
 }
