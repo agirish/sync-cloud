@@ -29,8 +29,10 @@ public struct ProgressDialog: View {
                     .buttonStyle(.plain)
                 }
 
-                // Progress bar (value-based to avoid duplicate labels)
-                ProgressView(value: total > 0 ? Double(completed) / totalDouble : nil, total: 1.0)
+                // Progress bar (value-based to avoid duplicate labels). Clamped to 0...1:
+                // completed can drift past total during cancel, and out-of-range values make
+                // ProgressView log runtime warnings and pin oddly.
+                ProgressView(value: total > 0 ? min(1.0, max(0.0, Double(completed) / totalDouble)) : nil, total: 1.0)
                     .progressViewStyle(.linear)
 
                 // Single count line, e.g. "3,336 of 7,363"
