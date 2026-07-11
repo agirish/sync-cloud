@@ -8,22 +8,9 @@ import Foundation
 
     // MARK: - Constructors / statics
 
-    @Test func testContentDiffersFields() {
-        let error = SyncError.contentDiffers
-        #expect(error.title == "Content Differs")
-        #expect(error.message == "The two files are not identical.")
-        #expect(error.path == nil)
-        #expect(error.reason == nil)
-        #expect(error.isRetryable == false)
-    }
-
-    @Test func testCouldNotVerifyFields() {
-        let error = SyncError.couldNotVerify
-        #expect(error.title == "Couldn't Verify")
-        #expect(error.message.contains("100 MB"))
-        #expect(error.path == nil)
-        #expect(error.isRetryable == false)
-    }
+    /// A minimal error with no path and no reason, standing in for any deterministic
+    /// (non-retryable) failure in the fixture-agnostic tests below.
+    private static let bareError = SyncError(title: "Content Differs", message: "The two files are not identical.")
 
     @Test func testSyncFailedIsRetryableByDefaultAndCarriesPathAndReason() {
         let error = SyncError.syncFailed(item: "Docs/report.pdf", path: "/Left/Docs/report.pdf", reason: "disk full")
@@ -75,7 +62,7 @@ import Foundation
     }
 
     @Test func testLogDescriptionOmitsAbsentFields() {
-        #expect(SyncError.contentDiffers.logDescription == "Content Differs: The two files are not identical.")
+        #expect(Self.bareError.logDescription == "Content Differs: The two files are not identical.")
     }
 
     // MARK: - Which alert actions apply (pure decision)
@@ -97,12 +84,12 @@ import Foundation
 
     @Test func testRevealHiddenWithoutPath() {
         // No path, not retryable → only Dismiss.
-        #expect(SyncError.contentDiffers.alertActions(hasRetryHandler: true) == [.dismiss])
+        #expect(Self.bareError.alertActions(hasRetryHandler: true) == [.dismiss])
     }
 
     @Test func testDismissAlwaysPresent() {
         for hasHandler in [true, false] {
-            #expect(SyncError.contentDiffers.alertActions(hasRetryHandler: hasHandler).contains(.dismiss))
+            #expect(Self.bareError.alertActions(hasRetryHandler: hasHandler).contains(.dismiss))
             #expect(SyncError.syncFailed(item: "a", path: "/x/a", reason: "b").alertActions(hasRetryHandler: hasHandler).contains(.dismiss))
         }
     }

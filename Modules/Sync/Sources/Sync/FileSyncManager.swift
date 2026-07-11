@@ -53,8 +53,6 @@ public class FileSyncManager: ObservableObject {
     internal private(set) var syncingDifferenceIds: Set<UUID> = []
     /// IDs of differences that were verified as same content via checksum; these are hidden from the list until next scan.
     internal var verifiedSameDifferenceIds: Set<UUID> = []
-    /// ID of the difference currently being verified (for UI spinner).
-    @Published public var verifyingDifferenceId: UUID?
     /// When non-nil, a "Verify All" run is in progress: (completed count, total count).
     @Published public var verifyAllProgress: (completed: Int, total: Int)?
     /// After Verify All completes, the list of differences that verified identical; UI shows dialog to copy left→right. Cleared when user copies or cancels.
@@ -512,30 +510,6 @@ public class FileSyncManager: ObservableObject {
         await applyFilters()
     }
 
-    /// Verifies whether the two sides of a "newer / different dates" difference have the same content via checksum.
-    /// Only applicable when both sides are regular files with matching size; directories and files over 100 MB are skipped.
-    /// If content matches, the difference is hidden from the list until the next scan.
-    /// - Parameter difference: A difference with type `differentDates` (and ideally `sizesMatch`).
-    /// - Returns: `true` if content is identical and the difference was hidden; `false` if content differs or verification failed.
-    public func verifyWithChecksum(_ difference: FileDifference) async -> Bool {
-        guard difference.type == .differentDates else { return false }
-        verifyingDifferenceId = difference.id
-        defer { verifyingDifferenceId = nil }
-        let same = await FileContentVerifier.filesHaveSameContent(
-            leftPath: difference.leftItemPath,
-            rightPath: difference.rightItemPath,
-            fileManager: fileManager
-        )
-        guard same == true else {
-            present(same == false ? .contentDiffers : .couldNotVerify)
-            return false
-        }
-        verifiedSameDifferenceIds.insert(difference.id)
-        await applyFilters()
-        banner = .success("Verified identical — hidden from list")
-        return true
-    }
-
     /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
     /// Pass `subset` to scope verification to specific differences (e.g. the current table selection or
     /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
@@ -567,7 +541,6 @@ public class FileSyncManager: ObservableObject {
         progress.isCancellable = true
         activeProgress = progress
         verifyAllProgress = (0, toVerify.count)
-        verifyingDifferenceId = nil
 
         defer {
             verifyAllProgress = nil

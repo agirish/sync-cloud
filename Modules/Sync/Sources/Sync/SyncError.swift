@@ -45,18 +45,6 @@ public struct SyncError: Error, Equatable, Sendable {
 // MARK: - Ergonomic constructors
 
 extension SyncError {
-    /// Checksum verification found the two sides differ. Deterministic — not retryable.
-    public static let contentDiffers = SyncError(
-        title: "Content Differs",
-        message: "The two files are not identical."
-    )
-
-    /// Checksum verification could not run for this pair (folder, missing, or too large).
-    public static let couldNotVerify = SyncError(
-        title: "Couldn't Verify",
-        message: "The file may be a folder, missing, or over 100 MB."
-    )
-
     /// A single file could not be copied or moved between the two panes.
     public static func syncFailed(
         item: String,
