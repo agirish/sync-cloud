@@ -29,6 +29,26 @@ struct SyncCloudCommand: AsyncParsableCommand {
 extension Direction: ExpressibleByArgument {}
 extension CollisionStrategy: ExpressibleByArgument {}
 
+/// The options `scan` and `sync` share verbatim: the two sides plus the difference filters.
+/// Declared once and pulled in via `@OptionGroup` so the subcommands cannot drift apart
+/// flag-by-flag.
+struct CommonOptions: ParsableArguments {
+    @Option(name: [.customShort("L"), .long], help: "Left side provider id or path.")
+    var left: String
+
+    @Option(name: [.customShort("R"), .long], help: "Right side provider id or path.")
+    var right: String
+
+    @Option(name: .shortAndLong, help: "Limit to a specific direction: auto | to-right | to-left.")
+    var direction: Direction = .auto
+
+    @Flag(name: .customLong("show-hidden"), help: "Include hidden files and folders.")
+    var showHidden: Bool = false
+
+    @Option(name: .long, help: "Paths to ignore.")
+    var ignore: [String] = []
+}
+
 private struct DiffSummary: Codable {
     let relativePath: String
     let leftPath: String
@@ -142,33 +162,20 @@ struct Scan: AsyncParsableCommand {
         abstract: "Scan two directories and print their differences."
     )
 
-    @Option(name: [.customShort("L"), .long], help: "Left side provider id or path.")
-    var left: String
-
-    @Option(name: [.customShort("R"), .long], help: "Right side provider id or path.")
-    var right: String
+    @OptionGroup var options: CommonOptions
 
     @Flag(name: .shortAndLong, help: "Output machine-readable JSON.")
     var json: Bool = false
-
-    @Option(name: .shortAndLong, help: "Filter by direction: auto, to-right, to-left.")
-    var direction: Direction = .auto
-
-    @Flag(name: .customLong("show-hidden"), help: "Include hidden files and folders.")
-    var showHidden: Bool = false
-
-    @Option(name: .long, help: "Paths to ignore.")
-    var ignore: [String] = []
 
     func run() async throws {
         try await flushingLogToDisk { try await scanAndReport() }
     }
 
     private func scanAndReport() async throws {
-        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: left, right: right)
+        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: options.left, right: options.right)
         let (diffs, leftURL, rightURL) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
-            direction: direction, showHidden: showHidden, ignore: ignore,
+            direction: options.direction, showHidden: options.showHidden, ignore: options.ignore,
             ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
 
@@ -222,14 +229,7 @@ struct SyncFiles: AsyncParsableCommand {
         abstract: "Synchronize differences between two directories."
     )
 
-    @Option(name: [.customShort("L"), .long], help: "Left side provider id or path.")
-    var left: String
-
-    @Option(name: [.customShort("R"), .long], help: "Right side provider id or path.")
-    var right: String
-
-    @Option(name: .shortAndLong, help: "Limit to a specific direction: auto | to-right | to-left.")
-    var direction: Direction = .auto
+    @OptionGroup var options: CommonOptions
 
     @Option(name: .shortAndLong, help: """
     Collision strategy when the destination exists: replace (default) updates it, moving the \
@@ -240,12 +240,6 @@ struct SyncFiles: AsyncParsableCommand {
 
     @Flag(name: .shortAndLong, help: "Run without interactive confirmation.")
     var yes: Bool = false
-
-    @Flag(name: .customLong("show-hidden"), help: "Include hidden files and folders.")
-    var showHidden: Bool = false
-
-    @Option(name: .long, help: "Paths to ignore.")
-    var ignore: [String] = []
 
     @Flag(name: .customLong("fail-fast"), help: "Abort the synchronization immediately if any file copy fails.")
     var failFast: Bool = false
@@ -258,10 +252,10 @@ struct SyncFiles: AsyncParsableCommand {
     }
 
     private func syncDifferences() async throws {
-        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: left, right: right)
+        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: options.left, right: options.right)
         var (diffs, _, _) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
-            direction: direction, showHidden: showHidden, ignore: ignore,
+            direction: options.direction, showHidden: options.showHidden, ignore: options.ignore,
             ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
 
