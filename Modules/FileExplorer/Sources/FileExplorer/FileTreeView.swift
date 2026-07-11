@@ -1,6 +1,7 @@
 import AppKit
 import Design
 import Events
+import QuickLook
 import SwiftUI
 import Sync
 
@@ -50,6 +51,10 @@ public struct FileTreeView: View {
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
     @State private var isBackgroundDropTargeted = false
+    /// Item previewed via the row context menu's Quick Look. Presented by this pane's own
+    /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
+    /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
+    @State private var quickLookItem: URL?
 
     public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil) {
         self.tree = tree
@@ -219,6 +224,7 @@ public struct FileTreeView: View {
             }
         }
         .contextMenu { emptyAreaContextMenu }
+        .quickLookPreview($quickLookItem)
         .dropDestination(for: PaneDragPayload.self) { payloads, _ in
             guard let payload = payloads.first else { return false }
             return Self.performPaneDrop(payload, toPath: currentPath, targetIsLeft: isLeft, delegate: delegate)
@@ -259,7 +265,8 @@ public struct FileTreeView: View {
                 currentPath: currentPath,
                 delegate: delegate,
                 ignoredPaths: ignoredPaths,
-                otherPaneName: otherPaneName
+                otherPaneName: otherPaneName,
+                onQuickLook: { quickLookItem = $0 }
             )
         }
         .draggable(makeDragPayload(for: node))
@@ -321,6 +328,7 @@ public struct FileTreeView: View {
         Button(action: { delegate.handlePasteToPath(currentPath) }) {
             Label("Paste here", systemImage: "doc.on.clipboard")
         }
+        .disabled(!delegate.clipboardHasItems)
         Divider()
         Button(action: { delegate.handleGetInfo(for: currentPath) }) {
             Label("Get Info", systemImage: "info.circle")
@@ -389,6 +397,9 @@ struct FileContextMenu: View {
     let delegate: FileActionDelegate
     let ignoredPaths: Set<String>
     let otherPaneName: String
+    /// Presents a Quick Look preview for the given item (parity with the Differences
+    /// table's row menu); provided by the owning pane's `FileTreeView`.
+    let onQuickLook: (URL) -> Void
 
     static func resolvedSelection(node: FileNode, selection: Set<String>, tree: [FileNode]) -> [FileNode] {
         let effectiveSelection: Set<String>
@@ -414,6 +425,14 @@ struct FileContextMenu: View {
             if count == 1, let singleNode = selectedNodes.first {
                 Button(action: { delegate.handleGetInfo(for: singleNode.id) }) {
                     Label("Get Info", systemImage: "info.circle")
+                }
+                // Same direct reveal the Differences row menu and the error alert use;
+                // there is no FileActionHandler reveal to delegate to.
+                Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
+                    Label("Reveal in Finder", systemImage: "magnifyingglass")
+                }
+                Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
+                    Label("Quick Look", systemImage: "eye")
                 }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {
@@ -461,7 +480,8 @@ struct FileContextMenu: View {
             Button(action: { delegate.handlePaste(node) }) {
                 Label("Paste here", systemImage: "doc.on.clipboard")
             }
-            
+            .disabled(!delegate.clipboardHasItems)
+
             if !otherSelection.isEmpty {
                 let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
                 if !otherSelectedNodes.isEmpty {

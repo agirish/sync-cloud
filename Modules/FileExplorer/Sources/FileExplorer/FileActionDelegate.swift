@@ -20,4 +20,13 @@ public protocol FileActionDelegate: Sendable {
     func handleSort(_ option: SortOption)
     func handleIgnore(_ nodes: [FileNode])
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool
+    /// Whether the app's internal clipboard holds items to paste — drives the enablement
+    /// of the "Paste here" menu items (pasting from an empty clipboard is a silent no-op).
+    var clipboardHasItems: Bool { get }
+}
+
+extension FileActionDelegate {
+    /// Conservative default: hosts that don't expose their clipboard keep "Paste here"
+    /// enabled rather than permanently disabled.
+    public var clipboardHasItems: Bool { true }
 }

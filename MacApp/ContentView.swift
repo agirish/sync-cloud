@@ -1061,4 +1061,9 @@ struct PaneActionDelegate: FileActionDelegate {
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
         syncManager.isNodeIgnored(node, currentPath: currentPath)
     }
+    /// "Paste here" enablement: the app's internal clipboard is `syncManager.clipboardNodes`
+    /// (the pasteboard is not involved), so an empty list means paste would be a no-op.
+    var clipboardHasItems: Bool {
+        !syncManager.clipboardNodes.isEmpty
+    }
 }
