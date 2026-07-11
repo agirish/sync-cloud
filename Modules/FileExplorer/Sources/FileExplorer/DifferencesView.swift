@@ -17,6 +17,9 @@ public struct DifferencesView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @State private var selectedFilter: DifferenceFilter = .all
+    /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
+    /// clicking again collapses. Off by default so the header stays uncluttered until asked.
+    @State private var showItemCounts = false
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
@@ -180,18 +183,26 @@ public struct DifferencesView: View {
     /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
     @ViewBuilder
     private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference], filterCounts: [DifferenceFilter: Int]) -> some View {
-        StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
-            .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
-        // Surface the per-side totals inline — they used to hide only in the pill's tooltip.
-        // Gated on `hasScanned` so it stays blank pre-scan instead of reading "0 · 0"; the
+        // The count pill is a toggle for the per-side item totals: click to reveal them inline,
+        // click again to collapse. No-op until a scan has run (nothing meaningful to show).
+        Button {
+            guard syncManager.hasScanned else { return }
+            withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
+        } label: {
+            StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
+        }
+        .buttonStyle(.plain)
+        .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+        // Revealed on demand; `hasScanned` keeps it from ever reading "0 · 0" pre-scan, and the
         // pill's `.help` still spells out the full text on hover when this truncates.
-        if syncManager.hasScanned {
+        if syncManager.hasScanned, showItemCounts {
             Text("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
                 .font(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .transition(.opacity)
         }
         Spacer()
         Menu {
