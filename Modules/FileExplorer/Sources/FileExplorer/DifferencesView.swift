@@ -120,6 +120,9 @@ struct StatPill: View {
                 .strokeBorder(emphasized ? color.opacity(0.45) : Color.secondary.opacity(0.22), lineWidth: 0.5)
         )
         .fixedSize()
+        // One element, not dot + two texts: VoiceOver reads "7 Differences".
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(count.formatted()) \(label)")
     }
 }
 
@@ -193,25 +196,27 @@ public struct DifferencesView: View {
                         .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
                     Spacer()
                     Menu {
-                        ForEach(DifferenceFilter.allCases, id: \.self) { filter in
-                            Button {
-                                selectedFilter = filter
-                            } label: {
-                                let name = filter.displayName(leftName: paneNames.left, rightName: paneNames.right)
-                                if selectedFilter == filter {
-                                    Label(name, systemImage: "checkmark")
-                                } else {
-                                    Text(name)
-                                }
+                        // A Picker inside a Menu gets the native menu check column; a per-row
+                        // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
+                        // on unselected rows). Same pattern as the main toolbar's Sort menu.
+                        Picker("Filter", selection: $selectedFilter) {
+                            ForEach(DifferenceFilter.allCases, id: \.self) { filter in
+                                Text(filter.displayName(leftName: paneNames.left, rightName: paneNames.right))
+                                    .tag(filter)
                             }
                         }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
                     } label: {
+                        // Uncapped provider names can be long; truncate instead of forcing the
+                        // full width (fixedSize) and clipping the header on narrow windows.
                         Label(
                             selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
                             systemImage: "line.3.horizontal.decrease.circle"
                         )
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     if targets.isSelectionScoped {
                         Button {
                             selection.removeAll()
@@ -231,6 +236,8 @@ public struct DifferencesView: View {
                             copy(direction: .copyToRight, targets: targets)
                         } label: {
                             Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(isSyncActionBlocked)
@@ -240,6 +247,8 @@ public struct DifferencesView: View {
                             copy(direction: .copyToLeft, targets: targets)
                         } label: {
                             Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(isSyncActionBlocked)
@@ -267,6 +276,7 @@ public struct DifferencesView: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle((isSearchExpanded || !searchText.isEmpty) ? glassHue.accentColor : Color.secondary)
                     .help("Search by name or path")
+                    .accessibilityLabel("Search by name or path")
                 }
                 if isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
@@ -385,6 +395,7 @@ public struct DifferencesView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Clear search")
+                .accessibilityLabel("Clear search")
             }
             if selectedFilter != .all || !searchText.isEmpty {
                 Text("\(filteredCount) of \(syncManager.differences.count)")
