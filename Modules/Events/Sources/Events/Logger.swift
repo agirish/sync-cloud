@@ -163,14 +163,13 @@ public class Logger: ObservableObject {
     @discardableResult
     private nonisolated func log(level: LogLevel, message: String) -> Task<Void, Never> {
         let entry = LogEntry(level: level, message: message)
-        pendingEntries.enqueue(entry)
+        // Awaiting the returned task guarantees the entry is visible in `entries`: the queue
+        // hands back the one MainActor flush task covering the current burst (see
+        // PendingLogEntryQueue — a task per line meant thousands of no-op drains during sync
+        // bursts), and that flush drains everything enqueued before it runs.
+        let flushTask = pendingEntries.enqueue(entry) { self.flushPendingEntries() }
         logWriter.append(entry.formattedString + "\n")
-
-        // Awaiting the returned task guarantees the entry is visible in `entries`: the first
-        // flush to run drains everything enqueued before it; later flushes are cheap no-ops.
-        return Task { @MainActor in
-            self.flushPendingEntries()
-        }
+        return flushTask
     }
 
     @MainActor
@@ -215,13 +214,41 @@ public class Logger: ObservableObject {
 
 /// Lock-guarded FIFO handing `LogEntry` values from nonisolated log callers to the MainActor
 /// flush. Enqueue order is the order entries appear in the Activity Log.
+///
+/// Flush scheduling is coalesced: all enqueues of a burst share ONE MainActor flush task
+/// instead of spawning a task per line whose drains are mostly no-ops. The shared task still
+/// honors the awaitable contract (`entry` is visible in `entries` once the returned task
+/// completes): the scheduled-task marker clears on the MainActor *before* the drain with no
+/// suspension in between, so an entry enqueued too late for a running drain observed a cleared
+/// marker and scheduled the next flush for itself.
 private final class PendingLogEntryQueue: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [LogEntry] = []
+    /// The MainActor flush task covering everything currently in `pending`; nil once that
+    /// task has started clearing/draining (guarded by `lock`).
+    private var scheduledFlush: Task<Void, Never>?
 
-    func enqueue(_ entry: LogEntry) {
+    /// Appends the entry and returns the flush task that will make it visible, creating a
+    /// task only when none is scheduled (the empty→non-empty transition of a burst).
+    func enqueue(_ entry: LogEntry, flush: @escaping @MainActor () -> Void) -> Task<Void, Never> {
         lock.lock()
         pending.append(entry)
+        if let scheduledFlush {
+            lock.unlock()
+            return scheduledFlush
+        }
+        let task = Task { @MainActor [weak self] in
+            self?.clearScheduledFlush()
+            flush()
+        }
+        scheduledFlush = task
+        lock.unlock()
+        return task
+    }
+
+    private func clearScheduledFlush() {
+        lock.lock()
+        scheduledFlush = nil
         lock.unlock()
     }
 
@@ -358,8 +385,10 @@ final class LogFileWriter: @unchecked Sendable {
         openHandle()
     }
 
-    /// Blocks until every append/clear enqueued before this call has finished. Test-only barrier;
-    /// production logging never needs to wait on the background queue.
+    /// Blocks until every append/clear enqueued before this call has finished. The barrier
+    /// behind `Logger.flushToDisk()`, which production calls at app termination (and the CLI
+    /// before process exit) so buffered lines survive the quit; tests also use it before
+    /// asserting on file contents.
     func flush() {
         queue.sync {}
     }
