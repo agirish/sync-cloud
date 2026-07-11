@@ -810,14 +810,16 @@ public class FileSyncManager: ObservableObject {
     
     // Navigation and Scanning methods moved to extensions
     
-    /// Resolves one difference by copying or moving the file between the two panes.
+    /// Resolves one difference by copying or moving the file between the two panes — the
+    /// single-row sync action. On failure it presents a retryable error (`present(retry:)`)
+    /// that re-invokes this exact call; bulk syncs go through `syncAll`, which owns the
+    /// "Apply to all" collision flow and the progress overlay.
     /// If the destination already exists, prompts for Replace / Keep Both / Skip before overwriting.
     /// - Parameters:
     ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
-    ///   - isBulkSync: When true, uses "Apply to all" flow and cached resolution when set.
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
-    public func syncFile(_ difference: FileDifference, isMove: Bool = false, isBulkSync: Bool = false, fileManager: FileManaging? = nil) async {
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async {
         let activeFM = fileManager ?? self.fileManager
         // Mark the difference as syncing (published row + authoritative id set)
         markSyncing(ids: [difference.id])
@@ -842,23 +844,12 @@ public class FileSyncManager: ObservableObject {
             return (exists, isDir.boolValue)
         }.value
 
-        /// Picks a resolution for a collision at `collidingURL` (cached bulk answer, bulk
-        /// prompt, or single-file prompt) and returns the URL the operation should target:
-        /// `collidingURL` itself for Replace, a fresh unique sibling for Keep Both, or nil
-        /// for Skip. `isDirectory` reflects the colliding item so the prompt can warn about
+        /// Prompts for a collision at `collidingURL` and returns the URL the operation should
+        /// target: `collidingURL` itself for Replace, a fresh unique sibling for Keep Both, or
+        /// nil for Skip. `isDirectory` reflects the colliding item so the prompt can warn about
         /// wholesale folder replacement.
         func resolveCollision(at collidingURL: URL, isDirectory: Bool) async -> URL? {
-            let fileName = collidingURL.lastPathComponent
-            let resolution: CollisionResolution
-            if isBulkSync, let cached = bulkApplyToAllResolution {
-                resolution = cached
-            } else if isBulkSync {
-                let (res, applyToAll) = bulkCollisionResolver(fileName, isMove, isDirectory)
-                if applyToAll { bulkApplyToAllResolution = res }
-                resolution = res
-            } else {
-                resolution = collisionResolver(fileName, isMove, isDirectory)
-            }
+            let resolution = collisionResolver(collidingURL.lastPathComponent, isMove, isDirectory)
             switch resolution {
             case .skip:
                 return nil
