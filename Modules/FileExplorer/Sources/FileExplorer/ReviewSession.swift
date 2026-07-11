@@ -62,13 +62,18 @@ struct ReviewSession: Equatable {
     func outcome(for id: UUID) -> Outcome? { outcomes[id] }
     func verdict(for id: UUID) -> VerifyVerdict? { verdicts[id] }
 
-    /// Records the outcome for the current item, then advances to the next undecided item —
-    /// scanning forward first, then wrapping to the earliest undecided (a jump can leave
-    /// undecided islands behind the cursor). No-op once complete.
-    mutating func record(_ outcome: Outcome) {
-        guard let current else { return }
-        outcomes[current.id] = outcome
-        advanceToNextPending(after: currentIndex)
+    /// Records the outcome for the given item. Id-addressed, not cursor-addressed: a copy's
+    /// outcome lands asynchronously, and the user may have jumped the cursor elsewhere while it
+    /// ran — the decision must stamp the item that was synced, never whatever is now current.
+    /// The cursor advances only when the decided item IS the current one — scanning forward,
+    /// then wrapping to the earliest undecided (a jump can leave undecided islands behind).
+    /// No-op for unknown ids and for items already decided (nothing may double-record).
+    mutating func record(_ outcome: Outcome, for id: UUID) {
+        guard outcomes[id] == nil, queue.contains(where: { $0.id == id }) else { return }
+        outcomes[id] = outcome
+        if current?.id == id {
+            advanceToNextPending(after: currentIndex)
+        }
     }
 
     /// Moves the cursor to a still-pending item (a review-table row click). Decided items are

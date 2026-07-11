@@ -4,26 +4,35 @@ import Events
 
 /// The docked review card shown above the differences table during an inline review session:
 /// what the current item is, what the copy would replace (sizes, dates, deltas, warnings), and
-/// the per-item actions. Owns the per-item async work — statting facts, verifying content, and
-/// the sync itself; queue state lives in the bound `ReviewSession` (the host tears it down).
+/// the per-item actions. Deliberately dumb about the queue: it renders the `session` value and
+/// reports intents through closures — the host owns every session mutation and the in-flight
+/// state, so a decision landing after the session was torn down (Exit mid-copy) or after the
+/// user jumped rows can be applied — or dropped — with the full picture. The card's own async
+/// work is display-only: statting facts and hashing for the per-item Verify.
 struct ReviewCardView: View {
-    @ObservedObject var syncManager: FileSyncManager
-    @Binding var session: ReviewSession
+    let session: ReviewSession
     let paneNames: PaneProviderNames
     let accent: Color
+    /// The host's file manager (test seam parity with the sync paths the decisions drive).
+    let fileManager: FileManaging
     let onQuickLook: ((URL) -> Void)?
+    /// True while the host runs the current item's copy/move; gates every decision entry point.
+    let isActing: Bool
     /// Bumped by the host whenever a review-table row is clicked: the click hands key focus to
     /// the Table (a sibling), which would strand the card's key handlers — the card takes focus
     /// back so ⏎/⌫/␣/esc keep working. (Trade-off: the table's selection highlight always
     /// renders in its inactive style; the Status column marks the current row regardless.)
     let focusNudge: Int
-    /// Called after the last queue item is decided; the host banners the summary and exits.
-    let onFinished: () -> Void
+    /// Copy/Move the given item (the host records the outcome from what actually happened).
+    let onPrimary: (FileDifference) -> Void
+    /// Skip the given item.
+    let onSkip: (FileDifference) -> Void
+    /// Report a per-item content-verification verdict.
+    let onVerdict: (UUID, ReviewSession.VerifyVerdict) -> Void
     /// Called on Esc; the host exits the session (the header's Exit button is the other path).
     let onExit: () -> Void
 
     @State private var facts = ReviewCardModel.Facts()
-    @State private var isActing = false
     @State private var isVerifying = false
     @FocusState private var focused: Bool
 
@@ -66,8 +75,8 @@ struct ReviewCardView: View {
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
-        .onKeyPress(.return) { keyAct { performPrimary(item) } }
-        .onKeyPress(.delete) { keyAct { performSkip() } }
+        .onKeyPress(.return) { keyAct { onPrimary(item) } }
+        .onKeyPress(.delete) { keyAct { onSkip(item) } }
         .onKeyPress(.space) { quickLookKeyPressed(item) }
         .onKeyPress(.escape) {
             onExit()
@@ -187,12 +196,12 @@ struct ReviewCardView: View {
     private func actionsRow(item: FileDifference, model: ReviewCardModel) -> some View {
         HStack(spacing: 8) {
             Button(model.primaryVerb) {
-                performPrimary(item)
+                onPrimary(item)
             }
             .buttonStyle(.borderedProminent)
             .disabled(isActing)
             Button("Skip") {
-                performSkip()
+                onSkip(item)
             }
             .buttonStyle(.bordered)
             .disabled(isActing)
@@ -232,7 +241,7 @@ struct ReviewCardView: View {
 
     // MARK: Actions
 
-    /// Runs a key-triggered action unless one is already in flight; always consumes the key
+    /// Runs a key-triggered decision unless one is already in flight; always consumes the key
     /// (an ignored Return/Delete rattling around the window helps nobody mid-review).
     private func keyAct(_ action: () -> Void) -> KeyPress.Result {
         if !isActing { action() }
@@ -245,33 +254,10 @@ struct ReviewCardView: View {
         return .handled
     }
 
-    /// Copy/Move the current item via the same per-item path as a table row action — collision
-    /// prompts and the retryable failure alert work unchanged — then record the outcome from
-    /// what actually happened: `syncFile` removes a resolved difference synchronously, so a row
-    /// still live afterwards means the sync didn't happen (failure, or Skip at the collision
-    /// prompt — both of which already informed the user).
-    private func performPrimary(_ item: FileDifference) {
-        guard !isActing else { return }
-        isActing = true
-        let isMove = session.isMove
-        Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
-        Task { @MainActor in
-            await syncManager.syncFile(item, isMove: isMove)
-            let resolved = !syncManager.differences.contains { $0.id == item.id }
-            session.record(resolved ? .copied : .skipped)
-            isActing = false
-            if session.isComplete { onFinished() }
-        }
-    }
-
-    private func performSkip() {
-        session.record(.skipped)
-        if session.isComplete { onFinished() }
-    }
-
-    /// Per-item content check, reusing the bulk Verify's hashing — but recording the verdict on
-    /// the card instead of feeding `verifiedIdenticalForCopy` (whose bulk copy-to-match-dates
-    /// dialog would be wrong mid-review).
+    /// Per-item content check, reusing the bulk Verify's hashing — but reporting the verdict to
+    /// the host instead of feeding `verifiedIdenticalForCopy` (whose bulk copy-to-match-dates
+    /// dialog would be wrong mid-review). Read-only, so a verdict landing late is harmless —
+    /// the host drops it if the session is gone.
     private func performVerify(_ item: FileDifference) {
         guard !isVerifying else { return }
         isVerifying = true
@@ -279,11 +265,11 @@ struct ReviewCardView: View {
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: item.leftItemPath,
                 rightPath: item.rightItemPath,
-                fileManager: syncManager.fileManager
+                fileManager: fileManager
             )
             let verdict: ReviewSession.VerifyVerdict =
                 same == true ? .identical : (same == false ? .differed : .unverifiable)
-            session.recordVerdict(verdict, for: item.id)
+            onVerdict(item.id, verdict)
             isVerifying = false
         }
     }

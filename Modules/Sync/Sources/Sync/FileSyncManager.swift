@@ -567,7 +567,12 @@ public class FileSyncManager: ObservableObject {
     ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
-    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async {
+    /// - Returns: Whether the operation ran (Replace/Keep Both/plain copy); false when the user
+    ///   skipped at a collision prompt or the operation failed. This is the only reliable
+    ///   "did it happen" signal — inferring from the differences list breaks the moment the
+    ///   post-operation rescan regenerates row UUIDs (guided review records outcomes from it).
+    @discardableResult
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async -> Bool {
         let activeFM = fileManager ?? self.fileManager
         // Mark the difference as syncing (published row + authoritative id set)
         markSyncing(ids: [difference.id])
@@ -605,7 +610,7 @@ public class FileSyncManager: ObservableObject {
         if destinationExists {
             guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: destinationIsDirectory) else {
                 clearSyncing(ids: [difference.id])
-                return
+                return false
             }
             replaceSanctioned = (resolvedURL == toURL)
             toURL = resolvedURL
@@ -624,7 +629,7 @@ public class FileSyncManager: ObservableObject {
             if newlyAppeared {
                 guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: newlyAppearedIsDirectory) else {
                     clearSyncing(ids: [difference.id])
-                    return
+                    return false
                 }
                 toURL = resolvedURL
             }
@@ -657,6 +662,7 @@ public class FileSyncManager: ObservableObject {
             )
 
             clearSyncing(ids: [difference.id])
+            return false
         } else {
             Logger.shared.info("Synced file: \(difference.relativePath)")
             if let from = result.from, let to = result.to {
@@ -668,6 +674,7 @@ public class FileSyncManager: ObservableObject {
                 }
             }
             removeResolvedDifferences(ids: [difference.id])
+            return true
         }
     }
 

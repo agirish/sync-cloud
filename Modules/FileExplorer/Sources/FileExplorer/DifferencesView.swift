@@ -26,6 +26,10 @@ public struct DifferencesView: View {
     @State private var reviewSelection = Set<FileDifference.ID>()
     /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
     @State private var reviewFocusNudge = 0
+    /// True while the review's current item is being copied/moved: gates the card's decision
+    /// buttons/keys AND the header's "Copy Remaining…" (which would double-target the in-flight,
+    /// still-undecided item).
+    @State private var isReviewActing = false
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
     /// Leading accessory rendered at the start of the header row — the host passes the
@@ -102,8 +106,8 @@ public struct DifferencesView: View {
 
             // Table card: review card / progress (during ops) sits above the differences table.
             VStack(spacing: 0) {
-                if let sessionBinding = Binding($reviewSession) {
-                    reviewSection(sessionBinding)
+                if let session = reviewSession {
+                    reviewSection(session)
                 } else {
                     standardTableSection(sorted: sorted)
                 }
@@ -265,15 +269,19 @@ public struct DifferencesView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
-        if session.pending.count > 1 {
+        let pendingCount = session.pending.count
+        if pendingCount > 1 {
             Button {
                 copyRemaining(session)
             } label: {
-                Label("\(session.isMove ? "Move" : "Copy") Remaining \(session.pending.count)…", systemImage: "arrow.forward.circle")
+                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)…", systemImage: "arrow.forward.circle")
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
             .buttonStyle(.bordered)
+            // Gated while the current item's copy runs: that item is still undecided (in
+            // `pending`), so handing the remainder to syncAll now would target it twice.
+            .disabled(isReviewActing || isSyncActionBlocked)
             .help("\(session.isMove ? "Move" : "Copy") every remaining item without further review")
         }
         Button {
@@ -289,16 +297,18 @@ public struct DifferencesView: View {
 
     /// The review-mode table card content: the docked review card above the frozen-queue table.
     @ViewBuilder
-    private func reviewSection(_ sessionBinding: Binding<ReviewSession>) -> some View {
-        let session = sessionBinding.wrappedValue
+    private func reviewSection(_ session: ReviewSession) -> some View {
         ReviewCardView(
-            syncManager: syncManager,
-            session: sessionBinding,
+            session: session,
             paneNames: paneNames,
             accent: glassHue.accentColor,
+            fileManager: syncManager.fileManager,
             onQuickLook: onQuickLook,
+            isActing: isReviewActing,
             focusNudge: reviewFocusNudge,
-            onFinished: { finishReview() },
+            onPrimary: { reviewPrimary($0) },
+            onSkip: { reviewSkip($0) },
+            onVerdict: { reviewVerdict($1, for: $0) },
             onExit: { exitReview() }
         )
         .padding(.horizontal, 12)
@@ -380,6 +390,45 @@ public struct DifferencesView: View {
         reviewSession = session
         selection.removeAll()
         reviewSelection = queue.first.map { [$0.id] } ?? []
+    }
+
+    /// Copy/Move the given review item through the same per-item path as a table row action —
+    /// collision prompts and the retryable failure alert work unchanged. The outcome comes from
+    /// `syncFile`'s return value, NOT from inspecting the differences list: the post-operation
+    /// rescan regenerates row UUIDs mid-session, which would make any list-based check lie.
+    private func reviewPrimary(_ item: FileDifference) {
+        guard let session = reviewSession, !isReviewActing else { return }
+        isReviewActing = true
+        let isMove = session.isMove
+        Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
+        Task { @MainActor in
+            let succeeded = await syncManager.syncFile(item, isMove: isMove)
+            isReviewActing = false
+            // Not copied = failure or Skip at the collision prompt; both already told the user.
+            applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id)
+        }
+    }
+
+    private func reviewSkip(_ item: FileDifference) {
+        guard !isReviewActing else { return }
+        applyReviewOutcome(.skipped, for: item.id)
+    }
+
+    /// The one place session outcomes land. Id-addressed (the user may have jumped rows while
+    /// the copy ran) and guarded on the session still existing — a decision arriving after Exit
+    /// tore the session down is dropped instead of resurrecting it.
+    private func applyReviewOutcome(_ outcome: ReviewSession.Outcome, for id: UUID) {
+        guard var session = reviewSession else { return }
+        session.record(outcome, for: id)
+        reviewSession = session
+        if session.isComplete { finishReview() }
+    }
+
+    /// Records a per-item Verify verdict; same teardown guard as outcomes.
+    private func reviewVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID) {
+        guard var session = reviewSession else { return }
+        session.recordVerdict(verdict, for: id)
+        reviewSession = session
     }
 
     /// Tears the session down after the last item was decided, summarizing into a banner.
