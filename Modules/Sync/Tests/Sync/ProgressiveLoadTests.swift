@@ -118,6 +118,69 @@ import Testing
         #expect(manager.activeRefreshKey == nil)
     }
 
+    /// Regression: the cleanup at the end of `refreshTreesAndScan` matched on key alone, so a
+    /// STALE refresh unwinding late could clear a NEWER same-key refresh's dedupe key while it
+    /// still ran — a following duplicate then wasn't deduped and cancel-restarted it, reopening
+    /// the strand race the dedupe exists to close. Sequence: A(K1) superseded by B(K2), C(K1)
+    /// registers K1 again, A finally unwinds; A must not release C's key.
+    @MainActor
+    @Test func testStaleRefreshUnwindKeepsNewerSameKeyRefreshDeduped() async throws {
+        final class CompletionFlag { var done = false }
+
+        let mockFM = MockFileManager()
+        mockFM.enumeratorDelay = 0.1
+        // Give K1's left root a subdirectory so C's deep walk takes several enumerator passes —
+        // C must still be mid-flight when the stale A unwinds.
+        for dir in ["/left", "/left/sub", "/right", "/left2", "/right2"] {
+            try mockFM.createDirectory(at: URL(fileURLWithPath: dir), withIntermediateDirectories: true)
+        }
+        mockFM.virtualDisk["/left/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        if var l = mockFM.virtualDisk["/left"] { l.contents = ["a.txt", "sub"]; mockFM.virtualDisk["/left"] = l }
+
+        let manager = FileSyncManager(fileManager: mockFM)
+        let l1 = CloudProvider(id: "L1", displayName: "L1", imageName: "folder", path: "/left", type: .iCloud)
+        let r1 = CloudProvider(id: "R1", displayName: "R1", imageName: "folder", path: "/right", type: .iCloud)
+        let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", path: "/left2", type: .iCloud)
+        let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", path: "/right2", type: .iCloud)
+
+        func waitUntil(_ condition: () -> Bool) async throws {
+            let deadline = Date().addingTimeInterval(5)
+            while !condition() && Date() < deadline {
+                try await Task.sleep(nanoseconds: 5_000_000)
+            }
+        }
+
+        // A (K1) — superseded below while its detached walks are still sleeping.
+        let a = Task { await manager.refreshTreesAndScan(left: l1, right: r1) }
+        try await waitUntil { manager.activeRefreshKey != nil }
+
+        // B (K2) cancels A; C (K1) cancels B and re-registers A's key.
+        let b = Task { await manager.refreshTreesAndScan(left: l2, right: r2) }
+        try await waitUntil { manager.activeRefreshKey?.leftId == "L2" }
+        let flag = CompletionFlag()
+        let c = Task {
+            await manager.refreshTreesAndScan(left: l1, right: r1)
+            flag.done = true
+        }
+        try await waitUntil { manager.activeRefreshKey?.leftId == "L1" }
+
+        // The stale refreshes unwind while C still runs; neither may release C's dedupe key.
+        await a.value
+        await b.value
+        try #require(!flag.done) // C must still be mid-flight for the pin below to mean anything
+        #expect(manager.activeRefreshKey != nil)
+
+        // The consequence being pinned: a duplicate-K1 refresh is deduped (returns without
+        // loading) instead of cancel-restarting C.
+        let generationBefore = manager.leftLoadGeneration
+        await manager.refreshTreesAndScan(left: l1, right: r1)
+        #expect(manager.leftLoadGeneration == generationBefore)
+
+        await c.value
+        #expect(flag.done)
+        #expect(manager.activeRefreshKey == nil)
+    }
+
     // MARK: Scan-from-tree equivalence
 
     @Test func testFilesInfoFromTreeMatchesTheDiskWalk() async throws {

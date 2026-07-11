@@ -207,8 +207,14 @@ extension FileSyncManager {
         activeRefreshTask = task
         await task.value
         // Release the key when this refresh is still the current one; a superseding refresh
-        // (different target) will have overwritten it and owns the cleanup.
-        if activeRefreshKey == key { activeRefreshKey = nil }
+        // will have overwritten it and owns the cleanup. Matched by task identity (Task's ==),
+        // not key equality alone: a stale refresh unwinding late must not clear the key of a
+        // NEWER refresh for the same target (A(K1) superseded, C(K1) registers K1 again, A
+        // unwinds while C runs) — that would break the dedupe and let a duplicate
+        // cancel-restart C, reopening the strand race documented above.
+        if activeRefreshKey == key, activeRefreshTask == task {
+            activeRefreshKey = nil
+        }
     }
 
     /// Post-refresh hygiene: removes `.tmp_<UUID>` working files that a crashed or
