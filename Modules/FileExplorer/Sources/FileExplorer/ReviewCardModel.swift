@@ -61,6 +61,9 @@ struct ReviewCardModel: Equatable {
     var warningText: String?
     /// Whether the per-item "Verify" action applies (date-only difference, same size, not a folder).
     var canVerify: Bool
+    /// Best-effort folder signal for the card's icon tile: missing folders carry
+    /// `enclosedItemCount`, replaced folders are statted. A miss just means a generic file icon.
+    var isFolder: Bool
 
     @MainActor
     static func make(
@@ -123,7 +126,8 @@ struct ReviewCardModel: Equatable {
                 facts: facts,
                 destinationName: destinationName,
                 isMove: isMove),
-            canVerify: isReplace && difference.sizesMatch && !facts.destinationIsDirectory
+            canVerify: isReplace && difference.sizesMatch && !facts.destinationIsDirectory,
+            isFolder: facts.destinationIsDirectory || difference.enclosedItemCount != nil
         )
     }
 

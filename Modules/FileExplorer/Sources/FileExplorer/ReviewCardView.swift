@@ -126,17 +126,26 @@ struct ReviewCardView: View {
     // MARK: Rows
 
     private func headerRow(item: FileDifference, model: ReviewCardModel) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: DifferenceGlyph.symbol(for: item.type, filled: true))
-                .foregroundStyle(DifferenceGlyph.color(for: item.type))
-                .symbolRenderingMode(.hierarchical)
+        HStack(spacing: 8) {
+            // Real file icon in a tile (mockup style), not the diff-type glyph — the direction
+            // chip's "new / replaces existing" carries the type signal here.
+            Image(nsImage: FileIconCache.icon(name: model.fileName, isDirectory: model.isFolder))
+                .resizable()
+                .frame(width: 22, height: 22)
+                .padding(5)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(.quaternary.opacity(0.5))
+                )
+            // Name first, dimmed parent path after — the decision is about the file, the
+            // location is context.
+            Text(model.fileName)
+                .fontWeight(.semibold)
+                .layoutPriority(1)
             if !model.parentPath.isEmpty {
                 Text(model.parentPath + "/")
                     .foregroundStyle(.secondary)
             }
-            Text(model.fileName)
-                .fontWeight(.semibold)
-                .layoutPriority(1)
             Spacer(minLength: 12)
             Text("\(model.directionText) · \(model.directionDetail)")
                 .font(.caption.weight(.medium))
@@ -152,14 +161,16 @@ struct ReviewCardView: View {
 
     @ViewBuilder
     private func factsRow(model: ReviewCardModel) -> some View {
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .firstTextBaseline, spacing: 18) {
             if let newItemText = model.newItemText {
                 Text(newItemText)
                     .foregroundStyle(.secondary)
             } else {
-                factGroup(label: model.sourceLabel, size: model.sourceSizeText, date: model.sourceDateText)
-                if let destinationLabel = model.destinationLabel {
-                    factGroup(label: destinationLabel, size: model.destinationSizeText, date: model.destinationDateText)
+                inlineFact(label: model.primaryVerb == "Move" ? "Moving" : "Copying", size: model.sourceSizeText, date: model.sourceDateText)
+                    .help(model.sourceLabel)
+                if model.destinationLabel != nil {
+                    inlineFact(label: "Replaces", size: model.destinationSizeText, date: model.destinationDateText)
+                        .help(model.destinationLabel ?? "")
                 }
                 if let deltaText = model.deltaText {
                     let tint: Color = model.sourceIsOlder ? .orange : .green
@@ -175,24 +186,13 @@ struct ReviewCardView: View {
         .font(.callout)
     }
 
-    private func factGroup(label: String, size: String?, date: String?) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(label.uppercased())
-                .font(.caption2.weight(.semibold))
-                .kerning(0.4)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 5) {
-                Text(size ?? "—")
-                    .fontWeight(.medium)
-                Text("·")
-                    .foregroundStyle(.tertiary)
-                // Dates stat asynchronously; the placeholder keeps the row from jumping.
-                Text(date ?? "…")
-                    .foregroundStyle(.secondary)
-            }
-            .font(.callout)
+    /// One inline fact run: "Copying: **2.4 MB** · Jul 8, 6:12 PM" (mockup style). The date
+    /// placeholder holds the width while the stat loads so the row doesn't jump.
+    private func inlineFact(label: String, size: String?, date: String?) -> Text {
+        (Text("\(label): ").foregroundStyle(.secondary)
+            + Text(size ?? "—").fontWeight(.semibold)
+            + Text(" · \(date ?? "…")").foregroundStyle(.secondary))
             .monospacedDigit()
-        }
     }
 
     @ViewBuilder
@@ -229,16 +229,15 @@ struct ReviewCardView: View {
             .buttonStyle(.bordered)
             .disabled(isActing)
             if let onQuickLook {
-                ForEach(DifferenceRowMenu.existingSides(for: item, paneNames: paneNames), id: \.paneName) { side in
-                    Button {
-                        onQuickLook(URL(fileURLWithPath: side.path))
-                    } label: {
-                        Label(side.paneName, systemImage: "eye")
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Quick Look the \(side.paneName) copy")
+                // One button, source side (same as ␣) — mockup style. The destination copy is
+                // a right-click away on the row (Quick Look per side in the context menu).
+                Button {
+                    onQuickLook(URL(fileURLWithPath: item.reviewSourcePath))
+                } label: {
+                    Label("Quick Look", systemImage: "eye")
                 }
+                .buttonStyle(.borderless)
+                .help("Quick Look the copy being \(session.isMove ? "moved" : "copied") (space) — right-click the row for the other side")
             }
             if model.canVerify {
                 Button {
@@ -257,11 +256,54 @@ struct ReviewCardView: View {
                     .controlSize(.small)
             }
             Spacer()
-            Text("⏎ \(model.primaryVerb.lowercased()) · ⌫ skip · ␣ quick look · esc exit")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            keyHints(model: model)
         }
         .buttonBorderShape(.capsule)
+    }
+
+    /// The mockup's key-cap hint row: bordered key chips with plain-text verbs between.
+    private func keyHints(model: ReviewCardModel) -> some View {
+        HStack(spacing: 5) {
+            keyCap("return")
+            hintVerb(model.primaryVerb.lowercased())
+            hintDot()
+            keyCap("⌫")
+            hintVerb("skip")
+            hintDot()
+            keyCap("space")
+            hintVerb("quick look")
+            hintDot()
+            keyCap("esc")
+            hintVerb("exit")
+        }
+    }
+
+    private func keyCap(_ symbol: String) -> some View {
+        Text(symbol)
+            .font(.caption2.monospaced())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(.quaternary.opacity(0.4))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 1)
+            )
+    }
+
+    private func hintVerb(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+    }
+
+    private func hintDot() -> some View {
+        Text("·")
+            .font(.caption2)
+            .foregroundStyle(.quaternary)
     }
 
     // MARK: Actions

@@ -279,7 +279,24 @@ public struct DifferencesView: View {
     /// session-level actions (finish the rest in bulk, or exit).
     @ViewBuilder
     private func reviewHeaderControls(_ session: ReviewSession) -> some View {
-        StatPill(count: session.position, label: "of \(session.total) — reviewing", color: glassHue.accentColor, systemImage: "checklist")
+        // Mockup-style position pill: dot + "Reviewing N of M" (reads as a sentence, unlike
+        // StatPill's count-first layout).
+        HStack(spacing: 6) {
+            Circle()
+                .fill(glassHue.accentColor)
+                .frame(width: 7, height: 7)
+            Text("Reviewing \(session.position) of \(session.total)")
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(glassHue.accentColor)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 4)
+        .background(Capsule(style: .continuous).fill(glassHue.accentColor.opacity(0.10)))
+        .overlay(Capsule(style: .continuous).strokeBorder(glassHue.accentColor.opacity(0.45), lineWidth: 0.5))
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reviewing \(session.position) of \(session.total)")
         Spacer()
         if session.copiedCount + session.skippedCount > 0 {
             Text("\(session.copiedCount) \(session.isMove ? "moved" : "copied") · \(session.skippedCount) skipped")
