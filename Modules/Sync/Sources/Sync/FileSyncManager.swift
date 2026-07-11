@@ -104,6 +104,7 @@ public class FileSyncManager: ObservableObject {
                 // xattr fetch dominated large scans — see TreeBuilder.includeTags), so the
                 // current nodes have nothing to re-sort by. Reload from disk instead; the
                 // fresh walk includes tags because this option is now current.
+                noteScanConfigChanged()
                 refreshSubject.send()
             } else {
                 // Re-sort current trees when the option changes — off the main actor; the full
@@ -175,6 +176,7 @@ public class FileSyncManager: ObservableObject {
     @Published public var dateToleranceSeconds: TimeInterval = 1 {
         didSet {
             guard dateToleranceSeconds != oldValue else { return }
+            noteScanConfigChanged()
             refreshSubject.send()
         }
     }
@@ -186,6 +188,7 @@ public class FileSyncManager: ObservableObject {
     @Published public var autoVerifySameSizeDuringScan: Bool = false {
         didSet {
             guard autoVerifySameSizeDuringScan != oldValue else { return }
+            noteScanConfigChanged()
             refreshSubject.send()
         }
     }
@@ -335,26 +338,36 @@ public class FileSyncManager: ObservableObject {
     private var filterGeneration = 0
     /// Generation of the most recent `applyFilters()` pass that published its results.
     private var lastPublishedFilterGeneration = 0
-    /// Bumped on EVERY write to the published `leftTree`/`rightTree` (filter-pass publishes,
-    /// `invalidateComparisonState`'s clear, `swapPanes`). A filter pass compares its freshly
-    /// computed trees against the published ones OFF the main actor (the deep equality walk
-    /// is O(total nodes) and hitched the UI on large panes); those verdicts are only valid
-    /// while nothing wrote the published trees mid-flight, which this version detects.
-    internal var publishedTreesVersion = 0
+    /// Bumped by `didSet` on EVERY write to its pane's published tree — no writer can forget
+    /// it, including `swap(&leftTree, &rightTree)` and tests assigning the public property
+    /// directly. A filter pass compares its freshly computed trees against the published ones
+    /// OFF the main actor (the deep equality walk is O(total nodes) and hitched the UI on
+    /// large panes); a verdict is only valid while nothing wrote that pane's published tree
+    /// mid-flight, which its version detects. Per pane, so one pane's publish doesn't
+    /// invalidate an overlapping pass's verdict for the OTHER pane — during a dual-pane load
+    /// passes routinely overlap, and a shared version sent every other pass back to the
+    /// main-actor fallback compare.
+    internal private(set) var publishedLeftTreeVersion = 0
+    /// Right-pane counterpart of `publishedLeftTreeVersion`.
+    internal private(set) var publishedRightTreeVersion = 0
 
     /// Bumped on every raw-tree publish (see `adoptRawTree`). Guards the off-main resort in
     /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
     internal var rawTreeGeneration = 0
-    
+
     /// Raw file tree for the left pane (before hidden/ignored filtering).
     internal var rawLeftTree: [FileNode] = []
     /// Filtered file tree for the left pane (used by the UI).
-    @Published public var leftTree: [FileNode] = []
+    @Published public var leftTree: [FileNode] = [] {
+        didSet { publishedLeftTreeVersion += 1 }
+    }
 
     /// Raw file tree for the right pane (before hidden/ignored filtering).
     internal var rawRightTree: [FileNode] = []
     /// Filtered file tree for the right pane (used by the UI).
-    @Published public var rightTree: [FileNode] = []
+    @Published public var rightTree: [FileNode] = [] {
+        didSet { publishedRightTreeVersion += 1 }
+    }
 
     /// True when the left pane's folder has entries but filtering (hidden files) removed all
     /// of them — lets the empty-pane placeholder point at the Hidden toggle. Not `@Published`:
@@ -501,6 +514,34 @@ public class FileSyncManager: ObservableObject {
         let rightPath: String
         let leftRel: String
         let rightRel: String
+        /// `scanConfigGeneration` at key construction. Keying the target on the config epoch
+        /// means a refresh requested AFTER a scan-affecting change never reads as a duplicate
+        /// of one started before it — the dedupe otherwise swallowed the follow-up refresh a
+        /// config didSet requested while a same-target refresh was in flight (e.g. switching
+        /// to the Tags sort mid-scan left the panes tag-less and old-sorted).
+        let config: Int
+    }
+
+    /// Epoch of "what a load/scan would produce". Bumped whenever something makes an
+    /// in-flight refresh's output stale for reasons a `RefreshKey`'s paths can't see: a
+    /// scan-affecting setting changed (date tolerance, auto-verify, a sort switch that needs
+    /// a from-disk reload), comparison state was invalidated, or a file operation finished.
+    /// See `RefreshKey.config`.
+    internal private(set) var scanConfigGeneration = 0
+
+    /// Records that in-flight refresh results are stale (see `scanConfigGeneration`).
+    internal func noteScanConfigChanged() {
+        scanConfigGeneration += 1
+    }
+
+    /// The dedupe identity for a refresh of the given targets under the current config epoch.
+    internal func makeRefreshKey(left: CloudProvider, right: CloudProvider) -> RefreshKey {
+        RefreshKey(
+            leftId: left.id, leftPath: left.path,
+            rightId: right.id, rightPath: right.path,
+            leftRel: leftRelativePath, rightRel: rightRelativePath,
+            config: scanConfigGeneration
+        )
     }
     /// Monotonic per-pane load tokens: each `loadTree` call claims the next value. The deferred
     /// spinner cleanup in `loadTree` fires only while the pane's token still matches, so a
@@ -546,12 +587,15 @@ public class FileSyncManager: ObservableObject {
         let newTask = Task.detached(priority: .userInitiated) {
             _ = await previousTask.result
             let res = await operation()
-            await MainActor.run { [weak self] in 
+            await MainActor.run { [weak self] in
                 // File operations mutate the filesystem; cached prefetched roots are stale after any write.
                 self?.prefetchedTrees.removeAll()
+                // A refresh already in flight walked mid-operation disk state; the post-op
+                // refresh below must supersede it, not dedupe against it.
+                self?.noteScanConfigChanged()
                 self?.activeFileOperationsCount = max(0, (self?.activeFileOperationsCount ?? 1) - 1)
                 self?.scheduleSelectionPrune()
-                self?.refreshSubject.send() 
+                self?.refreshSubject.send()
             }
             return res
         }
@@ -675,7 +719,8 @@ public class FileSyncManager: ObservableObject {
         // (twice per pass, several passes per load+scan cycle) hitched the UI on large panes.
         let publishedLeft = leftTree
         let publishedRight = rightTree
-        let publishedVersion = publishedTreesVersion
+        let leftVersion = publishedLeftTreeVersion
+        let rightVersion = publishedRightTreeVersion
 
         let (state, leftTreeChanged, rightTreeChanged) = await Task.detached(priority: .userInitiated) {
             let state = Self.computeFilteredState(
@@ -713,17 +758,15 @@ public class FileSyncManager: ObservableObject {
         // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
         // tear down and rebuild the whole pane List — and a rebuild landing between an
         // NSTableView mouse-down and mouse-up drops the click ("dead clicks"). The tree
-        // comparisons ran off-main against entry-time snapshots; trust them only while
-        // nothing wrote the published trees since (tracked by `publishedTreesVersion`) —
-        // on the rare mid-flight write, fall back to live compares here.
-        let treeComparesValid = publishedVersion == publishedTreesVersion
-        if treeComparesValid ? leftTreeChanged : (self.leftTree != state.leftTree) {
+        // comparisons ran off-main against entry-time snapshots; each is trusted only while
+        // nothing wrote THAT pane's published tree since (its `published*TreeVersion`, bumped
+        // by the property's own didSet) — on the rare mid-flight write, fall back to a live
+        // compare for just that pane.
+        if leftVersion == publishedLeftTreeVersion ? leftTreeChanged : (self.leftTree != state.leftTree) {
             self.leftTree = state.leftTree
-            publishedTreesVersion += 1
         }
-        if treeComparesValid ? rightTreeChanged : (self.rightTree != state.rightTree) {
+        if rightVersion == publishedRightTreeVersion ? rightTreeChanged : (self.rightTree != state.rightTree) {
             self.rightTree = state.rightTree
-            publishedTreesVersion += 1
         }
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }

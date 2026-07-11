@@ -91,16 +91,7 @@ extension FileSyncManager {
 
             guard !Task.isCancelled else { return }
 
-            self.adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath)
-            await self.applyFilters()
-            if isLeft {
-                isLoadingLeftTree = false
-            } else {
-                isLoadingRightTree = false
-            }
-            // Cache the deep tree for this focus (never the shallow one — cache consumers,
-            // including the in-memory diff scan, rely on cached trees being fully walked).
-            self.prefetchedTrees[focusPath] = tree
+            await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath)
             Logger.shared.debug("\(label) Tree Loaded. Count: \(isLeft ? leftItemCount : rightItemCount)")
         }
 
@@ -116,6 +107,49 @@ extension FileSyncManager {
         }
     }
     
+    /// Publishes a fully walked deep tree for one pane and releases its loading spinner.
+    /// `builtWith` is the sort option the walk captured at entry; the option can change while
+    /// the walk runs (seconds on large panes), and the tree's ORDER then matches the stale
+    /// option — worse, for the Tags sort its nodes may lack the tags metadata only that
+    /// sort's walks fetch. On a mismatch the tree is re-sorted to the live option before
+    /// publishing (off the main actor; a full-tree sort froze the UI on large panes) so a
+    /// stale load can never clobber a newer sort choice, and the tree is NOT cached:
+    /// `sortOption.didSet` cleared the cache expecting the next walk to rebuild it for the
+    /// new option, and writing this one back would poison the cache fast path, which serves
+    /// cached trees as-is (for Tags, with no way to ever recover the missing metadata).
+    func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String) async {
+        var tree = tree
+        let liveSort = sortOption
+        if liveSort != sortOp {
+            let stale = tree
+            tree = await Task.detached(priority: .userInitiated) {
+                Self.sort(nodes: stale, by: liveSort)
+            }.value
+            guard !Task.isCancelled else { return }
+        }
+        adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath)
+        // The option can move AGAIN while the re-sort/publish above runs, and this adopt's
+        // generation bump discards any resort that change scheduled — re-sort once more in
+        // memory (generation-guarded, so it in turn yields to anything fresher).
+        if sortOption != liveSort {
+            Task { await self.resortTreesAndRefilter() }
+        }
+        await applyFilters()
+        if isLeft {
+            isLoadingLeftTree = false
+        } else {
+            isLoadingRightTree = false
+        }
+        // Cache the deep tree for this focus (never the shallow one — cache consumers,
+        // including the in-memory diff scan, rely on cached trees being fully walked), and
+        // only when the sort option never moved while this load ran (re-checked after every
+        // await above): cached trees are always served verbatim, so they must match the
+        // current option's order and metadata exactly.
+        if sortOption == sortOp {
+            prefetchedTrees[focusPath] = tree
+        }
+    }
+
     /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
     /// `rawTreeGeneration`, which invalidates any off-main resort snapshot in flight —
     /// this tree was built with the current sort option already applied.
@@ -162,16 +196,15 @@ extension FileSyncManager {
     ///   - left: Cloud provider for the left pane (root path and display name).
     ///   - right: Cloud provider for the right pane.
     public func refreshTreesAndScan(left: CloudProvider, right: CloudProvider) async {
-        let key = RefreshKey(
-            leftId: left.id, leftPath: left.path,
-            rightId: right.id, rightPath: right.path,
-            leftRel: leftRelativePath, rightRel: rightRelativePath
-        )
+        let key = makeRefreshKey(left: left, right: right)
         // The launch bootstrap fires several identical refreshes (the explicit initial one plus
         // the provider-id onChange that resets navigation). A refresh already in flight for the
         // exact same target loads both panes on its own, so skip the duplicate rather than
         // cancel-and-restart it — that race could strand a pane's load, leaving it blank until
-        // the user re-navigated. A different target is real navigation and still supersedes.
+        // the user re-navigated. A different target is real navigation and still supersedes —
+        // and "target" includes the scan-config epoch (see RefreshKey.config), so a refresh
+        // requested after a config change or invalidation supersedes too instead of being
+        // swallowed as a duplicate.
         if activeRefreshKey == key {
             Logger.shared.debug("Skipping duplicate in-flight refresh for the same target")
             return

@@ -131,8 +131,8 @@ extension FileSyncManager {
         supersedeInFlightPaneWork()
         rawLeftTree = []
         rawRightTree = []
-        if !leftTree.isEmpty { leftTree = []; publishedTreesVersion += 1 }
-        if !rightTree.isEmpty { rightTree = []; publishedTreesVersion += 1 }
+        if !leftTree.isEmpty { leftTree = [] }
+        if !rightTree.isEmpty { rightTree = [] }
         if leftItemCount != 0 { leftItemCount = 0 }
         if rightItemCount != 0 { rightItemCount = 0 }
         lastLoadedLeftFocusPath = nil
@@ -163,6 +163,10 @@ extension FileSyncManager {
         rawTreeGeneration += 1
         scanRequestGeneration += 1
         pendingScanRequest = nil
+        // The next refresh must supersede any in-flight one, never dedupe against it: that
+        // refresh's loads were just cancelled and its scan publish gated off, so treating a
+        // same-target follow-up as a duplicate would leave the cleared panes blank.
+        noteScanConfigChanged()
     }
 
     /// Swaps the left and right panes wholesale: focused relative paths, selections, each
@@ -204,7 +208,6 @@ extension FileSyncManager {
 
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
-        publishedTreesVersion += 1
         swap(&leftItemCount, &rightItemCount)
         swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
         swap(&isLoadingLeftTree, &isLoadingRightTree)
