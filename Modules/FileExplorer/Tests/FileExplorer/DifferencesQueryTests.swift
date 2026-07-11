@@ -73,6 +73,45 @@ import Sync
         #expect(result.map(\.relativePath) == ["keep/report.txt"])
     }
 
+    // MARK: Per-filter menu counts
+
+    @Test func testCountsTalliesEachFilterAndAllEqualsTotal() {
+        let list = [
+            diff("a", type: .missingOnRight, action: .copyToRight),
+            diff("b", type: .missingOnRight, action: .copyToRight),
+            diff("c", type: .missingOnLeft, action: .copyToLeft),
+            diff("d", type: .differentDates, action: .copyToRight, leftSize: 1, rightSize: 1),
+            diff("e", type: .differentDates, action: .copyToLeft, leftSize: 1, rightSize: 1),
+            diff("f", type: .nameConflict, action: .copyToRight),
+        ]
+        let counts = DifferencesQuery.counts(list)
+        #expect(counts[.all] == 6)
+        #expect(counts[.missingOnRight] == 2)
+        #expect(counts[.missingOnLeft] == 1)
+        #expect(counts[.changedCopyToRight] == 1)
+        #expect(counts[.changedCopyToLeft] == 1)
+        #expect(counts[.nameConflicts] == 1)
+        // The specific-filter counts partition the whole diff: they sum to `.all`.
+        let specificsSum = DifferenceFilter.allCases
+            .filter { $0 != .all }
+            .reduce(0) { $0 + (counts[$1] ?? 0) }
+        #expect(specificsSum == counts[.all])
+    }
+
+    @Test func testCountsIgnoresSearchTextAndEmptyListYieldsZeroes() {
+        // Counts reflect the whole diff (search is not a parameter), matching Tidy's menu.
+        #expect(DifferencesQuery.counts([]).isEmpty)
+        // A single filter's count matches `filtered` with an empty search over the same list.
+        let list = [
+            diff("keep/report.txt", type: .missingOnRight),
+            diff("skip/report.txt", type: .missingOnLeft, action: .copyToLeft),
+        ]
+        let counts = DifferencesQuery.counts(list)
+        #expect(counts[.missingOnRight, default: 0]
+            == DifferencesQuery.filtered(list, filter: .missingOnRight, searchText: "").count)
+        #expect(counts[.all, default: 0] == list.count)
+    }
+
     // MARK: Sort keys (driven by the Table's KeyPathComparator sortOrder)
 
     @Test func testNameSortAscendingAndDescending() {

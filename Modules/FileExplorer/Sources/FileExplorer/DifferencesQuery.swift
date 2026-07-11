@@ -19,6 +19,22 @@ enum DifferencesQuery {
         differences.filter { matches($0, filter: filter, searchText: searchText) }
     }
 
+    /// Per-filter row counts for the filter menu (the `Identical (312)` parity ask): how many
+    /// differences each `DifferenceFilter` would show, tallied in ONE pass over the whole diff so
+    /// the header can label every dropdown row without running the filter predicate once per
+    /// filter per render. `searchText` is intentionally ignored — the counts reflect the entire
+    /// diff regardless of the search box, matching Tidy's filter menu. Filters with no matches are
+    /// absent from the dictionary; read with a `0` default.
+    static func counts(_ differences: [FileDifference]) -> [DifferenceFilter: Int] {
+        var tally: [DifferenceFilter: Int] = [:]
+        for difference in differences {
+            for filter in DifferenceFilter.allCases where filter.matches(difference) {
+                tally[filter, default: 0] += 1
+            }
+        }
+        return tally
+    }
+
     /// Inserts every difference's `relativePath` into the ignore set (the bulk "Ignore all"
     /// menu action), using the exact target `DifferenceRowMenu` toggles a single row against.
     static func ignoringAll(_ differences: [FileDifference], in ignoredPaths: Set<String>) -> Set<String> {

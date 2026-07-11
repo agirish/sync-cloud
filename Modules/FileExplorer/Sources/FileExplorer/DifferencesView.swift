@@ -79,6 +79,9 @@ public struct DifferencesView: View {
         let filtered = isReviewing ? [] : DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
         let sorted = isReviewing ? [] : filtered.sorted(using: sortOrder)
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
+        // Per-filter counts for the filter menu rows, tallied in one pass (not once per filter).
+        // Skipped in review mode — the standard header (its only reader) isn't shown there.
+        let filterCounts = isReviewing ? [:] : DifferencesQuery.counts(syncManager.differences)
 
         return VStack(spacing: 8) {
             // Toolbar card: tabs · count · filter · actions · search.
@@ -90,7 +93,7 @@ public struct DifferencesView: View {
                     if let session = reviewStore.session {
                         reviewHeaderControls(session)
                     } else {
-                        standardHeaderControls(targets: targets, sorted: sorted)
+                        standardHeaderControls(targets: targets, sorted: sorted, filterCounts: filterCounts)
                     }
                 }
                 if reviewStore.session == nil, isSearchExpanded || !searchText.isEmpty {
@@ -176,7 +179,7 @@ public struct DifferencesView: View {
     /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
     /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
     @ViewBuilder
-    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
+    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference], filterCounts: [DifferenceFilter: Int]) -> some View {
         StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
             .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
         // Surface the per-side totals inline — they used to hide only in the pill's tooltip.
@@ -197,7 +200,9 @@ public struct DifferencesView: View {
             // on unselected rows). Same pattern as the main toolbar's Sort menu.
             Picker("Filter", selection: $selectedFilter) {
                 ForEach(DifferenceFilter.allCases, id: \.self) { filter in
-                    Text(filter.displayName(leftName: paneNames.left, rightName: paneNames.right))
+                    // Count appended to each dropdown row (Tidy's `Identical (312)` pattern);
+                    // the collapsed menu button below stays just the active filter's name.
+                    Text("\(filter.displayName(leftName: paneNames.left, rightName: paneNames.right)) (\(filterCounts[filter, default: 0]))")
                         .tag(filter)
                 }
             }
