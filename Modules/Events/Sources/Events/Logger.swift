@@ -249,6 +249,11 @@ final class LogFileWriter: @unchecked Sendable {
     private let url: URL
     private let queue = DispatchQueue(label: "com.synccloud.logger", qos: .background)
     private var handle: FileHandle?
+    /// Inode of the file `handle` was opened against (confined to `queue`). Appends compare it
+    /// to the path's current inode: an external atomic rewrite (write-temp-then-rename, e.g.
+    /// another process's tail-trim of the shared log) keeps the path present while orphaning
+    /// the open handle's inode, so existence alone cannot detect a stale handle.
+    private var handleFileIdentity: UInt64?
     private let maxFileSize: Int
 
     /// Bytes appended since the last mid-session size check (confined to `queue`). Re-statting
@@ -264,12 +269,26 @@ final class LogFileWriter: @unchecked Sendable {
         trimCheckInterval = min(1024 * 1024, max(1, maxFileSize / 2))
         queue.async { [self] in
             trimTailIfOversized(maxFileSize: maxFileSize)
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
-            }
-            handle = try? FileHandle(forWritingTo: url)
-            _ = try? handle?.seekToEnd()
+            openHandle()
         }
+    }
+
+    /// Inode of the item currently at `url`; nil when the path does not exist. One
+    /// `attributesOfItem` stat answers both existence and identity. Runs on `queue`.
+    private func currentFileIdentity() -> UInt64? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
+        return (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
+    }
+
+    /// (Re)opens the write handle positioned at end-of-file, creating the file if missing, and
+    /// records the opened file's identity for the staleness check in `append`. Runs on `queue`.
+    private func openHandle() {
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
+        }
+        handle = try? FileHandle(forWritingTo: url)
+        _ = try? handle?.seekToEnd()
+        handleFileIdentity = handle == nil ? nil : currentFileIdentity()
     }
 
     /// Tail-trims the file when it exceeds `maxFileSize`, keeping the newest half of the cap
@@ -296,17 +315,16 @@ final class LogFileWriter: @unchecked Sendable {
     func append(_ text: String) {
         queue.async { [weak self] in
             guard let self, let data = text.data(using: .utf8) else { return }
-            // Reopen if the file is missing - never opened, or removed/replaced externally (the open
-            // handle would otherwise write into an orphaned inode and silently lose the line). This
-            // preserves the prior open-per-line code's self-healing behavior; the fileExists stat is
-            // still far cheaper than the previous open/seek/write/close per line.
-            if self.handle == nil || !FileManager.default.fileExists(atPath: self.url.path) {
+            // Reopen if the path's current inode no longer matches the handle's - never opened,
+            // removed, or replaced externally. Removal makes the identity nil; REPLACEMENT
+            // (atomic rewrite, e.g. the CLI's tail-trim of the shared log while the app runs)
+            // keeps the path present but swaps the inode, so a plain fileExists check would let
+            // the handle keep writing into the orphaned old inode and silently lose every line.
+            // Same cost profile as the old existence check: one stat per append.
+            if self.handle == nil || self.currentFileIdentity() != self.handleFileIdentity {
                 try? self.handle?.close()
                 self.handle = nil
-                if !FileManager.default.fileExists(atPath: self.url.path) {
-                    FileManager.default.createFile(atPath: self.url.path, contents: nil, attributes: nil)
-                }
-                self.handle = try? FileHandle(forWritingTo: self.url)
+                self.openHandle()
             }
             if let handle = self.handle {
                 _ = try? handle.seekToEnd()
@@ -337,8 +355,7 @@ final class LogFileWriter: @unchecked Sendable {
         try? handle?.close()
         handle = nil
         trimTailIfOversized(maxFileSize: maxFileSize)
-        handle = try? FileHandle(forWritingTo: url)
-        _ = try? handle?.seekToEnd()
+        openHandle()
     }
 
     /// Blocks until every append/clear enqueued before this call has finished. Test-only barrier;

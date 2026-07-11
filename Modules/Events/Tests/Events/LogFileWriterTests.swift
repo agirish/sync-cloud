@@ -40,6 +40,28 @@ import Foundation
         #expect(!contents.contains("first line"))
     }
 
+    @Test func testAppendsLandInCurrentFileAfterExternalAtomicReplacement() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let writer = LogFileWriter(url: url)
+        writer.append("first line\n")
+        writer.flush()
+
+        // Atomic rewrite = write-temp-then-rename: the path stays present the whole time but
+        // points at a NEW inode, exactly what another process's tail-trim does to a shared log
+        // (the app and CLI both trim ~/sync-cloud.log). A fileExists-only check cannot see this,
+        // so the open handle would keep writing into the orphaned old inode.
+        try Data("externally trimmed\n".utf8).write(to: url, options: .atomic)
+
+        writer.append("second line\n")
+        writer.flush()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.contains("externally trimmed"))
+        #expect(contents.contains("second line"))
+    }
+
     @Test func testFallbackAppendPreservesExistingLogHistory() throws {
         let url = makeTempURL()
         defer {
