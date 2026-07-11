@@ -180,4 +180,55 @@ import Foundation
         )
         #expect(diffs.isEmpty)
     }
+
+    /// Regression: the two scan sources classified symlinks differently — the tree path carried
+    /// the LINK's own size/mtime for symlinked files, and the disk walk excluded symlinks
+    /// entirely — so the same disk state produced different rows depending on which branch ran.
+    /// Both paths must report symlinked files with the TARGET's size/date. (One divergence
+    /// remains and is pinned below: only the tree path walks a symlinked directory's contents.)
+    @Test func testSymlinkedFilesReportTargetMetadataInBothScanPaths() async throws {
+        let fm = FileManager.default
+        let tempRoot = fm.temporaryDirectory.appendingPathComponent("DiffEngineSymlinks-\(UUID().uuidString)")
+        try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tempRoot) }
+        // Canonical root: both paths key by root-relative path against canonical child URLs.
+        let canonicalPath = try #require(tempRoot.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
+        let root = URL(fileURLWithPath: canonicalPath)
+
+        let content = "twenty-six bytes of stuff!"
+        let knownDate = Date(timeIntervalSince1970: 1_600_000_000)
+        try Data(content.utf8).write(to: root.appendingPathComponent("target.txt"))
+        try fm.setAttributes([.modificationDate: knownDate], ofItemAtPath: root.appendingPathComponent("target.txt").path)
+        // The link itself has a different mtime (now) and size (the path string's length).
+        try fm.createSymbolicLink(at: root.appendingPathComponent("link.txt"), withDestinationURL: root.appendingPathComponent("target.txt"))
+        let dir = root.appendingPathComponent("dir")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: dir.appendingPathComponent("inner.txt"))
+        try fm.createSymbolicLink(at: root.appendingPathComponent("dlink"), withDestinationURL: dir)
+        try fm.createSymbolicLink(at: root.appendingPathComponent("broken"), withDestinationURL: root.appendingPathComponent("gone.txt"))
+
+        // Disk-walk path: the symlinked file participates, with the target's metadata.
+        let walk = try FileDiffEngine.getFilesInDirectory(root)
+        let walkedLink = try #require(walk["link.txt"])
+        #expect(!walkedLink.isDirectory)
+        #expect(walkedLink.fileSize == content.utf8.count)
+        let walkedDate = try #require(walkedLink.modificationDate)
+        #expect(abs(walkedDate.timeIntervalSince(knownDate)) < 1)
+        // The symlinked directory is reported as a directory; broken links are dropped.
+        #expect(walk["dlink"]?.isDirectory == true)
+        #expect(walk["broken"] == nil)
+        // Pinned divergence: the enumerator does not walk INTO symlinked directories —
+        // their contents participate only via the tree path.
+        #expect(walk["dlink/inner.txt"] == nil)
+
+        // Tree path: same target metadata for the symlinked file, and linked dirs walked.
+        let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+        let derived = FileDiffEngine.filesInfo(fromTree: tree, basePath: root.path)
+        let treeLink = try #require(derived["link.txt"])
+        #expect(treeLink.fileSize == content.utf8.count)
+        let treeDate = try #require(treeLink.modificationDate)
+        #expect(abs(treeDate.timeIntervalSince(knownDate)) < 1)
+        #expect(derived["broken"] == nil)
+        #expect(derived["dlink/inner.txt"] != nil)
+    }
 }

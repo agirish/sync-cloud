@@ -298,9 +298,10 @@ extension FileSyncManager {
         // In-memory fast path: when both focused folders have deep trees in the prefetch
         // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
         // from the trees instead of re-walking both directories on disk — the scan becomes
-        // near-instant after navigation. Tree semantics apply: the tree builder follows
-        // symlinked directories (the disk enumerator does not), so their contents
-        // participate in the diff exactly as the panes display them.
+        // near-instant after navigation. Both sources report symlinked entries with the
+        // TARGET's size/date; the one remaining divergence is that the tree builder walks
+        // INTO symlinked directories (as the panes display them) while the disk enumerator
+        // reports the linked directory itself but not its contents.
         // Both compute branches run detached (so the diff never blocks the main actor) and
         // forward this task's cancellation in explicitly, mirroring `buildTree`: detached tasks
         // don't inherit cancellation, and a superseded scan otherwise holds `isScanning` for a
@@ -510,6 +511,16 @@ extension FileSyncManager {
                             var isDir: ObjCBool = false
                             guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
                             isDirectory = isDir.boolValue
+                            // Metadata must be the TARGET's too: the link's own size/mtime are
+                            // meaningless for diffing, and the disk-walk scan reports the target —
+                            // carrying the link's stat here made the same file classify differently
+                            // depending on which scan branch ran.
+                            if let target = try? fullURL.resolvingSymlinksInPath().resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
+                                modDate = target.contentModificationDate
+                                size = target.fileSize
+                                tags = target.tagNames
+                                kind = target.typeIdentifier
+                            }
                         } else {
                             isDirectory = rv.isDirectory ?? false
                         }

@@ -80,7 +80,7 @@ public struct FileDiffEngine {
     ///   - fileManager: The file manager to use for scanning (supports injected mocks).
     /// - Returns: A map of relative paths to `FileInfo` metadata.
     public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .contentModificationDateKey, .fileSizeKey]
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         let keySet = Set(keys)
         guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
             return [:]
@@ -117,10 +117,25 @@ public struct FileDiffEngine {
                 
                 if let _ = fileManager as? FileManager {
                     let resourceValues = try fileURL.resourceValues(forKeys: keySet)
-                    isReg = resourceValues.isRegularFile ?? true
-                    modDate = resourceValues.contentModificationDate
-                    size = resourceValues.fileSize
-                    isDir = resourceValues.isDirectory ?? false
+                    if resourceValues.isSymbolicLink == true {
+                        // Align with the tree path (buildNode): symlinked entries participate
+                        // with the TARGET's type/size/date — the link's own stat is meaningless
+                        // for diffing — and broken links are dropped. A symlinked DIRECTORY is
+                        // reported as a directory, but the enumerator does not walk into it;
+                        // its contents participate only via the tree-derived scan.
+                        guard let target = try? fileURL.resolvingSymlinksInPath().resourceValues(forKeys: keySet) else {
+                            continue
+                        }
+                        isReg = target.isRegularFile ?? false
+                        isDir = target.isDirectory ?? false
+                        modDate = target.contentModificationDate
+                        size = target.fileSize
+                    } else {
+                        isReg = resourceValues.isRegularFile ?? true
+                        modDate = resourceValues.contentModificationDate
+                        size = resourceValues.fileSize
+                        isDir = resourceValues.isDirectory ?? false
+                    }
                 } else {
                     let attrs = try fileManager.attributesOfItem(atPath: fileURL.path)
                     let fileType = attrs[FileAttributeKey.type] as? FileAttributeType
