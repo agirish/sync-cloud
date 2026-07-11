@@ -33,7 +33,7 @@ import Sync
         FileTreeView(
             tree: [], otherTree: [], isLoading: false, currentPath: "/x",
             selection: .constant([]), otherSelection: [],
-            isLeft: isLeft, delegate: StubDelegate(), ignoredPaths: [],
+            isLeft: isLeft, delegate: StubDelegate(),
             otherPaneName: otherPaneName
         )
     }

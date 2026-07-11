@@ -25,9 +25,6 @@ public struct FileTreeView: View {
     /// Handles copy, move, delete, rename, focus, and other file actions.
     public let delegate: FileActionDelegate
 
-    /// Paths ignored in the diff (user can toggle per path).
-    public let ignoredPaths: Set<String>
-
     /// Diff status per absolute node path for this pane (precomputed by the caller).
     public let diffIndex: DiffStatusIndex
 
@@ -56,7 +53,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, ignoredPaths: Set<String>, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -65,7 +62,6 @@ public struct FileTreeView: View {
         self.otherSelection = otherSelection
         self.isLeft = isLeft
         self.delegate = delegate
-        self.ignoredPaths = ignoredPaths
         self.diffIndex = diffIndex
         self.otherPaneName = otherPaneName ?? (isLeft ? "Right" : "Left")
         self.rootPathIsValid = rootPathIsValid
@@ -264,7 +260,6 @@ public struct FileTreeView: View {
                 isLeft: isLeft,
                 currentPath: currentPath,
                 delegate: delegate,
-                ignoredPaths: ignoredPaths,
                 otherPaneName: otherPaneName,
                 onQuickLook: { quickLookItem = $0 }
             )
@@ -395,7 +390,6 @@ struct FileContextMenu: View {
     let isLeft: Bool
     let currentPath: String
     let delegate: FileActionDelegate
-    let ignoredPaths: Set<String>
     let otherPaneName: String
     /// Presents a Quick Look preview for the given item (parity with the Differences
     /// table's row menu); provided by the owning pane's `FileTreeView`.

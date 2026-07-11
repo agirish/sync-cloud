@@ -92,7 +92,7 @@ import Sync
         FileTreeView(
             tree: tree, otherTree: [], isLoading: isLoading, currentPath: "/root/focused",
             selection: .constant([]), otherSelection: [],
-            isLeft: true, delegate: StubDelegate(), ignoredPaths: [],
+            isLeft: true, delegate: StubDelegate(),
             rootPathIsValid: rootPathIsValid, providerIsEnabled: providerIsEnabled,
             hasOnlyHiddenEntries: hasOnlyHiddenEntries, rootPath: rootPath
         )

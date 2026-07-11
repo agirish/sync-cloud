@@ -655,7 +655,6 @@ struct ContentView: View {
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
             delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
-            ignoredPaths: syncManager.ignoredPaths,
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
