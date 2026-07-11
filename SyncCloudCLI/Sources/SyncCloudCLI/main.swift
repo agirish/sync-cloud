@@ -40,10 +40,18 @@ private struct DiffSummary: Codable {
     let rightSize: Int?
 }
 
-/// Discovers providers against the app's UserDefaults domain, so path overrides set in the app's
-/// Settings window apply to the CLI too. The un-bundled CLI's `.standard` defaults resolve to a
-/// per-process domain (`synccloud.plist`) that never sees the app's `path_override_*` keys.
-private func discoverProviderSnapshot() async -> [CloudProvider] {
+/// The app settings the CLI honors: discovered providers plus the Google Drive
+/// date-noise filter toggle.
+private struct AppSettingsSnapshot {
+    let providers: [CloudProvider]
+    let ignoreGoogleDriveNewerDateOnly: Bool
+}
+
+/// Discovers providers against the app's UserDefaults domain, so path overrides and filter
+/// settings set in the app's Settings window apply to the CLI too. The un-bundled CLI's
+/// `.standard` defaults resolve to a per-process domain (`synccloud.plist`) that never sees
+/// the app's `path_override_*` or `ignoreGoogleDriveNewerDateOnly` keys.
+private func discoverProviderSnapshot() async -> AppSettingsSnapshot {
     let settings = await MainActor.run {
         SettingsManager(
             autoDiscover: false,
@@ -52,7 +60,12 @@ private func discoverProviderSnapshot() async -> [CloudProvider] {
         )
     }
     await settings.discoverProviders()
-    return await MainActor.run { settings.availableProviders }
+    return await MainActor.run {
+        AppSettingsSnapshot(
+            providers: settings.availableProviders,
+            ignoreGoogleDriveNewerDateOnly: settings.ignoreGoogleDriveNewerDateOnly
+        )
+    }
 }
 
 /// Runs a command body and flushes the logger's buffered disk writes before returning or
@@ -72,22 +85,27 @@ private func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -
 }
 
 /// Discovers providers and resolves both `-L`/`-R` values, converting resolution
-/// failures into ArgumentParser validation errors.
-private func resolveProviders(left: String, right: String) async throws -> (left: CloudProvider, right: CloudProvider) {
-    let providers = await discoverProviderSnapshot()
+/// failures into ArgumentParser validation errors. Also carries the settings snapshot
+/// forward so filters that depend on it (Google Drive date noise) see the same state.
+private func resolveProviders(
+    left: String, right: String
+) async throws -> (left: CloudProvider, right: CloudProvider, ignoreGoogleDriveNewerDateOnly: Bool) {
+    let snapshot = await discoverProviderSnapshot()
     do {
-        let leftProvider = try resolveProviderOrPath(value: left, label: "Left", providers: providers)
-        let rightProvider = try resolveProviderOrPath(value: right, label: "Right", providers: providers)
-        return (leftProvider, rightProvider)
+        let leftProvider = try resolveProviderOrPath(value: left, label: "Left", providers: snapshot.providers)
+        let rightProvider = try resolveProviderOrPath(value: right, label: "Right", providers: snapshot.providers)
+        return (leftProvider, rightProvider, snapshot.ignoreGoogleDriveNewerDateOnly)
     } catch let error as ProviderResolutionError {
         throw ValidationError(error.message)
     }
 }
 
-/// Scans both directories and returns the differences after the hidden/ignore/direction filters.
+/// Scans both directories and returns the differences after the hidden/ignore/direction
+/// filters plus, when enabled in the app's settings, the Google Drive date-noise filter.
 private func scanForDifferences(
     left: CloudProvider, right: CloudProvider,
-    direction: Direction, showHidden: Bool, ignore: [String]
+    direction: Direction, showHidden: Bool, ignore: [String],
+    ignoreGoogleDriveNewerDateOnly: Bool
 ) throws -> (diffs: [FileDifference], leftURL: URL, rightURL: URL) {
     let leftURL = URL(fileURLWithPath: expandPath(left.path))
     let rightURL = URL(fileURLWithPath: expandPath(right.path))
@@ -110,7 +128,9 @@ private func scanForDifferences(
         caseInsensitive: caseInsensitive
     )
     let diffs = DifferenceProcessing.filterDifferences(
-        allDiffs, direction: direction, showHidden: showHidden, ignore: ignore
+        allDiffs, direction: direction, showHidden: showHidden, ignore: ignore,
+        ignoreGoogleDriveNewerDateOnly: ignoreGoogleDriveNewerDateOnly,
+        rightProviderType: right.type
     )
     return (diffs, leftURL, rightURL)
 }
@@ -145,10 +165,11 @@ struct Scan: AsyncParsableCommand {
     }
 
     private func scanAndReport() async throws {
-        let (leftProvider, rightProvider) = try await resolveProviders(left: left, right: right)
+        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: left, right: right)
         let (diffs, leftURL, rightURL) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
-            direction: direction, showHidden: showHidden, ignore: ignore
+            direction: direction, showHidden: showHidden, ignore: ignore,
+            ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
 
         if json {
@@ -237,10 +258,11 @@ struct SyncFiles: AsyncParsableCommand {
     }
 
     private func syncDifferences() async throws {
-        let (leftProvider, rightProvider) = try await resolveProviders(left: left, right: right)
+        let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: left, right: right)
         var (diffs, _, _) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
-            direction: direction, showHidden: showHidden, ignore: ignore
+            direction: direction, showHidden: showHidden, ignore: ignore,
+            ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
 
         if verify {
@@ -340,7 +362,7 @@ struct Providers: AsyncParsableCommand {
     }
 
     private func listProviders() async {
-        let providers = await discoverProviderSnapshot()
+        let providers = await discoverProviderSnapshot().providers
         if providers.isEmpty {
             print("No providers discovered.")
             return

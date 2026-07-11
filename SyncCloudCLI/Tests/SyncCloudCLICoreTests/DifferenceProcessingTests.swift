@@ -57,6 +57,47 @@ private func diff(
         #expect(result.map(\.relativePath) == ["builder/x", "src/main.swift"])
     }
 
+    // The Drive date-noise cases mirror FileSyncManager.computeFilteredState's
+    // dropDriveDateNoise predicate: drop only ".differentDates + sizesMatch + copyToLeft"
+    // and only when the setting is on and the right side is Google Drive.
+
+    @Test func testDriveDateNoiseDroppedWhenSettingOnAndRightIsGoogleDrive() {
+        let diffs = [
+            // Exactly "right newer, same size" -> noise, dropped.
+            diff("noise.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 10),
+            // Left newer, same size -> kept (only right-newer is Drive date noise).
+            diff("left-newer.txt", type: .differentDates, action: .copyToRight, leftSize: 10, rightSize: 10),
+            // Right newer but sizes differ -> a real content change, kept.
+            diff("real-change.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 20),
+            // Right newer but a size is unknown -> sizesMatch is false, kept.
+            diff("no-size.txt", type: .differentDates, action: .copyToLeft, rightSize: 10),
+            // copyToLeft for a missing file is not a date difference, kept.
+            diff("missing.txt", type: .missingOnLeft, action: .copyToLeft, leftSize: 10, rightSize: 10),
+        ]
+        let result = DifferenceProcessing.filterDifferences(
+            diffs, direction: .auto, showHidden: true, ignore: [],
+            ignoreGoogleDriveNewerDateOnly: true, rightProviderType: .googleDrive)
+        #expect(result.map(\.relativePath) == ["left-newer.txt", "real-change.txt", "no-size.txt", "missing.txt"])
+    }
+
+    @Test func testDriveDateNoiseKeptWhenSettingOff() {
+        let diffs = [diff("noise.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 10)]
+        let result = DifferenceProcessing.filterDifferences(
+            diffs, direction: .auto, showHidden: true, ignore: [],
+            ignoreGoogleDriveNewerDateOnly: false, rightProviderType: .googleDrive)
+        #expect(result.count == 1)
+    }
+
+    @Test func testDriveDateNoiseKeptWhenRightIsNotGoogleDrive() {
+        let diffs = [diff("noise.txt", type: .differentDates, action: .copyToLeft, leftSize: 10, rightSize: 10)]
+        for rightType: CloudProvider.ProviderType? in [.iCloud, .oneDrive, .dropBox, nil] {
+            let result = DifferenceProcessing.filterDifferences(
+                diffs, direction: .auto, showHidden: true, ignore: [],
+                ignoreGoogleDriveNewerDateOnly: true, rightProviderType: rightType)
+            #expect(result.count == 1)
+        }
+    }
+
     @Test func testFiltersCompose() {
         let diffs = [
             diff(".hidden", action: .copyToRight),

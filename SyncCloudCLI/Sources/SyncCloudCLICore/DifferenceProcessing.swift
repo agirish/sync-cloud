@@ -12,21 +12,35 @@ public enum Direction: String, CaseIterable, Sendable {
 /// command bodies so it can be unit-tested without spawning processes or touching disk.
 public enum DifferenceProcessing {
 
-    /// Applies the CLI's hidden/ignore/direction filters to a scan result.
+    /// Applies the CLI's hidden/ignore/direction filters to a scan result, plus the app's
+    /// Google Drive date-noise filter when its Settings toggle is on.
     /// Mirrors the app's semantics: hidden means any dot-prefixed path component; ignored
     /// means an exact match or prefix directory match from `--ignore`.
+    ///
+    /// The Drive filter replicates `FileSyncManager.applyFilters`/`computeFilteredState`
+    /// (`dropDriveDateNoise`) — the source of truth, not reachable from here as a callable
+    /// predicate: only when the setting is on AND the right side is Google Drive, drop
+    /// differences that are exactly "right is newer, same size" (`.differentDates`,
+    /// `sizesMatch`, action `.copyToLeft`) — Drive rewrites file dates, so these are noise.
     public static func filterDifferences(
         _ diffs: [FileDifference],
         direction: Direction,
         showHidden: Bool,
-        ignore: [String]
+        ignore: [String],
+        ignoreGoogleDriveNewerDateOnly: Bool = false,
+        rightProviderType: CloudProvider.ProviderType? = nil
     ) -> [FileDifference] {
         let ignoredSet = Set(ignore)
+        let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && rightProviderType == .googleDrive
         return diffs.filter { diff in
             if !showHidden && FileSyncManager.isHiddenPath(diff.relativePath) {
                 return false
             }
             if !ignoredSet.isEmpty && FileSyncManager.isIgnoredPath(diff.relativePath, ignored: ignoredSet) {
+                return false
+            }
+            if dropDriveDateNoise,
+               diff.type == .differentDates, diff.sizesMatch, diff.action == .copyToLeft {
                 return false
             }
             switch direction {
