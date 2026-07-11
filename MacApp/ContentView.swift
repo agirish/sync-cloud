@@ -158,18 +158,6 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .quickLookPreview($quickLookURL)
-        .background(
-            Button(action: {
-                if let targetPath = PaneLogic.primarySelectionPath(
-                    leftSelection: syncManager.selectedLeftPaths,
-                    rightSelection: syncManager.selectedRightPaths
-                ) {
-                    quickLookURL = URL(fileURLWithPath: targetPath)
-                }
-            }) { EmptyView() }
-            .keyboardShortcut(.space, modifiers: [])
-            .opacity(0)
-        )
         .liquidGlassAppBackground(intensity: glassIntensity, hue: LiquidGlassHue(rawValue: glassHueRaw) ?? .blue)
         .alert(
             syncManager.currentError?.title ?? "Error",
@@ -522,6 +510,20 @@ struct ContentView: View {
                     .offset(x: leftWidth - 6)
             }
             .coordinateSpace(.named(Self.paneRowSpace))
+        }
+        // Quick Look on plain Space, scoped to the pane trees — NOT a window-level
+        // `.keyboardShortcut(.space)`: a key equivalent is consulted before the first responder
+        // and a match consumes the event outright (a no-op action still swallows it), which ate
+        // spaces typed in the Differences search field and Settings-overlay fields. onKeyPress
+        // only fires while key focus is inside this subtree (the pane Lists; rename/new-folder
+        // prompts are separate NSAlert panels), so text fields elsewhere get Space normally.
+        .onKeyPress(.space) {
+            guard let targetPath = PaneLogic.primarySelectionPath(
+                leftSelection: syncManager.selectedLeftPaths,
+                rightSelection: syncManager.selectedRightPaths
+            ) else { return .ignored }
+            quickLookURL = URL(fileURLWithPath: targetPath)
+            return .handled
         }
     }
 
