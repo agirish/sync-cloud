@@ -2,6 +2,7 @@ import SwiftUI
 import Sync
 import Combine
 import UniformTypeIdentifiers
+import AppKit
 
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
 /// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
@@ -23,6 +24,11 @@ public struct DetailsSidebar: View {
     /// Memoization and invalidation rules live in DetailsMetadataCache; the view only
     /// forwards lookups and the refresh/scan events to it.
     @State private var cache = DetailsMetadataCache()
+
+    /// Item previewed via the metadata card's "Quick Look" action. Presented by this view's own
+    /// `.quickLookPreview`, mirroring `FileTreeView` — the sidebar has no host presenter to
+    /// delegate to and the shared QL panel only shows one preview at a time anyway.
+    @State private var quickLookItem: URL?
 
     /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
     /// of `metadata` (DateFormatter is expensive to construct).
@@ -63,6 +69,13 @@ public struct DetailsSidebar: View {
         
         // Fallback to navigated folders
         return leftPath.isEmpty ? rightPath : leftPath
+    }
+
+    /// True when nothing is selected in either pane, so `activePath` fell back to the focused
+    /// folder rather than a user-chosen item. Drives the "— focused folder" caption so the
+    /// metadata card doesn't read as a selection the user made.
+    internal var isShowingFocusedFolderFallback: Bool {
+        syncManager.selectedLeftPaths.isEmpty && syncManager.selectedRightPaths.isEmpty
     }
 
     /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
@@ -237,27 +250,41 @@ public struct DetailsSidebar: View {
                         
                         // Metadata Table
                         VStack(alignment: .leading, spacing: 12) {
-                            Text(data.name)
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .padding(.top, 10)
-                            
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text(data.name)
+                                    .font(.title2)
+                                    .fontWeight(.semibold)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                // Nothing is selected — clarify this is the focused folder,
+                                // not an item the user chose.
+                                if isShowingFocusedFolderFallback {
+                                    Text("— focused folder")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                        .fixedSize()
+                                }
+                            }
+                            .padding(.top, 10)
+
                             Divider()
-                            
+
                             metadataRow(label: "Kind:", value: data.kind)
                             metadataRow(label: "Size:", value: displaySize(for: data, key: sizeKey))
                             metadataRow(label: "Where:", value: data.path)
-                            
+
                             Divider()
-                            
+
                             metadataRow(label: "Created:", value: data.creationDate)
                             metadataRow(label: "Modified:", value: data.modificationDate)
-                            
+
                             Divider()
-                            
+
                             metadataRow(label: "Permissions:", value: data.permissions)
+
+                            Divider()
+
+                            metadataActions(for: data)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 20)
@@ -266,7 +293,7 @@ public struct DetailsSidebar: View {
                     } else {
                         VStack {
                             Spacer(minLength: 0)
-                            Text("No item selected or item is unavailable.")
+                            Text("Select an item in either pane to see its details.")
                                 .foregroundColor(.secondary)
                             Spacer(minLength: 0)
                         }
@@ -282,6 +309,7 @@ public struct DetailsSidebar: View {
         .frame(minWidth: 200, maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity)
         .clipped()
+        .quickLookPreview($quickLookItem)
         .onReceive(syncManager.refreshSubject) { _ in
             cache.refreshOccurred()
             sizeGeneration = cache.generation
@@ -351,6 +379,33 @@ public struct DetailsSidebar: View {
         return ByteCountFormatter.string(fromByteCount: total, countStyle: .file)
     }
     
+    /// Inline actions for the metadata card so the Details tab isn't a read-only dead end.
+    /// Mirrors the file-row context menu (Reveal / Copy Path / Quick Look). Bordered + small to
+    /// match the app's other inline action rows. Shown for both single-item and focused-folder
+    /// renders — wherever `data` is non-nil.
+    private func metadataActions(for data: FileMetadata) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
+            } label: {
+                Label("Reveal in Finder", systemImage: "magnifyingglass")
+            }
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(data.path, forType: .string)
+            } label: {
+                Label("Copy Path", systemImage: "doc.on.clipboard")
+            }
+            Button {
+                quickLookItem = URL(fileURLWithPath: data.path)
+            } label: {
+                Label("Quick Look", systemImage: "doc.viewfinder")
+            }
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+    }
+
     private func metadataRow(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
