@@ -522,6 +522,13 @@ public class FileSyncManager: ObservableObject {
         activeFileOperationsCount += 1
     }
 
+    /// Reverts a `preCountFileOperation()` whose operation will never be enqueued — the user
+    /// declined its confirmation prompt. Only for that pairing: operations that DID enqueue
+    /// are decremented by `enqueueFileOperation`'s unconditional completion handler.
+    public func cancelPreCountedFileOperation() {
+        activeFileOperationsCount = max(0, activeFileOperationsCount - 1)
+    }
+
     /// Enqueues a file operation to be executed sequentially.
     /// Manages `activeFileOperationsCount` and triggers UI refreshes and selection pruning upon completion.
     /// - Parameter alreadyCounted: True when the caller already bumped the counter via
@@ -869,6 +876,13 @@ public class FileSyncManager: ObservableObject {
         let fromURL = urls.from
         var toURL = urls.to
 
+        // A row already marked in-flight is being handled by another syncFile — possibly
+        // parked at one of the prompts below, whose modal spins the run loop and lets a
+        // queued twin call run. Refuse rather than stack a second prompt: the twin's exit
+        // would clearSyncing an id the first call still owns (the set is not a refcount),
+        // making the parked sync invisible to Verify All's exclusion guard.
+        guard !syncingDifferenceIds.contains(difference.id) else { return false }
+
         // Mark the difference as syncing BEFORE any prompt can hold this call, not after:
         // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a
         // syncFile parked at a prompt is visible to it — a prompt's modal spins the run loop,
@@ -887,6 +901,7 @@ public class FileSyncManager: ObservableObject {
                 destinationDirectory: toURL.deletingLastPathComponent().path
             ))
             guard userConfirmed else {
+                Logger.shared.debug("Sync of \(difference.relativePath) cancelled at the confirmation prompt")
                 clearSyncing(ids: [difference.id])
                 return false
             }

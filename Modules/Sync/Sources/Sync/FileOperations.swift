@@ -128,13 +128,23 @@ extension FileSyncManager {
             ? ""
             : URL(fileURLWithPath: (destinationRoot as NSString).expandingTildeInPath).path
 
+        // Count the pending operation BEFORE the confirmation prompt, not at enqueue time:
+        // the prompt's modal spins the run loop, and the exclusion guards that protect
+        // checksum validity (Verify All, and the scan-time auto-verify pass — which is not
+        // click-gated, so the modal doesn't block it) read `activeFileOperationsCount`. An
+        // unlatched prompt would let them start hashing the very files this transfer is
+        // about to overwrite — the same window syncAll/syncFile close with their own latches.
+        // `enqueueFileOperation(alreadyCounted: true)`'s completion decrements; a decline
+        // reverts the count here.
+        preCountFileOperation()
+
         // Confirm before any I/O is queued: this is the seam that lets a mis-clicked
         // Copy/Move be cancelled while it still costs nothing. Cancelling is not an error —
-        // no alert, no log entry, just nothing transferred. An EMPTY destination root
-        // (provider dropped from settings mid-session) skips the prompt — asking the user to
-        // confirm `Copy "x" to ""?` and then failing anyway helps nobody; the enqueue guard
-        // below turns it into the destinationRootUnavailable error directly. (The on-disk
-        // existence stat deliberately stays on the operation queue — see the guard's doc.)
+        // no alert, just a debug breadcrumb and nothing transferred. An EMPTY destination
+        // root (provider dropped from settings mid-session) skips the prompt — asking the
+        // user to confirm `Copy "x" to ""?` and then failing anyway helps nobody; the
+        // enqueue guard below turns it into the destinationRootUnavailable error directly.
+        // (The on-disk existence stat deliberately stays on the operation queue.)
         if let first = prunedNodes.first, !destinationRootPath.isEmpty {
             let confirmed = transferConfirmer(TransferSummary(
                 isMove: isMove,
@@ -143,7 +153,13 @@ extension FileSyncManager {
                 sourceDirectory: URL(fileURLWithPath: first.id).deletingLastPathComponent().path,
                 destinationDirectory: destinationRootPath
             ))
-            guard confirmed else { return [] }
+            guard confirmed else {
+                // The breadcrumb matters: callers log "User initiating move…" before this
+                // prompt, and a decline with no record reads as a swallowed operation.
+                Logger.shared.debug("\(isMove ? "Move" : "Copy") of \(prunedNodes.count) item(s) cancelled at the confirmation prompt")
+                cancelPreCountedFileOperation()
+                return []
+            }
         }
 
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
@@ -152,7 +168,7 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)]) in
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)]) in
             guard self != nil else { return ([], []) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.

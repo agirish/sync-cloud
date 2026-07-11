@@ -11,9 +11,11 @@ extension FileSyncManager {
         // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
         // defer, so overlapping a bulk sync would interleave the shared counter and tear down
         // the survivor's overlay — and syncAll's up-front destination stats would be staled by
-        // these overwrites. A concurrent Verify All would hash files mid-overwrite. Refuse
-        // visibly, mirroring syncAll's verify refusal.
-        guard !isBulkSyncRunning, !isVerifyAllRunning else {
+        // these overwrites. A concurrent Verify All would hash files mid-overwrite. And a
+        // single-row syncFile in flight (possibly parked at its prompt) may target one of
+        // these very differences; this run's defer would also clearSyncing the parked row's
+        // id out from under it. Refuse visibly, mirroring syncAll's guards.
+        guard !isBulkSyncRunning, !isVerifyAllRunning, syncingDifferenceIds.isEmpty else {
             banner = .warning("Wait for the current operation to finish before copying")
             return
         }
@@ -177,11 +179,21 @@ extension FileSyncManager {
             banner = .warning("Wait for the current operation to finish before syncing")
             return
         }
+        // A single-row syncFile in flight (possibly parked at its prompt — the latch is set
+        // before any prompt) may target the very rows this run would stat and copy; running
+        // anyway could double-write one difference from two flows. Mirrors Verify All's guard.
+        guard syncingDifferenceIds.isEmpty else {
+            banner = .warning("Wait for the current operation to finish before syncing")
+            return
+        }
         // Latch the bulk-sync flag BEFORE the confirmation prompt, not after: the prompt's
         // modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
         // reads this flag) would otherwise pass its exclusion check while the prompt is up —
-        // reopening exactly the overlap these guards exist to prevent. A decline releases it.
+        // reopening exactly the overlap these guards exist to prevent. The defer directly
+        // below releases it on EVERY exit — decline included — so no future early return
+        // can leak the flag and silently disable bulk syncs for the session.
         isBulkSyncRunning = true
+        defer { isBulkSyncRunning = false }
         // Confirm before any I/O: a bulk sync is one header click away, so a mis-click must
         // be cancellable while it still costs nothing. The prompt names the two compared
         // folders of the first item — every item in one direction shares them. Callers that
@@ -196,7 +208,7 @@ extension FileSyncManager {
                 destinationDirectory: containers.to
             ))
             guard userConfirmed else {
-                isBulkSyncRunning = false
+                Logger.shared.debug("Bulk \(isMove ? "move" : "sync") of \(total) item(s) cancelled at the confirmation prompt")
                 return
             }
         }
@@ -211,7 +223,7 @@ extension FileSyncManager {
         markSyncing(ids: toSyncIDs)
 
         defer {
-            isBulkSyncRunning = false
+            // isBulkSyncRunning is released by the defer installed at the latch above.
             bulkSyncProgress = nil
             bulkApplyToAllResolution = nil
             if activeProgress === progress { activeProgress = nil }

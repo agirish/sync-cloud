@@ -252,6 +252,102 @@ import Foundation
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
+    /// While the transferItems confirmation prompt is up, the pending operation must already
+    /// be counted: the scan-time auto-verify pass is not click-gated (a modal doesn't block
+    /// it) and its guard reads `activeFileOperationsCount` — an unlatched prompt would let it
+    /// hash the very files this transfer overwrites. A decline reverts the count.
+    @MainActor
+    @Test func testOperationIsCountedDuringTransferPromptAndUncountedOnDecline() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        var countDuringPrompt: Int?
+        manager.transferConfirmer = { [weak manager] _ in
+            countDuringPrompt = manager?.activeFileOperationsCount
+            return false
+        }
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(countDuringPrompt == 1)
+        #expect(manager.activeFileOperationsCount == 0)
+    }
+
+    /// A confirmed transfer must not be double-counted: the pre-count is handed to
+    /// `enqueueFileOperation(alreadyCounted:)`, whose completion decrements exactly once.
+    @MainActor
+    @Test func testConfirmedTransferCountReturnsToZeroAfterCompletion() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        manager.transferConfirmer = { _ in true }
+
+        let copied = await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(copied.count == 1)
+        #expect(manager.activeFileOperationsCount == 0)
+    }
+
+    /// A row already marked in-flight refuses a second syncFile outright: a queued twin call
+    /// running during the first's prompt would otherwise stack a second prompt, and its exit
+    /// would clear the shared syncing mark the first call still owns.
+    @MainActor
+    @Test func testSyncFileRefusesRowAlreadyMarkedSyncing() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+        manager.markSyncing(ids: [diff.id])
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(ran == false)
+        #expect(prompts == 0)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+        // The refused call must NOT have cleared the owner's mark.
+        #expect(manager.syncingDifferenceIds.contains(diff.id))
+    }
+
+    /// A bulk sync refuses to start while any single-row sync is in flight (possibly parked
+    /// at its prompt): both flows could target the same difference. Mirrors Verify All.
+    @MainActor
+    @Test func testSyncAllRefusesWhileARowIsMarkedSyncing() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+        manager.markSyncing(ids: [diff.id])
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(prompts == 0)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+        #expect(manager.banner != nil)
+    }
+
+    /// The Verify-copy bulk path refuses under the same condition — its defer clears syncing
+    /// ids wholesale and would strip a parked syncFile's mark out from under it.
+    @MainActor
+    @Test func testVerifiedCopyRefusesWhileARowIsMarkedSyncing() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        manager.markSyncing(ids: [diff.id])
+
+        manager.verifiedIdenticalForCopy = [diff]
+        let copyTask = manager.confirmVerifiedCopy()
+        await copyTask?.value
+
+        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+        #expect(manager.banner != nil)
+    }
+
     // MARK: - Pre-confirmed callers skip the prompt (one gesture never asks twice)
 
     /// `confirmed: true` skips the transferConfirmer entirely — for callers whose UI already
