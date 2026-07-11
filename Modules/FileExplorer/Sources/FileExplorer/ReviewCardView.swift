@@ -234,7 +234,7 @@ struct ReviewCardView: View {
                 Button {
                     onQuickLook(URL(fileURLWithPath: item.reviewSourcePath))
                 } label: {
-                    Label("Quick Look", systemImage: "eye")
+                    Label("Quick Look", systemImage: "doc.viewfinder")
                 }
                 .buttonStyle(.borderless)
                 .help("Quick Look the copy being \(session.isMove ? "moved" : "copied") (space) — right-click the row for the other side")

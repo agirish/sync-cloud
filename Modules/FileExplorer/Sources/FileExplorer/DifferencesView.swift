@@ -702,7 +702,7 @@ public struct DifferencesView: View {
                 Button {
                     onQuickLook(URL(fileURLWithPath: side.path))
                 } label: {
-                    Label("Quick Look (\(side.paneName))", systemImage: "eye")
+                    Label("Quick Look (\(side.paneName))", systemImage: "doc.viewfinder")
                 }
             }
         }

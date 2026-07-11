@@ -448,7 +448,7 @@ struct FileContextMenu: View {
                     Label("Reveal in Finder", systemImage: "magnifyingglass")
                 }
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
-                    Label("Quick Look", systemImage: "eye")
+                    Label("Quick Look", systemImage: "doc.viewfinder")
                 }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {
