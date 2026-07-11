@@ -46,8 +46,10 @@ public class FileSyncManager: ObservableObject {
     /// `rawDifferences`, which never carries the flag, so a mid-operation filter pass (hidden
     /// toggle, ignore change, re-sort, a scan landing) would otherwise publish every row
     /// un-marked and re-enable the header sync actions while files are still being written.
-    /// Every transition goes through `markSyncing`/`clearSyncing` so this set and the
-    /// published rows can't drift.
+    /// Every transition goes through `markSyncing`/`clearSyncing`, which update the set and
+    /// the published rows in the same main-actor turn — and `applyFilters()` re-stamps the
+    /// flag from this set (and drops resolved rows) at publish time, so a pass whose
+    /// snapshot predates a transition cannot re-install stale rows.
     internal private(set) var syncingDifferenceIds: Set<UUID> = []
     /// IDs of differences that were verified as same content via checksum; these are hidden from the list until next scan.
     internal var verifiedSameDifferenceIds: Set<UUID> = []
@@ -414,6 +416,19 @@ public class FileSyncManager: ObservableObject {
         // finish out of entry order, and stale state must never overwrite fresher state.
         guard generation > lastPublishedFilterGeneration else { return }
         lastPublishedFilterGeneration = generation
+        // The snapshot above is stale if a sync resolved rows (`removeResolvedDifferences`)
+        // or marked/cleared in-flight state while the detached compute ran; publishing it
+        // verbatim would resurrect resolved rows and re-install a stale `isSyncing` flag.
+        // Reconcile against the live authoritative state: keep only rows still present in
+        // `rawDifferences`, and re-stamp `isSyncing` from `syncingDifferenceIds` — in both
+        // directions, so a row marked after the snapshot keeps its spinner and one cleared
+        // after it doesn't get the spinner back.
+        var reconciledDifferences = state.differences
+        let liveIds = Set(rawDifferences.map(\.id))
+        reconciledDifferences.removeAll { !liveIds.contains($0.id) }
+        for i in reconciledDifferences.indices {
+            reconciledDifferences[i].isSyncing = syncingDifferenceIds.contains(reconciledDifferences[i].id)
+        }
         // Assign only what actually changed. A load+scan cycle runs several filter passes and
         // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
         // tear down and rebuild the whole pane List — and a rebuild landing between an
@@ -425,7 +440,7 @@ public class FileSyncManager: ObservableObject {
         if self.rightTree != state.rightTree { self.rightTree = state.rightTree }
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
-        if self.differences != state.differences { self.differences = state.differences }
+        if self.differences != reconciledDifferences { self.differences = reconciledDifferences }
     }
 
     /// The pure core of `applyFilters()`: value inputs in, published-ready state out.

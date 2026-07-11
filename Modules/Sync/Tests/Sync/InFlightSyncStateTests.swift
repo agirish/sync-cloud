@@ -135,6 +135,71 @@ private actor Gate {
         #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
+    /// Pin: a filter pass publishes against the LIVE state, not its entry snapshot — a row
+    /// resolved (`removeResolvedDifferences`) while the pass's detached compute ran must not
+    /// resurrect, and a row marked in-flight in that window keeps its spinner. The pass
+    /// snapshots synchronously on entry, then suspends for the compute; one yield parks the
+    /// test exactly inside that window.
+    @MainActor
+    @Test func testFilterPassPublishReconcilesRowsChangedDuringCompute() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        func diff(_ name: String) -> FileDifference {
+            FileDifference(
+                relativePath: name,
+                leftItemPath: "/l/\(name)",
+                rightItemPath: "/r/\(name)",
+                type: .missingOnRight,
+                action: .copyToRight,
+                description: "test"
+            )
+        }
+        let resolved = diff("resolved.txt")
+        let marked = diff("marked.txt")
+        manager.rawDifferences = [resolved, marked]
+        manager.differences = [resolved, marked]
+
+        let pass = Task { await manager.applyFilters() }
+        await Task.yield()   // pass has snapshotted and suspended for its detached compute
+
+        manager.removeResolvedDifferences(ids: [resolved.id])
+        manager.markSyncing(ids: [marked.id])
+
+        await pass.value
+
+        #expect(manager.differences.map(\.id) == [marked.id])   // resolved row must not resurrect
+        #expect(manager.differences.first?.isSyncing == true)   // mid-compute mark survives publish
+        #expect(manager.syncingDifferenceIds == [marked.id])
+        manager.clearSyncing(ids: [marked.id])
+    }
+
+    /// Pin (other direction): a clear that lands during the compute wins over the snapshot's
+    /// stale mark — the published row must not get its spinner back at publish time.
+    @MainActor
+    @Test func testFilterPassPublishDoesNotResurrectClearedSyncingFlag() async throws {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        let diff = FileDifference(
+            relativePath: "x.txt",
+            leftItemPath: "/l/x.txt",
+            rightItemPath: "/r/x.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "test"
+        )
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+        manager.markSyncing(ids: [diff.id])
+
+        let pass = Task { await manager.applyFilters() }
+        await Task.yield()   // snapshot (with the mark) taken; compute in flight
+
+        manager.clearSyncing(ids: [diff.id])
+
+        await pass.value
+
+        #expect(manager.differences.first?.isSyncing == false)
+        #expect(manager.syncingDifferenceIds.isEmpty)
+    }
+
     /// Pin (bug B): Verify All refuses to start while a bulk sync is in flight — including
     /// while the run is still queued behind other operations — with a visible warning banner,
     /// and never publishes verify progress or a copy offer.
