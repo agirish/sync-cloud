@@ -101,16 +101,19 @@ public class SettingsManager: ObservableObject {
         self.validatePath = pathValidator ?? Self.defaultPathValidator
         self.ignoreGoogleDriveNewerDateOnly = userDefaults.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
         self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
-        // Initialize with default iCloud provider to allow app to start immediately
-        self.availableProviders = [
-            CloudProvider(
-                id: "iCloud",
-                displayName: "iCloud",
-                imageName: "icloud",
-                path: Self.iCloudDefaultPath,
-                type: .iCloud
-            )
-        ]
+        // Seed with the always-present iCloud provider so the app can start immediately,
+        // before the first (off-main) discovery publishes. The seed goes through the same
+        // mapping as discovery — persisted path/name overrides included, validity computed
+        // against the *effective* path — so anything rendered pre-discovery agrees with the
+        // first publish instead of flashing the default path and a wrong badge.
+        let pathOverrides = overridesByProviderId(keyPrefix: Self.overrideKeyPrefix)
+        let nameOverrides = overridesByProviderId(keyPrefix: Self.nameOverrideKeyPrefix)
+        self.availableProviders = Self.mapProviders(
+            cloudStorageFolders: [],
+            iCloudDefaultPath: Self.iCloudDefaultPath,
+            pathOverride: { pathOverrides[$0] },
+            nameOverride: { nameOverrides[$0] }
+        )
         self.pathValidity = Self.validity(of: self.availableProviders, using: self.validatePath)
 
         if autoDiscover {

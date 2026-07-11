@@ -30,6 +30,36 @@ import Sync
         #expect(settings.path(for: "iCloud") != testPath)
     }
 
+    /// The init-time seed must consult the persisted iCloud path/name overrides (and compute
+    /// validity against the effective path), exactly like discovery does — otherwise anything
+    /// rendered pre-discovery flashes the default path, default name, and a wrong badge.
+    @Test @MainActor func testInitSeedHonorsPersistedICloudOverrides() async {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let overridePath = "/Volumes/External/iCloudDocs"
+        test.defaults.set(overridePath, forKey: "path_override_iCloud")
+        test.defaults.set("My iCloud", forKey: "name_override_iCloud")
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            cloudStorageLister: { [] },
+            // Only the override path exists on "disk": the badge must be valid immediately,
+            // proving validity was computed against the effective path, not the default.
+            pathValidator: { $0 == overridePath })
+
+        #expect(settings.availableProviders.map(\.id) == ["iCloud"])
+        #expect(settings.path(for: "iCloud") == overridePath)
+        #expect(settings.availableProviders.first?.displayName == "My iCloud")
+        #expect(settings.isPathValid(for: "iCloud") == true)
+
+        // The seed and the first discovery publish agree: discovery changes nothing here.
+        let seeded = settings.availableProviders
+        await settings.discoverProviders()
+        #expect(settings.availableProviders == seeded)
+        #expect(settings.isPathValid(for: "iCloud") == true)
+    }
+
     @Test @MainActor func testPathForMissingProvider() {
         let test = TestDefaults()
         defer { test.wipe() }
