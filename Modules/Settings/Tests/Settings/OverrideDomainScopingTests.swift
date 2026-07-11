@@ -47,6 +47,39 @@ import Sync
         #expect(byId["Dropbox"]?.displayName == "Dropbox")
     }
 
+    /// Fresh-install hole: a suite nothing was ever persisted to has NO persistent domain
+    /// (`persistentDomain(forName:)` returns nil). That must read as "no overrides" — not fall
+    /// back to the merged search list, which would honor a stray NSGlobalDomain key precisely
+    /// when the app owns no keys of its own.
+    @MainActor
+    @Test func testEmptyOwnDomainMeansNoOverridesNotSearchListFallback() async throws {
+        // Nothing is ever written to the suite's own domain in this test.
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        let globalStandIn = TestDefaults()
+        defer { globalStandIn.wipe() }
+        globalStandIn.defaults.set("/global/evil", forKey: "path_override_Dropbox")
+        globalStandIn.defaults.set("Evil Name", forKey: "name_override_Dropbox")
+        test.defaults.addSuite(named: globalStandIn.suiteName)
+
+        // Precondition of the hole being tested: the suite really has no persistent domain yet.
+        #expect(test.defaults.persistentDomain(forName: test.suiteName) == nil)
+
+        let settings = SettingsManager(
+            autoDiscover: false,
+            userDefaults: test.defaults,
+            overridesDomainName: test.suiteName,
+            cloudStorageLister: { [URL(fileURLWithPath: "/CloudStorage/Dropbox")] },
+            pathValidator: { _ in true }
+        )
+        await settings.discoverProviders()
+
+        let dropbox = settings.availableProviders.first { $0.id == "Dropbox" }
+        #expect(dropbox?.path == "/CloudStorage/Dropbox/Documents")
+        #expect(dropbox?.displayName == "Dropbox")
+    }
+
     /// Without a domain name (bare injected suite), the merged-list fallback keeps overrides
     /// working — the pre-existing injectability contract for callers that can't name a domain.
     @MainActor

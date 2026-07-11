@@ -296,10 +296,18 @@ public class SettingsManager: ObservableObject {
     private func overridesByProviderId(keyPrefix: String) -> [String: String] {
         // dictionaryRepresentation() merges the entire defaults search list — NSGlobalDomain
         // included — so a stray global-domain key starting with the prefix would be honored as
-        // an override. Read the owning domain alone when its name is known; fall back to the
-        // merged list when it isn't (or when nothing has been persisted to it yet).
-        let entries = overridesDomainName.flatMap { userDefaults.persistentDomain(forName: $0) }
-            ?? userDefaults.dictionaryRepresentation()
+        // an override. Read the owning domain alone when its name is known. A nil persistent
+        // domain there just means nothing was ever persisted to the suite (a fresh install):
+        // that is "no overrides", not license to fall back to the merged list — the fallback
+        // would honor exactly the stray keys this scoping exists to exclude, precisely when
+        // the app owns no keys to outweigh them. Only a caller without a domain name (the
+        // pre-existing bare-suite injection contract) reads the merged list.
+        let entries: [String: Any]
+        if let domainName = overridesDomainName {
+            entries = userDefaults.persistentDomain(forName: domainName) ?? [:]
+        } else {
+            entries = userDefaults.dictionaryRepresentation()
+        }
         return entries.reduce(into: [:]) { result, entry in
             guard entry.key.hasPrefix(keyPrefix),
                   let value = entry.value as? String else { return }
