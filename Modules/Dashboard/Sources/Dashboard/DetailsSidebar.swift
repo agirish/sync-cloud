@@ -60,7 +60,25 @@ public struct DetailsSidebar: View {
         // Fallback to navigated folders
         return leftPath.isEmpty ? rightPath : leftPath
     }
-    
+
+    /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
+    /// of single-item metadata (which would silently describe only the alphabetically-first
+    /// path). Left pane wins when both have selections — the same rule as `activePath`.
+    internal var selectionSummary: DetailsSelectionSummary? {
+        if !syncManager.selectedLeftPaths.isEmpty {
+            return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedLeftPaths, in: syncManager.leftTree)
+        }
+        return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedRightPaths, in: syncManager.rightTree)
+    }
+
+    /// `.task(id:)` key for the directory-size walk. Includes the multi-selection flag so the
+    /// task re-fires when the selection collapses back to one item with the same `activePath`
+    /// (the size was cleared while multi-selected and must recompute).
+    private struct DirectorySizeTaskID: Equatable {
+        let path: String
+        let isMultiSelection: Bool
+    }
+
     static func loadMetadata(for activePath: String) -> FileMetadata? {
         let url = URL(fileURLWithPath: activePath)
         let fm = FileManager.default
@@ -159,12 +177,42 @@ public struct DetailsSidebar: View {
     }
 
     public var body: some View {
-        // Metadata and icon are memoized per path (they hit the filesystem).
-        let (data, icon) = cache.data(for: activePath)
+        let summary = selectionSummary
+        // Metadata and icon are memoized per path (they hit the filesystem). A multi-selection
+        // renders the summary instead, so the single-item lookup is skipped entirely.
+        let (data, icon): (FileMetadata?, NSImage?) = summary == nil ? cache.data(for: activePath) : (nil, nil)
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
                 HStack(alignment: .top) {
-                    if let data {
+                    if let summary {
+                        // Stack-of-documents header mirroring the single-item icon column.
+                        VStack {
+                            Image(systemName: "square.fill.on.square.fill")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 56, height: 56)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 28)
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: 120)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(summary.title)
+                                .font(.title2)
+                                .fontWeight(.semibold)
+                                .padding(.top, 10)
+
+                            Divider()
+
+                            metadataRow(label: "Items:", value: summary.kindDescription)
+                            metadataRow(label: "Size:", value: summary.sizeDescription)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.trailing, 20)
+
+                        Spacer(minLength: 0)
+                    } else if let data {
                         // Icon Header
                         VStack {
                             Image(nsImage: icon ?? NSWorkspace.shared.icon(forFile: data.path))
@@ -229,8 +277,10 @@ public struct DetailsSidebar: View {
         .onReceive(syncManager.$isScanning) { scanning in
             cache.scanningChanged(scanning)
         }
-        .task(id: activePath) {
-            guard let data, data.isDirectory else {
+        .task(id: DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil)) {
+            // No directory walk while multi-selected: the summary never shows a computed
+            // folder size (it stays metadata-only).
+            guard summary == nil, let data, data.isDirectory else {
                 computedDirectorySizePath = nil
                 computedDirectorySize = nil
                 return
