@@ -268,6 +268,7 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched left provider to \(newId)")
             endReviewForComparisonChange()
+            syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
@@ -281,6 +282,7 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched right provider to \(newId)")
             endReviewForComparisonChange()
+            syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
@@ -410,6 +412,9 @@ struct ContentView: View {
         // An active review owns the bottom pane: clicking a pane file to eyeball it mid-review
         // must not yank the review UI away (the session survives, but invisibly).
         guard !reviewStore.isReviewing else { return }
+        // The Tidy workspace owns the bottom pane like a review: clicking a pane file to eyeball a
+        // duplicate must not eject you to Details.
+        guard selectedBottomTab != .tidy else { return }
         guard PaneLogic.shouldAutoSwitchToDetails(
             hasSelection: !paths.isEmpty,
             bottomPaneVisible: showingBottomPane,
@@ -860,10 +865,8 @@ struct ContentView: View {
             TidyView(
                 syncManager: syncManager,
                 providerName: tidyProviderName,
-                scanRoot: tidyScanRootExpanded,
                 leadingHeader: AnyView(bottomTabPicker),
-                onFindDuplicates: findDuplicatesAction,
-                onQuickLook: { quickLookURL = $0 }
+                onFindDuplicates: findDuplicatesAction
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.

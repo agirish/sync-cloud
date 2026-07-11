@@ -94,25 +94,19 @@ public struct TidyView: View {
     @State private var expanded: Set<UUID> = []
 
     private let providerName: String?
-    private let scanRoot: String?
     private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
-    private let onQuickLook: ((URL) -> Void)?
 
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
-        scanRoot: String? = nil,
         leadingHeader: AnyView? = nil,
-        onFindDuplicates: @escaping () -> Void,
-        onQuickLook: ((URL) -> Void)? = nil
+        onFindDuplicates: @escaping () -> Void
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
-        self.scanRoot = scanRoot
         self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
-        self.onQuickLook = onQuickLook
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -123,7 +117,7 @@ public struct TidyView: View {
     }
     private var hasResults: Bool { !syncManager.duplicateGroups.isEmpty }
     private var recommendedCount: Int {
-        syncManager.duplicateGroups.filter { $0.isFullyResolvableByRemoval }.count
+        syncManager.duplicateGroups.filter { $0.isRecommendedForBatch }.count
     }
 
     public var body: some View {
@@ -257,7 +251,7 @@ public struct TidyView: View {
                         group: group,
                         isExpanded: expanded.contains(group.id),
                         providerName: providerName,
-                        scanRoot: scanRoot,
+                        scanRoot: syncManager.duplicateScanRoot,
                         onToggle: { toggle(group.id) },
                         onApply: { apply(group) },
                         onReveal: { reveal(group) },
@@ -354,9 +348,13 @@ public struct TidyView: View {
     private func apply(_ group: DuplicateGroup) {
         let count = group.recommendedRemovalPaths.count
         guard count > 0 else { return }
-        let noun = count == 1 ? "copy" : "copies"
+        // Versions discard genuinely older, different content — say so rather than "redundant".
+        let isVersions = group.matchType.kind == .versions
+        let itemWord: String = isVersions
+            ? (count == 1 ? "older version" : "older versions")
+            : (count == 1 ? "redundant copy" : "redundant copies")
         let ok = NativeAlerts.confirmDestructive(
-            messageText: "Move \(count) redundant \(noun) of \"\(group.name)\" to the Trash?",
+            messageText: "Move \(count) \(itemWord) of \"\(group.name)\" to the Trash?",
             informativeText: "Keeps \"\(group.keeper.name)\" at \(displayPath(group.keeper.path)). "
                 + "Reclaims \(FileSyncManager.formatBytes(group.reclaimableBytes)). This can be undone with ⌘Z.",
             confirmTitle: "Move to Trash"
@@ -366,7 +364,7 @@ public struct TidyView: View {
     }
 
     private func applyRecommended() {
-        let groups = syncManager.duplicateGroups.filter { $0.isFullyResolvableByRemoval }
+        let groups = syncManager.duplicateGroups.filter { $0.isRecommendedForBatch }
         guard !groups.isEmpty else { return }
         let bytes = groups.reduce(0) { $0 + $1.reclaimableBytes }
         let copies = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }

@@ -15,7 +15,10 @@ struct TidyGroupCard: View {
     let onReveal: () -> Void
     let onKeepSeparate: () -> Void
 
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+
     private var accent: Color { TidyMatchStyle.color(group.matchType) }
+    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -97,7 +100,14 @@ struct TidyGroupCard: View {
 
     @ViewBuilder
     private var reclaimText: some View {
-        if group.reclaimableBytes > 0 {
+        if case .overlapping = group.matchType, group.reclaimableBytes > 0 {
+            // Overlap can't be one-click reclaimed yet (merge deferred) — report it as shared, not
+            // as an actionable "reclaim", so the figure doesn't promise a button that isn't there.
+            Text("~\(FileSyncManager.formatBytes(group.reclaimableBytes)) shared")
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+        } else if group.reclaimableBytes > 0 {
             Text("reclaim \(FileSyncManager.formatBytes(group.reclaimableBytes))")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.green)
@@ -273,11 +283,11 @@ struct TidyGroupCard: View {
                         .font(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 5).fill(Color.accentColor.opacity(0.12)))
+                        .background(RoundedRectangle(cornerRadius: 5).fill(hueAccent.opacity(0.14)))
                 } else {
                     Text(comp)
                         .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(idx == 0 && providerName != nil ? Color.accentColor : .secondary)
+                        .foregroundStyle(idx == 0 && providerName != nil ? hueAccent : .secondary)
                 }
             }
         }

@@ -13,12 +13,17 @@ extension FileSyncManager {
         public var needsReviewCount: Int
     }
 
-    /// Summary derived from the current ``duplicateGroups``.
+    /// Summary derived from the current ``duplicateGroups``. The headline "reclaimable" and
+    /// "redundant" figures count only batch-eligible (identical) groups, so they match exactly
+    /// what "Apply recommended" delivers — overlapping (merge deferred) and name-only (different
+    /// content) groups never inflate them.
     public var duplicateSummary: DuplicateSummary {
         var reclaimable = 0, redundant = 0, review = 0
         for g in duplicateGroups {
-            reclaimable += g.reclaimableBytes
-            redundant += g.copies.count - 1
+            if g.isRecommendedForBatch {
+                reclaimable += g.reclaimableBytes
+                redundant += g.copies.count - 1
+            }
             if case .nameOnly = g.matchType { review += 1 }
         }
         return DuplicateSummary(groupCount: duplicateGroups.count,
@@ -42,6 +47,7 @@ extension FileSyncManager {
         let fileManager = fm ?? self.fileManager
         isFindingDuplicates = true
         duplicateScanStatus = "Scanning \(root.lastPathComponent)…"
+        duplicateScanRoot = root.path
         defer {
             isFindingDuplicates = false
             duplicateScanStatus = nil
@@ -77,9 +83,11 @@ extension FileSyncManager {
         self.duplicateGroups = groups
     }
 
-    /// Clears the current results (e.g. when switching providers).
+    /// Clears the current results (called when switching providers, so stale groups from one
+    /// provider can never be shown — or acted on — under another).
     public func clearDuplicates() {
         duplicateGroups = []
+        duplicateScanRoot = nil
         hasFoundDuplicates = false
     }
 
@@ -92,7 +100,10 @@ extension FileSyncManager {
         let paths = group.recommendedRemovalPaths
         guard !paths.isEmpty else { return false }
         let bytes = group.reclaimableBytes
-        await deleteItems(at: paths, fileManager: fileManager)
+        let removed = await deleteItems(at: paths, fileManager: fileManager)
+        // Only drop the group and claim success if items actually left the disk — a declined or
+        // failed trash must not vanish the group behind a false "Reclaimed" banner.
+        guard removed > 0 else { return false }
         duplicateGroups.removeAll { $0.id == group.id }
         if currentError == nil {
             banner = .success("Reclaimed \(Self.formatBytes(bytes)) — press ⌘Z to undo")
@@ -100,18 +111,19 @@ extension FileSyncManager {
         return true
     }
 
-    /// Applies the recommended removal for every high-confidence group (identical + versions).
-    /// Name-only and overlapping groups are deliberately left untouched.
+    /// Applies the recommended removal for every batch-eligible group (byte-identical only).
+    /// Versions, name-only, and overlapping groups are deliberately left for a per-group look.
     public func applyRecommendedDuplicates() async {
-        let resolvable = duplicateGroups.filter { $0.isFullyResolvableByRemoval }
-        let paths = resolvable.flatMap { $0.recommendedRemovalPaths }
+        let batch = duplicateGroups.filter { $0.isRecommendedForBatch }
+        let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else { return }
-        let bytes = resolvable.reduce(0) { $0 + $1.reclaimableBytes }
-        let ids = Set(resolvable.map { $0.id })
-        await deleteItems(at: paths, fileManager: fileManager)
+        let bytes = batch.reduce(0) { $0 + $1.reclaimableBytes }
+        let ids = Set(batch.map { $0.id })
+        let removed = await deleteItems(at: paths, fileManager: fileManager)
+        guard removed > 0 else { return }
         duplicateGroups.removeAll { ids.contains($0.id) }
         if currentError == nil {
-            banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(resolvable.count) groups — press ⌘Z to undo")
+            banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(batch.count) groups — press ⌘Z to undo")
         }
     }
 

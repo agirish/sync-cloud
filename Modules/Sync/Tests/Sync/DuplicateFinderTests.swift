@@ -257,4 +257,30 @@ import Testing
         #expect(DuplicateFinder.versionStem("app_v3.zip")?.stem == "app")
         #expect(DuplicateFinder.versionStem("photo.png")?.ext == "png")
     }
+
+    @Test func versionStemDoesNotOverStrip() {
+        // No separator before the version token, or a bare number, must NOT be treated as a marker.
+        #expect(DuplicateFinder.versionStem("v2024.txt")?.stem == "v2024")
+        #expect(DuplicateFinder.versionStem("report-2.pdf")?.stem == "report-2")   // "-2" ≠ "-v2"/"-copy"
+        #expect(DuplicateFinder.versionStem("copy.txt")?.stem == "copy")           // bare word
+        // Parenthesized numbers DO strip — a burst like "beach (1)/(2)" collapses to one stem,
+        // which is why versions are kept out of the blind batch (see isRecommendedForBatch).
+        #expect(DuplicateFinder.versionStem("beach (2).jpg")?.stem == "beach")
+    }
+
+    @Test func batchEligibilityByMatchType() {
+        func g(_ t: DuplicateMatchType) -> DuplicateGroup {
+            let k = DuplicateCopy(id: "/a", name: "a", isDirectory: false, size: 1, itemCount: 1,
+                                  modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+            let r = DuplicateCopy(id: "/b", name: "a", isDirectory: false, size: 1, itemCount: 1,
+                                  modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: false)
+            return DuplicateGroup(matchType: t, name: "a", isDirectory: false, copies: [k, r], reclaimableBytes: 1)
+        }
+        // Per-group removable: identical + versions. Blind batch: identical ONLY.
+        #expect(g(.identical).isFullyResolvableByRemoval && g(.identical).isRecommendedForBatch)
+        #expect(g(.versions).isFullyResolvableByRemoval && !g(.versions).isRecommendedForBatch)
+        #expect(!g(.overlapping(sharedFraction: 0.9)).isFullyResolvableByRemoval)
+        #expect(!g(.overlapping(sharedFraction: 0.9)).isRecommendedForBatch)
+        #expect(!g(.nameOnly).isFullyResolvableByRemoval && !g(.nameOnly).isRecommendedForBatch)
+    }
 }

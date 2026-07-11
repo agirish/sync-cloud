@@ -160,6 +160,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         // user back to the Differences default — relabel the UI elsewhere instead.
         #expect(ContentView.BottomTab.differences.rawValue == "Differences")
         #expect(ContentView.BottomTab.details.rawValue == "Details")
+        #expect(ContentView.BottomTab.tidy.rawValue == "Tidy")
     }
 
     @Test func testBottomTabRestoresFromStoredRawValue() {

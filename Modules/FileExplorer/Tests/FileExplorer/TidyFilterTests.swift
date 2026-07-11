@@ -1,4 +1,5 @@
 import Testing
+import AppKit
 import Sync
 @testable import FileExplorer
 
@@ -35,5 +36,28 @@ import Sync
     @Test func overlapLabelShowsPercent() {
         #expect(TidyMatchStyle.label(.overlapping(sharedFraction: 0.92)) == "Overlapping · 92%")
         #expect(TidyMatchStyle.label(.identical) == "Identical")
+    }
+
+    @Test func tidySymbolNamesExistInSFSymbols() {
+        // A typo'd symbol renders blank at runtime; pin every name Tidy uses (mirrors
+        // DifferenceGlyphTests.testSymbolNamesExistInSFSymbols).
+        var symbols: [String] = [
+            // match-type badges
+            TidyMatchStyle.symbol(.identical), TidyMatchStyle.symbol(.overlapping(sharedFraction: 0.5)),
+            TidyMatchStyle.symbol(.nameOnly), TidyMatchStyle.symbol(.versions),
+        ]
+        // Fixed symbols hardcoded across TidyView / TidyGroupCard.
+        symbols += [
+            "internaldrive", "line.3.horizontal.decrease.circle", "checkmark.circle.fill",
+            "wand.and.stars", "arrow.clockwise", "folder.badge.gearshape", "doc.on.doc",
+            "exclamationmark.triangle", "square.on.square",
+            "chevron.down", "chevron.right", "checkmark", "trash", "arrow.triangle.merge",
+            "circle.slash", "largecircle.fill.circle", "circle", "info.circle",
+            "magnifyingglass", "lock",
+        ]
+        for symbol in symbols {
+            #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
+                    "missing SF Symbol \(symbol)")
+        }
     }
 }

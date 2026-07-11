@@ -117,12 +117,21 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         copies.filter { !$0.isRecommendedKeeper }
     }
 
-    /// True when the recommendation removes copies without any merge — the safe one-click case.
+    /// True when the recommendation removes copies without any merge — the per-group one-click
+    /// case (identical dedup, or keep-newest for versions).
     public var isFullyResolvableByRemoval: Bool {
         switch matchType {
         case .identical, .versions: return true
         case .overlapping, .nameOnly: return false
         }
+    }
+
+    /// True when this group is safe to include in the blind "Apply recommended" batch. Only
+    /// byte-identical duplicates qualify: versions discard genuinely *different* older content and
+    /// version-matching is heuristic (bursts, numbered series), so they require a per-group look.
+    public var isRecommendedForBatch: Bool {
+        if case .identical = matchType { return true }
+        return false
     }
 
     /// Absolute paths the recommended removal would trash (fully-redundant / older copies).

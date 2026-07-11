@@ -408,7 +408,11 @@ extension FileSyncManager {
     }
 
     /// Permanently deletes files or directories from disk.
-    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async {
+    /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
+    /// Trash-less volumes). Returns the number of items actually removed — 0 when everything failed
+    /// or a permanent delete was declined, so callers don't report a false success.
+    @discardableResult
+    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> Int {
         let confirmPermanentDelete = permanentDeleteConfirmer
 
         // Prune nested paths to avoid redundant operations on children if parent is trashed
@@ -512,5 +516,6 @@ extension FileSyncManager {
         if let progress, self.activeProgress === progress {
             self.activeProgress = nil
         }
+        return items.count
     }
 }

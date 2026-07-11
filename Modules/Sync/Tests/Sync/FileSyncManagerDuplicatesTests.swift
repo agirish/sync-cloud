@@ -84,6 +84,91 @@ import Foundation
         #expect(manager.banner?.severity == .success)
     }
 
+    // MARK: Group builders for state-level tests
+
+    private func copy(_ path: String, keeper: Bool, size: Int = 1000) -> DuplicateCopy {
+        DuplicateCopy(id: path, name: (path as NSString).lastPathComponent, isDirectory: false,
+                      size: size, itemCount: 1, modificationDate: nil,
+                      uniqueItemCount: keeper ? 0 : 1, depth: path.filter { $0 == "/" }.count,
+                      isRecommendedKeeper: keeper)
+    }
+    private func grp(_ type: DuplicateMatchType, keeper: String, redundant: [String], reclaim: Int) -> DuplicateGroup {
+        DuplicateGroup(matchType: type, name: (keeper as NSString).lastPathComponent, isDirectory: false,
+                       copies: [copy(keeper, keeper: true)] + redundant.map { copy($0, keeper: false) },
+                       reclaimableBytes: reclaim)
+    }
+
+    @MainActor
+    @Test func summaryCountsOnlyBatchEligibleGroups() {
+        let manager = FileSyncManager()
+        manager.duplicateGroups = [
+            grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 100),
+            grp(.versions, keeper: "/a/r (1).doc", redundant: ["/a/r.doc"], reclaim: 50),
+            grp(.overlapping(sharedFraction: 0.9), keeper: "/a/Inv", redundant: ["/b/Inv"], reclaim: 40),
+            grp(.nameOnly, keeper: "/a/S", redundant: ["/b/S"], reclaim: 0),
+        ]
+        let s = manager.duplicateSummary
+        #expect(s.groupCount == 4)
+        #expect(s.reclaimableBytes == 100)   // identical only — versions/overlapping don't inflate it
+        #expect(s.redundantCopyCount == 1)   // only the identical group's redundant copy
+        #expect(s.needsReviewCount == 1)     // the name-only group
+    }
+
+    @MainActor
+    @Test func applyRecommendedTrashesIdenticalButNotVersionsOrOverlapping() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        for p in ["/b/x", "/a/r.doc", "/b/Inv"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        manager.duplicateGroups = [
+            grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
+            grp(.versions, keeper: "/a/r (1).doc", redundant: ["/a/r.doc"], reclaim: 500),
+            grp(.overlapping(sharedFraction: 0.9), keeper: "/a/Inv", redundant: ["/b/Inv"], reclaim: 400),
+        ]
+
+        await manager.applyRecommendedDuplicates()
+        await waitUntil("identical redundant trashed") { mockFM.virtualDisk["/b/x"] == nil }
+
+        #expect(mockFM.trashedPaths.count == 1)                       // only the identical copy
+        #expect(mockFM.virtualDisk["/a/r.doc"] != nil)               // versions copy untouched
+        #expect(mockFM.virtualDisk["/b/Inv"] != nil)                 // overlapping copy untouched
+        #expect(manager.duplicateGroups.count == 2)                  // identical group removed, others remain
+        #expect(!manager.duplicateGroups.contains { $0.matchType == .identical })
+    }
+
+    @MainActor
+    @Test func resolveReturnsFalseAndKeepsGroupWhenNothingIsTrashed() async throws {
+        let mockFM = MockFileManager()
+        mockFM.shouldFailTrash = true                                // no Trash on this volume
+        let manager = FileSyncManager(fileManager: mockFM)           // permanentDeleteConfirmer defaults to false
+        mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false)                                         // nothing removed
+        #expect(mockFM.virtualDisk["/b/x"] != nil)                   // file still there
+        #expect(manager.duplicateGroups.count == 1)                  // group NOT dropped
+        #expect(manager.banner == nil)                               // no false "Reclaimed" banner
+    }
+
+    @MainActor
+    @Test func clearDuplicatesResetsScanState() {
+        let manager = FileSyncManager()
+        manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1)]
+        manager.duplicateScanRoot = "/a"
+        manager.hasFoundDuplicates = true
+
+        manager.clearDuplicates()
+
+        #expect(manager.duplicateGroups.isEmpty)
+        #expect(manager.duplicateScanRoot == nil)
+        #expect(manager.hasFoundDuplicates == false)
+    }
+
     @MainActor
     @Test func nameOnlyGroupHasNoRemovalAndStaysUntilDismissed() async throws {
         let mockFM = MockFileManager()

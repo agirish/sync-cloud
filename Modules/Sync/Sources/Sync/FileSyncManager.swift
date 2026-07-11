@@ -97,6 +97,9 @@ public class FileSyncManager: ObservableObject {
 
     /// Duplicate/related groups from the most recent Find Duplicates scan of one provider.
     @Published public var duplicateGroups: [DuplicateGroup] = []
+    /// The absolute root the current `duplicateGroups` were scanned from — captured at scan time so
+    /// breadcrumbs stay correct even if the user navigates elsewhere afterward.
+    @Published public var duplicateScanRoot: String? = nil
     /// True while a Find Duplicates scan (walk + hash + group) is running.
     @Published public var isFindingDuplicates = false
     /// Human-readable progress for the running duplicate scan (e.g. "Hashing 340 candidates").
