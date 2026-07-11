@@ -131,8 +131,8 @@ extension FileSyncManager {
         supersedeInFlightPaneWork()
         rawLeftTree = []
         rawRightTree = []
-        if !leftTree.isEmpty { leftTree = [] }
-        if !rightTree.isEmpty { rightTree = [] }
+        if !leftTree.isEmpty { leftTree = []; publishedTreesVersion += 1 }
+        if !rightTree.isEmpty { rightTree = []; publishedTreesVersion += 1 }
         if leftItemCount != 0 { leftItemCount = 0 }
         if rightItemCount != 0 { rightItemCount = 0 }
         lastLoadedLeftFocusPath = nil
@@ -204,6 +204,7 @@ extension FileSyncManager {
 
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)
+        publishedTreesVersion += 1
         swap(&leftItemCount, &rightItemCount)
         swap(&lastLoadedLeftFocusPath, &lastLoadedRightFocusPath)
         swap(&isLoadingLeftTree, &isLoadingRightTree)

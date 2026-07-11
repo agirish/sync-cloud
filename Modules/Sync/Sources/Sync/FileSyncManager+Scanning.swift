@@ -439,36 +439,80 @@ extension FileSyncManager {
     /// capped directories come back with `children: []` and `isUnexplored: true` — present and
     /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
     /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
+    ///
+    /// On the real filesystem an unlimited walk fans sibling subtrees out across cores at the
+    /// top two levels (`TreeBuilder.fanoutMaxDepth`), and Finder tags are fetched only when
+    /// sorting by them — together roughly an order of magnitude faster on large directories.
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
-            struct TreeBuilder {
+            struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
                 let sortOption: SortOption
                 let maxDepth: Int?
-
+                /// Reading Finder tags is a separate xattr fetch per file that benchmarked at
+                /// ~4x the cost of everything else in the walk combined, so tags are fetched
+                /// only when the sort actually reads them. Switching to the Tags sort reloads
+                /// the trees from disk (see `sortOption.didSet`) rather than re-sorting nodes
+                /// whose `tags` were never populated.
+                let includeTags: Bool
                 /// Keys prefetched when listing a directory so each child's resourceValues in
                 /// buildNode is a cache hit rather than a separate stat.
-                static let childKeys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]
+                let metadataKeys: [URLResourceKey]
+                let metadataKeySet: Set<URLResourceKey>
+                /// Metadata re-fetched from a symlink's target (type keys stay on the link).
+                let symlinkTargetKeySet: Set<URLResourceKey>
+
+                init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?) {
+                    self.fileManager = fileManager
+                    self.sortOption = sortOption
+                    self.maxDepth = maxDepth
+                    let includeTags = sortOption == .tags
+                    self.includeTags = includeTags
+                    var keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
+                    var targetKeys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey, .typeIdentifierKey]
+                    if includeTags {
+                        keys.append(.tagNamesKey)
+                        targetKeys.append(.tagNamesKey)
+                    }
+                    self.metadataKeys = keys
+                    self.metadataKeySet = Set(keys)
+                    self.symlinkTargetKeySet = Set(targetKeys)
+                }
 
                 /// Hard ceiling on recursion depth — a backstop for a cycle the identity check
                 /// misses (or any pathological nesting). Directories at the cap come back with
                 /// `children: []`, same as the shallow-pass cap.
                 static let hardDepthCap = 64
 
+                /// Sibling subtrees at this depth or shallower walk concurrently in a task
+                /// group (each recursing sequentially below the horizon); two levels is enough
+                /// to spread even a tree dominated by one large top-level folder across cores,
+                /// while deeper fan-out just adds task overhead.
+                static let fanoutMaxDepth = 2
+
+                /// What `directoryIdentity(of:)` returns — Hashable for the cycle-guard set and
+                /// Sendable so ancestor-chain snapshots can cross into the fan-out's child
+                /// tasks. The wrapped identifiers are immutable Foundation value objects
+                /// (NSNumber/NSData), safe to share across tasks.
+                enum DirectoryIdentity: Hashable, @unchecked Sendable {
+                    case fileResource(volume: NSObject, file: NSObject)
+                    case path(String)
+                }
+
                 /// Stable identity of the directory a URL ultimately refers to (through
                 /// symlinks), used to break symlink cycles. Real filesystem: volume + file
                 /// resource identifiers of the resolved target. Injected mocks — where
                 /// resourceValues would hit the real disk — fall back to the resolved path,
                 /// which is exact for mock disks (they contain no symlinks).
-                func directoryIdentity(of dirURL: URL) -> AnyHashable {
+                func directoryIdentity(of dirURL: URL) -> DirectoryIdentity {
                     let resolved = dirURL.resolvingSymlinksInPath()
                     if fileManager is FileManager,
                        let rv = try? resolved.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
                        let volume = rv.volumeIdentifier as? NSObject,
                        let file = rv.fileResourceIdentifier as? NSObject {
-                        return AnyHashable([volume, file])
+                        return .fileResource(volume: volume, file: file)
                     }
-                    return AnyHashable(resolved.standardizedFileURL.path)
+                    return .path(resolved.standardizedFileURL.path)
                 }
 
                 /// Immediate children of a directory. For the real filesystem this batch-prefetches
@@ -480,14 +524,14 @@ extension FileSyncManager {
                         // resourceValues are cache hits. The URL-based API does not traverse a
                         // symlinked directory, so fall back to the path-based listing (which follows
                         // symlinks, as the tree always has) when it yields nothing.
-                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: Self.childKeys, options: []) {
+                        if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys, options: []) {
                             if !prefetched.isEmpty {
                                 return prefetched
                             }
                             // An empty result is either a genuinely empty directory or a symlinked
                             // directory the URL-based API refused to traverse. Only the symlink case
                             // needs the fallback listing; for plain empty directories the symlink
-                            // check is a cache hit (isSymbolicLinkKey is in childKeys) or one lstat,
+                            // check is a cache hit (isSymbolicLinkKey is in metadataKeys) or one lstat,
                             // cheaper than a second directory listing.
                             let isSymlink = (try? dirURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
                             if !isSymlink {
@@ -507,62 +551,70 @@ extension FileSyncManager {
                     }
                 }
 
-                /// `visited` holds the identities of every directory on the current path (the
-                /// root is seeded by the caller); it is restored before returning, so it always
-                /// reflects the ancestor chain, not everything ever walked.
-                func buildNode(at fullURL: URL, depth: Int, visited: inout Set<AnyHashable>) -> FileNode? {
-                    guard !Task.isCancelled else { return nil }
-
-                    let name = fullURL.lastPathComponent
-
+                /// Type and metadata of one item, shared by the sequential and parallel node
+                /// builders. nil means the item vanished mid-walk or is a broken symlink — drop it.
+                struct ItemStat {
                     var isDirectory = false
-                    var modDate: Date?
-                    var size: Int?
+                    var modificationDate: Date?
+                    var fileSize: Int?
                     var tags: [String]?
                     var kind: String?
+                }
 
+                func stat(at fullURL: URL) -> ItemStat? {
+                    var s = ItemStat()
                     if fileManager is FileManager {
                         // Real filesystem: a single resourceValues fetch covers existence, type, and
                         // metadata (the same keys the diff scan reads), avoiding a separate
                         // fileExists stat per node.
-                        guard let rv = try? fullURL.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) else { return nil }
-                        modDate = rv.contentModificationDate
-                        size = rv.fileSize
-                        tags = rv.tagNames
-                        kind = rv.typeIdentifier
+                        guard let rv = try? fullURL.resourceValues(forKeys: metadataKeySet) else { return nil }
+                        s.modificationDate = rv.contentModificationDate
+                        s.fileSize = rv.fileSize
+                        s.tags = includeTags ? rv.tagNames : nil
+                        s.kind = rv.typeIdentifier
                         if rv.isSymbolicLink == true {
                             // resourceValues reports on the link itself, not its target. Preserve the
                             // prior fileExists behavior for symlinks: resolve to the target so linked
                             // directories still recurse and broken links are still dropped.
                             var isDir: ObjCBool = false
                             guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
-                            isDirectory = isDir.boolValue
+                            s.isDirectory = isDir.boolValue
                             // Metadata must be the TARGET's too: the link's own size/mtime are
                             // meaningless for diffing, and the disk-walk scan reports the target —
                             // carrying the link's stat here made the same file classify differently
                             // depending on which scan branch ran.
-                            if let target = try? fullURL.resolvingSymlinksInPath().resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey, .tagNamesKey, .typeIdentifierKey]) {
-                                modDate = target.contentModificationDate
-                                size = target.fileSize
-                                tags = target.tagNames
-                                kind = target.typeIdentifier
+                            if let target = try? fullURL.resolvingSymlinksInPath().resourceValues(forKeys: symlinkTargetKeySet) {
+                                s.modificationDate = target.contentModificationDate
+                                s.fileSize = target.fileSize
+                                s.tags = includeTags ? target.tagNames : nil
+                                s.kind = target.typeIdentifier
                             }
                         } else {
-                            isDirectory = rv.isDirectory ?? false
+                            s.isDirectory = rv.isDirectory ?? false
                         }
                     } else {
                         // Injected mock: resourceValues hits the real disk, so use the mock for
                         // existence/type (metadata stays nil, as before).
                         var isDir: ObjCBool = false
                         guard fileManager.fileExists(atPath: fullURL.path, isDirectory: &isDir) else { return nil }
-                        isDirectory = isDir.boolValue
+                        s.isDirectory = isDir.boolValue
                     }
+                    return s
+                }
 
-                    if isDirectory {
+                /// `visited` holds the identities of every directory on the current path (the
+                /// root is seeded by the caller); it is restored before returning, so it always
+                /// reflects the ancestor chain, not everything ever walked.
+                func buildNode(at fullURL: URL, depth: Int, visited: inout Set<DirectoryIdentity>) -> FileNode? {
+                    guard !Task.isCancelled, let s = stat(at: fullURL) else { return nil }
+
+                    let name = fullURL.lastPathComponent
+
+                    if s.isDirectory {
                         // Depth-capped (shallow) pass: report the directory but don't walk into
                         // it — empty children keep it rendering as a folder until the deep pass.
                         if let maxDepth, depth >= maxDepth {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind, isUnexplored: true)
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
                         }
                         // Symlinked directories are deliberately followed (the panes display
                         // linked content), but a link back into a directory already on the
@@ -572,7 +624,7 @@ extension FileSyncManager {
                         // empty children for a genuinely empty (authoritative) deep tree.
                         let identity = directoryIdentity(of: fullURL)
                         if visited.contains(identity) || depth >= Self.hardDepthCap {
-                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: modDate, fileSize: size, tags: tags, kind: kind, isUnexplored: true)
+                            return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
                         }
                         visited.insert(identity)
                         var children: [FileNode] = []
@@ -583,13 +635,71 @@ extension FileSyncManager {
                         }
                         visited.remove(identity)
                         children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
-                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
                     } else {
-                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: modDate, fileSize: size, tags: tags, kind: kind)
+                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                    }
+                }
+
+                /// Async twin of `buildNode` used above the fan-out horizon: identical
+                /// metadata, depth-cap, and cycle handling, but the children of a directory
+                /// walk through `walkChildren`, which keeps fanning out until the horizon.
+                /// `visited` is an immutable snapshot of the ancestor chain — each branch
+                /// extends its own copy, which is exactly the per-path semantics the
+                /// sequential builder maintains with insert/remove.
+                func buildNodeParallel(at fullURL: URL, depth: Int, visited: Set<DirectoryIdentity>) async -> FileNode? {
+                    guard !Task.isCancelled, let s = stat(at: fullURL) else { return nil }
+
+                    let name = fullURL.lastPathComponent
+                    guard s.isDirectory else {
+                        return FileNode(id: fullURL.path, name: name, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                    }
+                    let identity = directoryIdentity(of: fullURL)
+                    if visited.contains(identity) || depth >= Self.hardDepthCap {
+                        return FileNode(id: fullURL.path, name: name, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
+                    }
+                    var branchVisited = visited
+                    branchVisited.insert(identity)
+                    var children = await walkChildren(childURLs(of: fullURL), depth: depth + 1, visited: branchVisited)
+                    children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
+                    return FileNode(id: fullURL.path, name: name, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                }
+
+                /// Builds the nodes for one directory level. At or above the fan-out horizon
+                /// each sibling walks in its own child task (bounded by the global executor's
+                /// core count — the tasks never suspend mid-walk); below it, and always for
+                /// depth-capped shallow passes and injected mocks (not guaranteed
+                /// thread-safe), the level recurses sequentially. Returns the level in listing
+                /// order — callers apply `sortLevel`, but equal-key ties must not depend on
+                /// task completion order.
+                func walkChildren(_ urls: [URL], depth: Int, visited: Set<DirectoryIdentity>) async -> [FileNode] {
+                    guard fileManager is FileManager, maxDepth == nil, depth <= Self.fanoutMaxDepth, urls.count > 1 else {
+                        var v = visited
+                        var children: [FileNode] = []
+                        children.reserveCapacity(urls.count)
+                        for url in urls {
+                            if let node = buildNode(at: url, depth: depth, visited: &v) {
+                                children.append(node)
+                            }
+                        }
+                        return children
+                    }
+                    return await withTaskGroup(of: (Int, FileNode?).self) { group in
+                        for (index, url) in urls.enumerated() {
+                            group.addTask {
+                                (index, await self.buildNodeParallel(at: url, depth: depth, visited: visited))
+                            }
+                        }
+                        var results: [(Int, FileNode?)] = []
+                        results.reserveCapacity(urls.count)
+                        for await result in group {
+                            results.append(result)
+                        }
+                        return results.sorted { $0.0 < $1.0 }.compactMap { $0.1 }
                     }
                 }
             }
-            
+
             let builder = TreeBuilder(fileManager: fm, sortOption: sortOption, maxDepth: maxDepth)
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
@@ -598,13 +708,8 @@ extension FileSyncManager {
             await Logger.shared.debug("buildTree contents count: \(rootChildURLs.count)")
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.
-            var visited: Set<AnyHashable> = [builder.directoryIdentity(of: url)]
-            var rootChildren: [FileNode] = []
-            for childURL in rootChildURLs {
-                if let childNode = builder.buildNode(at: childURL, depth: 1, visited: &visited) {
-                    rootChildren.append(childNode)
-                }
-            }
+            let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
+            var rootChildren = await builder.walkChildren(rootChildURLs, depth: 1, visited: visited)
             rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
             return rootChildren
         }

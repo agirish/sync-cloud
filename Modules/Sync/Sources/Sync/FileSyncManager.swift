@@ -99,9 +99,17 @@ public class FileSyncManager: ObservableObject {
             guard sortOption != oldValue else { return }
             // Invalidate prefetch cache for roots as they need re-sorting or re-scanning
             prefetchedTrees.removeAll()
-            // Re-sort current trees when the option changes — off the main actor; the full
-            // re-sort of both trees froze the UI on large panes.
-            Task { await self.resortTreesAndRefilter() }
+            if sortOption == .tags {
+                // Trees are built WITHOUT Finder tags unless sorting by them (the per-file
+                // xattr fetch dominated large scans — see TreeBuilder.includeTags), so the
+                // current nodes have nothing to re-sort by. Reload from disk instead; the
+                // fresh walk includes tags because this option is now current.
+                refreshSubject.send()
+            } else {
+                // Re-sort current trees when the option changes — off the main actor; the full
+                // re-sort of both trees froze the UI on large panes.
+                Task { await self.resortTreesAndRefilter() }
+            }
         }
     }
     
@@ -327,6 +335,12 @@ public class FileSyncManager: ObservableObject {
     private var filterGeneration = 0
     /// Generation of the most recent `applyFilters()` pass that published its results.
     private var lastPublishedFilterGeneration = 0
+    /// Bumped on EVERY write to the published `leftTree`/`rightTree` (filter-pass publishes,
+    /// `invalidateComparisonState`'s clear, `swapPanes`). A filter pass compares its freshly
+    /// computed trees against the published ones OFF the main actor (the deep equality walk
+    /// is O(total nodes) and hitched the UI on large panes); those verdicts are only valid
+    /// while nothing wrote the published trees mid-flight, which this version detects.
+    internal var publishedTreesVersion = 0
 
     /// Bumped on every raw-tree publish (see `adoptRawTree`). Guards the off-main resort in
     /// `resortTreesAndRefilter()` against clobbering trees a load published mid-sort.
@@ -649,9 +663,15 @@ public class FileSyncManager: ObservableObject {
         let verifiedSame = verifiedSameDifferenceIds
         let syncingIds = syncingDifferenceIds
         let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && lastRightProviderType == .googleDrive
+        // Snapshot the published trees so the tree-changed comparisons run in the detached
+        // compute: deep equality is a full O(nodes) walk, and doing it on the main actor
+        // (twice per pass, several passes per load+scan cycle) hitched the UI on large panes.
+        let publishedLeft = leftTree
+        let publishedRight = rightTree
+        let publishedVersion = publishedTreesVersion
 
-        let state = await Task.detached(priority: .userInitiated) {
-            Self.computeFilteredState(
+        let (state, leftTreeChanged, rightTreeChanged) = await Task.detached(priority: .userInitiated) {
+            let state = Self.computeFilteredState(
                 rawLeftTree: rawLeft,
                 rawRightTree: rawRight,
                 rawDifferences: rawDiffs,
@@ -662,6 +682,7 @@ public class FileSyncManager: ObservableObject {
                 syncingDifferenceIds: syncingIds,
                 dropDriveDateNoise: dropDriveDateNoise
             )
+            return (state, state.leftTree != publishedLeft, state.rightTree != publishedRight)
         }.value
 
         // Publish unless a newer pass (with a newer snapshot) already has: results may
@@ -684,12 +705,19 @@ public class FileSyncManager: ObservableObject {
         // Assign only what actually changed. A load+scan cycle runs several filter passes and
         // each rebuilds fresh arrays, but republishing an unchanged tree still makes SwiftUI
         // tear down and rebuild the whole pane List — and a rebuild landing between an
-        // NSTableView mouse-down and mouse-up drops the click ("dead clicks"). Comparing
-        // against the live published value (cheap: `!=` short-circuits at the first real
-        // change; a full walk happens only on the no-op passes we want to suppress) keeps
-        // identical passes from touching @Published state at all.
-        if self.leftTree != state.leftTree { self.leftTree = state.leftTree }
-        if self.rightTree != state.rightTree { self.rightTree = state.rightTree }
+        // NSTableView mouse-down and mouse-up drops the click ("dead clicks"). The tree
+        // comparisons ran off-main against entry-time snapshots; trust them only while
+        // nothing wrote the published trees since (tracked by `publishedTreesVersion`) —
+        // on the rare mid-flight write, fall back to live compares here.
+        let treeComparesValid = publishedVersion == publishedTreesVersion
+        if treeComparesValid ? leftTreeChanged : (self.leftTree != state.leftTree) {
+            self.leftTree = state.leftTree
+            publishedTreesVersion += 1
+        }
+        if treeComparesValid ? rightTreeChanged : (self.rightTree != state.rightTree) {
+            self.rightTree = state.rightTree
+            publishedTreesVersion += 1
+        }
         if self.leftItemCount != state.leftItemCount { self.leftItemCount = state.leftItemCount }
         if self.rightItemCount != state.rightItemCount { self.rightItemCount = state.rightItemCount }
         if self.differences != reconciledDifferences { self.differences = reconciledDifferences }
