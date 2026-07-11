@@ -25,7 +25,15 @@ public enum FileContentVerifier {
                   !isDirectory.boolValue else {
                 return nil
             }
-            guard let size = (try? fileManager.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue,
+            // `attributesOfItem` does not resolve a trailing symlink (lstat semantics) while
+            // the FileHandle read below follows it, so a symlinked file would stat as the
+            // link's own byte count and never verify. Stat the resolved path for links; a
+            // broken link already returned nil above (`fileExists` resolves, and fails).
+            var statPath = path
+            if (try? fileManager.attributesOfItem(atPath: path)[.type]) as? FileAttributeType == .typeSymbolicLink {
+                statPath = (path as NSString).resolvingSymlinksInPath
+            }
+            guard let size = (try? fileManager.attributesOfItem(atPath: statPath)[.size] as? NSNumber)?.intValue,
                   size <= maxBytesToHash else {
                 return nil
             }

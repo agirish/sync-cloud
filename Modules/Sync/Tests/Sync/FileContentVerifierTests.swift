@@ -62,6 +62,30 @@ import Foundation
         #expect(await FileContentVerifier.filesHaveSameContent(leftPath: a.path, rightPath: b.path) == false)
     }
 
+    /// A symlinked file must verify against its target's bytes: `attributesOfItem` lstats the
+    /// link itself (its "size" is the destination-path byte count) while the FileHandle read
+    /// follows the link, so without resolving, every symlink came out "Could not verify".
+    @Test func testSymlinkedFileVerifiesAgainstTargetContent() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let target = dir.appendingPathComponent("target.bin")
+        try Data("symlinked payload".utf8).write(to: target)
+        let link = dir.appendingPathComponent("link.bin")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let linkHex = await FileContentVerifier.sha256Hex(filePath: link.path)
+        let targetHex = await FileContentVerifier.sha256Hex(filePath: target.path)
+        #expect(linkHex != nil)
+        #expect(linkHex == targetHex)
+        #expect(await FileContentVerifier.filesHaveSameContent(leftPath: link.path, rightPath: target.path) == true)
+
+        // A link whose target vanished stays conservative: nil, never a bogus verify.
+        try FileManager.default.removeItem(at: target)
+        #expect(await FileContentVerifier.sha256Hex(filePath: link.path) == nil)
+        #expect(await FileContentVerifier.filesHaveSameContent(leftPath: link.path, rightPath: link.path) == nil)
+    }
+
     @Test func testFilesHaveSameContentNilWhenEitherSideUnhashable() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
