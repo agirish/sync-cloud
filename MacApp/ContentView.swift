@@ -23,9 +23,9 @@ struct ContentView: View {
     /// be preset (e.g. the invalid-pane fix-it action jumps straight to Providers).
     @State private var settingsTab: SettingsView.SettingsTab = .appearance
 
-    @AppStorage("selectedLeftProviderId") private var leftProviderId: String = "iCloud"
-    @AppStorage("selectedRightProviderId") private var rightProviderId: String = "iCloud"
-    @State private var isScanning = false
+    @AppStorage("selectedLeftProviderId") var leftProviderId: String = "iCloud"
+    @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
+    @State var isScanning = false
 
     /// Number of provider-id `onChange` notifications still expected from an in-flight pane
     /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
@@ -36,11 +36,11 @@ struct ContentView: View {
     @State private var pendingSwapProviderChanges: Int = 0
 
     @Environment(\.undoManager) private var undoManager
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openWindow) var openWindow
 
-    @State private var actionHandler: FileActionHandler?
+    @State var actionHandler: FileActionHandler?
     @State private var quickLookURL: URL? = nil
-    @State private var showingBottomPane: Bool = true
+    @State var showingBottomPane: Bool = true
     @State private var isBootstrappingProviders: Bool = true
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
@@ -302,7 +302,7 @@ struct ContentView: View {
     }
     
     /// Provider display names for the two panes, disambiguated when both panes show the same provider.
-    private var paneNames: PaneProviderNames {
+    var paneNames: PaneProviderNames {
         PaneProviderNames(
             leftName: settings.availableProviders.first(where: { $0.id == leftProviderId })?.displayName,
             rightName: settings.availableProviders.first(where: { $0.id == rightProviderId })?.displayName
@@ -310,12 +310,12 @@ struct ContentView: View {
     }
 
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
-    private var currentLeftPath: String {
+    var currentLeftPath: String {
         PaneLogic.fullPath(root: settings.path(for: leftProviderId), relativePath: syncManager.leftRelativePath)
     }
 
     /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
-    private var currentRightPath: String {
+    var currentRightPath: String {
         PaneLogic.fullPath(root: settings.path(for: rightProviderId), relativePath: syncManager.rightRelativePath)
     }
 
@@ -475,7 +475,7 @@ struct ContentView: View {
     }
 
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
-    private func forceRefreshAction() {
+    func forceRefreshAction() {
         Logger.shared.info("User requested a force refresh")
         syncManager.prefetchedTrees.removeAll()
         refreshAction()
@@ -689,32 +689,6 @@ struct ContentView: View {
         }
     }
 
-    private var activePane: PaneLogic.ActivePane? {
-        PaneLogic.activePane(
-            leftSelection: syncManager.selectedLeftPaths,
-            rightSelection: syncManager.selectedRightPaths
-        )
-    }
-
-    private var activeSelectionNodes: [FileNode] {
-        switch activePane {
-        case .left?:
-            return syncManager.leftTree.findNodes(at: syncManager.selectedLeftPaths)
-        case .right?:
-            return syncManager.rightTree.findNodes(at: syncManager.selectedRightPaths)
-        case nil:
-            return []
-        }
-    }
-
-    private var activePanePath: String? {
-        switch activePane {
-        case .left?: return currentLeftPath
-        case .right?: return currentRightPath
-        case nil: return nil
-        }
-    }
-
     /// Lightweight in-app banner used for bulk operation completion notifications.
     @ViewBuilder
     private func OperationBannerView(banner: OperationBanner) -> some View {
@@ -744,121 +718,6 @@ struct ContentView: View {
         }
     }
 
-    /// The window toolbar: file actions in a leading group (right after the sidebar toggle),
-    /// utility actions trailing. Lives in the native toolbar so it fills the titlebar band.
-    @ToolbarContentBuilder
-    private var mainToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            // Resolve the active selection once; @Published changes refresh these.
-            let selectionNodes = activeSelectionNodes
-            let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
-            let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
-
-            Button(action: {
-                guard let node = selectionNodes.first, node.isDirectory else { return }
-                let isLeft = (activePane == .left)
-                actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }) {
-                Label("Compare", systemImage: "rectangle.split.2x1")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.count != 1 || !selectionNodes[0].isDirectory)
-            .help("Open the selected folder in both panes to compare them")
-
-            Button(action: {
-                guard !selectionNodes.isEmpty, let activePane else { return }
-                let fromLeft = (activePane == .left)
-                actionHandler?.copyItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }) {
-                Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy)
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help(copyTarget.map { "Copy the selected items to \($0)" } ?? "Copy the selected items to the other pane")
-
-            Button(action: {
-                guard !selectionNodes.isEmpty, let activePane else { return }
-                let fromLeft = (activePane == .left)
-                Task {
-                    _ = await actionHandler?.moveItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-                }
-            }) {
-                Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move)
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help(copyTarget.map { "Move the selected items to \($0)" } ?? "Move the selected items to the other pane")
-
-            Button(action: {
-                guard let path = activePanePath else { return }
-                actionHandler?.beginCreateFolder(in: path)
-            }) {
-                Label("New Folder", systemImage: "folder.badge.plus")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(activePane == nil)
-            .help("Create a new folder in the active pane")
-
-            Button(role: .destructive, action: {
-                guard !selectionNodes.isEmpty else { return }
-                actionHandler?.confirmDelete(selectionNodes)
-            }) {
-                Label("Delete", systemImage: "trash")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help("Delete the selected items")
-
-            Menu {
-                // A Picker inside a Menu gets the native menu check column; the previous
-                // per-row `systemImage: isSelected ? "checkmark" : ""` faked it and logged
-                // "No symbol named ''" for every unselected row on every open.
-                Picker("Sort By", selection: $syncManager.sortOption) {
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Label("Sort", systemImage: "arrow.up.arrow.down")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Choose how items are sorted")
-            // The hidden-files toggle now lives in each pane header, next to its nav buttons.
-        }
-
-        // Push the utility actions to the trailing edge of the titlebar. macOS 26's grouped
-        // toolbar no longer trails `.primaryAction` on its own, so a flexible spacer separates
-        // the file actions from the utility pill; earlier systems trail primaryAction natively.
-        if #available(macOS 26.0, *) {
-            ToolbarSpacer(.flexible)
-        }
-
-        ToolbarItemGroup(placement: .primaryAction) {
-            Button(action: forceRefreshAction) {
-                Label("Scan", systemImage: isScanning ? "hourglass" : "arrow.clockwise")
-            }
-            .disabled(isScanning)
-            .help("Scan for changes")
-
-            Button(action: { withAnimation { showingBottomPane.toggle() } }) {
-                Label("Toggle Bottom Pane", systemImage: "rectangle.bottomthird.inset.filled")
-            }
-            .help("Toggle the bottom pane")
-
-            Button(action: { openWindow(id: "activity-log") }) {
-                Label("Logs", systemImage: "list.bullet.rectangle")
-            }
-            .help("Activity log")
-
-            Button(action: { showSettings = true }) {
-                Label("Settings", systemImage: "gear")
-            }
-            .help("Settings")
-        }
-    }
-    
     /// Selection binding for one pane that enforces the one-pane-selected invariant
     /// synchronously: setting a non-empty selection also clears the other pane in the
     /// same update, so consumers (`PaneLogic.activePane`, Details, Quick Look) never see
