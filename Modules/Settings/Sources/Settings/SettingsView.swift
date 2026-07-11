@@ -243,13 +243,16 @@ struct AppearanceSettingsTab: View {
                     Slider(value: $surfaceTint, in: 0.0...1.0) {
                         Text("Tint")
                     }
+                    .disabled(selectedHue == .none)
                     Text("\(Int(surfaceTint * 100))%")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 36, alignment: .trailing)
                 }
             } footer: {
-                Text("Washes the panes and Differences area with the accent color chosen above.")
+                Text(selectedHue == .none
+                     ? "Choose an accent color above to tint the panes and Differences area."
+                     : "Washes the panes and Differences area with the accent color chosen above.")
             }
 
             Section {

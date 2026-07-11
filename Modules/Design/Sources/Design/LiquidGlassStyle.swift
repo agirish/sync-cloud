@@ -262,8 +262,10 @@ public extension View {
     /// Apply it ONCE per region (don't stack it on nested views, or fills compound).
     @ViewBuilder
     func contentSurface(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
-        // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1.
-        let wash = hue.accentColor.opacity(max(0.0, min(1.0, tint)) * 0.32)
+        // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1. "None" gets no
+        // wash at any tint: its accentColor falls back to the system accent (for controls), which
+        // would repaint the surfaces with it here.
+        let wash = hue == .none ? Color.clear : hue.accentColor.opacity(max(0.0, min(1.0, tint)) * 0.32)
         switch style {
         case .unified, .cards:
             self.background(wash)
