@@ -78,7 +78,15 @@ struct SyncCloudApp: App {
             }
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        // Open at ~85% of the screen (the two-pane + Differences layout needs room); without a
+        // defaultSize, `.contentSize` resizability collapsed the first launch to the content's
+        // 600pt minimum. `.contentMinSize` keeps that minimum as a floor but lets the window
+        // take (and remember) any larger size.
+        .defaultSize(
+            width: (NSScreen.main?.visibleFrame.width ?? 1600) * 0.85,
+            height: (NSScreen.main?.visibleFrame.height ?? 1000) * 0.85
+        )
+        .windowResizability(.contentMinSize)
         .commands {
             // Settings is no longer a separate window (it's an in-window overlay so it floats
             // over the content even in full screen), so re-supply the standard ⌘, menu item
