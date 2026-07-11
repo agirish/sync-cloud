@@ -510,123 +510,9 @@ public class FileSyncManager: ObservableObject {
         await applyFilters()
     }
 
-    /// Runs checksum verification on the differences that meet the Verify criteria (newer/older but same size).
-    /// Pass `subset` to scope verification to specific differences (e.g. the current table selection or
-    /// filtered set); `nil` verifies every eligible difference. Runs up to 4 verifications in parallel.
-    /// Cancellable via activeProgress. When done, if any verified identical, sets `verifiedIdenticalForCopy` so the UI can offer to copy left→right.
-    public func verifyAllWithChecksum(subset: [FileDifference]? = nil) async {
-        // Refuse to start while anything is writing — or is about to write — the files this
-        // run would hash: a file mid-overwrite can checksum as "identical" and poison
-        // `verifiedIdenticalForCopy` with a wrong bulk-copy offer. `isBulkSyncRunning` covers
-        // both bulk runs — syncAll from its prepare phase (stat pass + collision prompts,
-        // before any operation is enqueued) and the verified-copy bulk copy;
-        // `syncingDifferenceIds` covers a single syncFile parked at its collision
-        // prompt; `activeFileOperationsCount` covers every queued file operation (copy, move,
-        // delete, undo). Verify is read-only, so this is purely about result validity — and
-        // the user gets a banner, not a silent no-op.
-        guard !isVerifyAllRunning, !isBulkSyncRunning,
-              activeFileOperationsCount == 0, syncingDifferenceIds.isEmpty else {
-            banner = .warning("Wait for the current operation to finish before verifying")
-            return
-        }
-        isVerifyAllRunning = true
-        defer { isVerifyAllRunning = false }
-
-        let candidates = subset ?? differences
-        let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
-        guard !toVerify.isEmpty else { return }
-
-        let progress = Progress(totalUnitCount: Int64(toVerify.count))
-        progress.localizedDescription = "Verifying \(toVerify.count) files"
-        progress.isCancellable = true
-        activeProgress = progress
-        verifyAllProgress = (0, toVerify.count)
-
-        defer {
-            verifyAllProgress = nil
-            // Clear only if still ours: a queued operation may have published its own by now.
-            if activeProgress === progress { activeProgress = nil }
-        }
-
-        let activeFM = fileManager
-        let collector = VerifyResultsCollector()
-        let weakRef = WeakSyncManagerRef(self)
-        let totalCount = toVerify.count
-
-        await Self.processInParallel(
-            items: toVerify,
-            concurrency: min(4, max(1, toVerify.count)),
-            progress: ProgressRef(progress),
-            reportCompleted: { completed in weakRef.value?.verifyAllProgress = (completed, totalCount) }
-        ) { diff in
-            let same = await FileContentVerifier.filesHaveSameContent(
-                leftPath: diff.leftItemPath,
-                rightPath: diff.rightItemPath,
-                fileManager: activeFM
-            )
-            if same == true {
-                await collector.addIdentical(diff)
-            } else if same == false {
-                await collector.addDiffered()
-            } else {
-                await collector.addSkipped()
-            }
-        }
-
-        let (verifiedIdentical, differed, skipped) = await collector.get()
-        if !verifiedIdentical.isEmpty {
-            verifiedIdenticalForCopy = verifiedIdentical
-        }
-        var parts: [String] = []
-        if !verifiedIdentical.isEmpty { parts.append("\(verifiedIdentical.count) identical") }
-        if differed > 0 { parts.append("\(differed) differed") }
-        if skipped > 0 { parts.append("\(skipped) skipped") }
-        if progress.isCancelled {
-            banner = .warning("Verify All cancelled")
-        } else if parts.isEmpty {
-            banner = nil
-        } else {
-            let message = "Verify All: " + parts.joined(separator: "; ")
-            // Anything that differed or couldn't be verified needs the user's attention.
-            banner = (differed > 0 || skipped > 0) ? .warning(message) : .success(message)
-        }
-    }
-
-    /// Dismisses the "copy verified" dialog without copying; hides the verified identical items from the list.
-    public func dismissVerifiedCopyDialogWithoutCopy() {
-        guard let list = verifiedIdenticalForCopy else { return }
-        for diff in list {
-            verifiedSameDifferenceIds.insert(diff.id)
-        }
-        verifiedIdenticalForCopy = nil
-        Task { await self.applyFilters() }
-    }
-
-    /// For the dialog's `isPresented` binding: defers the "dismissed without copy" cleanup by one
-    /// main-actor turn. SwiftUI writes `false` into the binding on ANY dismissal — including the
-    /// confirm button — and the order of the setter vs. the button action is not guaranteed, so
-    /// cleaning up synchronously here could destroy the list before `confirmVerifiedCopy()` claims
-    /// it. Both button paths run synchronously in the same turn; whichever claimed the list first
-    /// wins and this deferred cleanup becomes a no-op.
-    public func verifiedCopyDialogDismissed() {
-        Task { @MainActor in
-            self.dismissVerifiedCopyDialogWithoutCopy()
-        }
-    }
-
-    /// Claims the verified-identical list synchronously and starts the bulk copy left→right.
-    /// Must be called directly from the confirm button (not inside a `Task`) so the claim happens
-    /// before `verifiedCopyDialogDismissed()`'s deferred cleanup can hide the list.
-    /// - Returns: The copy task, so tests can await completion. `nil` if there was nothing to copy.
-    @discardableResult
-    public func confirmVerifiedCopy() -> Task<Void, Never>? {
-        guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return nil }
-        verifiedIdenticalForCopy = nil
-        return Task { await self.bulkCopyDifferencesLeftToRight(list) }
-    }
-
     /// Bulk copy the given differences from left to right (overwrites if exists). No per-file confirmation; 2–4 concurrent copies.
-    private func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
+    /// Internal (not private) because `confirmVerifiedCopy` in FileSyncManager+Verify.swift starts it.
+    func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
         let total = toCopy.count
         guard total > 0 else { return }
         // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
@@ -720,7 +606,9 @@ public class FileSyncManager: ObservableObject {
     /// up to `concurrency` tasks, stopping early once the progress is cancelled. After each item
     /// the shared completed count (offset by `completedBase`, for items resolved before the
     /// workers started) is mirrored into the `Progress` and reported on the MainActor.
-    private nonisolated static func processInParallel<Item: Sendable>(
+    /// Internal (not private) because `verifyAllWithChecksum` in FileSyncManager+Verify.swift
+    /// runs its checksum workers on the same scaffolding.
+    nonisolated static func processInParallel<Item: Sendable>(
         items: [Item],
         concurrency: Int,
         progress progressRef: ProgressRef,
@@ -1175,12 +1063,14 @@ public class FileSyncManager: ObservableObject {
 
 // MARK: - Bulk sync helpers (Sendable-safe refs and actors for parallel workers)
 
-private final class ProgressRef: @unchecked Sendable {
+// ProgressRef and WeakSyncManagerRef are internal (not private) because the verify machinery
+// in FileSyncManager+Verify.swift shares the parallel-worker scaffolding.
+final class ProgressRef: @unchecked Sendable {
     let progress: Progress
     init(_ progress: Progress) { self.progress = progress }
 }
 
-private final class WeakSyncManagerRef: @unchecked Sendable {
+final class WeakSyncManagerRef: @unchecked Sendable {
     weak var value: FileSyncManager?
     init(_ value: FileSyncManager?) { self.value = value }
 }
@@ -1220,18 +1110,3 @@ private actor BulkSyncResultsCollector {
     }
 }
 
-// MARK: - Verify-all parallel workers
-
-private actor VerifyResultsCollector {
-    private var verifiedIdentical: [FileDifference] = []
-    private var differed: Int = 0
-    private var skipped: Int = 0
-    func addIdentical(_ diff: FileDifference) {
-        verifiedIdentical.append(diff)
-    }
-    func addDiffered() { differed += 1 }
-    func addSkipped() { skipped += 1 }
-    func get() -> (verifiedIdentical: [FileDifference], differed: Int, skipped: Int) {
-        (verifiedIdentical, differed, skipped)
-    }
-}
