@@ -57,6 +57,7 @@ public class SettingsManager: ObservableObject {
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
     private static let disabledProviderIdsKey = "disabledProviderIds"
     private static let dateToleranceSecondsKey = "dateToleranceSeconds"
+    private static let defaultSortOptionKey = "defaultSortOption"
     private static let autoVerifySameSizeDuringScanKey = "autoVerifySameSizeDuringScan"
     private static let rememberIgnoredItemsKey = "rememberIgnoredItems"
     private static let ignorePatternsKey = "ignorePatterns"
@@ -110,6 +111,25 @@ public class SettingsManager: ObservableObject {
         }
     }
 
+    /// Sort order the panes start with — and remember: ContentView mirrors the pane sort
+    /// menu back here, so the last-used order survives relaunches instead of resetting to
+    /// Name. Mirrored into `FileSyncManager.sortOption` by the app.
+    @Published public var defaultSortOption: SortOption {
+        didSet {
+            userDefaults.set(defaultSortOption.rawValue, forKey: Self.defaultSortOptionKey)
+        }
+    }
+
+    /// Standing answer to the file-collision prompt; `.ask` preserves the always-prompt
+    /// behavior and folder collisions always prompt regardless (see `ConflictPolicy`).
+    /// The app's alert closures re-read the persisted value per collision, so no mirror
+    /// into `FileSyncManager` is needed.
+    @Published public var conflictPolicy: ConflictPolicy {
+        didSet {
+            userDefaults.set(conflictPolicy.rawValue, forKey: ConflictPolicy.defaultsKey)
+        }
+    }
+
     /// Adds a normalized ignore pattern; whitespace-only input and duplicates are dropped.
     /// - Returns: True when the pattern was added.
     @discardableResult
@@ -138,6 +158,8 @@ public class SettingsManager: ObservableObject {
         autoVerifySameSizeDuringScan = false
         rememberIgnoredItems = true
         ignorePatterns = []
+        conflictPolicy = .ask
+        defaultSortOption = .name
         disabledProviderIds = []
         Task {
             await discoverProviders()
@@ -174,6 +196,8 @@ public class SettingsManager: ObservableObject {
         self.autoVerifySameSizeDuringScan = userDefaults.bool(forKey: Self.autoVerifySameSizeDuringScanKey)
         self.rememberIgnoredItems = (userDefaults.object(forKey: Self.rememberIgnoredItemsKey) as? Bool) ?? true
         self.ignorePatterns = userDefaults.stringArray(forKey: Self.ignorePatternsKey) ?? []
+        self.conflictPolicy = ConflictPolicy.persisted(from: userDefaults)
+        self.defaultSortOption = userDefaults.string(forKey: Self.defaultSortOptionKey).flatMap(SortOption.init(rawValue:)) ?? .name
         self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
         // Seed with the always-present iCloud provider so the app can start immediately,
         // before the first (off-main) discovery publishes. The seed goes through the same

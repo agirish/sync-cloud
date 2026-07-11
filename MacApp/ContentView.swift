@@ -224,6 +224,7 @@ struct ContentView: View {
                     syncManager.undoManager = undoManager
                 case .syncProviderQuirkSettings:
                     syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
+                    syncManager.sortOption = settings.defaultSortOption
                     syncManager.dateToleranceSeconds = settings.dateToleranceSeconds
                     syncManager.autoVerifySameSizeDuringScan = settings.autoVerifySameSizeDuringScan
                     syncManager.rememberIgnoredItems = settings.rememberIgnoredItems
@@ -241,6 +242,10 @@ struct ContentView: View {
                         applyProviderSelection(preferDistinctPair: true)
                         syncManager.ignoredItemsStore?.activate(
                             pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
+                        // First appearance only (this step never runs on a window reopen):
+                        // put each pane back on the folder it showed last session before the
+                        // initial refresh scans.
+                        await restoreLastPaneFocusIfEnabled()
                         if !settings.enabledProviders.isEmpty {
                             refreshAction()
                         }
@@ -312,23 +317,7 @@ struct ContentView: View {
                 refreshAction()
             }
         }
-        .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
-            syncManager.ignoreGoogleDriveNewerDateOnly = new
-        }
-        // The remaining Sync-tab settings mirror the same way; the manager's didSets decide
-        // whether a change needs a refilter (ignores) or a rescan (tolerance, verification).
-        .onChange(of: settings.dateToleranceSeconds) { _, new in
-            syncManager.dateToleranceSeconds = new
-        }
-        .onChange(of: settings.autoVerifySameSizeDuringScan) { _, new in
-            syncManager.autoVerifySameSizeDuringScan = new
-        }
-        .onChange(of: settings.rememberIgnoredItems) { _, new in
-            syncManager.rememberIgnoredItems = new
-        }
-        .onChange(of: settings.ignorePatterns) { _, new in
-            syncManager.ignorePatterns = new
-        }
+        .modifier(SettingsEngineMirrors(syncManager: syncManager, settings: settings))
         // Rebuilding the indices walks every difference's ancestor chain — with tens of
         // thousands of differences that froze the main thread after every scan, so the
         // work runs detached and only the results land on main. task(id:) also cancels a
@@ -345,6 +334,56 @@ struct ContentView: View {
         }
     }
     
+    /// The settings→engine mirror handlers, extracted as a modifier: chaining them all
+    /// inline pushed the body expression past the type-checker's budget (the same failure
+    /// mode that split the Differences Table into per-cell structs).
+    private struct SettingsEngineMirrors: ViewModifier {
+        @ObservedObject var syncManager: FileSyncManager
+        @ObservedObject var settings: SettingsManager
+
+        func body(content: Content) -> some View {
+            content
+                .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
+                    syncManager.ignoreGoogleDriveNewerDateOnly = new
+                }
+                // The remaining Sync-tab settings mirror the same way; the manager's didSets
+                // decide whether a change needs a refilter (ignores) or a rescan (tolerance,
+                // verification).
+                .onChange(of: settings.dateToleranceSeconds) { _, new in
+                    syncManager.dateToleranceSeconds = new
+                }
+                .onChange(of: settings.autoVerifySameSizeDuringScan) { _, new in
+                    syncManager.autoVerifySameSizeDuringScan = new
+                }
+                .onChange(of: settings.rememberIgnoredItems) { _, new in
+                    syncManager.rememberIgnoredItems = new
+                }
+                .onChange(of: settings.ignorePatterns) { _, new in
+                    syncManager.ignorePatterns = new
+                }
+                // Sort mirrors BOTH ways: the Settings picker drives the panes, and a pane
+                // sort-menu change persists as the new default (the equality guards stop
+                // the ping-pong after one hop).
+                .onChange(of: settings.defaultSortOption) { _, new in
+                    syncManager.sortOption = new
+                }
+                .onChange(of: syncManager.sortOption) { _, new in
+                    if settings.defaultSortOption != new {
+                        settings.defaultSortOption = new
+                    }
+                }
+                // Continuously persist each pane's focus for the reopen-where-I-left-off
+                // launch path. A provider switch resets the focus to "" via resetNavigation,
+                // which correctly clears the saved path too.
+                .onChange(of: syncManager.leftRelativePath) { _, new in
+                    UserDefaults.standard.set(new, forKey: GeneralSettings.lastLeftFocusKey)
+                }
+                .onChange(of: syncManager.rightRelativePath) { _, new in
+                    UserDefaults.standard.set(new, forKey: GeneralSettings.lastRightFocusKey)
+                }
+        }
+    }
+
     /// Provider display names for the two panes, disambiguated when both panes show the same provider.
     var paneNames: PaneProviderNames {
         PaneProviderNames(
@@ -467,6 +506,33 @@ struct ContentView: View {
     private func openProviderSettings() {
         settingsTab = .providers
         showSettings = true
+    }
+
+    /// Reopens each pane at the folder it showed when the app last quit (General setting,
+    /// default on). Runs once, inside the first-appearance bootstrap, after the provider
+    /// selection resolves and before the initial refresh. Each saved path is validated on
+    /// disk first (off the main actor — cloud roots stat slowly), so a folder deleted or
+    /// unmounted since last session silently falls back to the provider root.
+    private func restoreLastPaneFocusIfEnabled() async {
+        guard GeneralSettings.shouldRestoreLastFocus() else { return }
+        let panes: [(rel: String, root: String, isLeft: Bool)] = [
+            (UserDefaults.standard.string(forKey: GeneralSettings.lastLeftFocusKey) ?? "",
+             settings.path(for: leftProviderId), true),
+            (UserDefaults.standard.string(forKey: GeneralSettings.lastRightFocusKey) ?? "",
+             settings.path(for: rightProviderId), false),
+        ]
+        for pane in panes where !pane.rel.isEmpty && !pane.root.isEmpty {
+            let fullPath = ((pane.root as NSString).expandingTildeInPath as NSString)
+                .appendingPathComponent(pane.rel)
+            let isRestorable = await Task.detached(priority: .userInitiated) { () -> Bool in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+            }.value
+            guard isRestorable else { continue }
+            Logger.shared.info("Restoring \(pane.isLeft ? "left" : "right") pane to last session's folder: \(pane.rel)")
+            syncManager.focusOn(relativePath: pane.rel, isLeft: pane.isLeft)
+        }
     }
 
     /// The full reset behind Settings → Advanced. `resetAllSettings()` wipes the defaults
@@ -649,6 +715,11 @@ struct ContentView: View {
         .onChange(of: syncManager.banner) { _, newValue in
             bannerDismissScheduler.bannerChanged(to: newValue) {
                 syncManager.banner = nil
+            }
+            // Banners vanish with the window; when the app is in the background, mirror the
+            // outcome as a system notification (General setting, default off).
+            if let banner = newValue {
+                OperationNotifier.postIfEnabled(for: banner)
             }
         }
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in

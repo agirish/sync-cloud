@@ -4,6 +4,7 @@ import ServiceManagement
 import SwiftUI
 import Sync
 import Design
+import UserNotifications
 
 /// UserDefaults keys for General settings that are read outside the Settings module — the app
 /// delegate's quit guard and ContentView's launch-time seeding both reference the same literals,
@@ -17,10 +18,29 @@ public enum GeneralSettings {
     /// and remain undoable. Read by `FileActionHandler.confirmDelete`.
     public static let confirmBeforeDeleteKey = "confirmBeforeDelete"
 
+    /// Bool (default true). When false, panes always open at their provider roots instead of
+    /// the folders they were focused on when the app last quit.
+    public static let restoreLastFocusKey = "restoreLastFocusOnLaunch"
+    /// String. The left pane's root-relative focus path, continuously persisted by
+    /// ContentView ("" = provider root). App state rather than a user preference, but the
+    /// keys live here beside the toggle that governs them.
+    public static let lastLeftFocusKey = "lastLeftFocusPath"
+    /// Right-pane counterpart of `lastLeftFocusKey`.
+    public static let lastRightFocusKey = "lastRightFocusPath"
+
+    /// Bool (default false). Posts a system notification when an operation banner lands
+    /// while SyncCloud is not the active app. Read by `OperationNotifier`.
+    public static let notifyOnBackgroundCompletionKey = "notifyOnBackgroundCompletion"
+
     /// The delete-confirmation flag with its default-true semantics (a bare `bool(forKey:)`
     /// would read an unset key as false and silently skip the alert).
     public static func shouldConfirmBeforeDelete(_ defaults: UserDefaults = .standard) -> Bool {
         (defaults.object(forKey: confirmBeforeDeleteKey) as? Bool) ?? true
+    }
+
+    /// The restore-last-focus flag with its default-true semantics.
+    public static func shouldRestoreLastFocus(_ defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: restoreLastFocusKey) as? Bool) ?? true
     }
 }
 
@@ -132,8 +152,10 @@ public struct SettingsView: View {
 
 // MARK: - General
 
-/// App-level preferences: login item, hidden-file default, and the quit safety guard.
+/// App-level preferences: login item, startup state (hidden files, last folders, sort),
+/// background notifications, and the quit safety guard.
 struct GeneralSettingsTab: View {
+    @EnvironmentObject var settings: SettingsManager
     /// Mirrors `SMAppService.mainApp.status`. Deliberately not seeded in the initializer:
     /// the status getter is a synchronous XPC call, which must not run on the main thread —
     /// `.task` kicks off a detached read once the view is up (and app activation re-reads,
@@ -148,6 +170,8 @@ struct GeneralSettingsTab: View {
     @State private var lastAppliedLaunchAtLogin: Bool?
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
+    @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
+    @AppStorage(GeneralSettings.notifyOnBackgroundCompletionKey) private var notifyInBackground: Bool = false
 
     var body: some View {
         Form {
@@ -174,8 +198,27 @@ struct GeneralSettingsTab: View {
 
             Section {
                 Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
+                Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
+                Picker("Sort panes by", selection: $settings.defaultSortOption) {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+            } header: {
+                Text("Startup")
             } footer: {
-                Text("New launches start with hidden files shown. You can still toggle Hidden in the action bar at any time.")
+                Text("Panes reopen at the folders they showed when you last quit (falling back to the root if a folder is gone). Sort changes made from the pane menus are remembered here too.")
+            }
+
+            Section {
+                Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
+                    .onChange(of: notifyInBackground) { _, enabled in
+                        if enabled {
+                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+                        }
+                    }
+            } footer: {
+                Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn't the active app. Requires notification permission.")
             }
 
             Section {
@@ -615,6 +658,18 @@ struct SyncSettingsTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("When a file already exists", selection: $settings.conflictPolicy) {
+                    ForEach(ConflictPolicy.allCases) { policy in
+                        Text(policy.displayName).tag(policy)
+                    }
+                }
+            } header: {
+                Text("Conflicts")
+            } footer: {
+                Text("Applies to copies, moves, and syncs. Keep both renames the incoming file; Replace moves the existing file to the Trash first. Folder conflicts always ask.")
+            }
+
             Section {
                 Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
                     Text("Exact match").tag(0.0)

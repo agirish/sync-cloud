@@ -39,11 +39,22 @@ struct SyncCloudApp: App {
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
         // permanent deletes). Wire the real NSAlert-backed prompts here, at the app boundary.
+        // Each prompt first consults the user's standing conflict policy (Settings → Sync),
+        // re-read per collision so a Settings change applies to the very next conflict;
+        // folder collisions always fall through to the prompt (see ConflictPolicy).
         manager.collisionResolver = { fileName, isMove, isDirectory in
-            SyncOperationAlerts.promptForCollision(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
+            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: isDirectory) {
+                Logger.shared.info("Collision on \"\(fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
+                return auto
+            }
+            return SyncOperationAlerts.promptForCollision(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
         }
         manager.bulkCollisionResolver = { fileName, isMove, isDirectory in
-            SyncOperationAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
+            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: isDirectory) {
+                Logger.shared.info("Collision on \"\(fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
+                return (auto, false)
+            }
+            return SyncOperationAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
         }
         manager.permanentDeleteConfirmer = { itemNames in
             SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)
@@ -99,7 +110,17 @@ struct SyncCloudApp: App {
                 Button("Settings…") { showSettings = true }
                     .keyboardShortcut(",", modifiers: .command)
             }
+            // The discoverability half of the shortcuts story: review-mode keys, the drag
+            // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.
+            CommandGroup(after: .help) {
+                ShortcutsWindowCommand()
+            }
         }
+
+        Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
+            ShortcutsReferenceView()
+        }
+        .windowResizability(.contentSize)
 
         Window("Activity Log", id: "activity-log") {
             if isRunningTests {

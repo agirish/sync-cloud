@@ -22,6 +22,8 @@ import Foundation
         #expect(settings.autoVerifySameSizeDuringScan == false)
         #expect(settings.rememberIgnoredItems == true)
         #expect(settings.ignorePatterns.isEmpty)
+        #expect(settings.conflictPolicy == .ask)
+        #expect(settings.defaultSortOption == .name)
     }
 
     @MainActor
@@ -34,12 +36,24 @@ import Foundation
         a.autoVerifySameSizeDuringScan = true
         a.rememberIgnoredItems = false
         a.ignorePatterns = ["*.tmp", ".DS_Store"]
+        a.conflictPolicy = .keepBoth
+        a.defaultSortOption = .dateModified
 
         let b = makeManager(test)
         #expect(b.dateToleranceSeconds == 5)
         #expect(b.autoVerifySameSizeDuringScan == true)
         #expect(b.rememberIgnoredItems == false)
         #expect(b.ignorePatterns == ["*.tmp", ".DS_Store"])
+        #expect(b.conflictPolicy == .keepBoth)
+        #expect(b.defaultSortOption == .dateModified)
+    }
+
+    @Test func testShouldRestoreLastFocusDefaultsToTrue() {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        #expect(GeneralSettings.shouldRestoreLastFocus(test.defaults))
+        test.defaults.set(false, forKey: GeneralSettings.restoreLastFocusKey)
+        #expect(!GeneralSettings.shouldRestoreLastFocus(test.defaults))
     }
 
     @MainActor
@@ -83,6 +97,8 @@ import Foundation
         settings.setPath("/tmp/custom-root", for: "iCloud")
         settings.dateToleranceSeconds = 60
         settings.ignorePatterns = ["*.tmp"]
+        settings.conflictPolicy = .replace
+        settings.defaultSortOption = .size
         test.defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
 
         settings.resetAllSettings()
@@ -91,6 +107,8 @@ import Foundation
         #expect(settings.autoVerifySameSizeDuringScan == false)
         #expect(settings.rememberIgnoredItems == true)
         #expect(settings.ignorePatterns.isEmpty)
+        #expect(settings.conflictPolicy == .ask)
+        #expect(settings.defaultSortOption == .name)
         #expect(settings.disabledProviderIds.isEmpty)
         // Foreign keys in the same domain (the @AppStorage-backed toggles) are wiped too.
         #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
