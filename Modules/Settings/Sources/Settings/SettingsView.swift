@@ -705,7 +705,7 @@ struct SyncSettingsTab: View {
             } header: {
                 Text("Confirmations")
             } footer: {
-                Text("Copies and moves first show what will be transferred and where. Deleted items go to the Trash either way and can be restored with Undo.")
+                Text("Copies and moves first show what will be transferred and where; turning this off starts them immediately, including moves, with no confirmation. Deleted items go to the Trash either way and can be restored with Undo.")
             }
 
             Section {

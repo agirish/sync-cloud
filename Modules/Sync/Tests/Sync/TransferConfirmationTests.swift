@@ -76,8 +76,10 @@ import Foundation
         #expect(manager.currentError == nil)
     }
 
-    /// A declined single-row sync returns false, copies nothing, and leaves the row's
-    /// in-flight flag clear (it is asked BEFORE the row is marked syncing).
+    /// A declined single-row sync returns false, copies nothing, and leaves no in-flight
+    /// mark behind. (The row IS marked during the prompt — see
+    /// testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline, which pins that
+    /// ordering — but a decline must always clear it.)
     @MainActor
     @Test func testDeclinedSyncFileReturnsFalseAndCopiesNothing() async throws {
         let (manager, mockFM, diff) = try makeDifferenceFixture()

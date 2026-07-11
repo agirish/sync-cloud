@@ -887,8 +887,12 @@ public class FileSyncManager: ObservableObject {
         // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a
         // syncFile parked at a prompt is visible to it — a prompt's modal spins the run loop,
         // so a queued Verify All would otherwise start hashing the very file this sync is
-        // about to overwrite. Every early exit below must clearSyncing.
+        // about to overwrite. The defer releases the mark structurally on every exit — no
+        // early return can leak an id (which would refuse Verify All and pane swaps for the
+        // session). On the success path the row was already removed wholesale by
+        // removeResolvedDifferences; clearSyncing on a removed row is a documented no-op.
         markSyncing(ids: [difference.id])
+        defer { clearSyncing(ids: [difference.id]) }
 
         // Confirm before any I/O: single-row syncs are one click away in the Differences
         // list, so a mis-click must be cancellable while it still costs nothing.
@@ -902,7 +906,6 @@ public class FileSyncManager: ObservableObject {
             ))
             guard userConfirmed else {
                 Logger.shared.debug("Sync of \(difference.relativePath) cancelled at the confirmation prompt")
-                clearSyncing(ids: [difference.id])
                 return false
             }
         }
@@ -913,7 +916,6 @@ public class FileSyncManager: ObservableObject {
         // URL comes out of here, so that case becomes a normal Replace/Keep Both/Skip prompt.
         switch checkDestinationName(for: toURL, isMove: isMove) {
         case .skip:
-            clearSyncing(ids: [difference.id])
             return false
         case .sanitized(let sanitizedURL):
             toURL = sanitizedURL
@@ -954,7 +956,6 @@ public class FileSyncManager: ObservableObject {
         var replaceSanctioned = false
         if destinationExists {
             guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: destinationIsDirectory) else {
-                clearSyncing(ids: [difference.id])
                 return false
             }
             replaceSanctioned = (resolvedURL == toURL)
@@ -973,7 +974,6 @@ public class FileSyncManager: ObservableObject {
             let (newlyAppeared, newlyAppearedIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             if newlyAppeared {
                 guard let resolvedURL = await resolveCollision(at: toURL, isDirectory: newlyAppearedIsDirectory) else {
-                    clearSyncing(ids: [difference.id])
                     return false
                 }
                 toURL = resolvedURL
@@ -1008,8 +1008,6 @@ public class FileSyncManager: ObservableObject {
                 // and an Escape reflex would silently swallow the retry.
                 retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove, confirmed: true) } }
             )
-
-            clearSyncing(ids: [difference.id])
             return false
         } else {
             Logger.shared.info("Synced file: \(difference.relativePath)")

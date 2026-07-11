@@ -232,6 +232,22 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(body == "From: /Left/Documents\nTo: /Right/Documents")
     }
 
+    @Test func testMoveConfirmationStatesTheRemoval() {
+        // Copy and move dialogs otherwise differ by one verb; a move must state its
+        // destructive half (the sentence the retired NativeAlerts.confirmMove carried).
+        let single = TransferSummary(isMove: true, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/L", destinationDirectory: "/R")
+        #expect(SyncOperationAlerts.transferConfirmationInformativeText(single)
+            .hasSuffix("The item will be removed from the original location."))
+
+        let bulk = TransferSummary(isMove: true, itemCount: 3, firstItemName: "a.txt", sourceDirectory: "/L", destinationDirectory: "/R")
+        #expect(SyncOperationAlerts.transferConfirmationInformativeText(bulk)
+            .hasSuffix("The items will be removed from the original location."))
+
+        // Copies must NOT carry the removal sentence.
+        let copy = TransferSummary(isMove: false, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/L", destinationDirectory: "/R")
+        #expect(!SyncOperationAlerts.transferConfirmationInformativeText(copy).contains("removed"))
+    }
+
     @Test func testDisplayPathAbbreviatesHome() {
         let home = NSHomeDirectory()
         #expect(SyncOperationAlerts.displayPath("\(home)/Documents") == "~/Documents")

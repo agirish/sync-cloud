@@ -27,8 +27,6 @@ public struct NativeAlerts {
 
     /// Shared confirm/cancel warning alert behind `confirmDelete` (following
     /// the `promptForName` pattern below): the caller supplies only the strings that differ.
-    /// (`confirmMove` used to live here too; move confirmation moved into the sync layer's
-    /// Settings-gated `transferConfirmer`, which shows From/To details.)
     /// - Returns: True if the user chose the confirm button.
     private static func confirmAction(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         let alert = NSAlert()

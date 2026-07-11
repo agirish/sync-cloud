@@ -130,9 +130,13 @@ struct SyncOperationAlerts {
 
     /// Full From/To body of the transfer confirmation, naming both folders in
     /// home-abbreviated (`~/…`) form — the message line only carries the destination's
-    /// last component, so this is where the full locations live.
+    /// last component, so this is where the full locations live. A move also states its
+    /// destructive half: copy and move dialogs otherwise differ by a single verb, and a
+    /// drag-move is one modifier-key slip away from a copy.
     nonisolated static func transferConfirmationInformativeText(_ summary: TransferSummary) -> String {
-        "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
+        let body = "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
+        guard summary.isMove else { return body }
+        return body + "\n\nThe \(summary.itemCount == 1 ? "item" : "items") will be removed from the original location."
     }
 
     /// Asks the user to confirm a copy/move before it starts. Return confirms (the operation

@@ -94,10 +94,8 @@ public class FileActionHandler {
     }
 
     /// Moves the given items to the opposite pane. Returns the nodes that were moved.
-    /// Confirmation lives in the sync layer (`transferConfirmer`: Settings-gated, with
-    /// From/To details) — the `NativeAlerts.confirmMove` guard this method used to run made
-    /// every move double-prompt once that seam landed, and it ignored the
-    /// "Confirm before copying or moving" setting.
+    /// Confirmation lives in the sync layer's Settings-gated `transferConfirmer` — do not
+    /// add a prompt here; a second one makes every move double-confirm.
     /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
@@ -154,8 +152,8 @@ public class FileActionHandler {
     /// Moves the given items into the directory at `destinationPath`.
     /// This is drag & drop's move route; unlike the cut+paste route it never touches the
     /// internal clipboard, and unlike the pane-to-pane move it targets an explicit directory.
-    /// Confirmation lives in the sync layer's `transferConfirmer` (see the pane-to-pane
-    /// `moveItems` above for why no `NativeAlerts.confirmMove` runs here).
+    /// Confirmation lives in the sync layer's `transferConfirmer` (same as the pane-to-pane
+    /// `moveItems` above — no prompt here).
     public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
         Logger.shared.info("User initiating move of \(nodes.count) items to a dropped-on directory")
