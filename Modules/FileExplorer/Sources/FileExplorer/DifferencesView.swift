@@ -7,6 +7,10 @@ import Design
 /// List of all differences between the two panes with actions to copy or move each item left or right.
 public struct DifferencesView: View {
     @ObservedObject public var syncManager: FileSyncManager
+    /// Host-owned review state: this view is conditionally mounted (bottom tab; empty live
+    /// list), so a session kept in `@State` here would die on any unmount. The host's store
+    /// keeps it alive — and keeps the view mounted — for the whole review.
+    @ObservedObject private var reviewStore: ReviewSessionStore
     @StateObject private var modifierTracker = ModifierTracker()
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -18,28 +22,26 @@ public struct DifferencesView: View {
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
     @State private var isSearchExpanded = false
     @FocusState private var searchFocused: Bool
-    /// Non-nil while the inline guided review is active (the header's "Review…" mode).
-    @State private var reviewSession: ReviewSession? = nil
     /// The review table's selection — doubles as the review cursor: advancing the session moves
     /// it, and clicking a pending row jumps the session. Separate from `selection` so entering
     /// and leaving review mode can't corrupt the normal table's selection.
     @State private var reviewSelection = Set<FileDifference.ID>()
     /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
     @State private var reviewFocusNudge = 0
-    /// True while the review's current item is being copied/moved: gates the card's decision
-    /// buttons/keys AND the header's "Copy Remaining…" (which would double-target the in-flight,
-    /// still-undecided item).
-    @State private var isReviewActing = false
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
     /// Leading accessory rendered at the start of the header row — the host passes the
     /// Differences/Details tab picker here so the tabs merge into this single toolbar.
     private let leadingHeader: AnyView?
-    /// - Parameter onQuickLook: Presents a Quick Look preview for the given file. The app
-    ///   routes this to the same `quickLookPreview` binding the spacebar shortcut uses, so
-    ///   there is a single presenter; `nil` hides the Quick Look menu items.
-    public init(syncManager: FileSyncManager, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, leadingHeader: AnyView? = nil) {
+    /// - Parameters:
+    ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
+    ///     created inline here — a per-render store would reset the session every render).
+    ///   - onQuickLook: Presents a Quick Look preview for the given file. The app routes this
+    ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
+    ///     single presenter; `nil` hides the Quick Look menu items.
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, leadingHeader: AnyView? = nil) {
         self.syncManager = syncManager
+        self.reviewStore = reviewStore
         self.paneNames = paneNames
         self.onQuickLook = onQuickLook
         self.leadingHeader = leadingHeader
@@ -82,13 +84,13 @@ public struct DifferencesView: View {
                     if let leadingHeader {
                         leadingHeader
                     }
-                    if let session = reviewSession {
+                    if let session = reviewStore.session {
                         reviewHeaderControls(session)
                     } else {
                         standardHeaderControls(targets: targets, sorted: sorted)
                     }
                 }
-                if reviewSession == nil, isSearchExpanded || !searchText.isEmpty {
+                if reviewStore.session == nil, isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
                 }
             }
@@ -106,7 +108,7 @@ public struct DifferencesView: View {
 
             // Table card: review card / progress (during ops) sits above the differences table.
             VStack(spacing: 0) {
-                if let session = reviewSession {
+                if let session = reviewStore.session {
                     reviewSection(session)
                 } else {
                     standardTableSection(sorted: sorted)
@@ -120,20 +122,27 @@ public struct DifferencesView: View {
         // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
         // only — decided rows snap the highlight back), and a session advance re-highlights.
         .onChange(of: reviewSelection) { _, newSelection in
-            guard let session = reviewSession else { return }
+            guard let session = reviewStore.session else { return }
             // Any click hands key focus to the Table; send it back to the card.
             reviewFocusNudge += 1
             guard let id = newSelection.first, id != session.current?.id else { return }
             var updated = session
             if updated.jump(to: id) {
-                reviewSession = updated
+                reviewStore.session = updated
             } else {
                 reviewSelection = session.current.map { [$0.id] } ?? []
             }
         }
-        .onChange(of: reviewSession?.currentIndex) { _, _ in
-            guard let session = reviewSession else { return }
+        .onChange(of: reviewStore.session?.currentIndex) { _, _ in
+            guard let session = reviewStore.session else { return }
             reviewSelection = session.current.map { [$0.id] } ?? []
+        }
+        // Remount mid-review (Details tab peek and back): the session lives in the store, but
+        // the cursor highlight is view `@State` — re-seed it from the surviving session.
+        .onAppear {
+            if let current = reviewStore.session?.current {
+                reviewSelection = [current.id]
+            }
         }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
@@ -281,7 +290,7 @@ public struct DifferencesView: View {
             .buttonStyle(.bordered)
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
-            .disabled(isReviewActing || isSyncActionBlocked)
+            .disabled(reviewStore.isActing || isSyncActionBlocked)
             .help("\(session.isMove ? "Move" : "Copy") every remaining item without further review")
         }
         Button {
@@ -304,7 +313,7 @@ public struct DifferencesView: View {
             accent: glassHue.accentColor,
             fileManager: syncManager.fileManager,
             onQuickLook: onQuickLook,
-            isActing: isReviewActing,
+            isActing: reviewStore.isActing,
             focusNudge: reviewFocusNudge,
             onPrimary: { reviewPrimary($0) },
             onSkip: { reviewSkip($0) },
@@ -387,7 +396,7 @@ public struct DifferencesView: View {
             "Review started: \(queue.count) item(s)"
             + "\(session.isMove ? " (move)" : "")"
             + " (\(targets.isSelectionScoped ? "selection" : "filtered set"))")
-        reviewSession = session
+        reviewStore.session = session
         selection.removeAll()
         reviewSelection = queue.first.map { [$0.id] } ?? []
     }
@@ -397,20 +406,20 @@ public struct DifferencesView: View {
     /// `syncFile`'s return value, NOT from inspecting the differences list: the post-operation
     /// rescan regenerates row UUIDs mid-session, which would make any list-based check lie.
     private func reviewPrimary(_ item: FileDifference) {
-        guard let session = reviewSession, !isReviewActing else { return }
-        isReviewActing = true
+        guard let session = reviewStore.session, !reviewStore.isActing else { return }
+        reviewStore.isActing = true
         let isMove = session.isMove
         Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
         Task { @MainActor in
             let succeeded = await syncManager.syncFile(item, isMove: isMove)
-            isReviewActing = false
+            reviewStore.isActing = false
             // Not copied = failure or Skip at the collision prompt; both already told the user.
             applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id)
         }
     }
 
     private func reviewSkip(_ item: FileDifference) {
-        guard !isReviewActing else { return }
+        guard !reviewStore.isActing else { return }
         applyReviewOutcome(.skipped, for: item.id)
     }
 
@@ -418,39 +427,39 @@ public struct DifferencesView: View {
     /// the copy ran) and guarded on the session still existing — a decision arriving after Exit
     /// tore the session down is dropped instead of resurrecting it.
     private func applyReviewOutcome(_ outcome: ReviewSession.Outcome, for id: UUID) {
-        guard var session = reviewSession else { return }
+        guard var session = reviewStore.session else { return }
         session.record(outcome, for: id)
-        reviewSession = session
+        reviewStore.session = session
         if session.isComplete { finishReview() }
     }
 
     /// Records a per-item Verify verdict; same teardown guard as outcomes.
     private func reviewVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID) {
-        guard var session = reviewSession else { return }
+        guard var session = reviewStore.session else { return }
         session.recordVerdict(verdict, for: id)
-        reviewSession = session
+        reviewStore.session = session
     }
 
     /// Tears the session down after the last item was decided, summarizing into a banner.
     private func finishReview() {
-        guard let session = reviewSession else { return }
+        guard let session = reviewStore.session else { return }
         let verb = session.isMove ? "moved" : "copied"
         Logger.shared.info("Review complete: \(session.copiedCount) \(verb), \(session.skippedCount) skipped of \(session.total)")
         syncManager.banner = .success("Review complete — \(session.copiedCount) \(verb), \(session.skippedCount) skipped")
-        reviewSession = nil
+        reviewStore.session = nil
         reviewSelection = []
     }
 
     /// Exits mid-review (Esc / the header button), summarizing what already happened when
     /// anything did.
     private func exitReview() {
-        guard let session = reviewSession else { return }
+        guard let session = reviewStore.session else { return }
         Logger.shared.debug("Review exited at \(session.position) of \(session.total)")
         if session.copiedCount > 0 {
             let verb = session.isMove ? "moved" : "copied"
             syncManager.banner = .success("Review ended — \(session.copiedCount) \(verb), \(session.skippedCount) skipped, \(session.pending.count) not reviewed")
         }
-        reviewSession = nil
+        reviewStore.session = nil
         reviewSelection = []
     }
 
@@ -460,7 +469,7 @@ public struct DifferencesView: View {
         let remaining = session.pending
         let isMove = session.isMove
         Logger.shared.debug("Review: \(isMove ? "move" : "copy") remaining \(remaining.count) item(s)")
-        reviewSession = nil
+        reviewStore.session = nil
         reviewSelection = []
         if remaining.count == 1, let single = remaining.first {
             Task { await syncManager.syncFile(single, isMove: isMove) }

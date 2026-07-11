@@ -1,5 +1,26 @@
+import Combine
 import Foundation
 import Sync
+
+/// Owns the review session ACROSS `DifferencesView` mounts. The view is conditionally mounted
+/// by the host (bottom tab, and an empty differences list unmounts it), so session state kept
+/// in the view's `@State` would die on a tab peek or when an external change resolves the last
+/// live difference mid-review. The host holds this store as `@StateObject` and keeps the view
+/// mounted while `isReviewing`; a decision completing while the view happens to be unmounted
+/// still lands here.
+@MainActor
+public final class ReviewSessionStore: ObservableObject {
+    /// The active session; nil when not reviewing. Internal — hosts only ask `isReviewing`.
+    @Published var session: ReviewSession? = nil
+    /// True while the current item's copy/move runs. Lives here, not in view `@State`, so a
+    /// remount mid-operation can't re-enable the decision buttons and double-fire the item.
+    @Published var isActing: Bool = false
+
+    public init() {}
+
+    /// Whether a review session is active — the host's mount condition.
+    public var isReviewing: Bool { session != nil }
+}
 
 /// State machine for the inline guided review (the Differences header's "Review…" mode):
 /// a queue of differences frozen when the session starts, a cursor, and per-item outcomes.

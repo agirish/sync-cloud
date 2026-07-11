@@ -42,6 +42,10 @@ struct ContentView: View {
     @State var quickLookURL: URL? = nil
     @State var showingBottomPane: Bool = true
     @State private var isBootstrappingProviders: Bool = true
+    /// Guided-review state, owned here so it outlives DifferencesView — that view unmounts on
+    /// a Details-tab peek and whenever the live differences list goes empty, and the session
+    /// (plus any in-flight copy's outcome) must survive both.
+    @StateObject private var reviewStore = ReviewSessionStore()
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
@@ -686,9 +690,11 @@ struct ContentView: View {
         // Stable outer container: keeps this bottom pane's identity constant across tab
         // switches, so selecting Details doesn't reset the vertical split or collapse the panes.
         VStack(spacing: 0) {
-        if selectedBottomTab == .differences && !syncManager.differences.isEmpty {
+        // An active review keeps the view mounted through an empty live list: an external
+        // change resolving the last live difference mid-review must not vanish the session.
+        if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
-            DifferencesView(syncManager: syncManager, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
         } else {
             // Details / empty / no-scan: a slim tabs card, then the content as its own card.
             VStack(spacing: 8) {

@@ -61,7 +61,7 @@ extension FileSyncManager {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
         }
-        removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
+        removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {
@@ -310,7 +310,7 @@ extension FileSyncManager {
                 registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             }
         }
-        removeResolvedDifferences(ids: Set(result.successes.map { $0.0.id }))
+        removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
         if result.failures.count == 1, let (diff, error) = result.failures.first {

@@ -145,3 +145,21 @@ import Sync
         #expect(session.pending.map(\.id) == [queue[0].id, queue[2].id])
     }
 }
+
+/// The host-owned store that carries a session across `DifferencesView` unmounts.
+@MainActor
+@Suite struct ReviewSessionStoreTests {
+
+    @Test func isReviewingTracksTheSession() {
+        let store = ReviewSessionStore()
+        #expect(!store.isReviewing)
+        store.session = ReviewSession(
+            queue: [FileDifference(
+                relativePath: "a", leftItemPath: "/l/a", rightItemPath: "/r/a",
+                type: .missingOnRight, action: .copyToRight, description: "test")],
+            isMove: false)
+        #expect(store.isReviewing)
+        store.session = nil
+        #expect(!store.isReviewing)
+    }
+}

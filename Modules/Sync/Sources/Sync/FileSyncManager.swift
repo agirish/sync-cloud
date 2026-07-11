@@ -347,6 +347,29 @@ public class FileSyncManager: ObservableObject {
         syncingDifferenceIds.subtract(ids)
     }
 
+    /// Removes resolved differences by id AND by (relativePath, action) identity. Sync callers
+    /// that operate on captured values (guided review's frozen queue, a Copy Remaining subset)
+    /// can outlive a rescan, which regenerates every row UUID — an id-only removal then no-ops
+    /// and the just-resolved row ghosts in the list until the next rescan lands. Matching by
+    /// the pending-copy identity is safe: the operation just equalized the two sides, and if
+    /// the file changed again inside that window, the operation's own triggered rescan re-adds
+    /// the row.
+    internal func removeResolvedDifferences(matching resolved: [FileDifference]) {
+        guard !resolved.isEmpty else { return }
+        let keys = Set(resolved.map(Self.pendingCopyKey))
+        var ids = Set(resolved.map(\.id))
+        // `differences` is a filtered subset of `rawDifferences`, so scanning raw covers both.
+        for row in rawDifferences where keys.contains(Self.pendingCopyKey(for: row)) {
+            ids.insert(row.id)
+        }
+        removeResolvedDifferences(ids: ids)
+    }
+
+    /// The identity of "this pending copy" across rescans (ids don't survive them).
+    private nonisolated static func pendingCopyKey(for difference: FileDifference) -> String {
+        "\(difference.action == .copyToRight ? "R" : "L")|\(difference.relativePath)"
+    }
+
     /// Marks the given differences as having an in-flight operation, in both the authoritative
     /// id set and the published rows. Counterpart of `clearSyncing(ids:)`; all `isSyncing`
     /// transitions must go through these two (see `syncingDifferenceIds`).
@@ -673,7 +696,7 @@ public class FileSyncManager: ObservableObject {
                     self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 }
             }
-            removeResolvedDifferences(ids: [difference.id])
+            removeResolvedDifferences(matching: [difference])
             return true
         }
     }

@@ -77,6 +77,51 @@ import Foundation
         #expect(manager.currentError == nil)
     }
 
+    /// A rescan mid-review regenerates every row UUID; syncing a value captured before it must
+    /// still clear the (re-idd) live row on success — id-only removal would ghost it until the
+    /// next rescan.
+    @MainActor
+    @Test func staleIdSuccessStillRemovesTheMatchingLiveRow() async throws {
+        let (manager, mockFM, diff) = try makeFixture()
+        // Simulate the rescan: same pending copy, brand-new UUID, in both live lists.
+        let reIdd = FileDifference(
+            relativePath: diff.relativePath,
+            leftItemPath: diff.leftItemPath,
+            rightItemPath: diff.rightItemPath,
+            type: diff.type,
+            action: diff.action,
+            description: diff.description
+        )
+        manager.rawDifferences = [reIdd]
+        manager.differences = [reIdd]
+
+        let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+        #expect(succeeded)
+        #expect(manager.differences.isEmpty)
+        #expect(manager.rawDifferences.isEmpty)
+    }
+
+    /// The path-matching fallback must not swallow OTHER rows: same path but the opposite
+    /// direction is a different pending copy and stays.
+    @MainActor
+    @Test func matchingRemovalLeavesOppositeDirectionRowsAlone() async throws {
+        let (manager, mockFM, diff) = try makeFixture()
+        let oppositeDirection = FileDifference(
+            relativePath: diff.relativePath,
+            leftItemPath: diff.leftItemPath,
+            rightItemPath: diff.rightItemPath,
+            type: .differentDates,
+            action: .copyToLeft,
+            description: "other way"
+        )
+        manager.rawDifferences = [diff, oppositeDirection]
+        manager.differences = [diff, oppositeDirection]
+
+        let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+        #expect(succeeded)
+        #expect(manager.differences.map(\.id) == [oppositeDirection.id])
+    }
+
     @MainActor
     @Test func failedOperationReturnsFalseAndPresentsTheError() async throws {
         let (manager, mockFM, diff) = try makeFixture()
