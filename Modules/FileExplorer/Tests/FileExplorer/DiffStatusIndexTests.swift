@@ -168,13 +168,8 @@ private func diff(
     }
 
     @Test func testBadgePresentationCoversAllDifferenceTypes() {
-        // Shape encodes meaning (colorblind-safe), color matches DifferenceRow.
-        #expect(FileRowView.badgeSymbol(for: .missingOnRight) == "arrow.right.circle")
-        #expect(FileRowView.badgeSymbol(for: .missingOnLeft) == "arrow.left.circle")
-        #expect(FileRowView.badgeSymbol(for: .differentDates) == "arrow.triangle.2.circlepath")
-        #expect(FileRowView.badgeColor(for: .missingOnRight) == .blue)
-        #expect(FileRowView.badgeColor(for: .missingOnLeft) == .purple)
-        #expect(FileRowView.badgeColor(for: .differentDates) == .orange)
+        // Symbol/color come straight from DifferenceGlyph (pinned in DifferenceGlyphTests);
+        // the badge's own contribution is the tooltip/accessibility wording.
         #expect(FileRowView.badgeHelp(for: .missingOnRight) == "Missing on right")
         #expect(FileRowView.badgeHelp(for: .missingOnLeft) == "Missing on left")
         #expect(FileRowView.badgeHelp(for: .differentDates) == "Different dates or sizes")

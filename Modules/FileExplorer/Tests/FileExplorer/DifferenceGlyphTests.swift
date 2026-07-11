@@ -35,11 +35,4 @@ import Sync
             }
         }
     }
-
-    @Test func testTreeBadgesUseTheSharedMapping() {
-        for type in Self.allTypes {
-            #expect(FileRowView.badgeSymbol(for: type) == DifferenceGlyph.symbol(for: type, filled: false))
-            #expect(FileRowView.badgeColor(for: type) == DifferenceGlyph.color(for: type))
-        }
-    }
 }

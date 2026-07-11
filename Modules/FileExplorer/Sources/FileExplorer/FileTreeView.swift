@@ -548,9 +548,9 @@ struct FileRowView: View {
             if let diffStatus {
                 // Shape encodes direction/kind so status is readable without color
                 // (colors match the Differences table in the Differences pane).
-                Image(systemName: Self.badgeSymbol(for: diffStatus))
+                Image(systemName: DifferenceGlyph.symbol(for: diffStatus, filled: false))
                     .font(.subheadline)
-                    .foregroundStyle(Self.badgeColor(for: diffStatus))
+                    .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
                     .help(Self.badgeHelp(for: diffStatus))
                     .accessibilityLabel(Self.badgeHelp(for: diffStatus))
             } else if containedDiffCount > 0 {
@@ -566,14 +566,6 @@ struct FileRowView: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
-    }
-
-    static func badgeSymbol(for type: FileDifference.DifferenceType) -> String {
-        DifferenceGlyph.symbol(for: type, filled: false)
-    }
-
-    static func badgeColor(for type: FileDifference.DifferenceType) -> Color {
-        DifferenceGlyph.color(for: type)
     }
 
     static func badgeHelp(for type: FileDifference.DifferenceType) -> String {
