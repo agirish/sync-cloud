@@ -122,6 +122,20 @@ extension FileSyncManager {
             ? ""
             : URL(fileURLWithPath: (destinationRoot as NSString).expandingTildeInPath).path
 
+        // Confirm before any I/O is queued: this is the seam that lets a mis-clicked
+        // Copy/Move be cancelled while it still costs nothing. Cancelling is not an error —
+        // no alert, no log entry, just nothing transferred.
+        if let first = prunedNodes.first {
+            let confirmed = transferConfirmer(TransferSummary(
+                isMove: isMove,
+                itemCount: prunedNodes.count,
+                firstItemName: first.name,
+                sourceDirectory: URL(fileURLWithPath: first.id).deletingLastPathComponent().path,
+                destinationDirectory: destinationRootPath
+            ))
+            guard confirmed else { return [] }
+        }
+
         let progress: Progress? = total > 0 ? Progress(totalUnitCount: total) : nil
         if let progress {
             progress.localizedDescription = "\(isMove ? "Moving" : "Copying") \(total) Items"
@@ -177,9 +191,13 @@ extension FileSyncManager {
                     // folder replaces its whole contents (Finder-style), not just a same-named file.
                     var targetIsDir: ObjCBool = false
                     if fm.fileExists(atPath: targetURL.path, isDirectory: &targetIsDir) {
-                        let tName = targetURL.lastPathComponent
-                        let tIsDir = targetIsDir.boolValue
-                        let resolution = await MainActor.run { resolveCollision(tName, isMove, tIsDir) }
+                        let collision = FileCollision(
+                            sourcePath: sourceURL.path,
+                            destinationPath: targetURL.path,
+                            isMove: isMove,
+                            isDirectory: targetIsDir.boolValue
+                        )
+                        let resolution = await MainActor.run { resolveCollision(collision) }
                         switch resolution {
                         case .replace: break
                         case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)

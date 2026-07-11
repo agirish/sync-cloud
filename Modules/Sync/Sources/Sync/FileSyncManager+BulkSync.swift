@@ -174,6 +174,21 @@ extension FileSyncManager {
             banner = .warning("Wait for the current operation to finish before syncing")
             return
         }
+        // Confirm before any I/O (and before the run claims the bulk-sync flag): a bulk sync
+        // is one header click away, so a mis-click must be cancellable while it still costs
+        // nothing. The prompt names the two compared folders of the first item — every item
+        // in one direction shares them.
+        if let first = toSync.first {
+            let containers = first.transferContainers
+            let confirmed = transferConfirmer(TransferSummary(
+                isMove: isMove,
+                itemCount: total,
+                firstItemName: first.transferURLs.from.lastPathComponent,
+                sourceDirectory: containers.from,
+                destinationDirectory: containers.to
+            ))
+            guard confirmed else { return }
+        }
         isBulkSyncRunning = true
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
@@ -243,13 +258,17 @@ extension FileSyncManager {
                 (destinationOccupied, destinationIsDirectory) = await Self.statExists(at: toURL, fileManager: activeFM)
             }
             if destinationOccupied {
-                let fileName = toURL.lastPathComponent
                 let resolution: CollisionResolution
                 if let cached = bulkApplyToAllResolution {
                     resolution = cached
                 } else {
                     promptShownSinceStatPass = true
-                    let (res, applyToAll) = bulkCollisionResolver(fileName, isMove, destinationIsDirectory)
+                    let (res, applyToAll) = bulkCollisionResolver(FileCollision(
+                        sourcePath: candidate.fromURL.path,
+                        destinationPath: toURL.path,
+                        isMove: isMove,
+                        isDirectory: destinationIsDirectory
+                    ))
                     if applyToAll { bulkApplyToAllResolution = res }
                     resolution = res
                 }

@@ -72,8 +72,8 @@ import Foundation
     @MainActor
     private func manager() -> FileSyncManager {
         let m = FileSyncManager()
-        m.collisionResolver = { _, _, _ in .replace }
-        m.bulkCollisionResolver = { _, _, _ in (.replace, false) }
+        m.collisionResolver = { _ in .replace }
+        m.bulkCollisionResolver = { _ in (.replace, false) }
         m.permanentDeleteConfirmer = { _ in true }
         return m
     }

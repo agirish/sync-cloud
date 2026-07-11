@@ -75,8 +75,8 @@ import Foundation
     private func makeManager() -> FileSyncManager {
         let manager = FileSyncManager()
         manager.undoManager = UndoManager()
-        manager.collisionResolver = { _, _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _, _ in (.replace, false) }
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, false) }
         manager.permanentDeleteConfirmer = { _ in false }
         return manager
     }
@@ -140,7 +140,7 @@ import Foundation
     @MainActor
     @Test func testUndoOfKeepBothCopyRemovesOnlyUniquifiedCopy() async throws {
         let manager = makeManager()
-        manager.collisionResolver = { _, _, _ in .keepBoth }
+        manager.collisionResolver = { _ in .keepBoth }
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)

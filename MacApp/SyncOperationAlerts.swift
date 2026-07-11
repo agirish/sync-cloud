@@ -9,24 +9,36 @@ import Sync
 @MainActor
 struct SyncOperationAlerts {
 
-    /// Builds the alert's informative text. For a folder collision it adds Finder's
+    /// Home-abbreviated (`~/…`) display form of an absolute path, so the alert's From/To
+    /// lines stay readable for the deep `~/Library/CloudStorage/…` provider roots.
+    nonisolated static func displayPath(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Builds the alert's informative text. Names both locations — the item being copied and
+    /// the item it would replace — because the message line's "this location" is otherwise
+    /// ambiguous in a two-pane app. For a folder collision it adds Finder's
     /// wholesale-replacement warning, since Replace trashes the entire existing folder —
     /// including items that exist only there — not just the same-named file.
     /// Pure (no AppKit) so it can be unit-tested and so file vs. folder wording can't drift.
-    nonisolated static func collisionInformativeText(isMove: Bool, isDirectory: Bool) -> String {
-        let base = "Do you want to replace it with the one you're \(isMove ? "moving" : "copying")?"
-        guard isDirectory else { return base }
-        return base + " Replacing a folder replaces its entire contents. "
-            + "Items that exist only in the destination folder will be moved to the Trash."
+    nonisolated static func collisionInformativeText(_ collision: FileCollision) -> String {
+        var text = "Do you want to replace it with the one you're \(collision.isMove ? "moving" : "copying")?"
+        if collision.isDirectory {
+            text += " Replacing a folder replaces its entire contents. "
+                + "Items that exist only in the destination folder will be moved to the Trash."
+        }
+        text += "\n\n\(collision.isMove ? "Moving" : "Copying"): \(displayPath(collision.sourcePath))"
+        text += "\nReplacing: \(displayPath(collision.destinationPath))"
+        return text
     }
 
     /// The collision alert shared by both prompts below: identical text, buttons, and
     /// response mapping — the only variation between them is the optional accessory view,
     /// so the two can't drift apart.
-    private static func runCollisionAlert(fileName: String, isMove: Bool, isDirectory: Bool, accessoryView: NSView?) -> CollisionResolution {
+    private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
         let alert = NSAlert()
-        alert.messageText = "An item named \"\(fileName)\" already exists in this location."
-        alert.informativeText = collisionInformativeText(isMove: isMove, isDirectory: isDirectory)
+        alert.messageText = "An item named \"\(collision.fileName)\" already exists in this location."
+        alert.informativeText = collisionInformativeText(collision)
         alert.accessoryView = accessoryView
 
         // Buttons added right to left.
@@ -47,13 +59,13 @@ struct SyncOperationAlerts {
     }
 
     /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
-    static func promptForCollision(fileName: String, isMove: Bool, isDirectory: Bool) -> CollisionResolution {
-        runCollisionAlert(fileName: fileName, isMove: isMove, isDirectory: isDirectory, accessoryView: nil)
+    static func promptForCollision(_ collision: FileCollision) -> CollisionResolution {
+        runCollisionAlert(collision, accessoryView: nil)
     }
 
     /// Presents a collision resolution alert with an "Apply to all" option for bulk sync.
     /// - Returns: The chosen resolution and whether to apply it to all remaining conflicts in this bulk run.
-    static func promptForCollisionWithApplyToAll(fileName: String, isMove: Bool, isDirectory: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) {
+    static func promptForCollisionWithApplyToAll(_ collision: FileCollision) -> (resolution: CollisionResolution, applyToAll: Bool) {
         let checkbox = NSButton(checkboxWithTitle: "Apply to all for remaining conflicts", target: nil, action: nil)
         checkbox.state = .off
         checkbox.sizeToFit()
@@ -61,8 +73,35 @@ struct SyncOperationAlerts {
         checkbox.frame.origin = CGPoint(x: 0, y: 0)
         accessory.addSubview(checkbox)
 
-        let resolution = runCollisionAlert(fileName: fileName, isMove: isMove, isDirectory: isDirectory, accessoryView: accessory)
+        let resolution = runCollisionAlert(collision, accessoryView: accessory)
         return (resolution, checkbox.state == .on)
+    }
+
+    /// Message line of the transfer confirmation: verb + what + where, e.g.
+    /// `Copy "Resume.docx" to "Documents"?` or `Move 3 items to "Documents"?`.
+    /// Pure so the single/plural and copy/move wording is unit-testable.
+    nonisolated static func transferConfirmationMessage(_ summary: TransferSummary) -> String {
+        let verb = summary.isMove ? "Move" : "Copy"
+        let what = summary.itemCount == 1 ? "\"\(summary.firstItemName)\"" : "\(summary.itemCount) items"
+        let destinationName = (summary.destinationDirectory as NSString).lastPathComponent
+        return "\(verb) \(what) to \"\(destinationName)\"?"
+    }
+
+    /// Full From/To body of the transfer confirmation, naming both folders unabridged.
+    nonisolated static func transferConfirmationInformativeText(_ summary: TransferSummary) -> String {
+        "From: \(displayPath(summary.sourceDirectory))\nTo: \(displayPath(summary.destinationDirectory))"
+    }
+
+    /// Asks the user to confirm a copy/move before it starts. Return confirms (the operation
+    /// is recoverable — replaces prompt separately and everything is undoable); Escape cancels.
+    /// - Returns: True to proceed with the transfer.
+    static func confirmTransfer(_ summary: TransferSummary) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = transferConfirmationMessage(summary)
+        alert.informativeText = transferConfirmationInformativeText(summary)
+        alert.addButton(withTitle: summary.isMove ? "Move" : "Copy") // Return key default
+        alert.addButton(withTitle: "Cancel")                         // Escape
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).

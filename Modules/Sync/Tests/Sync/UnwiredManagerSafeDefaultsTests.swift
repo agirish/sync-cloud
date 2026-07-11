@@ -11,15 +11,20 @@ import Foundation
 
     // MARK: - Default seam values (headless by construction)
 
+    /// A collision context with the given flags, for exercising the default seams directly.
+    private static func collision(isMove: Bool = false, isDirectory: Bool = false) -> FileCollision {
+        FileCollision(sourcePath: "/src/collide.txt", destinationPath: "/dst/collide.txt", isMove: isMove, isDirectory: isDirectory)
+    }
+
     /// The default single-item resolver answers `.skip` for both copies and moves, without UI.
     @MainActor
     @Test func testDefaultCollisionResolverSkips() {
         let manager = FileSyncManager()
 
-        #expect(manager.collisionResolver("collide.txt", false, false) == .skip)
-        #expect(manager.collisionResolver("collide.txt", true, false) == .skip)
+        #expect(manager.collisionResolver(Self.collision(isMove: false)) == .skip)
+        #expect(manager.collisionResolver(Self.collision(isMove: true)) == .skip)
         // A folder collision defaults to skip too — the isDirectory flag only affects wording.
-        #expect(manager.collisionResolver("collideFolder", false, true) == .skip)
+        #expect(manager.collisionResolver(Self.collision(isDirectory: true)) == .skip)
     }
 
     /// The default bulk resolver skips the conflicting item and does not latch "apply to all",
@@ -28,9 +33,19 @@ import Foundation
     @Test func testDefaultBulkCollisionResolverSkipsWithoutApplyToAll() {
         let manager = FileSyncManager()
 
-        let (resolution, applyToAll) = manager.bulkCollisionResolver("collide.txt", false, false)
+        let (resolution, applyToAll) = manager.bulkCollisionResolver(Self.collision())
         #expect(resolution == .skip)
         #expect(applyToAll == false)
+    }
+
+    /// The default transfer confirmer proceeds without UI — an unwired manager keeps its
+    /// pre-confirmation behavior (transfers just run; replaces still prompt separately).
+    @MainActor
+    @Test func testDefaultTransferConfirmerProceeds() {
+        let manager = FileSyncManager()
+
+        let summary = TransferSummary(isMove: false, itemCount: 1, firstItemName: "a.txt", sourceDirectory: "/src", destinationDirectory: "/dst")
+        #expect(manager.transferConfirmer(summary) == true)
     }
 
     /// The default permanent-delete confirmer refuses, without UI.

@@ -20,8 +20,8 @@ import Foundation
         }
 
         let manager = FileSyncManager(fileManager: mockFM)
-        manager.collisionResolver = { _, _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
 
         let diff = FileDifference(
             relativePath: "test.txt",
@@ -57,7 +57,7 @@ import Foundation
     @MainActor
     @Test func keepBothReturnsTrue() async throws {
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
-        manager.collisionResolver = { _, _, _ in .keepBoth }
+        manager.collisionResolver = { _ in .keepBoth }
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(succeeded)
         // Original untouched; the copy landed at a unique sibling.
@@ -68,7 +68,7 @@ import Foundation
     @MainActor
     @Test func skipAtCollisionReturnsFalse() async throws {
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
-        manager.collisionResolver = { _, _, _ in .skip }
+        manager.collisionResolver = { _ in .skip }
         let succeeded = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
         #expect(!succeeded)
         // Nothing happened: no trash, difference still live, no error presented.
@@ -134,7 +134,7 @@ import Foundation
     @MainActor
     @Test func keepBothWithStaleIdReturnsTrueAndRemovesTheRow() async throws {
         let (manager, mockFM, diff) = try makeFixture(destinationExists: true)
-        manager.collisionResolver = { _, _, _ in .keepBoth }
+        manager.collisionResolver = { _ in .keepBoth }
         let reIdd = FileDifference(
             relativePath: diff.relativePath,
             leftItemPath: diff.leftItemPath,

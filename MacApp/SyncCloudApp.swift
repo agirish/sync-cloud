@@ -42,19 +42,25 @@ struct SyncCloudApp: App {
         // Each prompt first consults the user's standing conflict policy (Settings → Sync),
         // re-read per collision so a Settings change applies to the very next conflict;
         // folder collisions always fall through to the prompt (see ConflictPolicy).
-        manager.collisionResolver = { fileName, isMove, isDirectory in
-            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: isDirectory) {
-                Logger.shared.info("Collision on \"\(fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
+        manager.collisionResolver = { collision in
+            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: collision.isDirectory) {
+                Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
                 return auto
             }
-            return SyncOperationAlerts.promptForCollision(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
+            return SyncOperationAlerts.promptForCollision(collision)
         }
-        manager.bulkCollisionResolver = { fileName, isMove, isDirectory in
-            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: isDirectory) {
-                Logger.shared.info("Collision on \"\(fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
+        manager.bulkCollisionResolver = { collision in
+            if let auto = ConflictPolicy.persisted().autoResolution(isDirectory: collision.isDirectory) {
+                Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(ConflictPolicy.persisted().displayName)")
                 return (auto, false)
             }
-            return SyncOperationAlerts.promptForCollisionWithApplyToAll(fileName: fileName, isMove: isMove, isDirectory: isDirectory)
+            return SyncOperationAlerts.promptForCollisionWithApplyToAll(collision)
+        }
+        // Copy/move confirmation, gated by Settings → Sync ("Confirm before copying or
+        // moving"). Re-read per transfer so a Settings change applies to the very next one.
+        manager.transferConfirmer = { summary in
+            guard GeneralSettings.shouldConfirmBeforeTransfer() else { return true }
+            return SyncOperationAlerts.confirmTransfer(summary)
         }
         manager.permanentDeleteConfirmer = { itemNames in
             SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)

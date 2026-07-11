@@ -17,6 +17,9 @@ public enum GeneralSettings {
     /// Bool (default true). When false, Delete acts immediately — items still go to the Trash
     /// and remain undoable. Read by `FileActionHandler.confirmDelete`.
     public static let confirmBeforeDeleteKey = "confirmBeforeDelete"
+    /// Bool (default true). When false, copies and moves start immediately without the
+    /// what-goes-where confirmation. Read by the app's `transferConfirmer` wiring.
+    public static let confirmBeforeTransferKey = "confirmBeforeCopyMove"
 
     /// Bool (default true). When false, panes always open at their provider roots instead of
     /// the folders they were focused on when the app last quit.
@@ -36,6 +39,11 @@ public enum GeneralSettings {
     /// would read an unset key as false and silently skip the alert).
     public static func shouldConfirmBeforeDelete(_ defaults: UserDefaults = .standard) -> Bool {
         (defaults.object(forKey: confirmBeforeDeleteKey) as? Bool) ?? true
+    }
+
+    /// The copy/move-confirmation flag with the same default-true semantics.
+    public static func shouldConfirmBeforeTransfer(_ defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: confirmBeforeTransferKey) as? Bool) ?? true
     }
 
     /// The restore-last-focus flag with its default-true semantics.
@@ -654,6 +662,7 @@ struct SyncSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
     let syncManager: FileSyncManager?
     @AppStorage(GeneralSettings.confirmBeforeDeleteKey) private var confirmBeforeDelete: Bool = true
+    @AppStorage(GeneralSettings.confirmBeforeTransferKey) private var confirmBeforeTransfer: Bool = true
     @State private var patternDraft = ""
 
     var body: some View {
@@ -691,11 +700,12 @@ struct SyncSettingsTab: View {
             }
 
             Section {
+                Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
                 Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
             } header: {
-                Text("Deleting")
+                Text("Confirmations")
             } footer: {
-                Text("Deleted items go to the Trash either way and can be restored with Undo.")
+                Text("Copies and moves first show what will be transferred and where. Deleted items go to the Trash either way and can be restored with Undo.")
             }
 
             Section {

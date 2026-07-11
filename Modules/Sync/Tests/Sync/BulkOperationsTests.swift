@@ -86,7 +86,7 @@ import Foundation
         let node = FileNode(id: "/src/report.pdf", name: "report.pdf", isDirectory: false)
         
         // Mock resolver to always "Keep Both"
-        manager.collisionResolver = { _, _, _ in .keepBoth }
+        manager.collisionResolver = { _ in .keepBoth }
         
         await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
@@ -109,7 +109,7 @@ import Foundation
         let node = FileNode(id: "/src/data.csv", name: "data.csv", isDirectory: false)
         
         // Mock resolver to "Replace"
-        manager.collisionResolver = { _, _, _ in .replace }
+        manager.collisionResolver = { _ in .replace }
         
         await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
@@ -132,7 +132,7 @@ import Foundation
         let node = FileNode(id: "/src/old.txt", name: "old.txt", isDirectory: false)
         
         // Mock resolver to "Skip"
-        manager.collisionResolver = { _, _, _ in .skip }
+        manager.collisionResolver = { _ in .skip }
         
         await manager.copyItems(nodes: [node], fromLeft: true, leftRoot: "/src", rightRoot: "/dst", fileManager: mockFM)
         
@@ -161,7 +161,7 @@ import Foundation
         // exactly the name keep-both wants for the first item.
         mockFM.virtualDisk["/src/report 2.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 200], contents: nil)
 
-        manager.bulkCollisionResolver = { _, _, _ in (.keepBoth, true) }
+        manager.bulkCollisionResolver = { _ in (.keepBoth, true) }
 
         let d1 = FileDifference(relativePath: "report.txt", leftItemPath: "/src/report.txt", rightItemPath: "/dst/report.txt", type: .differentDates, action: .copyToRight, description: "collision")
         let d2 = FileDifference(relativePath: "report 2.txt", leftItemPath: "/src/report 2.txt", rightItemPath: "/dst/report 2.txt", type: .missingOnRight, action: .copyToRight, description: "missing")

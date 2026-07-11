@@ -83,6 +83,17 @@ import Foundation
         #expect(GeneralSettings.shouldConfirmBeforeDelete(test.defaults))
     }
 
+    @Test func testShouldConfirmBeforeTransferDefaultsToTrue() {
+        // Default-true semantics like the delete flag: an unset key must confirm, not skip.
+        let test = TestDefaults()
+        defer { test.wipe() }
+        #expect(GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
+        test.defaults.set(false, forKey: GeneralSettings.confirmBeforeTransferKey)
+        #expect(!GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
+        test.defaults.set(true, forKey: GeneralSettings.confirmBeforeTransferKey)
+        #expect(GeneralSettings.shouldConfirmBeforeTransfer(test.defaults))
+    }
+
     @MainActor
     @Test func testResetAllSettingsWipesTheDomainAndRepublishesDefaults() {
         let test = TestDefaults()

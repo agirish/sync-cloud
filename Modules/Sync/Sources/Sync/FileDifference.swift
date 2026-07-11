@@ -116,6 +116,22 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             : (URL(fileURLWithPath: rightItemPath), URL(fileURLWithPath: leftItemPath))
     }
 
+    /// The two compared folders this difference's transfer runs between, in `action` direction:
+    /// each item path minus the shared root-relative suffix. This names the panes' focused
+    /// folders (what the user is looking at), where the item's immediate parent could be an
+    /// arbitrarily deep subfolder of them. Falls back to the immediate parents if an item path
+    /// doesn't end in `relativePath` (never true for engine-built differences).
+    var transferContainers: (from: String, to: String) {
+        let urls = transferURLs
+        func container(of path: String) -> String {
+            guard path.hasSuffix("/" + relativePath) else {
+                return (path as NSString).deletingLastPathComponent
+            }
+            return String(path.dropLast(relativePath.count + 1))
+        }
+        return (container(of: urls.from.path), container(of: urls.to.path))
+    }
+
     /// Flips the side-relative wording in a description ("Missing on right (iCloud)" →
     /// "Missing on left (iCloud)"). Provider display names travel with their files in a swap,
     /// so they stay correct untouched; only "on left"/"on right" phrases are side-relative,

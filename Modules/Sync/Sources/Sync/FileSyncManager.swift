@@ -13,17 +13,27 @@ public class FileSyncManager: ObservableObject {
     /// A closure that resolves naming collisions during file operations.
     /// Defaults to `.skip` so an unwired manager never overwrites existing files.
     /// The app wires an NSAlert-backed prompt at construction; tests inject specific resolutions.
-    /// The trailing `isDirectory` flag reflects the colliding destination item, so the prompt can
-    /// warn that replacing a folder replaces its whole contents (not just the same-named file).
-    public var collisionResolver: @MainActor (_ fileName: String, _ isMove: Bool, _ isDirectory: Bool) -> CollisionResolution = { _, _, _ in
+    /// The `FileCollision` carries the source and destination paths (so the prompt can say
+    /// which copy is replacing which) and whether the colliding destination is a folder (so
+    /// it can warn that replacing a folder replaces its whole contents).
+    public var collisionResolver: @MainActor (FileCollision) -> CollisionResolution = { _ in
         return .skip
     }
 
     /// The bulk-sync variant of `collisionResolver`, adding an "Apply to all" choice.
     /// Defaults to skipping the conflicting item; the app wires an NSAlert-backed prompt at construction.
-    /// The trailing `isDirectory` flag carries the same folder-replacement warning signal.
-    public var bulkCollisionResolver: @MainActor (_ fileName: String, _ isMove: Bool, _ isDirectory: Bool) -> (resolution: CollisionResolution, applyToAll: Bool) = { _, _, _ in
+    public var bulkCollisionResolver: @MainActor (FileCollision) -> (resolution: CollisionResolution, applyToAll: Bool) = { _ in
         return (.skip, false)
+    }
+
+    /// Confirms a copy/move before any I/O starts — every transfer entry point
+    /// (`transferItems`, `syncFile`, `syncAll`) asks it exactly once per user action, so a
+    /// stray click can be cancelled while it still costs nothing. Defaults to proceeding
+    /// (a transfer is recoverable: replaces are separately prompted and everything is
+    /// undoable); the app wires an NSAlert gated by the "Confirm before copying or moving"
+    /// setting at construction.
+    public var transferConfirmer: @MainActor (TransferSummary) -> Bool = { _ in
+        return true
     }
 
     /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
@@ -805,12 +815,23 @@ public class FileSyncManager: ObservableObject {
     @discardableResult
     public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async -> Bool {
         let activeFM = fileManager ?? self.fileManager
-        // Mark the difference as syncing (published row + authoritative id set)
-        markSyncing(ids: [difference.id])
-
         let urls = difference.transferURLs
         let fromURL = urls.from
         var toURL = urls.to
+
+        // Confirm before any I/O (and before the row is marked in-flight): single-row syncs
+        // are one click away in the Differences list, so a mis-click must be cancellable
+        // while it still costs nothing.
+        guard transferConfirmer(TransferSummary(
+            isMove: isMove,
+            itemCount: 1,
+            firstItemName: fromURL.lastPathComponent,
+            sourceDirectory: fromURL.deletingLastPathComponent().path,
+            destinationDirectory: toURL.deletingLastPathComponent().path
+        )) else { return false }
+
+        // Mark the difference as syncing (published row + authoritative id set)
+        markSyncing(ids: [difference.id])
 
         // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
         // The prompt itself stays on the MainActor.
@@ -821,7 +842,12 @@ public class FileSyncManager: ObservableObject {
         /// nil for Skip. `isDirectory` reflects the colliding item so the prompt can warn about
         /// wholesale folder replacement.
         func resolveCollision(at collidingURL: URL, isDirectory: Bool) async -> URL? {
-            let resolution = collisionResolver(collidingURL.lastPathComponent, isMove, isDirectory)
+            let resolution = collisionResolver(FileCollision(
+                sourcePath: fromURL.path,
+                destinationPath: collidingURL.path,
+                isMove: isMove,
+                isDirectory: isDirectory
+            ))
             switch resolution {
             case .skip:
                 return nil

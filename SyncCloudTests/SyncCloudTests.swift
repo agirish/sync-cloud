@@ -171,26 +171,67 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(ContentView.BottomTab(rawValue: "NotATab") == nil)
     }
 
-    // MARK: Collision prompt wording (file vs. folder)
+    // MARK: Collision prompt wording (file vs. folder, and where-from/where-to)
+
+    private static func collision(isMove: Bool = false, isDirectory: Bool = false) -> FileCollision {
+        FileCollision(
+            sourcePath: "/LeftRoot/Documents/item.txt",
+            destinationPath: "/RightRoot/Documents/item.txt",
+            isMove: isMove,
+            isDirectory: isDirectory
+        )
+    }
 
     @Test func testFolderCollisionPromptWarnsAboutWholesaleReplacement() {
         // A folder collision must warn that Replace trashes the whole existing folder — the
         // file wording ("replace it with the one you're …") does not convey that data loss.
-        let fileText = SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: false)
-        let folderText = SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: true)
+        let fileText = SyncOperationAlerts.collisionInformativeText(Self.collision(isDirectory: false))
+        let folderText = SyncOperationAlerts.collisionInformativeText(Self.collision(isDirectory: true))
 
         #expect(fileText != folderText)
         #expect(!fileText.contains("entire contents"))
         #expect(folderText.contains("Replacing a folder replaces its entire contents"))
         #expect(folderText.contains("moved to the Trash"))
-        // The base copy/move wording is preserved for both.
-        #expect(folderText.hasPrefix(fileText))
     }
 
     @Test func testCollisionPromptReflectsMoveVsCopyVerb() {
         // The verb still tracks the operation, independent of the folder warning.
-        #expect(SyncOperationAlerts.collisionInformativeText(isMove: true, isDirectory: false).contains("moving"))
-        #expect(SyncOperationAlerts.collisionInformativeText(isMove: false, isDirectory: false).contains("copying"))
-        #expect(SyncOperationAlerts.collisionInformativeText(isMove: true, isDirectory: true).contains("moving"))
+        #expect(SyncOperationAlerts.collisionInformativeText(Self.collision(isMove: true)).contains("moving"))
+        #expect(SyncOperationAlerts.collisionInformativeText(Self.collision(isMove: false)).contains("copying"))
+        #expect(SyncOperationAlerts.collisionInformativeText(Self.collision(isMove: true, isDirectory: true)).contains("moving"))
+    }
+
+    @Test func testCollisionPromptNamesBothLocations() {
+        // The message line's "this location" is ambiguous in a two-pane app; the body must say
+        // which item is coming in and which existing item would be replaced, for both verbs.
+        let copyText = SyncOperationAlerts.collisionInformativeText(Self.collision(isMove: false))
+        #expect(copyText.contains("Copying: /LeftRoot/Documents/item.txt"))
+        #expect(copyText.contains("Replacing: /RightRoot/Documents/item.txt"))
+
+        let moveText = SyncOperationAlerts.collisionInformativeText(Self.collision(isMove: true))
+        #expect(moveText.contains("Moving: /LeftRoot/Documents/item.txt"))
+        #expect(moveText.contains("Replacing: /RightRoot/Documents/item.txt"))
+    }
+
+    // MARK: Transfer confirmation wording
+
+    @Test func testTransferConfirmationMessageSingleVsBulkAndVerb() {
+        let single = TransferSummary(isMove: false, itemCount: 1, firstItemName: "Resume.docx", sourceDirectory: "/Left/Documents", destinationDirectory: "/Right/Documents")
+        #expect(SyncOperationAlerts.transferConfirmationMessage(single) == "Copy \"Resume.docx\" to \"Documents\"?")
+
+        let bulk = TransferSummary(isMove: true, itemCount: 3, firstItemName: "Resume.docx", sourceDirectory: "/Left/Documents", destinationDirectory: "/Right/Documents")
+        #expect(SyncOperationAlerts.transferConfirmationMessage(bulk) == "Move 3 items to \"Documents\"?")
+    }
+
+    @Test func testTransferConfirmationBodyNamesBothFolders() {
+        let summary = TransferSummary(isMove: false, itemCount: 2, firstItemName: "a.txt", sourceDirectory: "/Left/Documents", destinationDirectory: "/Right/Documents")
+        let body = SyncOperationAlerts.transferConfirmationInformativeText(summary)
+        #expect(body == "From: /Left/Documents\nTo: /Right/Documents")
+    }
+
+    @Test func testDisplayPathAbbreviatesHome() {
+        let home = NSHomeDirectory()
+        #expect(SyncOperationAlerts.displayPath("\(home)/Documents") == "~/Documents")
+        #expect(SyncOperationAlerts.displayPath("/Volumes/External/x") == "/Volumes/External/x")
     }
 }

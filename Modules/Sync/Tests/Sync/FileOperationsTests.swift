@@ -516,7 +516,7 @@ import Foundation
 
         // /dst/folder already exists, so this hits the collision path. The resolver must be
         // mocked: the default one skips the item.
-        manager.collisionResolver = { _, _, _ in .replace }
+        manager.collisionResolver = { _ in .replace }
         await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
 
         // Replace semantics: the old destination directory is backed up out of the way and the
@@ -541,8 +541,8 @@ import Foundation
         folderFM.virtualDisk["/dst/item/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var folderSeenIsDirectory: Bool?
-        folderManager.collisionResolver = { _, _, isDirectory in
-            folderSeenIsDirectory = isDirectory
+        folderManager.collisionResolver = { collision in
+            folderSeenIsDirectory = collision.isDirectory
             return .replace
         }
         await folderManager.copyItems(
@@ -564,8 +564,8 @@ import Foundation
         fileFM.virtualDisk["/dst/item.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         var fileSeenIsDirectory: Bool?
-        fileManager.collisionResolver = { _, _, isDirectory in
-            fileSeenIsDirectory = isDirectory
+        fileManager.collisionResolver = { collision in
+            fileSeenIsDirectory = collision.isDirectory
             return .replace
         }
         await fileManager.copyItems(

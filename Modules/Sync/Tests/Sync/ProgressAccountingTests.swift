@@ -77,8 +77,8 @@ import Combine
 
         let manager = FileSyncManager()
         // No collisions expected, but the seams stay mocked so no NSAlert can ever appear.
-        manager.collisionResolver = { _, _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
 
         let copyFM = GatedFileManager(inner: inner)
@@ -133,8 +133,8 @@ import Combine
         mockFM.virtualDisk["/src/fresh.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         // The user answers "Skip" to the collision dialog (mocked seam — no NSAlert).
-        manager.collisionResolver = { _, _, _ in .skip }
-        manager.bulkCollisionResolver = { _, _, _ in (.skip, true) }
+        manager.collisionResolver = { _ in .skip }
+        manager.bulkCollisionResolver = { _ in (.skip, true) }
 
         let collides = FileDifference(
             relativePath: "collides.txt",
@@ -188,11 +188,11 @@ import Combine
 
         let manager = FileSyncManager()
         var captured: Progress?
-        manager.collisionResolver = { [weak manager] _, _, _ in
+        manager.collisionResolver = { [weak manager] _ in
             captured = manager?.activeProgress
             return .skip
         }
-        manager.bulkCollisionResolver = { _, _, _ in (.skip, true) }
+        manager.bulkCollisionResolver = { _ in (.skip, true) }
         manager.permanentDeleteConfirmer = { _ in false }
 
         await manager.copyItems(
@@ -223,8 +223,8 @@ import Combine
         inner.virtualDisk["/dst/trailing-self.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let manager = FileSyncManager()
-        manager.collisionResolver = { _, _, _ in .replace }
-        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
+        manager.collisionResolver = { _ in .replace }
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
         manager.permanentDeleteConfirmer = { _ in false }
 
         // Gate the first item's move so the operation is reliably in flight when the
