@@ -195,11 +195,14 @@ public class FileSyncManager: ObservableObject {
     @Published public var bulkSyncProgress: (completed: Int, total: Int)? = nil
     /// Cached "Apply to all" resolution for the current bulk run; cleared when bulk sync ends.
     internal var bulkApplyToAllResolution: CollisionResolution?
-    /// True while a `syncAll` run is in flight. Its prepare phase suspends (detached stat pass,
-    /// keep-both probing) before the progress overlay can block input, so without a guard a
-    /// second bulk run could interleave there, reset `bulkApplyToAllResolution` mid-prompt, and
-    /// tear down `bulkSyncProgress` on exit while the first run is still using it.
-    private var isBulkSyncRunning = false
+    /// True while a bulk run — `syncAll` or the verified-copy bulk copy — is in flight. Both
+    /// write `bulkSyncProgress` and nil it in their defer, and syncAll's prepare phase suspends
+    /// (detached stat pass, keep-both probing) before the progress overlay can block input, so
+    /// without a shared guard two bulk runs could interleave there, reset
+    /// `bulkApplyToAllResolution` mid-prompt, interleave the shared progress counter, and tear
+    /// down `bulkSyncProgress` on exit while the other run is still using it. Internal (not
+    /// private) so tests can pin the refusal paths without racing a real run.
+    var isBulkSyncRunning = false
     /// True while a `verifyAllWithChecksum` run is in flight. Symmetric with
     /// `isBulkSyncRunning`: each refuses to start while the other runs. Verify All hashes both
     /// sides of every candidate, so overlapping a bulk sync — especially its prepare phase,
@@ -526,8 +529,9 @@ public class FileSyncManager: ObservableObject {
         // Refuse to start while anything is writing — or is about to write — the files this
         // run would hash: a file mid-overwrite can checksum as "identical" and poison
         // `verifiedIdenticalForCopy` with a wrong bulk-copy offer. `isBulkSyncRunning` covers
-        // syncAll's prepare phase (stat pass + collision prompts, before any operation is
-        // enqueued); `syncingDifferenceIds` covers a single syncFile parked at its collision
+        // both bulk runs — syncAll from its prepare phase (stat pass + collision prompts,
+        // before any operation is enqueued) and the verified-copy bulk copy;
+        // `syncingDifferenceIds` covers a single syncFile parked at its collision
         // prompt; `activeFileOperationsCount` covers every queued file operation (copy, move,
         // delete, undo). Verify is read-only, so this is purely about result validity — and
         // the user gets a banner, not a silent no-op.
@@ -637,6 +641,16 @@ public class FileSyncManager: ObservableObject {
     private func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
         let total = toCopy.count
         guard total > 0 else { return }
+        // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
+        // defer, so overlapping a bulk sync would interleave the shared counter and tear down
+        // the survivor's overlay — and syncAll's up-front destination stats would be staled by
+        // these overwrites. A concurrent Verify All would hash files mid-overwrite. Refuse
+        // visibly, mirroring syncAll's verify refusal.
+        guard !isBulkSyncRunning, !isVerifyAllRunning else {
+            banner = .warning("Wait for the current operation to finish before copying")
+            return
+        }
+        isBulkSyncRunning = true
         let toCopyIDs = Set(toCopy.map { $0.id })
 
         let progress = Progress(totalUnitCount: Int64(total))
@@ -651,6 +665,7 @@ public class FileSyncManager: ObservableObject {
         await MainActor.run { }
 
         defer {
+            isBulkSyncRunning = false
             bulkSyncProgress = nil
             if activeProgress === progress { activeProgress = nil }
             clearSyncing(ids: toCopyIDs)
