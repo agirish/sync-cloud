@@ -143,26 +143,19 @@ import Testing
         let l2 = CloudProvider(id: "L2", displayName: "L2", imageName: "folder", path: "/left2", type: .iCloud)
         let r2 = CloudProvider(id: "R2", displayName: "R2", imageName: "folder", path: "/right2", type: .iCloud)
 
-        func waitUntil(_ condition: () -> Bool) async throws {
-            let deadline = Date().addingTimeInterval(5)
-            while !condition() && Date() < deadline {
-                try await Task.sleep(nanoseconds: 5_000_000)
-            }
-        }
-
         // A (K1) — superseded below while its detached walks are still sleeping.
         let a = Task { await manager.refreshTreesAndScan(left: l1, right: r1) }
-        try await waitUntil { manager.activeRefreshKey != nil }
+        await waitUntil("first refresh becomes active") { manager.activeRefreshKey != nil }
 
         // B (K2) cancels A; C (K1) cancels B and re-registers A's key.
         let b = Task { await manager.refreshTreesAndScan(left: l2, right: r2) }
-        try await waitUntil { manager.activeRefreshKey?.leftId == "L2" }
+        await waitUntil("L2 refresh supersedes") { manager.activeRefreshKey?.leftId == "L2" }
         let flag = CompletionFlag()
         let c = Task {
             await manager.refreshTreesAndScan(left: l1, right: r1)
             flag.done = true
         }
-        try await waitUntil { manager.activeRefreshKey?.leftId == "L1" }
+        await waitUntil("L1 refresh re-runs") { manager.activeRefreshKey?.leftId == "L1" }
 
         // The stale refreshes unwind while C still runs; neither may release C's dedupe key.
         await a.value

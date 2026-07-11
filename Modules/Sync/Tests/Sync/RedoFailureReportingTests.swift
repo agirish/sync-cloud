@@ -15,17 +15,6 @@ import Events
 /// `.warning` banner) and that the following undo is a quiet no-op, never a phantom operation.
 @Suite struct RedoFailureReportingTests {
 
-    /// Polls a main-actor condition until it holds or the timeout expires (recording a failure).
-    @MainActor
-    private func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
-            if condition() { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        #expect(condition(), what)
-    }
-
     /// True when the shared Logger holds an `.error` entry containing `fragment`. Awaiting a
     /// fresh log task first guarantees everything enqueued before it is visible in `entries`.
     @MainActor

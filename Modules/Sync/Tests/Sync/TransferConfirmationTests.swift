@@ -384,6 +384,74 @@ import Foundation
         #expect(mockFM.virtualDisk["/dst/b.txt"] != nil)
     }
 
+    /// `confirmed: true` skips ONLY the transfer confirmation — the collision prompt is a
+    /// data-safety boundary and must still run when the destination exists. A "skip all
+    /// prompts when pre-confirmed" misreading would make review accepts and Retry clicks
+    /// replace existing files unprompted.
+    @MainActor
+    @Test func testConfirmedSyncFileStillRunsTheCollisionPrompt() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        var transferPrompts = 0
+        manager.transferConfirmer = { _ in
+            transferPrompts += 1
+            return true
+        }
+        var collisionPrompts = 0
+        manager.collisionResolver = { _ in
+            collisionPrompts += 1
+            return .skip
+        }
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM, confirmed: true)
+
+        #expect(ran == false) // skipped at the collision prompt
+        #expect(transferPrompts == 0)
+        #expect(collisionPrompts == 1)
+        #expect(mockFM.trashedPaths.isEmpty) // nothing replaced
+    }
+
+    /// The "Copy Remaining" engine contract: two sequential confirmed syncAll runs over a
+    /// mixed-direction subset transfer BOTH directions with zero prompts — the first run's
+    /// bulk-sync latch must be released by the time the awaited second run starts, or the
+    /// second direction's items are silently dropped after the review session is torn down.
+    @MainActor
+    @Test func testSequentialConfirmedSyncAllRunsCoverBothDirections() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        mockFM.virtualDisk["/dst/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let toRight = FileDifference(
+            relativePath: "a.txt",
+            leftItemPath: "/src/a.txt",
+            rightItemPath: "/dst/a.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right"
+        )
+        let toLeft = FileDifference(
+            relativePath: "pull.txt",
+            leftItemPath: "/src/pull.txt",
+            rightItemPath: "/dst/pull.txt",
+            type: .missingOnLeft,
+            action: .copyToLeft,
+            description: "Missing on left"
+        )
+        let remaining = [toRight, toLeft]
+        manager.rawDifferences = remaining
+        manager.differences = remaining
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+
+        await manager.syncAll(direction: .copyToRight, subset: remaining, confirmed: true)
+        await manager.syncAll(direction: .copyToLeft, subset: remaining, confirmed: true)
+
+        #expect(prompts == 0)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(mockFM.virtualDisk["/src/pull.txt"] != nil)
+    }
+
     /// Retry on a failed single-row sync must NOT re-ask the confirmer: the Retry click is
     /// itself the confirmation, and re-prompting made an Escape reflex silently swallow the
     /// retry. One prompt for the original attempt, zero for the retry.
@@ -404,10 +472,8 @@ import Foundation
 
         let retry = try #require(manager.currentErrorRetry)
         retry()
-        // The retry closure spawns a Task; wait for the move to land.
-        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] == nil {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        // The retry closure spawns a Task; wait for the copy to land.
+        await waitUntil("retry lands the copy") { mockFM.virtualDisk["/dst/a.txt"] != nil }
 
         #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
         #expect(prompts == 1)
@@ -604,15 +670,11 @@ import Foundation
         // Undo (removes the copy) and redo (re-copies) must not prompt again. Both are
         // asynchronous under the hood; poll for their observable effect.
         manager.undoManager?.undo()
-        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] != nil {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil("undo removes the copy") { mockFM.virtualDisk["/dst/a.txt"] == nil }
         #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
 
         manager.undoManager?.redo()
-        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] == nil {
-            try await Task.sleep(nanoseconds: 10_000_000)
-        }
+        await waitUntil("redo restores the copy") { mockFM.virtualDisk["/dst/a.txt"] != nil }
         #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
         #expect(prompts == 1)
     }

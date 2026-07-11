@@ -70,6 +70,46 @@ import Settings
         #expect(manager.clipboardIsCut == true)
     }
     
+    /// The drag-drop move route runs headless end-to-end: confirmation is the sync layer's
+    /// `transferConfirmer` seam (asked exactly once), NOT a Design-level modal — re-adding
+    /// the old NativeAlerts.confirmMove guard here would double-prompt every move and hang
+    /// this test on its alert.
+    @MainActor
+    @Test func testMoveItemsToPathMovesViaSyncLayerWithOneConfirmation() async throws {
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: SettingsManager())
+
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("DashboardTests-\(UUID().uuidString)")
+        let srcDir = root.appendingPathComponent("src")
+        let dstDir = root.appendingPathComponent("dst")
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dstDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let srcFile = srcDir.appendingPathComponent("move-me.txt")
+        try Data("hello".utf8).write(to: srcFile)
+        let node = FileNode(id: srcFile.path, name: srcFile.lastPathComponent, isDirectory: false)
+
+        var prompts = 0
+        manager.transferConfirmer = { summary in
+            prompts += 1
+            #expect(summary.isMove == true)
+            return true
+        }
+
+        handler.moveItems([node], toPath: dstDir.path)
+
+        // moveItems spawns a Task; wait for the move to land on disk.
+        let movedFile = dstDir.appendingPathComponent(node.name)
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: movedFile.path) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+
+        #expect(FileManager.default.fileExists(atPath: movedFile.path))
+        #expect(!FileManager.default.fileExists(atPath: srcFile.path))
+        #expect(prompts == 1)
+    }
+
     @MainActor
     private func waitForOperationsToFinish(_ manager: FileSyncManager) async {
         for _ in 0..<50 {

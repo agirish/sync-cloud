@@ -92,6 +92,10 @@ import Foundation
 
         #expect(!synced)
         #expect(Set(fm.virtualDisk.keys) == diskBefore)
+        // The name-check skip is one of syncFile's early exits and must release the row's
+        // in-flight mark (set before any prompt) — a leaked id would permanently refuse
+        // Verify All and pane swaps and leave the row's spinner stuck.
+        #expect(manager.syncingDifferenceIds.isEmpty)
     }
 
     @Test func testUnwiredResolverFailsSafeBySkipping() async throws {

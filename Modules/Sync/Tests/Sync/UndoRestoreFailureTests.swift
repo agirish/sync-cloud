@@ -13,17 +13,6 @@ import Foundation
 /// The success cases assert we do NOT over-surface (no false warning when the restore works).
 @Suite struct UndoRestoreFailureTests {
 
-    /// Polls a main-actor condition until it holds or the timeout expires (recording a failure).
-    @MainActor
-    private func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
-            if condition() { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        #expect(condition(), what)
-    }
-
     /// A manager with every alert seam mocked so no test can ever pop a real NSAlert.
     @MainActor
     private func makeManager() -> FileSyncManager {

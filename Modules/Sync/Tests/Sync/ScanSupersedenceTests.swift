@@ -14,15 +14,6 @@ import Testing
         MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
     }
 
-    /// Polls (yielding the main actor) until `condition` holds or ~timeout elapses.
-    @MainActor
-    private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        while !condition() && Date() < deadline {
-            try await Task.sleep(nanoseconds: 5_000_000)
-        }
-    }
-
     // MARK: Bug: queued scan's results were discarded when drained on a cancelled task
 
     /// The only production path that queues a pending scan: refresh A is mid-walk when refresh B
@@ -47,7 +38,7 @@ import Testing
         let scanA = Task {
             await manager.scanDirectories(left: Self.left, leftPath: "/oldL", right: Self.right, rightPath: "/oldR")
         }
-        try await waitUntil { manager.isScanning }
+        await waitUntil("scan starts") { manager.isScanning }
         #expect(manager.isScanning)
 
         // Refresh B: cancel A (as refreshTreesAndScan does), then request the new folders while
@@ -58,7 +49,7 @@ import Testing
 
         // A unwinds and drains the queued request.
         await scanA.value
-        try await waitUntil { manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil }
+        await waitUntil("queued scan drains and publishes") { manager.hasScanned && !manager.isScanning && manager.pendingScanRequest == nil }
 
         // The queued scan's results must be published, not silently discarded.
         #expect(manager.hasScanned)
@@ -149,13 +140,13 @@ import Testing
         let scan = Task {
             await manager.scanDirectories(left: Self.left, leftPath: "/left", right: Self.right, rightPath: "/right")
         }
-        try await waitUntil { manager.isScanning }
+        await waitUntil("scan starts") { manager.isScanning }
         #expect(manager.isScanning)
 
         let cancelledAt = Date()
         scan.cancel()
         await scan.value
-        try await waitUntil { !manager.isScanning }
+        await waitUntil("scan finishes") { !manager.isScanning }
 
         // Aborted mid-walk: nowhere near the ~4s a full walk takes.
         #expect(Date().timeIntervalSince(cancelledAt) < 2.0)

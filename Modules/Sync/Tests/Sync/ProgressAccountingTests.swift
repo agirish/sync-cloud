@@ -54,17 +54,6 @@ import Combine
         }
     }
 
-    /// Polls a main-actor condition until it holds or the timeout expires (recording a failure).
-    @MainActor
-    private func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
-        while ContinuousClock.now < deadline {
-            if condition() { return }
-            try? await Task.sleep(nanoseconds: 10_000_000)
-        }
-        #expect(condition(), what)
-    }
-
     @MainActor
     @Test func testQueuedOperationDoesNotClobberRunningProgress() async throws {
         let inner = MockFileManager()
