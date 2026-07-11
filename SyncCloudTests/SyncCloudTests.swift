@@ -192,6 +192,9 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(!fileText.contains("entire contents"))
         #expect(folderText.contains("Replacing a folder replaces its entire contents"))
         #expect(folderText.contains("moved to the Trash"))
+        // The folder warning ADDS to the base replace question; it must not displace it
+        // (this pins the copy+folder combination, which no verb test covers).
+        #expect(folderText.contains("Do you want to replace it with the one you're copying?"))
     }
 
     @Test func testCollisionPromptReflectsMoveVsCopyVerb() {

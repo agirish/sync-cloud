@@ -437,7 +437,10 @@ public struct DifferencesView: View {
         let isMove = session.isMove
         Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
         Task { @MainActor in
-            let succeeded = await syncManager.syncFile(item, isMove: isMove)
+            // confirmed: the review card IS the per-item confirmation UI — re-running the
+            // transferConfirmer here doubled every accept, and an Escape on that redundant
+            // prompt was recorded as a deliberate Skip in the session tally.
+            let succeeded = await syncManager.syncFile(item, isMove: isMove, confirmed: true)
             reviewStore.isActing = false
             // Not copied = failure or Skip at the collision prompt; both already told the user.
             applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id)
@@ -497,14 +500,18 @@ public struct DifferencesView: View {
         Logger.shared.debug("Review: \(isMove ? "move" : "copy") remaining \(remaining.count) item(s)")
         reviewStore.session = nil
         reviewSelection = []
+        // confirmed: the "Copy Remaining N…" button names the exact count and lives inside
+        // review mode — it IS the confirmation. Prompting per syncAll call asked twice for a
+        // mixed-direction remainder (with partial counts that never matched the button), and
+        // declining the second prompt silently dropped items after the session was torn down.
         if remaining.count == 1, let single = remaining.first {
-            Task { await syncManager.syncFile(single, isMove: isMove) }
+            Task { await syncManager.syncFile(single, isMove: isMove, confirmed: true) }
         } else {
             Task {
                 // syncAll takes one direction and filters the subset by it; a mixed-direction
                 // remainder needs both runs — sequential, since syncAll refuses to overlap.
-                await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: remaining)
-                await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: remaining)
+                await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: remaining, confirmed: true)
+                await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: remaining, confirmed: true)
             }
         }
     }

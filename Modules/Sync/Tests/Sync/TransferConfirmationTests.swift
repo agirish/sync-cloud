@@ -362,6 +362,185 @@ import Foundation
         #expect(seen?.destinationPath == "/dst/a.txt")
     }
 
+    // MARK: - Direction handling (.copyToLeft summaries and collisions)
+
+    /// A right-to-left sync must describe the transfer in its own direction: From the right
+    /// pane's folder, To the left's. All other summary tests use .copyToRight, so this is the
+    /// pin against a direction flip describing every right-to-left sync backwards.
+    @MainActor
+    @Test func testCopyToLeftSyncFileSummaryAndCollisionAreDirectionCorrect() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        // Item lives on the RIGHT (/dst); the difference copies it left into /src, where a
+        // same-named file already sits (collision).
+        mockFM.virtualDisk["/dst/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/pull.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let diff = FileDifference(
+            relativePath: "pull.txt",
+            leftItemPath: "/src/pull.txt",
+            rightItemPath: "/dst/pull.txt",
+            type: .missingOnLeft,
+            action: .copyToLeft,
+            description: "Missing on left"
+        )
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+        var collision: FileCollision?
+        manager.collisionResolver = { c in
+            collision = c
+            return .skip
+        }
+
+        await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(summary?.sourceDirectory == "/dst")
+        #expect(summary?.destinationDirectory == "/src")
+        #expect(collision?.sourcePath == "/dst/pull.txt")
+        #expect(collision?.destinationPath == "/src/pull.txt")
+    }
+
+    /// The re-stat prompt (destination appears externally after the initial stat — the
+    /// single-file TOCTOU window) must carry the same full-path context as the first prompt.
+    @MainActor
+    @Test func testSyncFileRestatCollisionCarriesFullPaths() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        // Absent at syncFile's initial stat; planted right after that check, so only the
+        // pre-enqueue re-stat sees it and runs the collision flow.
+        mockFM.onFileExists = { path in
+            guard path == "/dst/a.txt" else { return }
+            mockFM.onFileExists = nil
+            mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        }
+
+        var collision: FileCollision?
+        manager.collisionResolver = { c in
+            collision = c
+            return .skip
+        }
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(ran == false)
+        #expect(collision?.sourcePath == "/src/a.txt")
+        #expect(collision?.destinationPath == "/dst/a.txt")
+    }
+
+    // MARK: - Summary accuracy under pruning and for moves
+
+    /// The prompt's item count reflects the PRUNED selection: selecting a folder plus its own
+    /// child transfers one top-level item, and the confirmation must say 1, not 2.
+    @MainActor
+    @Test func testCopyItemsSummaryCountsPrunedNodes() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/folder/inner.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+
+        await manager.copyItems(
+            nodes: [
+                FileNode(id: "/src/folder", name: "folder", isDirectory: true),
+                FileNode(id: "/src/folder/inner.txt", name: "inner.txt", isDirectory: false),
+            ],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(summary?.itemCount == 1)
+        #expect(summary?.firstItemName == "folder")
+    }
+
+    /// The move verb reaches the summary through the transferItems path: a drag-move whose
+    /// prompt read "Copy…" would remove sources the user believed were being duplicated.
+    @MainActor
+    @Test func testMoveItemsSummaryCarriesMoveVerb() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+
+        let moved = await manager.moveItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(moved.count == 1)
+        #expect(summary?.isMove == true)
+    }
+
+    // MARK: - Deliberate exemptions never consult the confirmer
+
+    /// Undo and redo of a copy run through the undo primitives, not the confirmed transfer
+    /// entry points — a refactor routing them through syncFile/transferItems would make Undo
+    /// silently do nothing under a declining confirmer.
+    @MainActor
+    @Test func testUndoRedoNeverConsultTheConfirmer() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        manager.undoManager = UndoManager()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+        #expect(prompts == 1)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+
+        // Undo (removes the copy) and redo (re-copies) must not prompt again. Both are
+        // asynchronous under the hood; poll for their observable effect.
+        manager.undoManager?.undo()
+        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] != nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(mockFM.virtualDisk["/dst/a.txt"] == nil)
+
+        manager.undoManager?.redo()
+        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(prompts == 1)
+    }
+
+    /// The Verify-All "copy to match dates" bulk path has its own confirmation dialog
+    /// upstream (confirmVerifiedCopy); routing it through the transferConfirmer too would
+    /// double-prompt. Pin the exemption.
+    @MainActor
+    @Test func testVerifiedCopyBulkPathNeverConsultsTheConfirmer() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.bulkCollisionResolver = { _ in (.replace, true) }
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+
+        manager.verifiedIdenticalForCopy = [diff]
+        let copyTask = manager.confirmVerifiedCopy()
+        await copyTask?.value
+
+        #expect(prompts == 0)
+        #expect(mockFM.trashedPaths.count == 1) // the replace actually ran
+    }
+
     // MARK: - Container derivation
 
     /// `transferContainers` strips the shared root-relative suffix from both sides, in the
