@@ -13,6 +13,15 @@ public enum GeneralSettings {
     public static let warnBeforeQuitKey = "warnBeforeQuitDuringOperations"
     /// Bool (default false). Seeds `FileSyncManager.showHiddenFiles` at launch.
     public static let showHiddenByDefaultKey = "showHiddenFilesByDefault"
+    /// Bool (default true). When false, Delete acts immediately — items still go to the Trash
+    /// and remain undoable. Read by `FileActionHandler.confirmDelete`.
+    public static let confirmBeforeDeleteKey = "confirmBeforeDelete"
+
+    /// The delete-confirmation flag with its default-true semantics (a bare `bool(forKey:)`
+    /// would read an unset key as false and silently skip the alert).
+    public static func shouldConfirmBeforeDelete(_ defaults: UserDefaults = .standard) -> Bool {
+        (defaults.object(forKey: confirmBeforeDeleteKey) as? Bool) ?? true
+    }
 }
 
 /// The app's settings window, hosted in the SwiftUI `Settings` scene. Follows the standard
@@ -25,6 +34,7 @@ public struct SettingsView: View {
         case appearance
         case providers
         case sync
+        case advanced
     }
 
     /// UserDefaults key holding the tab the Settings overlay opens on (a `SettingsTab` raw
@@ -40,9 +50,25 @@ public struct SettingsView: View {
     /// dismisses on a click outside the card.
     private let onClose: () -> Void
 
-    public init(selection: Binding<SettingsTab>, onClose: @escaping () -> Void) {
+    /// The app's sync engine, for the settings that read or act on live engine state (the
+    /// ignored-items list, the orphan sweep). Optional so previews and hosts without an
+    /// engine still render; the dependent controls hide when nil.
+    private let syncManager: FileSyncManager?
+
+    /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
+    /// Provided by the host; the Reset control hides when nil.
+    private let onResetAllSettings: (() -> Void)?
+
+    public init(
+        selection: Binding<SettingsTab>,
+        onClose: @escaping () -> Void,
+        syncManager: FileSyncManager? = nil,
+        onResetAllSettings: (() -> Void)? = nil
+    ) {
         _selectedTab = selection
         self.onClose = onClose
+        self.syncManager = syncManager
+        self.onResetAllSettings = onResetAllSettings
     }
 
     public var body: some View {
@@ -75,6 +101,7 @@ public struct SettingsView: View {
                 Text("Appearance").tag(SettingsTab.appearance)
                 Text("Providers").tag(SettingsTab.providers)
                 Text("Sync").tag(SettingsTab.sync)
+                Text("Advanced").tag(SettingsTab.advanced)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -92,12 +119,14 @@ public struct SettingsView: View {
                 case .providers:
                     ProvidersSettingsTab()
                 case .sync:
-                    SyncSettingsTab()
+                    SyncSettingsTab(syncManager: syncManager)
+                case .advanced:
+                    AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 620, height: 520)
+        .frame(width: 620, height: 560)
     }
 }
 
@@ -402,14 +431,6 @@ struct ProvidersSettingsTab: View {
             ForEach(settings.availableProviders) { provider in
                 ProviderSettingsSection(provider: provider)
             }
-
-            Section {
-            } footer: {
-                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                    Text("SyncCloud \(version)")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }
         }
         .formStyle(.grouped)
     }
@@ -584,22 +605,254 @@ enum ProviderFieldEdit {
 
 // MARK: - Sync
 
-/// Behavior of difference scanning and comparison.
+/// Behavior of difference scanning and comparison: date tolerance, checksum verification,
+/// the delete confirmation, and the two ignore mechanisms (remembered items and name patterns).
 struct SyncSettingsTab: View {
     @EnvironmentObject var settings: SettingsManager
+    let syncManager: FileSyncManager?
+    @AppStorage(GeneralSettings.confirmBeforeDeleteKey) private var confirmBeforeDelete: Bool = true
+    @State private var patternDraft = ""
 
     var body: some View {
         Form {
             Section {
+                Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
+                    Text("Exact match").tag(0.0)
+                    Text("1 second").tag(1.0)
+                    Text("2 seconds").tag(2.0)
+                    Text("5 seconds").tag(5.0)
+                    Text("1 minute").tag(60.0)
+                }
+                Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
+                    Text("Verify same-size files during scans")
+                }
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
                     Text("Ignore \"newer on Google Drive\" when same size")
                 }
             } header: {
-                Text("Differences")
+                Text("Comparison")
             } footer: {
-                Text("Hides differences where only the date changed (right side newer, same size). Reduces noise when Google Drive overwrites file dates.")
+                Text("Cloud providers round file dates on upload; a small tolerance hides those false differences. Verification checksums same-size pairs that only differ by date and hides identical ones — thorough, but slower on large folders.")
+            }
+
+            Section {
+                Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
+            } header: {
+                Text("Deleting")
+            } footer: {
+                Text("Deleted items go to the Trash either way and can be restored with Undo.")
+            }
+
+            Section {
+                Toggle(isOn: $settings.rememberIgnoredItems) {
+                    Text("Remember ignored items across rescans")
+                }
+                if let syncManager, let store = syncManager.ignoredItemsStore {
+                    IgnoredItemsList(
+                        store: store,
+                        onRemove: { syncManager.unignoreRootRelative($0) },
+                        onClear: { syncManager.clearAllIgnoredItems() }
+                    )
+                }
+            } header: {
+                Text("Ignored items")
+            } footer: {
+                Text("Items you ignore from the Differences list are kept here per provider pair. Remove one to see its differences again.")
+            }
+
+            Section {
+                ForEach(settings.ignorePatterns, id: \.self) { pattern in
+                    HStack {
+                        Text(pattern)
+                            .font(.system(.callout, design: .monospaced))
+                        Spacer()
+                        Button {
+                            settings.removeIgnorePattern(pattern)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove this pattern")
+                    }
+                }
+                HStack(spacing: 8) {
+                    TextField("*.tmp, .DS_Store, node_modules", text: $patternDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.callout, design: .monospaced))
+                        .onSubmit(addPattern)
+                    Button("Add", action: addPattern)
+                        .disabled(IgnoreRules.normalized(patternDraft) == nil)
+                }
+            } header: {
+                Text("Ignored name patterns")
+            } footer: {
+                Text("Hides any item whose name matches a pattern, at any depth, in every comparison. * matches any run of characters and ? matches one.")
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func addPattern() {
+        if settings.addIgnorePattern(patternDraft) {
+            patternDraft = ""
+        }
+    }
+}
+
+/// The remembered-ignores rows inside the Sync tab: a monospaced root-relative path per
+/// entry with a remove button, plus Clear All. Split out so it can observe the store
+/// directly — un-ignoring from here must repaint the list immediately.
+private struct IgnoredItemsList: View {
+    @ObservedObject var store: IgnoredItemsStore
+    let onRemove: (String) -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        if store.rootRelativePaths.isEmpty {
+            Text("Nothing ignored right now. Right-click a difference and choose Ignore to hide it.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(store.sortedPaths, id: \.self) { path in
+                HStack {
+                    Text(path)
+                        .font(.system(.callout, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(path)
+                    Spacer()
+                    Button {
+                        onRemove(path)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Stop ignoring this item")
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Clear All", role: .destructive, action: onClear)
+                    .controlSize(.small)
+            }
+        }
+    }
+}
+
+// MARK: - Advanced
+
+/// Logging, maintenance, and the settings reset — the machinery that already existed in the
+/// engine but had no user-facing surface.
+struct AdvancedSettingsTab: View {
+    let syncManager: FileSyncManager?
+    let onResetAllSettings: (() -> Void)?
+
+    @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
+    /// Human-readable size of the log file, refreshed on appear and after Clear Log.
+    @State private var logFileSizeText: String?
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Log level", selection: $minimumLevelRaw) {
+                    Text("Debug (everything)").tag(LogLevel.debug.rawValue)
+                    Text("Info").tag(LogLevel.info.rawValue)
+                    Text("Warnings").tag(LogLevel.warning.rawValue)
+                    Text("Errors only").tag(LogLevel.error.rawValue)
+                }
+                .onChange(of: minimumLevelRaw) { _, raw in
+                    Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
+                }
+
+                LabeledContent("Log file") {
+                    HStack(spacing: 8) {
+                        if let logFileSizeText {
+                            Text(logFileSizeText)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button("Show in Finder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
+                        }
+                        Button("Clear Log") {
+                            Logger.shared.clearLogs()
+                            Task { await refreshLogFileSize() }
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            } header: {
+                Text("Logging")
+            } footer: {
+                Text("The log rotates at 5 MB. Levels below the chosen one are skipped entirely.")
+            }
+
+            Section {
+                LabeledContent("Orphaned temporary files") {
+                    Button("Sweep Now") {
+                        syncManager?.sweepOrphanedTempArtifactsNow()
+                    }
+                    .controlSize(.small)
+                    .disabled(syncManager == nil)
+                }
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                Text("Interrupted copies can leave .tmp_ working files behind; they're removed automatically once they're an hour old. Recovery backups (.rollback_) are never touched.")
+            }
+
+            if let onResetAllSettings {
+                Section {
+                    Button("Reset All Settings…", role: .destructive) {
+                        confirmReset(onResetAllSettings)
+                    }
+                } footer: {
+                    Text("Restores defaults for appearance, sync behavior, and provider names and paths. Your files aren't affected.")
+                }
+            }
+
+            Section {
+            } footer: {
+                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                    Text("SyncCloud \(version)")
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .task { await refreshLogFileSize() }
+    }
+
+    /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
+    /// not reset, same convention as the permanent-delete alert).
+    private func confirmReset(_ reset: () -> Void) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Reset all settings?"
+        alert.informativeText = "Appearance, sync behavior, ignored items, and provider names and paths return to their defaults. Files on disk are not affected."
+        alert.addButton(withTitle: "Reset")
+        alert.addButton(withTitle: "Cancel")
+        if let resetButton = alert.buttons.first {
+            resetButton.hasDestructiveAction = true
+            resetButton.keyEquivalent = ""
+        }
+        alert.buttons.last?.keyEquivalent = "\r"
+        if alert.runModal() == .alertFirstButtonReturn {
+            reset()
+        }
+    }
+
+    /// Stats the log file off the main actor (flushing buffered writes first so the number
+    /// reflects everything logged).
+    private func refreshLogFileSize() async {
+        let url = Logger.shared.logFileURL
+        let logger = Logger.shared
+        let bytes = await Task.detached(priority: .utility) { () -> Int? in
+            logger.flushToDisk()
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            return (attributes?[.size] as? NSNumber)?.intValue
+        }.value
+        logFileSizeText = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
     }
 }

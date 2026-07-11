@@ -21,12 +21,13 @@ public struct FileDiffEngine {
         left: FileInfo,
         leftProvider: CloudProvider,
         right: FileInfo,
-        rightProvider: CloudProvider
+        rightProvider: CloudProvider,
+        dateToleranceSeconds: TimeInterval
     ) -> (action: FileDifference.SyncAction, description: String) {
         let leftDate = left.modificationDate ?? Date.distantPast
         let rightDate = right.modificationDate ?? Date.distantPast
 
-        if abs(leftDate.timeIntervalSince(rightDate)) > 1 {
+        if abs(leftDate.timeIntervalSince(rightDate)) > dateToleranceSeconds {
             if leftDate > rightDate {
                 return (.copyToRight, "\(leftProvider.displayName) item is newer (type mismatch)")
             }
@@ -205,6 +206,10 @@ public struct FileDiffEngine {
     ///     content. With mixed sensitivity (either volume case-sensitive) keep this false:
     ///     the case-sensitive side really can hold both variants, so collapsing them would
     ///     hide a real file.
+    ///   - dateToleranceSeconds: Modification dates within this many seconds compare as equal.
+    ///     Cloud providers round or rewrite dates on upload (FAT-style 2s granularity, Drive's
+    ///     whole-second rewrites), so the user can widen this to hide those false differences.
+    ///     0 means exact comparison.
     /// - Returns: Sorted array of `FileDifference` for UI and sync actions.
     public static func computeDifferences(
         left: CloudProvider,
@@ -213,7 +218,8 @@ public struct FileDiffEngine {
         rightURL: URL,
         leftFilesInfo: [String: FileInfo],
         rightFilesInfo: [String: FileInfo],
-        caseInsensitive: Bool = false
+        caseInsensitive: Bool = false,
+        dateToleranceSeconds: TimeInterval = 1
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
         // Folders that exist on one side only, per direction. Their descendants are collapsed
@@ -270,7 +276,8 @@ public struct FileDiffEngine {
                         left: leftFile,
                         leftProvider: left,
                         right: rightFile,
-                        rightProvider: right
+                        rightProvider: right,
+                        dateToleranceSeconds: dateToleranceSeconds
                     )
                     diffs.append(FileDifference(
                         relativePath: relativePath,
@@ -294,14 +301,14 @@ public struct FileDiffEngine {
                 
                 let dateDiffers: Bool
                 if let lD = leftDate, let rD = rightDate {
-                    dateDiffers = abs(lD.timeIntervalSince(rD)) > 1
+                    dateDiffers = abs(lD.timeIntervalSince(rD)) > dateToleranceSeconds
                 } else {
                     dateDiffers = false // Can't reliably compare dates, fallback to size
                 }
-                
+
                 let sizeDiffers = (leftFile.fileSize != rightFile.fileSize) && (leftFile.fileSize != nil || rightFile.fileSize != nil)
-                
-                if dateDiffers || sizeDiffers { // 1 second tolerance or size mismatch
+
+                if dateDiffers || sizeDiffers { // date tolerance exceeded or size mismatch
                     let leftIsNewer = (leftDate ?? Date.distantPast) > (rightDate ?? Date.distantPast)
                     
                     if leftIsNewer || (sizeDiffers && !dateDiffers && leftDate == nil && rightDate == nil) {

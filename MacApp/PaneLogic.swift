@@ -123,30 +123,9 @@ enum PaneLogic {
         (leftProviderId: rightProviderId, rightProviderId: leftProviderId)
     }
 
-    /// Toggle semantics of the "Ignore in comparison" menu item: when every target is
-    /// already ignored the action un-ignores them all, otherwise it ignores them all
-    /// (including any already-ignored ones, which stay ignored).
-    ///
-    /// "Already ignored" uses `FileSyncManager.isIgnoredPath` — the same effective
-    /// (ancestor-covering) predicate that drives the menu's Ignore/Include label and the
-    /// differences filter — so the action always does what the label says. Un-ignoring a
-    /// target covered only by an ancestor entry ("docs" ignored, target "docs/report.txt")
-    /// therefore removes the covering "docs" entry too: the clicked item becomes visible
-    /// again, like Finder's un-hide, rather than the toggle silently doing nothing.
-    static func toggledIgnoredPaths(targets: [String], ignoredPaths: Set<String>) -> Set<String> {
-        let allIgnored = targets.allSatisfy { FileSyncManager.isIgnoredPath($0, ignored: ignoredPaths) }
-        var updated = ignoredPaths
-        if allIgnored {
-            for target in targets {
-                updated = updated.filter { entry in
-                    !(target == entry || target.hasPrefix(entry + "/"))
-                }
-            }
-        } else {
-            updated.formUnion(targets)
-        }
-        return updated
-    }
+    // The "Ignore in comparison" toggle semantics moved to
+    // `FileSyncManager.toggleIgnored(focusRelativePaths:)`, which also reconciles the
+    // durable ignore store; its behavior is pinned by Sync's PersistentIgnoresTests.
 
     // MARK: - Window bootstrap
 

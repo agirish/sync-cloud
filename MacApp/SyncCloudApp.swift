@@ -32,6 +32,10 @@ struct SyncCloudApp: App {
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
+        // Apply the persisted log-level gate before anything logs; Settings → Advanced
+        // updates both the default and the live gate from then on.
+        Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
+
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
         // permanent deletes). Wire the real NSAlert-backed prompts here, at the app boundary.

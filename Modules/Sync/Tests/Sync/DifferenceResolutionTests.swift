@@ -331,13 +331,15 @@ import Foundation
     @MainActor
     @Test func testPrefetchFastPathClearsStaleLoadingSpinner() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.05
+        // 0.5s delay / 50ms sleep: the old 50ms/20ms pairing lost its race under a loaded
+        // parallel test run (the sleep overshot the whole load) and flaked.
+        mockFM.enumeratorDelay = 0.5
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/slow/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let slowLoad = Task { await manager.loadTree(path: "/slow", isLeft: true) }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        try await Task.sleep(nanoseconds: 50_000_000)
         #expect(manager.isLoadingLeftTree)
 
         // Switching to a prefetched provider cancels the slow load and takes the fast path.
@@ -357,13 +359,14 @@ import Foundation
     @MainActor
     @Test func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.05
+        // Same widened margins as testPrefetchFastPathClearsStaleLoadingSpinner above.
+        mockFM.enumeratorDelay = 0.5
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/slow/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let load = Task { await manager.loadTree(path: "/slow", isLeft: false) }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        try await Task.sleep(nanoseconds: 50_000_000)
         #expect(manager.isLoadingRightTree)
 
         // Cancel the load with nothing else starting for this pane to take the flag over.

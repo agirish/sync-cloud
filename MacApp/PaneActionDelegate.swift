@@ -56,10 +56,9 @@ struct PaneActionDelegate: FileActionDelegate {
 
         // Convert to relative paths from current focal point so they sync across panes seamlessly
         let relativeTargets = PaneLogic.relativeIgnoreTargets(nodeIds: nodes.map(\.id), basePath: basePath)
-        syncManager.ignoredPaths = PaneLogic.toggledIgnoredPaths(
-            targets: relativeTargets,
-            ignoredPaths: syncManager.ignoredPaths
-        )
+        // The manager toggles against the EFFECTIVE ignore set (session + remembered items),
+        // so a node ignored in an earlier session un-ignores instead of re-ignoring.
+        syncManager.toggleIgnored(focusRelativePaths: Set(relativeTargets))
     }
     func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
         syncManager.isNodeIgnored(node, currentPath: currentPath)

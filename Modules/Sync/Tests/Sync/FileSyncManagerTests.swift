@@ -258,17 +258,20 @@ import Foundation
     @MainActor
     @Test func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
-        mockFM.enumeratorDelay = 0.05
+        // Wide margin between "load observably in flight" and "check ran": the old
+        // 50ms-delay / 10ms-sleep pairing lost its race under a loaded parallel test run
+        // (the sleep overshot the whole load) and flaked.
+        mockFM.enumeratorDelay = 0.5
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
-        
+
         // Start loading and check state
         let task = Task { await manager.loadTree(path: "/src", isLeft: true) }
-        
+
         // Yield to allow task to start
-        try await Task.sleep(nanoseconds: 10_000_000)
+        try await Task.sleep(nanoseconds: 50_000_000)
         #expect(manager.isLoadingLeftTree)
-        
+
         await task.value
         #expect(!manager.isLoadingLeftTree)
     }
@@ -338,7 +341,11 @@ import Foundation
 
         #expect(manager.undoManager?.canUndo == true)
         manager.undoManager?.undo()
-        try await Task.sleep(nanoseconds: 100_000_000)
+        // The undo's file I/O runs on the detached operation queue; poll for its result
+        // instead of one fixed sleep, which flaked under a loaded parallel test run.
+        for _ in 0..<100 where mockFM.virtualDisk["/src/test_move.txt"] == nil {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
 
         #expect(mockFM.virtualDisk["/src/test_move.txt"] != nil)
         #expect(mockFM.virtualDisk["/dst/test_move.txt"] == nil)

@@ -275,12 +275,18 @@ public class FileActionHandler {
         }
     }
     
+    /// Deletes after the confirmation alert — or immediately when the user switched the
+    /// "Confirm before deleting" setting off (items still go to the Trash and stay undoable;
+    /// deletions that require a PERMANENT delete keep their own confirmation regardless).
     public func confirmDelete(_ nodes: [FileNode]) {
-        if NativeAlerts.confirmDelete(for: nodes.map { $0.name }) {
+        if GeneralSettings.shouldConfirmBeforeDelete() {
+            guard NativeAlerts.confirmDelete(for: nodes.map { $0.name }) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) items")
-            Task {
-                await syncManager.deleteItems(at: nodes.map { $0.id })
-            }
+        } else {
+            Logger.shared.info("User deleted \(nodes.count) items (confirmation disabled in Settings)")
+        }
+        Task {
+            await syncManager.deleteItems(at: nodes.map { $0.id })
         }
     }
 }

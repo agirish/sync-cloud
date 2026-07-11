@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 extension FileSyncManager {
@@ -115,6 +116,61 @@ extension FileSyncManager {
         guard let list = verifiedIdenticalForCopy, !list.isEmpty else { return nil }
         verifiedIdenticalForCopy = nil
         return Task { await self.bulkCopyDifferencesLeftToRight(list) }
+    }
+
+    /// The scan-time checksum pass behind `autoVerifySameSizeDuringScan`: hashes each pair that
+    /// only differs by date (same size, both sides present) and silently hides the identical
+    /// ones via `verifiedSameDifferenceIds` — the same mechanism as a dismissed Verify All, so
+    /// the rows reappear if a later scan finds them genuinely changed.
+    ///
+    /// Unlike Verify All this never publishes progress or offers the copy-to-match-dates
+    /// dialog, and it does not claim `isVerifyAllRunning` — blocking a bulk sync behind an
+    /// automatic pass the user didn't ask for would be worse than re-hashing. Validity is
+    /// protected the other way: the pass skips entirely while anything is writing, skips
+    /// rows that start syncing, and publishes only while `scanGeneration` is still current
+    /// (a newer scan supersedes both the rows and their verification).
+    func autoVerifySameSizePairs(scanGeneration: Int) async {
+        guard autoVerifySameSizeDuringScan,
+              !isVerifyAllRunning, !isBulkSyncRunning,
+              activeFileOperationsCount == 0 else { return }
+
+        let candidates = rawDifferences.filter {
+            $0.type == .differentDates && $0.sizesMatch && !syncingDifferenceIds.contains($0.id)
+        }
+        guard !candidates.isEmpty else { return }
+
+        let activeFM = fileManager
+        let collector = VerifyResultsCollector()
+        // A private Progress solely for processInParallel's cancellation contract — never
+        // published, so nothing shows in the UI.
+        let progress = Progress(totalUnitCount: Int64(candidates.count))
+
+        await Self.processInParallel(
+            items: candidates,
+            concurrency: min(4, candidates.count),
+            progress: ProgressRef(progress),
+            reportCompleted: { _ in }
+        ) { diff in
+            let same = await FileContentVerifier.filesHaveSameContent(
+                leftPath: diff.leftItemPath,
+                rightPath: diff.rightItemPath,
+                fileManager: activeFM
+            )
+            if same == true {
+                await collector.addIdentical(diff)
+            }
+        }
+
+        // Publish only against the scan the candidates came from; a newer scan owns the rows now.
+        guard scanGeneration == scanRequestGeneration else { return }
+        let identical = await collector.get().verifiedIdentical
+        let liveIds = Set(rawDifferences.map(\.id))
+        let ids = identical.map(\.id).filter { liveIds.contains($0) }
+        guard !ids.isEmpty else { return }
+
+        verifiedSameDifferenceIds.formUnion(ids)
+        Logger.shared.info("Scan checksum pass: hid \(ids.count) same-size pair(s) with identical content")
+        await applyFilters()
     }
 }
 

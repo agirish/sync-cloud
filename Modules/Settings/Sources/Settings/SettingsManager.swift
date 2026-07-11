@@ -56,6 +56,10 @@ public class SettingsManager: ObservableObject {
     private static let nameOverrideKeyPrefix = "name_override_"
     private static let ignoreGoogleDriveNewerDateOnlyKey = "ignoreGoogleDriveNewerDateOnly"
     private static let disabledProviderIdsKey = "disabledProviderIds"
+    private static let dateToleranceSecondsKey = "dateToleranceSeconds"
+    private static let autoVerifySameSizeDuringScanKey = "autoVerifySameSizeDuringScan"
+    private static let rememberIgnoredItemsKey = "rememberIgnoredItems"
+    private static let ignorePatternsKey = "ignorePatterns"
 
     /// The UserDefaults domain the app persists settings to — its bundle identifier, which is what
     /// `.standard` resolves to inside the bundled app. Un-bundled processes (the `synccloud` CLI)
@@ -71,6 +75,72 @@ public class SettingsManager: ObservableObject {
     @Published public var ignoreGoogleDriveNewerDateOnly: Bool {
         didSet {
             userDefaults.set(ignoreGoogleDriveNewerDateOnly, forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
+        }
+    }
+
+    /// Modification dates within this many seconds compare as equal during scans (0 = exact).
+    /// Mirrored into `FileSyncManager.dateToleranceSeconds` by the app.
+    @Published public var dateToleranceSeconds: Double {
+        didSet {
+            userDefaults.set(dateToleranceSeconds, forKey: Self.dateToleranceSecondsKey)
+        }
+    }
+
+    /// When true, scans finish with a checksum pass that hides same-size pairs whose content
+    /// is identical. Mirrored into `FileSyncManager.autoVerifySameSizeDuringScan` by the app.
+    @Published public var autoVerifySameSizeDuringScan: Bool {
+        didSet {
+            userDefaults.set(autoVerifySameSizeDuringScan, forKey: Self.autoVerifySameSizeDuringScanKey)
+        }
+    }
+
+    /// When true (the default), ignored items persist across rescans, navigation, and
+    /// relaunches. Mirrored into `FileSyncManager.rememberIgnoredItems` by the app.
+    @Published public var rememberIgnoredItems: Bool {
+        didSet {
+            userDefaults.set(rememberIgnoredItems, forKey: Self.rememberIgnoredItemsKey)
+        }
+    }
+
+    /// Name patterns hidden from the Differences list on every scan (see `IgnoreRules`).
+    /// Mirrored into `FileSyncManager.ignorePatterns` by the app.
+    @Published public var ignorePatterns: [String] {
+        didSet {
+            userDefaults.set(ignorePatterns, forKey: Self.ignorePatternsKey)
+        }
+    }
+
+    /// Adds a normalized ignore pattern; whitespace-only input and duplicates are dropped.
+    /// - Returns: True when the pattern was added.
+    @discardableResult
+    public func addIgnorePattern(_ raw: String) -> Bool {
+        guard let pattern = IgnoreRules.normalized(raw), !ignorePatterns.contains(pattern) else { return false }
+        Logger.shared.info("User added ignore pattern: \(pattern)")
+        ignorePatterns.append(pattern)
+        return true
+    }
+
+    public func removeIgnorePattern(_ pattern: String) {
+        guard ignorePatterns.contains(pattern) else { return }
+        Logger.shared.info("User removed ignore pattern: \(pattern)")
+        ignorePatterns.removeAll { $0 == pattern }
+    }
+
+    /// Wipes the app's persisted defaults domain — appearance, General/Sync/Advanced flags,
+    /// provider path/name overrides and enablement, ignored items — and republishes this
+    /// manager's own settings at their defaults. `@AppStorage`-backed values elsewhere pick
+    /// the removal up automatically. Files on disk are untouched.
+    public func resetAllSettings() {
+        Logger.shared.info("User reset all settings to defaults")
+        userDefaults.removePersistentDomain(forName: overridesDomainName ?? Self.appSuiteName)
+        ignoreGoogleDriveNewerDateOnly = false
+        dateToleranceSeconds = 1
+        autoVerifySameSizeDuringScan = false
+        rememberIgnoredItems = true
+        ignorePatterns = []
+        disabledProviderIds = []
+        Task {
+            await discoverProviders()
         }
     }
 
@@ -100,6 +170,10 @@ public class SettingsManager: ObservableObject {
         self.listCloudStorageFolders = cloudStorageLister ?? Self.defaultCloudStorageLister
         self.validatePath = pathValidator ?? Self.defaultPathValidator
         self.ignoreGoogleDriveNewerDateOnly = userDefaults.bool(forKey: Self.ignoreGoogleDriveNewerDateOnlyKey)
+        self.dateToleranceSeconds = (userDefaults.object(forKey: Self.dateToleranceSecondsKey) as? Double) ?? 1
+        self.autoVerifySameSizeDuringScan = userDefaults.bool(forKey: Self.autoVerifySameSizeDuringScanKey)
+        self.rememberIgnoredItems = (userDefaults.object(forKey: Self.rememberIgnoredItemsKey) as? Bool) ?? true
+        self.ignorePatterns = userDefaults.stringArray(forKey: Self.ignorePatternsKey) ?? []
         self.disabledProviderIds = Set(userDefaults.stringArray(forKey: Self.disabledProviderIdsKey) ?? [])
         // Seed with the always-present iCloud provider so the app can start immediately,
         // before the first (off-main) discovery publishes. The seed goes through the same

@@ -86,11 +86,188 @@ public class FileSyncManager: ObservableObject {
     }
     
     /// Paths that the user has explicitly requested to hide from the current comparison context.
+    /// Focus-relative and session-scoped: navigation clears it (via `clearSessionIgnoredPaths()`,
+    /// so the clear never counts as the user un-ignoring). Every USER edit is mirrored into
+    /// `ignoredItemsStore` (root-relative) when `rememberIgnoredItems` is on, which is what
+    /// makes ignores survive rescans, navigation, and relaunches.
     @Published public var ignoredPaths: Set<String> = [] {
         didSet {
             guard ignoredPaths != oldValue else { return }
+            persistIgnoredPathsDelta(from: oldValue, to: ignoredPaths)
             Task { await self.applyFilters() }
         }
+    }
+
+    /// Durable ignore store (root-relative paths, keyed per provider pair). Assigned by the
+    /// app at launch; nil (tests, CLI) preserves the pure session behavior. Edits made in
+    /// Settings (un-ignore, clear all) publish through the store, so re-filter on them.
+    public var ignoredItemsStore: IgnoredItemsStore? {
+        didSet {
+            ignoredItemsStoreCancellable = ignoredItemsStore?.$rootRelativePaths
+                .dropFirst()
+                .sink { [weak self] _ in
+                    Task { await self?.applyFilters() }
+                }
+        }
+    }
+    private var ignoredItemsStoreCancellable: AnyCancellable?
+
+    /// When true (the default), ignoring an item also records it in `ignoredItemsStore` and
+    /// stored ignores apply to every scan. Off restores the old session-only behavior; the
+    /// stored set is kept, just not applied. Set by the app from persisted settings.
+    @Published public var rememberIgnoredItems: Bool = true {
+        didSet {
+            guard rememberIgnoredItems != oldValue else { return }
+            Task { await self.applyFilters() }
+        }
+    }
+
+    /// Name patterns (e.g. `.DS_Store`, `*.tmp`, `node_modules`) hidden from the Differences
+    /// list on every scan; see `IgnoreRules`. Set by the app from persisted settings.
+    @Published public var ignorePatterns: [String] = [] {
+        didSet {
+            guard ignorePatterns != oldValue else { return }
+            Task { await self.applyFilters() }
+        }
+    }
+
+    /// Modification dates within this many seconds compare as equal during scans (see
+    /// `FileDiffEngine.computeDifferences`). Set by the app from persisted settings; changing
+    /// it requests a fresh scan, since the current differences were computed under the old
+    /// tolerance.
+    @Published public var dateToleranceSeconds: TimeInterval = 1 {
+        didSet {
+            guard dateToleranceSeconds != oldValue else { return }
+            refreshSubject.send()
+        }
+    }
+
+    /// When true, every scan finishes with a background checksum pass over same-size pairs that
+    /// only differ by date, hiding the ones whose content is identical (see
+    /// `autoVerifySameSizePairs(scanGeneration:)`). Set by the app from persisted settings;
+    /// toggling requests a rescan so the change applies immediately in both directions.
+    @Published public var autoVerifySameSizeDuringScan: Bool = false {
+        didSet {
+            guard autoVerifySameSizeDuringScan != oldValue else { return }
+            refreshSubject.send()
+        }
+    }
+
+    /// True while a navigation clear of `ignoredPaths` is running, so its mass removal is
+    /// never mirrored into the durable store as a user un-ignore.
+    private var suppressIgnorePersistence = false
+
+    /// Clears the session ignore layer without touching the durable store. The navigation
+    /// paths call this instead of mutating `ignoredPaths` directly.
+    func clearSessionIgnoredPaths() {
+        guard !ignoredPaths.isEmpty else { return }
+        suppressIgnorePersistence = true
+        defer { suppressIgnorePersistence = false }
+        ignoredPaths.removeAll()
+    }
+
+    /// Mirrors a user edit of the session ignore set into the durable store, translating
+    /// focus-relative paths to root-relative ones under the current left focus.
+    private func persistIgnoredPathsDelta(from oldValue: Set<String>, to newValue: Set<String>) {
+        guard !suppressIgnorePersistence, rememberIgnoredItems, let store = ignoredItemsStore else { return }
+        let focus = leftRelativePath
+        let added = newValue.subtracting(oldValue)
+        let removed = oldValue.subtracting(newValue)
+        if !added.isEmpty {
+            store.add(Set(added.map { Self.rootRelativePath($0, focus: focus) }))
+        }
+        if !removed.isEmpty {
+            store.remove(Set(removed.map { Self.rootRelativePath($0, focus: focus) }))
+        }
+    }
+
+    /// The ignore set filtering actually uses: the session layer plus the durable store's
+    /// entries translated into the current focus's coordinates. Public so the pane context
+    /// menus can toggle against what the user actually sees (a durably ignored node shows as
+    /// ignored, and toggling it removes it from the store via the session didSet's delta).
+    public var effectiveIgnoredPaths: Set<String> {
+        guard rememberIgnoredItems, let store = ignoredItemsStore, !store.rootRelativePaths.isEmpty else {
+            return ignoredPaths
+        }
+        return ignoredPaths.union(Self.focusRelativePaths(fromRootRelative: store.rootRelativePaths, focus: leftRelativePath))
+    }
+
+    /// Toggles the ignore state of focus-relative paths against the EFFECTIVE set — what the
+    /// user actually sees — so a durably ignored node (hidden by the store, absent from the
+    /// session set) un-ignores instead of being "ignored" a second time. When every target is
+    /// already ignored the action un-ignores them all, otherwise it ignores them all.
+    ///
+    /// Un-ignoring removes each target's exact entry AND any covering ancestor entry ("docs"
+    /// ignored, target "docs/report.txt") from both layers: the menu label says "Include", so
+    /// the clicked item must actually become visible — inserting or keeping a covered state
+    /// would leave the row struck through with the toggle silently doing nothing.
+    public func toggleIgnored(focusRelativePaths targets: Set<String>) {
+        guard !targets.isEmpty else { return }
+        let effective = effectiveIgnoredPaths
+        let allIgnored = targets.allSatisfy { Self.isIgnoredPath($0, ignored: effective) }
+        guard allIgnored else {
+            ignoredPaths.formUnion(targets)
+            return
+        }
+
+        // The session didSet's delta also removes from the store; the direct store removal
+        // below covers entries the session layer never held (post-navigation, prior session).
+        ignoredPaths = ignoredPaths.filter { entry in
+            !targets.contains { $0 == entry || $0.hasPrefix(entry + "/") }
+        }
+        if rememberIgnoredItems, let store = ignoredItemsStore {
+            let focus = leftRelativePath
+            let rootTargets = targets.map { Self.rootRelativePath($0, focus: focus) }
+            let covering = store.rootRelativePaths.filter { entry in
+                rootTargets.contains { $0 == entry || $0.hasPrefix(entry + "/") }
+            }
+            store.remove(covering)
+        }
+    }
+
+    /// Removes one durable ignore entry (root-relative, as listed in Settings) plus its
+    /// session counterpart under the current focus, so the row reappears immediately.
+    public func unignoreRootRelative(_ path: String) {
+        ignoredItemsStore?.remove([path])
+        let focus = leftRelativePath
+        let sessionPath: String?
+        if focus.isEmpty {
+            sessionPath = path
+        } else if path.hasPrefix(focus + "/") {
+            sessionPath = String(path.dropFirst(focus.count + 1))
+        } else {
+            sessionPath = nil
+        }
+        if let sessionPath, ignoredPaths.contains(sessionPath) {
+            ignoredPaths.remove(sessionPath)
+        }
+    }
+
+    /// Empties both ignore layers for the current provider pair (Settings' "Clear all").
+    public func clearAllIgnoredItems() {
+        ignoredItemsStore?.removeAll()
+        clearSessionIgnoredPaths()
+    }
+
+    /// Root-relative identity of a focus-relative path (`focus` empty = pane root). The LEFT
+    /// focus is used as the identity's coordinate system; in the dominant workflow both panes
+    /// navigate together, so the identity reads the same from either side.
+    nonisolated static func rootRelativePath(_ path: String, focus: String) -> String {
+        focus.isEmpty ? path : focus + "/" + path
+    }
+
+    /// The subset of root-relative entries that live under `focus`, re-expressed relative to
+    /// it. Entries at or above the focus are deliberately dropped: navigating INTO an ignored
+    /// folder shows its contents (that's how you inspect or un-ignore it) rather than
+    /// presenting an inexplicably empty comparison.
+    nonisolated static func focusRelativePaths(fromRootRelative paths: Set<String>, focus: String) -> Set<String> {
+        guard !focus.isEmpty else { return paths }
+        let prefix = focus + "/"
+        var result: Set<String> = []
+        for path in paths where path.hasPrefix(prefix) {
+            result.insert(String(path.dropFirst(prefix.count)))
+        }
+        return result
     }
 
     /// When true, differences that are only "right newer, same size" are hidden when the right pane is Google Drive (avoids noise from Drive overwriting file dates). Set by the app from persisted settings.
@@ -331,7 +508,8 @@ public class FileSyncManager: ObservableObject {
         } else if rPath.hasPrefix(base + "/") {
             rPath = String(rPath.dropFirst(base.count + 1))
         }
-        return Self.isIgnoredPath(rPath, ignored: ignoredPaths)
+        return Self.isIgnoredPath(rPath, ignored: effectiveIgnoredPaths)
+            || IgnoreRules.matches(rPath, patterns: ignorePatterns)
     }
     
     /// Removes resolved differences from both the published list and the raw backing list.
@@ -421,7 +599,8 @@ public class FileSyncManager: ObservableObject {
         let rawRight = rawRightTree
         let rawDiffs = rawDifferences
         let showHidden = showHiddenFiles
-        let ignored = ignoredPaths
+        let ignored = effectiveIgnoredPaths
+        let patterns = ignorePatterns
         let verifiedSame = verifiedSameDifferenceIds
         let syncingIds = syncingDifferenceIds
         let dropDriveDateNoise = ignoreGoogleDriveNewerDateOnly && lastRightProviderType == .googleDrive
@@ -433,6 +612,7 @@ public class FileSyncManager: ObservableObject {
                 rawDifferences: rawDiffs,
                 showHidden: showHidden,
                 ignoredPaths: ignored,
+                ignorePatterns: patterns,
                 verifiedSameDifferenceIds: verifiedSame,
                 syncingDifferenceIds: syncingIds,
                 dropDriveDateNoise: dropDriveDateNoise
@@ -477,6 +657,7 @@ public class FileSyncManager: ObservableObject {
         rawDifferences: [FileDifference],
         showHidden: Bool,
         ignoredPaths: Set<String>,
+        ignorePatterns: [String] = [],
         verifiedSameDifferenceIds: Set<UUID>,
         syncingDifferenceIds: Set<UUID> = [],
         dropDriveDateNoise: Bool
@@ -491,6 +672,11 @@ public class FileSyncManager: ObservableObject {
         if !ignoredPaths.isEmpty {
             filteredDifferences = filteredDifferences.filter { diff in
                 !isIgnoredPath(diff.relativePath, ignored: ignoredPaths)
+            }
+        }
+        if !ignorePatterns.isEmpty {
+            filteredDifferences = filteredDifferences.filter { diff in
+                !IgnoreRules.matches(diff.relativePath, patterns: ignorePatterns)
             }
         }
         if !verifiedSameDifferenceIds.isEmpty {

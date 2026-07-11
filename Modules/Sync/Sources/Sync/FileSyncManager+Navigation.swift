@@ -50,7 +50,7 @@ extension FileSyncManager {
     ///   - relativePath: Subfolder path relative to the pane root (e.g. `"Documents/Projects"`).
     ///   - isLeft: `true` if the user drilled into this folder from the left pane; `false` for the right pane.
     public func focusOn(relativePath: String, isLeft: Bool) {
-        ignoredPaths.removeAll()
+        clearSessionIgnoredPaths()
         if isLeft {
             leftHistory.push(relativePath)
         } else {
@@ -64,7 +64,7 @@ extension FileSyncManager {
     /// pane still undoes exactly that pane's last move. No-op when both panes are already there.
     public func focusBoth(relativePath: String) {
         guard leftRelativePath != relativePath || rightRelativePath != relativePath else { return }
-        ignoredPaths.removeAll()
+        clearSessionIgnoredPaths()
         if leftRelativePath != relativePath { leftHistory.push(relativePath) }
         if rightRelativePath != relativePath { rightHistory.push(relativePath) }
         syncPathsFromHistory()
@@ -79,7 +79,7 @@ extension FileSyncManager {
             guard rightHistory.canGoBack else { return }
             rightHistory.goBack()
         }
-        ignoredPaths.removeAll()
+        clearSessionIgnoredPaths()
         let pane = isLeft ? "left" : "right"
         let target = (isLeft ? leftHistory : rightHistory).current
         Logger.shared.info("User navigated \(pane) pane back to \(target.isEmpty ? "root" : target)")
@@ -95,7 +95,7 @@ extension FileSyncManager {
             guard rightHistory.canGoForward else { return }
             rightHistory.goForward()
         }
-        ignoredPaths.removeAll()
+        clearSessionIgnoredPaths()
         let pane = isLeft ? "left" : "right"
         let target = (isLeft ? leftHistory : rightHistory).current
         Logger.shared.info("User navigated \(pane) pane forward to \(target.isEmpty ? "root" : target)")
@@ -110,7 +110,7 @@ extension FileSyncManager {
     @MainActor public func resetNavigation() {
         Logger.shared.info("User reset navigation to root.")
         invalidateComparisonState()
-        ignoredPaths.removeAll()
+        clearSessionIgnoredPaths()
         if !selectedLeftPaths.isEmpty { selectedLeftPaths = [] }
         if !selectedRightPaths.isEmpty { selectedRightPaths = [] }
 

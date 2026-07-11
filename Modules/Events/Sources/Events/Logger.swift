@@ -13,7 +13,18 @@ public enum LogLevel: String, CaseIterable, Identifiable, Sendable {
     case error = "ERROR"
     
     public var id: String { self.rawValue }
-    
+
+    /// Ordering for the minimum-level gate: entries below `Logger.minimumLevel`'s severity
+    /// are dropped. Debug is the lowest so the default gate changes nothing.
+    public var severity: Int {
+        switch self {
+        case .debug: return 0
+        case .info: return 1
+        case .warning: return 2
+        case .error: return 3
+        }
+    }
+
     public var color: Color {
         switch self {
         case .info: return .blue
@@ -74,9 +85,29 @@ public class Logger: ObservableObject {
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
 
-    /// The absolute disk URL mapping to the destination log file.
-    private let logFileURL: URL
-    
+    /// The absolute disk URL mapping to the destination log file. Public so Settings can
+    /// reveal it in Finder and show its size next to the Clear Log control.
+    public let logFileURL: URL
+
+    /// Defaults key holding the persisted minimum level (a `LogLevel` raw value). The app
+    /// seeds `shared.minimumLevel` from it at launch; Settings writes both.
+    public nonisolated static let minimumLevelDefaultsKey = "logMinimumLevel"
+
+    /// The persisted minimum level, falling back to `.debug` (log everything — the historical
+    /// behavior) when unset or unrecognized.
+    public nonisolated static func persistedMinimumLevel(from defaults: UserDefaults = .standard) -> LogLevel {
+        defaults.string(forKey: minimumLevelDefaultsKey).flatMap(LogLevel.init(rawValue:)) ?? .debug
+    }
+
+    /// Entries below this severity are dropped before they reach memory or disk. Nonisolated
+    /// (lock-guarded) because `log()` runs on the caller's thread.
+    public nonisolated var minimumLevel: LogLevel {
+        get { minimumLevelBox.get() }
+        set { minimumLevelBox.set(newValue) }
+    }
+    private let minimumLevelBox = MinimumLevelBox()
+
+
     /// Serializes writes to the log file on a background queue while keeping a single file handle
     /// open, avoiding a per-line open/seek/close cycle. Internal (not private) so tests can
     /// `flush()` before asserting on file contents.
@@ -162,6 +193,7 @@ public class Logger: ObservableObject {
     /// replaces carried the entry itself, which let concurrent bursts reorder lines.
     @discardableResult
     private nonisolated func log(level: LogLevel, message: String) -> Task<Void, Never> {
+        guard level.severity >= minimumLevel.severity else { return Task {} }
         let entry = LogEntry(level: level, message: message)
         // Awaiting the returned task guarantees the entry is visible in `entries`: the queue
         // hands back the one MainActor flush task covering the current burst (see
@@ -209,6 +241,25 @@ public class Logger: ObservableObject {
     /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
     public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)
+    }
+}
+
+/// Lock-guarded `LogLevel` cell readable/writable from any thread — `log()` runs on the
+/// caller's thread, so the gate can't live in MainActor state.
+private final class MinimumLevelBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: LogLevel = .debug
+
+    func get() -> LogLevel {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set(_ newValue: LogLevel) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
     }
 }
 

@@ -249,6 +249,14 @@ extension FileSyncManager {
         }
     }
 
+    /// User-triggered sweep from Settings → Advanced. Same age-gated, `.rollback_`-preserving
+    /// pass as the automatic post-refresh sweep, plus a banner so the click visibly did
+    /// something (the automatic pass logs quietly).
+    public func sweepOrphanedTempArtifactsNow() {
+        sweepOrphanedTempArtifacts()
+        banner = .success("Checked for orphaned temporary files")
+    }
+
     /// Runs a diff scan between the two given directory paths on a background thread. Queues a single scan if one is already running.
     /// - Parameters:
     ///   - left: Cloud provider for the left pane.
@@ -294,6 +302,8 @@ extension FileSyncManager {
         // case; with mixed sensitivity the engine keeps exact-case matching.
         let caseInsensitive = !Self.volumeSupportsCaseSensitiveNames(for: leftURL)
             && !Self.volumeSupportsCaseSensitiveNames(for: rightURL)
+        // Snapshot on the main actor; the compute branches below run detached.
+        let dateTolerance = dateToleranceSeconds
 
         // In-memory fast path: when both focused folders have deep trees in the prefetch
         // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
@@ -321,7 +331,8 @@ extension FileSyncManager {
                     rightURL: rightURL,
                     leftFilesInfo: leftFilesInfo,
                     rightFilesInfo: rightFilesInfo,
-                    caseInsensitive: caseInsensitive
+                    caseInsensitive: caseInsensitive,
+                    dateToleranceSeconds: dateTolerance
                 )
             }
             newDifferences = await withTaskCancellationHandler {
@@ -357,7 +368,8 @@ extension FileSyncManager {
                         rightURL: rightURL,
                         leftFilesInfo: leftFilesInfo,
                         rightFilesInfo: rightFilesInfo,
-                        caseInsensitive: caseInsensitive
+                        caseInsensitive: caseInsensitive,
+                        dateToleranceSeconds: dateTolerance
                     )
 
                 } catch is CancellationError {
@@ -389,8 +401,14 @@ extension FileSyncManager {
             self.verifiedSameDifferenceIds.removeAll()
             await self.applyFilters()
             hasScanned = true
-            
+
             Logger.shared.debug("Scan completed: found \(results.count) differences.")
+
+            if autoVerifySameSizeDuringScan {
+                // Unstructured on purpose: hashing must not extend the scan (isScanning would
+                // hold the slot); the pass re-checks the generation before publishing.
+                Task { await self.autoVerifySameSizePairs(scanGeneration: request.generation) }
+            }
         }
 
         isScanning = false

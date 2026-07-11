@@ -224,10 +224,23 @@ struct ContentView: View {
                     syncManager.undoManager = undoManager
                 case .syncProviderQuirkSettings:
                     syncManager.ignoreGoogleDriveNewerDateOnly = settings.ignoreGoogleDriveNewerDateOnly
+                    syncManager.dateToleranceSeconds = settings.dateToleranceSeconds
+                    syncManager.autoVerifySameSizeDuringScan = settings.autoVerifySameSizeDuringScan
+                    syncManager.rememberIgnoredItems = settings.rememberIgnoredItems
+                    syncManager.ignorePatterns = settings.ignorePatterns
+                    // The durable ignore store outlives this view on the manager (window
+                    // reopen recreates ContentView); create once, re-key on provider changes.
+                    if syncManager.ignoredItemsStore == nil {
+                        syncManager.ignoredItemsStore = IgnoredItemsStore()
+                    }
+                    syncManager.ignoredItemsStore?.activate(
+                        pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()
                         applyProviderSelection(preferDistinctPair: true)
+                        syncManager.ignoredItemsStore?.activate(
+                            pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
                         if !settings.enabledProviders.isEmpty {
                             refreshAction()
                         }
@@ -248,6 +261,8 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched left provider to \(newId)")
             endReviewForComparisonChange()
+            syncManager.ignoredItemsStore?.activate(
+                pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
             syncManager.resetNavigation()
         }
@@ -259,6 +274,8 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched right provider to \(newId)")
             endReviewForComparisonChange()
+            syncManager.ignoredItemsStore?.activate(
+                pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
         }
         .onChange(of: syncManager.selectedLeftPaths) { _, paths in
@@ -297,6 +314,20 @@ struct ContentView: View {
         }
         .onChange(of: settings.ignoreGoogleDriveNewerDateOnly) { _, new in
             syncManager.ignoreGoogleDriveNewerDateOnly = new
+        }
+        // The remaining Sync-tab settings mirror the same way; the manager's didSets decide
+        // whether a change needs a refilter (ignores) or a rescan (tolerance, verification).
+        .onChange(of: settings.dateToleranceSeconds) { _, new in
+            syncManager.dateToleranceSeconds = new
+        }
+        .onChange(of: settings.autoVerifySameSizeDuringScan) { _, new in
+            syncManager.autoVerifySameSizeDuringScan = new
+        }
+        .onChange(of: settings.rememberIgnoredItems) { _, new in
+            syncManager.rememberIgnoredItems = new
+        }
+        .onChange(of: settings.ignorePatterns) { _, new in
+            syncManager.ignorePatterns = new
         }
         // Rebuilding the indices walks every difference's ancestor chain — with tens of
         // thousands of differences that froze the main thread after every scan, so the
@@ -438,6 +469,16 @@ struct ContentView: View {
         showSettings = true
     }
 
+    /// The full reset behind Settings → Advanced. `resetAllSettings()` wipes the defaults
+    /// domain and republishes the manager's own settings (each `.onChange` mirror above then
+    /// re-seeds the engine); the pieces built from the old values that DON'T flow through
+    /// those mirrors — the log gate and the in-memory ignore sets — are reset here.
+    private func resetAllSettingsAction() {
+        settings.resetAllSettings()
+        Logger.shared.minimumLevel = .debug
+        syncManager.clearAllIgnoredItems()
+    }
+
     /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered
     /// card. Because it lives inside the main window it floats over the content even in full
     /// screen, and never kicks the user out to another Space the way a separate window would.
@@ -449,7 +490,12 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .onTapGesture { showSettings = false }
 
-            SettingsView(selection: $settingsTab, onClose: { showSettings = false })
+            SettingsView(
+                selection: $settingsTab,
+                onClose: { showSettings = false },
+                syncManager: syncManager,
+                onResetAllSettings: { resetAllSettingsAction() }
+            )
                 .environmentObject(settings)
                 .background(.regularMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
