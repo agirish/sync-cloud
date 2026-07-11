@@ -50,8 +50,14 @@ final class BannerDismissScheduler {
         cancelTimer()
         currentDelay = nil
         self.dismiss = nil
-        guard let banner = newValue,
-              let delay = delays.delayNanoseconds(for: banner.severity) else { return }
+        guard let banner = newValue else {
+            // The banner view is gone, so hover is definitionally over — but SwiftUI doesn't
+            // deliver onHover(false) for a removed view, and every ✕ click happens while
+            // hovered. Without this reset the next banner would start paused and never dismiss.
+            isHovering = false
+            return
+        }
+        guard let delay = delays.delayNanoseconds(for: banner.severity) else { return }
         currentDelay = delay
         self.dismiss = dismiss
         // A banner replaced while the pointer is over it stays paused until hover exit.

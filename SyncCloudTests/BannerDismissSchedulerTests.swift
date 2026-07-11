@@ -124,6 +124,23 @@ import Sync
         #expect(dismissCount == 1)
     }
 
+    @MainActor
+    @Test func testManualCloseWhileHoveredDoesNotStrandTheNextBannersTimer() async throws {
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays)
+        var dismissCount = 0
+
+        // Every ✕ click happens while the pointer hovers the banner, and SwiftUI never delivers
+        // onHover(false) for the removed view — so the hover state must reset on clear, or the
+        // next banner starts "paused" and never auto-dismisses.
+        scheduler.bannerChanged(to: .success("First")) { dismissCount += 1 }
+        scheduler.hoverChanged(isHovering: true)
+        scheduler.bannerChanged(to: nil) { dismissCount += 1 }
+
+        scheduler.bannerChanged(to: .success("Second")) { dismissCount += 1 }
+        try await Task.sleep(nanoseconds: 350_000_000)
+        #expect(dismissCount == 1)
+    }
+
     @Test func testBannerSymbolNamesExistInSFSymbols() {
         // A typo'd symbol name renders as a blank icon at runtime; pin that every name resolves.
         for severity in [OperationBanner.Severity.success, .warning, .error] {
