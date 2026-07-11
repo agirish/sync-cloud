@@ -1,14 +1,15 @@
 import Sync
 
-/// Filter for the differences list (by type / side).
-public enum DifferenceFilter: String, CaseIterable {
-    case all = "All"
-    case missingOnLeft = "Missing on left"
-    case missingOnRight = "Missing on right"
-    case changedCopyToRight = "Changed (left newer)"
-    case changedCopyToLeft = "Changed (right newer)"
+/// Filter for the differences list (by type / side). The selection is transient view
+/// @State — nothing persists it, so the cases need no stable serialized identity.
+public enum DifferenceFilter: CaseIterable {
+    case all
+    case missingOnLeft
+    case missingOnRight
+    case changedCopyToRight
+    case changedCopyToLeft
 
-    /// User-facing label using the panes' provider names; rawValue stays the stable case identity.
+    /// User-facing label using the panes' provider names.
     func displayName(leftName: String, rightName: String) -> String {
         switch self {
         case .all: return "All"

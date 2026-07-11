@@ -56,10 +56,9 @@ import Sync
     }
 
     @Test func testMatchingLogicIsIndependentOfDisplayName() {
-        // The refactor moved display out of rawValue; matching must still key off case identity.
+        // Display is derived per-render from provider names; matching keys off case identity.
         for filter in DifferenceFilter.allCases {
             let renamed = filter.displayName(leftName: "A", rightName: "B")
-            #expect(DifferenceFilter(rawValue: filter.rawValue) == filter)
             #expect(renamed.isEmpty == false)
         }
         #expect(DifferenceFilter.missingOnLeft.matches(diff(.missingOnLeft, .copyToLeft)))
