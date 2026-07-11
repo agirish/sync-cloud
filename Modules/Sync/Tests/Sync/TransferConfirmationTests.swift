@@ -212,6 +212,109 @@ import Foundation
         #expect(summaries.first?.destinationDirectory == "/dst")
     }
 
+    // MARK: - Prompts run behind the exclusion latches (not before them)
+
+    /// While the syncAll confirmation prompt is up, `isBulkSyncRunning` must already be
+    /// latched: the prompt's modal spins the run loop, so a queued second syncAll (or a
+    /// Verify All, whose guard reads the flag) would otherwise pass its exclusion check
+    /// mid-prompt. A decline must release the latch.
+    @MainActor
+    @Test func testBulkSyncFlagIsLatchedDuringConfirmPromptAndReleasedOnDecline() async throws {
+        let (manager, _, _) = try makeDifferenceFixture()
+        var flagDuringPrompt: Bool?
+        manager.transferConfirmer = { [weak manager] _ in
+            flagDuringPrompt = manager?.isBulkSyncRunning
+            return false
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(flagDuringPrompt == true)
+        #expect(manager.isBulkSyncRunning == false)
+    }
+
+    /// While the syncFile confirmation prompt is up, the row must already be marked syncing:
+    /// Verify All's guard documents that `syncingDifferenceIds` covers a syncFile parked at
+    /// a prompt. A decline must clear the mark.
+    @MainActor
+    @Test func testRowIsMarkedSyncingDuringConfirmPromptAndClearedOnDecline() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        var markedDuringPrompt: Bool?
+        manager.transferConfirmer = { [weak manager] _ in
+            markedDuringPrompt = manager?.syncingDifferenceIds.contains(diff.id)
+            return false
+        }
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+
+        #expect(ran == false)
+        #expect(markedDuringPrompt == true)
+        #expect(manager.syncingDifferenceIds.isEmpty)
+    }
+
+    // MARK: - Pre-confirmed callers skip the prompt (one gesture never asks twice)
+
+    /// `confirmed: true` skips the transferConfirmer entirely — for callers whose UI already
+    /// embodies the confirmation (review-card accepts, "Copy Remaining N…").
+    @MainActor
+    @Test func testConfirmedSyncFileAndSyncAllSkipTheConfirmer() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM, confirmed: true)
+        #expect(ran == true)
+        #expect(prompts == 0)
+
+        // Re-seed a second difference for the bulk entry point.
+        let diff2 = FileDifference(
+            relativePath: "b.txt",
+            leftItemPath: "/src/b.txt",
+            rightItemPath: "/dst/b.txt",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right"
+        )
+        manager.rawDifferences = [diff2]
+        manager.differences = [diff2]
+
+        await manager.syncAll(direction: .copyToRight, confirmed: true)
+        #expect(prompts == 0)
+        #expect(mockFM.virtualDisk["/dst/b.txt"] != nil)
+    }
+
+    /// Retry on a failed single-row sync must NOT re-ask the confirmer: the Retry click is
+    /// itself the confirmation, and re-prompting made an Escape reflex silently swallow the
+    /// retry. One prompt for the original attempt, zero for the retry.
+    @MainActor
+    @Test func testRetryAfterFailureDoesNotReconfirm() async throws {
+        let (manager, mockFM, diff) = try makeDifferenceFixture()
+        var prompts = 0
+        manager.transferConfirmer = { _ in
+            prompts += 1
+            return true
+        }
+        mockFM.shouldFailCopy = true // one-shot: the retry's copy succeeds
+
+        let ran = await manager.syncFile(diff, isMove: false, fileManager: mockFM)
+        #expect(ran == false)
+        #expect(prompts == 1)
+        #expect(manager.currentError != nil)
+
+        let retry = try #require(manager.currentErrorRetry)
+        retry()
+        // The retry closure spawns a Task; wait for the move to land.
+        for _ in 0..<100 where mockFM.virtualDisk["/dst/a.txt"] == nil {
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(prompts == 1)
+    }
+
     // MARK: - Collision context carries both paths
 
     /// The single-item resolver sees the full source and destination paths of the collision,

@@ -25,30 +25,10 @@ public struct NativeAlerts {
         )
     }
 
-    /// Presents a native macOS confirmation prompt before moving items (i.e., cut + paste).
-    /// - Parameters:
-    ///   - itemNames: The list of file or folder names selected for moving.
-    ///   - destinationLabel: A short label for where the items will be moved (e.g. "Destination", "Source").
-    /// - Returns: True if the user confirmed the move.
-    public static func confirmMove(for itemNames: [String], destinationLabel: String) -> Bool {
-        guard !itemNames.isEmpty else { return false }
-
-        if itemNames.count == 1, let first = itemNames.first {
-            return confirmAction(
-                messageText: "Move \"\(first)\" to \(destinationLabel)?",
-                informativeText: "This will remove the item from its current location.",
-                confirmTitle: "Move"
-            )
-        }
-        return confirmAction(
-            messageText: "Move \(itemNames.count) items to \(destinationLabel)?",
-            informativeText: "This will remove the items from their current location.",
-            confirmTitle: "Move"
-        )
-    }
-
-    /// Shared confirm/cancel warning alert behind `confirmDelete` and `confirmMove` (following
-    /// the `promptForName` pattern below): the callers supply only the strings that differ.
+    /// Shared confirm/cancel warning alert behind `confirmDelete` (following
+    /// the `promptForName` pattern below): the caller supplies only the strings that differ.
+    /// (`confirmMove` used to live here too; move confirmation moved into the sync layer's
+    /// Settings-gated `transferConfirmer`, which shows From/To details.)
     /// - Returns: True if the user chose the confirm button.
     private static func confirmAction(messageText: String, informativeText: String, confirmTitle: String) -> Bool {
         let alert = NSAlert()

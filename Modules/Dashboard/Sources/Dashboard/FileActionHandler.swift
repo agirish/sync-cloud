@@ -93,19 +93,15 @@ public class FileActionHandler {
         }
     }
 
-    /// Moves the given items to the opposite pane (after user confirmation). Returns the nodes that were moved.
+    /// Moves the given items to the opposite pane. Returns the nodes that were moved.
+    /// Confirmation lives in the sync layer (`transferConfirmer`: Settings-gated, with
+    /// From/To details) — the `NativeAlerts.confirmMove` guard this method used to run made
+    /// every move double-prompt once that seam landed, and it ignored the
+    /// "Confirm before copying or moving" setting.
     /// - Parameters: Same as `copyItems`; direction is determined by `fromLeft`.
     @discardableResult
     public func moveItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) async -> [FileNode] {
-        // Validate the pane roots before asking for confirmation: confirming a move that can
-        // only fail — or relocate files out of a pane that no longer exists — helps nobody.
         guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return [] }
-
-        let targetLabel = fromLeft ? "Right" : "Left"
-        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: targetLabel) else {
-            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(targetLabel)")
-            return []
-        }
 
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
@@ -155,15 +151,13 @@ public class FileActionHandler {
             message: "The \(side) pane's folder is no longer available. Rescan before continuing.")
     }
     
-    /// Moves the given items into the directory at `destinationPath` (after user confirmation).
+    /// Moves the given items into the directory at `destinationPath`.
     /// This is drag & drop's move route; unlike the cut+paste route it never touches the
     /// internal clipboard, and unlike the pane-to-pane move it targets an explicit directory.
+    /// Confirmation lives in the sync layer's `transferConfirmer` (see the pane-to-pane
+    /// `moveItems` above for why no `NativeAlerts.confirmMove` runs here).
     public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
-        guard NativeAlerts.confirmMove(for: nodes.map { $0.name }, destinationLabel: destDisplayName) else {
-            Logger.shared.debug("User cancelled move of \(nodes.count) items to \(destDisplayName)")
-            return
-        }
         Logger.shared.info("User initiating move of \(nodes.count) items to a dropped-on directory")
         Task {
             let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)

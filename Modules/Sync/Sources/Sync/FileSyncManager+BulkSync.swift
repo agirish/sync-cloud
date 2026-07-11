@@ -161,7 +161,10 @@ extension FileSyncManager {
     ///   - direction: Which direction to sync (e.g. `.copyToRight` → copy all that are "missing on right" or "left newer").
     ///   - isMove: If true, moves each file; otherwise copies.
     ///   - subset: When non-nil, only differences in this array are considered (e.g. the currently filtered list). When nil, uses the full `differences` array.
-    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil) async {
+    ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
+    ///     for this exact run (e.g. review mode's "Copy Remaining N…" button, which names the
+    ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
+    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false) async {
         let source = subset ?? differences
         let toSync = source.filter { $0.action == direction }
         let total = toSync.count
@@ -174,22 +177,29 @@ extension FileSyncManager {
             banner = .warning("Wait for the current operation to finish before syncing")
             return
         }
-        // Confirm before any I/O (and before the run claims the bulk-sync flag): a bulk sync
-        // is one header click away, so a mis-click must be cancellable while it still costs
-        // nothing. The prompt names the two compared folders of the first item — every item
-        // in one direction shares them.
-        if let first = toSync.first {
+        // Latch the bulk-sync flag BEFORE the confirmation prompt, not after: the prompt's
+        // modal spins the run loop, so a queued second syncAll (or a Verify All, whose guard
+        // reads this flag) would otherwise pass its exclusion check while the prompt is up —
+        // reopening exactly the overlap these guards exist to prevent. A decline releases it.
+        isBulkSyncRunning = true
+        // Confirm before any I/O: a bulk sync is one header click away, so a mis-click must
+        // be cancellable while it still costs nothing. The prompt names the two compared
+        // folders of the first item — every item in one direction shares them. Callers that
+        // already embody the user's confirmation pass `confirmed: true`.
+        if !confirmed, let first = toSync.first {
             let containers = first.transferContainers
-            let confirmed = transferConfirmer(TransferSummary(
+            let userConfirmed = transferConfirmer(TransferSummary(
                 isMove: isMove,
                 itemCount: total,
                 firstItemName: first.transferURLs.from.lastPathComponent,
                 sourceDirectory: containers.from,
                 destinationDirectory: containers.to
             ))
-            guard confirmed else { return }
+            guard userConfirmed else {
+                isBulkSyncRunning = false
+                return
+            }
         }
-        isBulkSyncRunning = true
         let toSyncIDs = Set(toSync.map { $0.id })
         bulkApplyToAllResolution = nil
 

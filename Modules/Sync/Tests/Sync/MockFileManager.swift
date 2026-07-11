@@ -81,10 +81,17 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     public var calledCopyItem: Bool = false
+    /// One-shot copy failure (mirrors `shouldFailMove`): the next copyItem throws, then the
+    /// flag resets so a retry succeeds — for pinning retry flows.
+    public var shouldFailCopy: Bool = false
 
     public func copyItem(at srcURL: URL, to dstURL: URL) throws {
         try sync {
             calledCopyItem = true
+            if shouldFailCopy {
+                shouldFailCopy = false
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: [NSLocalizedDescriptionKey: "Simulated copy failure"])
+            }
             let src = srcURL.path
             let dst = dstURL.path
 

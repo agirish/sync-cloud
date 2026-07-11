@@ -855,44 +855,56 @@ public class FileSyncManager: ObservableObject {
     ///   - difference: The discrepancy to resolve (determines from/to paths from `action`).
     ///   - isMove: If true, moves the file; otherwise copies.
     ///   - fileManager: Optional override for tests (defaults to `self.fileManager`).
+    ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
+    ///     for this exact transfer (a Retry click on its failure alert, a review-card accept)
+    ///     — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
     /// - Returns: Whether the operation ran (Replace/Keep Both/plain copy); false when the user
     ///   skipped at a collision prompt or the operation failed. This is the only reliable
     ///   "did it happen" signal — inferring from the differences list breaks the moment the
     ///   post-operation rescan regenerates row UUIDs (guided review records outcomes from it).
     @discardableResult
-    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil) async -> Bool {
+    public func syncFile(_ difference: FileDifference, isMove: Bool = false, fileManager: FileManaging? = nil, confirmed: Bool = false) async -> Bool {
         let activeFM = fileManager ?? self.fileManager
         let urls = difference.transferURLs
         let fromURL = urls.from
         var toURL = urls.to
 
-        // Confirm before any I/O (and before the row is marked in-flight): single-row syncs
-        // are one click away in the Differences list, so a mis-click must be cancellable
-        // while it still costs nothing.
-        guard transferConfirmer(TransferSummary(
-            isMove: isMove,
-            itemCount: 1,
-            firstItemName: fromURL.lastPathComponent,
-            sourceDirectory: fromURL.deletingLastPathComponent().path,
-            destinationDirectory: toURL.deletingLastPathComponent().path
-        )) else { return false }
+        // Mark the difference as syncing BEFORE any prompt can hold this call, not after:
+        // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a
+        // syncFile parked at a prompt is visible to it — a prompt's modal spins the run loop,
+        // so a queued Verify All would otherwise start hashing the very file this sync is
+        // about to overwrite. Every early exit below must clearSyncing.
+        markSyncing(ids: [difference.id])
 
-        // Provider name check, before the row is marked in-flight: a destination name the
-        // provider forbids (e.g. a trailing space on Dropbox) would be written locally and
-        // then never uploaded. The sanitized target may collide with an existing item — the
-        // collision flow below stats whatever URL comes out of here, so that case becomes a
-        // normal Replace/Keep Both/Skip prompt.
+        // Confirm before any I/O: single-row syncs are one click away in the Differences
+        // list, so a mis-click must be cancellable while it still costs nothing.
+        if !confirmed {
+            let userConfirmed = transferConfirmer(TransferSummary(
+                isMove: isMove,
+                itemCount: 1,
+                firstItemName: fromURL.lastPathComponent,
+                sourceDirectory: fromURL.deletingLastPathComponent().path,
+                destinationDirectory: toURL.deletingLastPathComponent().path
+            ))
+            guard userConfirmed else {
+                clearSyncing(ids: [difference.id])
+                return false
+            }
+        }
+
+        // Provider name check: a destination name the provider forbids (e.g. a trailing
+        // space on Dropbox) would be written locally and then never uploaded. The sanitized
+        // target may collide with an existing item — the collision flow below stats whatever
+        // URL comes out of here, so that case becomes a normal Replace/Keep Both/Skip prompt.
         switch checkDestinationName(for: toURL, isMove: isMove) {
         case .skip:
+            clearSyncing(ids: [difference.id])
             return false
         case .sanitized(let sanitizedURL):
             toURL = sanitizedURL
         case .clean, .keepOriginal:
             break
         }
-
-        // Mark the difference as syncing (published row + authoritative id set)
-        markSyncing(ids: [difference.id])
 
         // If destination exists, prompt before overwriting (same behavior as copy-from-tree).
         // The prompt itself stays on the MainActor.
@@ -976,7 +988,10 @@ public class FileSyncManager: ObservableObject {
         if let error = result.error {
             present(
                 .syncFailed(item: difference.relativePath, path: fromURL.path, reason: error.localizedDescription),
-                retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove) } }
+                // confirmed: the Retry click IS the confirmation — re-running the
+                // transferConfirmer here would re-ask about an already-affirmed transfer,
+                // and an Escape reflex would silently swallow the retry.
+                retry: { [weak self] in Task { await self?.syncFile(difference, isMove: isMove, confirmed: true) } }
             )
 
             clearSyncing(ids: [difference.id])
