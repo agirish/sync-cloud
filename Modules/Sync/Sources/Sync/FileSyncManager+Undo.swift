@@ -237,9 +237,12 @@ extension FileSyncManager {
         undoManager?.setActionName("New Folder")
     }
     
+    /// Registers the REDO of a delete: the handler re-trashes `urls`. Its only caller is the
+    /// delete-undo handler in `registerRestoreItems`, so the audit label is always "Redo".
     func registerTrashItems(urls: [URL], actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
-            Logger.shared.info("User triggered Undo: \(actionName)")
+            Logger.shared.info("User triggered Redo: \(actionName)")
+            let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             let nextResolver = AsyncValueResolver<[URL?]>()
             target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName, fileManager: fm)
             
@@ -257,15 +260,17 @@ extension FileSyncManager {
                             }
                         }
                         await nextResolver.resolve(trashedItems)
+                        logger.info("Redo (\(actionName)): trashed \(trashedItems.compactMap { $0 }.count) of \(urls.count) item(s)")
                 }
             }
         }
         undoManager?.setActionName(actionName)
     }
 
+    /// Registers the UNDO of a delete: the handler restores each item from its Trash location.
     func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         undoManager?.registerUndo(withTarget: self) { target in
-            Logger.shared.info("User triggered Redo: \(actionName)")
+            Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
             target.registerTrashItems(urls: urls, actionName: actionName, fileManager: fm)
             
