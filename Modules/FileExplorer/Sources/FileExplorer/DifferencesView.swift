@@ -179,6 +179,17 @@ public struct DifferencesView: View {
     private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
         StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
             .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+        // Surface the per-side totals inline — they used to hide only in the pill's tooltip.
+        // Gated on `hasScanned` so it stays blank pre-scan instead of reading "0 · 0"; the
+        // pill's `.help` still spells out the full text on hover when this truncates.
+        if syncManager.hasScanned {
+            Text("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
         Spacer()
         Menu {
             // A Picker inside a Menu gets the native menu check column; a per-row
