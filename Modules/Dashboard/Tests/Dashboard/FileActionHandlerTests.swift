@@ -188,6 +188,22 @@ import Settings
         #expect(manager.leftRelativePath == "")
     }
 
+    /// beginCreateFolder with an empty pane path (vanished provider) must present an error
+    /// before ever prompting for a name — the sync layer would refuse the empty root anyway,
+    /// and without the guard the folder used to be created at the process CWD.
+    @MainActor
+    @Test func testBeginCreateFolderWithEmptyPathPresentsErrorWithoutPrompting() async throws {
+        let manager = FileSyncManager()
+        let handler = FileActionHandler(syncManager: manager, settings: makeSettings(providers: []))
+
+        handler.beginCreateFolder(in: "")
+
+        // The guard is synchronous; reaching these expectations at all proves no name prompt
+        // (a modal alert, which would stall the suite) was shown.
+        #expect(manager.currentError?.title == "Folder Unavailable")
+        #expect(manager.activeFileOperationsCount == 0)
+    }
+
     /// Happy-path regression guard: a folder genuinely under the root still focuses, with the
     /// same relative path as before the boundary fix.
     @MainActor

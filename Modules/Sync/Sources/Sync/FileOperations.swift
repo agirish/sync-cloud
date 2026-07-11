@@ -665,10 +665,26 @@ extension FileSyncManager {
             present(SyncError(title: "Couldn't Create Folder", message: reason, path: path))
             return
         }
-        let createdURL = URL(fileURLWithPath: path).appendingPathComponent(name)
-        
+        // Same guard as transferItems: an empty parent path (a provider that vanished from
+        // settings while its stale tree was showing) must stay empty — URL(fileURLWithPath: "")
+        // would resolve against the process CWD and create the folder there.
+        let parentPath = path.isEmpty
+            ? ""
+            : URL(fileURLWithPath: (path as NSString).expandingTildeInPath).path
+        guard !parentPath.isEmpty else {
+            present(.createFolderFailed(reason: FileOperationError.destinationRootUnavailable.localizedDescription, path: path))
+            return
+        }
+        let createdURL = URL(fileURLWithPath: parentPath).appendingPathComponent(name)
+
         let error = await enqueueFileOperation { () -> Error? in
             do {
+                // One stat, before any I/O (matching transferItems): a parent that no longer
+                // exists on disk (provider unmounted or removed) fails the operation rather
+                // than surfacing a raw file-system error.
+                guard fm.fileExists(atPath: parentPath) else {
+                    throw FileOperationError.destinationRootUnavailable
+                }
                 if fm.fileExists(atPath: createdURL.path) {
                     throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSLocalizedDescriptionKey : "An item named \"\(name)\" already exists."])
                 }

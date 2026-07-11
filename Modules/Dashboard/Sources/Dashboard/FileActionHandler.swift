@@ -262,6 +262,16 @@ public class FileActionHandler {
     }
     
     public func beginCreateFolder(in path: String) {
+        // "" is the root of a pane whose provider vanished from settings (`settings.path(for:)`
+        // for an unknown id) while its stale tree was still showing. The sync layer refuses it
+        // too; short-circuit here — like focusFolder/transferRoots — so the user is never
+        // prompted for a name the folder cannot get.
+        guard !path.isEmpty else {
+            syncManager.present(SyncError(
+                title: "Folder Unavailable",
+                message: "The pane's folder is no longer available. Rescan before continuing."))
+            return
+        }
         if let folderName = NativeAlerts.promptForNewFolder(validate: FileSyncManager.validateItemName) {
             Logger.shared.info("User initiated create folder: '\(folderName)'")
             Task {

@@ -220,6 +220,36 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/New Folder"] == nil)
     }
     
+    /// An empty parent path means the pane's provider vanished from settings while its stale
+    /// tree was still showing. `URL(fileURLWithPath: "")` resolves against the process CWD, so
+    /// without a guard New Folder would create `<CWD>/<name>` — nothing may be created and the
+    /// destination-unavailable error must be presented instead.
+    @MainActor
+    @Test func testCreateFolderWithEmptyPathCreatesNothingAndPresentsError() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+
+        await manager.createFolder(named: "New Folder", in: "", fileManager: mockFM)
+
+        #expect(mockFM.virtualDisk.isEmpty)
+        #expect(manager.currentError?.title == "Couldn't Create Folder")
+        #expect(manager.currentError?.reason?.contains("no longer available") == true)
+    }
+
+    /// A parent that vanished from disk (provider unmounted or removed) must fail the same way,
+    /// not be silently recreated as a dead local tree or surface a raw file-system error.
+    @MainActor
+    @Test func testCreateFolderWithVanishedParentCreatesNothingAndPresentsError() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+
+        await manager.createFolder(named: "New Folder", in: "/gone", fileManager: mockFM)
+
+        #expect(mockFM.virtualDisk.isEmpty)
+        #expect(manager.currentError?.title == "Couldn't Create Folder")
+        #expect(manager.currentError?.reason?.contains("no longer available") == true)
+    }
+
     @MainActor
     @Test func testMoveFiles() async throws {
         let manager = FileSyncManager()
