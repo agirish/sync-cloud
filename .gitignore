@@ -90,8 +90,11 @@ iOSInjectionProject/
 build_log.txt
 build_runtime/
 build_runtime_backup/
-test*.txt
-test*.swift
+# Root-level scratch files only: on a case-insensitive checkout an unanchored
+# test*.swift would also swallow real test-target sources named Test*.swift
+# (it silently kept Tests/Sync/TestSupport.swift out of a commit).
+/test*.txt
+/test*.swift
 
 # Claude Code
 # Machine-local settings (permissions, etc.). Shared config like .claude/settings.json

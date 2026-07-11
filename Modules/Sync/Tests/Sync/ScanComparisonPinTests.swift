@@ -103,15 +103,10 @@ import Foundation
     /// root-relative keys, directory flags, sizes, mod dates, and hidden files.
     @Test func testGetFilesInDirectoryOnRealFilesystem() async throws {
         let fm = FileManager.default
-        let tempRoot = fm.temporaryDirectory.appendingPathComponent("DiffEngineRealFS-\(UUID().uuidString)")
-        try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tempRoot) }
-        // Canonicalize the root: /var/... is a symlink to /private/var/..., the real enumerator
-        // yields canonical URLs, and the engine trims relative keys with a plain basePath prefix
-        // check — an uncanonical root would defeat it and every key would come back near-absolute.
-        // (resolvingSymlinksInPath can't be used here: it deliberately strips /private.)
-        let canonicalPath = try #require(tempRoot.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
-        let root = URL(fileURLWithPath: canonicalPath)
+        // Canonical root (see makeCanonicalTempRoot): the engine trims relative keys with a
+        // plain basePath prefix check against canonical child URLs.
+        let root = try makeCanonicalTempRoot(prefix: "DiffEngineRealFS")
+        defer { try? fm.removeItem(at: root) }
         let nested = root.appendingPathComponent("nested/sub")
         try fm.createDirectory(at: nested, withIntermediateDirectories: true)
 
@@ -188,12 +183,9 @@ import Foundation
     /// remains and is pinned below: only the tree path walks a symlinked directory's contents.)
     @Test func testSymlinkedFilesReportTargetMetadataInBothScanPaths() async throws {
         let fm = FileManager.default
-        let tempRoot = fm.temporaryDirectory.appendingPathComponent("DiffEngineSymlinks-\(UUID().uuidString)")
-        try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-        defer { try? fm.removeItem(at: tempRoot) }
         // Canonical root: both paths key by root-relative path against canonical child URLs.
-        let canonicalPath = try #require(tempRoot.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
-        let root = URL(fileURLWithPath: canonicalPath)
+        let root = try makeCanonicalTempRoot(prefix: "DiffEngineSymlinks")
+        defer { try? fm.removeItem(at: root) }
 
         let content = "twenty-six bytes of stuff!"
         let knownDate = Date(timeIntervalSince1970: 1_600_000_000)

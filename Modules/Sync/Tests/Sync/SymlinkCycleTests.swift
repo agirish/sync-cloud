@@ -11,17 +11,6 @@ import Testing
 /// contain symlinks — the cycle guard's real-filesystem identity path is what's under test.
 @Suite struct SymlinkCycleTests {
 
-    private func makeTempRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SymlinkCycleTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        // Canonicalize: temporaryDirectory lives behind the /var -> /private/var symlink, but
-        // contentsOfDirectory(at:) hands buildTree canonical child URLs, and the cache/subtree
-        // helpers match by exact path — an uncanonical root would never line up with the ids.
-        let canonical = try root.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
-        return URL(fileURLWithPath: canonical ?? root.path)
-    }
-
     private func occurrences(named target: String, in nodes: [FileNode]) -> Int {
         nodes.reduce(0) { count, node in
             count + (node.name == target ? 1 : 0) + occurrences(named: target, in: node.children ?? [])
@@ -30,7 +19,7 @@ import Testing
 
     @Test func testBuildTreeTerminatesOnSymlinkCycle() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
         defer { try? fm.removeItem(at: root) }
 
         let sub = root.appendingPathComponent("sub")
@@ -52,7 +41,7 @@ import Testing
 
     @Test func testBuildTreeTerminatesOnSelfLoop() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
         defer { try? fm.removeItem(at: root) }
 
         let dir = root.appendingPathComponent("dir")
@@ -71,7 +60,7 @@ import Testing
     /// empty directory is still served.
     @Test func testSubtreeMissesCycleCappedDirectoryButServesEmptyOnes() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
         defer { try? fm.removeItem(at: root) }
 
         let sub = root.appendingPathComponent("sub")
@@ -100,8 +89,8 @@ import Testing
     @MainActor
     @Test func testDrillIntoCycleCappedDirectoryShowsRealContentsAndNoPhantomRows() async throws {
         let fm = FileManager.default
-        let leftRoot = try makeTempRoot()
-        let rightRoot = try makeTempRoot()
+        let leftRoot = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
+        let rightRoot = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
         defer {
             try? fm.removeItem(at: leftRoot)
             try? fm.removeItem(at: rightRoot)
@@ -143,7 +132,7 @@ import Testing
 
     @Test func testAcyclicSymlinkedDirectoryIsStillFollowed() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "SymlinkCycleTests")
         defer { try? fm.removeItem(at: root) }
 
         let data = root.appendingPathComponent("data")

@@ -11,14 +11,6 @@ import Testing
 /// SymlinkCycleTests' single-child chains, which exercise the sequential path.
 @Suite struct ParallelWalkTests {
 
-    private func makeTempRoot() throws -> URL {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ParallelWalkTests-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let canonical = try root.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath
-        return URL(fileURLWithPath: canonical ?? root.path)
-    }
-
     /// root/dir_{0..3}/sub_{0..2}/leaf_{0..1}.txt plus files at every level — wide enough
     /// that both fan-out levels take the concurrent branch.
     private func makeWideTree(at root: URL) throws {
@@ -40,7 +32,7 @@ import Testing
 
     @Test func testParallelWalkBuildsCompleteSortedTree() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "ParallelWalkTests")
         defer { try? fm.removeItem(at: root) }
         try makeWideTree(at: root)
 
@@ -68,7 +60,7 @@ import Testing
     /// while its siblings (and an acyclic cousin link) still walk fully.
     @Test func testCycleGuardHoldsThroughParallelBranches() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "ParallelWalkTests")
         defer { try? fm.removeItem(at: root) }
         try makeWideTree(at: root)
         // Cycle at depth 2 (inside the fan-out horizon): root/dir_1/sub_1/loop -> root
@@ -105,7 +97,7 @@ import Testing
     /// and the tree still comes back complete and sorted.
     @Test func testSingleFolderRootStillWalksCompletely() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "ParallelWalkTests")
         defer { try? fm.removeItem(at: root) }
         // root/only/chain/(wide 48-node tree): two single-entry levels before any siblings.
         let only = root.appendingPathComponent("only")
@@ -128,7 +120,7 @@ import Testing
     /// through the sliding window.
     @Test func testLevelWiderThanConcurrencyWindowCompletes() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "ParallelWalkTests")
         defer { try? fm.removeItem(at: root) }
         for i in 0..<40 {
             try "x".write(to: root.appendingPathComponent("file_\(i).txt"), atomically: true, encoding: .utf8)
@@ -153,7 +145,7 @@ import Testing
     /// actually reads them (switching to that sort reloads the trees — see sortOption.didSet).
     @Test func testTagsFetchedOnlyForTagsSort() async throws {
         let fm = FileManager.default
-        let root = try makeTempRoot()
+        let root = try makeCanonicalTempRoot(prefix: "ParallelWalkTests")
         defer { try? fm.removeItem(at: root) }
 
         let file = root.appendingPathComponent("tagged.txt")

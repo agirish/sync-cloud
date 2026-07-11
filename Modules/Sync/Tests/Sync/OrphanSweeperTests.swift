@@ -122,13 +122,9 @@ import Testing
 
     @Test func testSweepRemovesOnlyOldTempArtifactsOnDisk() async throws {
         let fm = FileManager.default
-        // Canonicalize the temp dir's /var -> /private/var symlink up front so the paths
-        // the walk reports match the expectations below (resolvingSymlinksInPath won't do:
-        // it strips /private instead of adding it).
-        let canonicalTmp = try #require(fm.temporaryDirectory.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath)
-        let root = URL(fileURLWithPath: canonicalTmp, isDirectory: true)
-            .appendingPathComponent("OrphanSweeperTests-\(UUID().uuidString)")
-        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        // Canonical root (see makeCanonicalTempRoot) so the paths the walk reports match
+        // the expectations below.
+        let root = try makeCanonicalTempRoot(prefix: "OrphanSweeperTests")
         defer { try? fm.removeItem(at: root) }
 
         let oldDate = Date().addingTimeInterval(-anHourAndABit)
