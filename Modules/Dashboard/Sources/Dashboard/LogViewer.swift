@@ -27,7 +27,9 @@ public struct LogViewer: View {
     
     public init() {}
     
-    @State private var selectedLevel: LogLevel? = .info // default view: INFO (nil = show all)
+    // Defaults to All Levels (nil): the filter is equality-based, so any single level would
+    // hide WARN/ERROR entries from a user opening the log right after a failure.
+    @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     
