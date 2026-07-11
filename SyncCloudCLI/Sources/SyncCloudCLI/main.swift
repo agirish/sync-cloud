@@ -55,6 +55,22 @@ private func discoverProviderSnapshot() async -> [CloudProvider] {
     return await MainActor.run { settings.availableProviders }
 }
 
+/// Runs a command body and flushes the logger's buffered disk writes before returning or
+/// rethrowing. The CLI process exits as soon as `run()` finishes, but disk appends are queued
+/// at `.background` QoS with no exit-time flush (the app flushes in
+/// `applicationShouldTerminate`), so without this barrier a command's log lines - e.g. a
+/// failed sync's error - race process exit and can never reach `~/sync-cloud.log`.
+private func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -> T {
+    do {
+        let result = try await body()
+        await MainActor.run { Logger.shared.flushToDisk() }
+        return result
+    } catch {
+        await MainActor.run { Logger.shared.flushToDisk() }
+        throw error
+    }
+}
+
 /// Discovers providers and resolves both `-L`/`-R` values, converting resolution
 /// failures into ArgumentParser validation errors.
 private func resolveProviders(left: String, right: String) async throws -> (left: CloudProvider, right: CloudProvider) {
@@ -125,6 +141,10 @@ struct Scan: AsyncParsableCommand {
     var ignore: [String] = []
 
     func run() async throws {
+        try await flushingLogToDisk { try await scanAndReport() }
+    }
+
+    private func scanAndReport() async throws {
         let (leftProvider, rightProvider) = try await resolveProviders(left: left, right: right)
         let (diffs, leftURL, rightURL) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
@@ -209,6 +229,10 @@ struct SyncFiles: AsyncParsableCommand {
     var verify: Bool = false
 
     func run() async throws {
+        try await flushingLogToDisk { try await syncDifferences() }
+    }
+
+    private func syncDifferences() async throws {
         let (leftProvider, rightProvider) = try await resolveProviders(left: left, right: right)
         var (diffs, _, _) = try scanForDifferences(
             left: leftProvider, right: rightProvider,
@@ -304,6 +328,10 @@ struct Providers: AsyncParsableCommand {
     )
 
     func run() async throws {
+        await flushingLogToDisk { await listProviders() }
+    }
+
+    private func listProviders() async {
         let providers = await discoverProviderSnapshot()
         if providers.isEmpty {
             print("No providers discovered.")
