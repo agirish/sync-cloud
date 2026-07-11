@@ -235,9 +235,10 @@ public struct FileTreeView: View {
         }
     }
 
-    /// One tree row: content, its context menu, draggable payload, and (for directories) a drop
-    /// target. Single-click selection is left entirely to the List; drilling into a folder is
-    /// via the Compare button / context menu.
+    /// One tree row: content, its context menu, draggable payload, and a drop target
+    /// (directories accept into themselves, files into their enclosing folder). Single-click
+    /// selection is left entirely to the List; drilling into a folder is via the Compare
+    /// button / context menu.
     @ViewBuilder
     private func treeRow(for node: FileNode) -> some View {
         FileRowView(
@@ -263,7 +264,8 @@ public struct FileTreeView: View {
         }
         .draggable(makeDragPayload(for: node))
         .modifier(PaneDropTarget(
-            targetDirectoryPath: node.isDirectory ? node.id : nil,
+            rowPath: node.id,
+            rowIsDirectory: node.isDirectory,
             paneIsLeft: isLeft,
             delegate: delegate
         ))
@@ -334,12 +336,14 @@ public struct FileTreeView: View {
     }
 }
 
-/// Makes a directory row accept cross-pane drags, highlighting it only while a valid drop
-/// hovers. Rows without a `targetDirectoryPath` (files) pass through untouched, so drops on
-/// them fall to the pane background (= into the pane's current folder), like Finder.
+/// Makes every tree row accept cross-pane drags. Directory rows target themselves and
+/// highlight while a valid drop hovers; file rows route the drop to their enclosing folder,
+/// like Finder, and never highlight — a highlight on the file row itself would misread as
+/// dropping "into" the file.
 private struct PaneDropTarget: ViewModifier {
-    /// Absolute path of the directory this row represents, or nil when the row is a file.
-    let targetDirectoryPath: String?
+    /// Absolute path of the node this row represents.
+    let rowPath: String
+    let rowIsDirectory: Bool
     let paneIsLeft: Bool
     let delegate: FileActionDelegate
 
@@ -347,21 +351,18 @@ private struct PaneDropTarget: ViewModifier {
     @State private var isTargeted = false
 
     func body(content: Content) -> some View {
-        if let targetDirectoryPath {
-            content
-                .background {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.accentColor.opacity(isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
-                }
-                .dropDestination(for: PaneDragPayload.self) { payloads, _ in
-                    guard let payload = payloads.first else { return false }
-                    return FileTreeView.performPaneDrop(payload, toPath: targetDirectoryPath, targetIsLeft: paneIsLeft, delegate: delegate)
-                } isTargeted: { targeting in
-                    isTargeted = targeting
-                }
-        } else {
-            content
-        }
+        let targetDirectoryPath = PaneDropLogic.dropTargetDirectory(forRowId: rowPath, isDirectory: rowIsDirectory)
+        content
+            .background {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.accentColor.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
+            }
+            .dropDestination(for: PaneDragPayload.self) { payloads, _ in
+                guard let payload = payloads.first else { return false }
+                return FileTreeView.performPaneDrop(payload, toPath: targetDirectoryPath, targetIsLeft: paneIsLeft, delegate: delegate)
+            } isTargeted: { targeting in
+                isTargeted = targeting
+            }
     }
 
     private func dropAllowed(into directoryPath: String) -> Bool {

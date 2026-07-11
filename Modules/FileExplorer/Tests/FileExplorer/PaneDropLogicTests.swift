@@ -65,6 +65,52 @@ import Sync
             targetDirectoryPath: "/right/dir"))
     }
 
+    // MARK: - dropTargetDirectory
+
+    @Test func testDirectoryRowTargetsItself() {
+        #expect(PaneDropLogic.dropTargetDirectory(forRowId: "/right/Docs", isDirectory: true) == "/right/Docs")
+        #expect(PaneDropLogic.dropTargetDirectory(forRowId: "/right/Docs/", isDirectory: true) == "/right/Docs")
+    }
+
+    @Test func testFileRowTargetsItsEnclosingFolder() {
+        // Finder semantics: dropping onto Docs/report.pdf lands in Docs/.
+        #expect(PaneDropLogic.dropTargetDirectory(
+            forRowId: "/right/Docs/report.pdf", isDirectory: false) == "/right/Docs")
+        #expect(PaneDropLogic.dropTargetDirectory(
+            forRowId: "/right/Docs/sub/deep.txt", isDirectory: false) == "/right/Docs/sub")
+    }
+
+    @Test func testFileDirectlyInPaneRootTargetsThatRoot() {
+        // Same directory the pane background targets — behavior unchanged for root files.
+        #expect(PaneDropLogic.dropTargetDirectory(
+            forRowId: "/right/root/file.txt", isDirectory: false) == "/right/root")
+    }
+
+    @Test func testFileAtFilesystemRootTargetsRoot() {
+        #expect(PaneDropLogic.dropTargetDirectory(forRowId: "/file.txt", isDirectory: false) == "/")
+    }
+
+    @Test func testCanDropStillGatesTheRoutedTarget() {
+        // The parent-folder target computed for a file row goes through the same canDrop
+        // rules: same-pane drops and drops into a dragged folder's own subtree stay rejected.
+        let parent = PaneDropLogic.dropTargetDirectory(forRowId: "/left/dir/file.txt", isDirectory: false)
+        #expect(!PaneDropLogic.canDrop(
+            draggedIds: ["/left/other"], sourceIsLeft: true, targetIsLeft: true,
+            targetDirectoryPath: parent))
+        let insideDragged = PaneDropLogic.dropTargetDirectory(
+            forRowId: "/shared/dir/sub/file.txt", isDirectory: false)
+        #expect(!PaneDropLogic.canDrop(
+            draggedIds: ["/shared/dir"], sourceIsLeft: true, targetIsLeft: false,
+            targetDirectoryPath: insideDragged))
+        // A file row whose parent IS the dragged folder resolves to that folder — rejected
+        // as a drop onto the dragged item itself.
+        let draggedItself = PaneDropLogic.dropTargetDirectory(
+            forRowId: "/shared/dir/file.txt", isDirectory: false)
+        #expect(!PaneDropLogic.canDrop(
+            draggedIds: ["/shared/dir"], sourceIsLeft: true, targetIsLeft: false,
+            targetDirectoryPath: draggedItself))
+    }
+
     // MARK: - dragNodes
 
     private let tree = [

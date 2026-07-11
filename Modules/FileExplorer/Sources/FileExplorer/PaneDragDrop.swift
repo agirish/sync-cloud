@@ -51,6 +51,20 @@ enum PaneDropLogic {
             }
     }
 
+    /// The directory a drop on the given row lands in: a directory row accepts into itself;
+    /// a file row routes to its enclosing folder, like Finder (so dropping onto
+    /// `Docs/report.pdf` lands in `Docs/`, not the pane's current root). A file directly in
+    /// the pane's current folder resolves to that folder — the same target the pane
+    /// background offers. Trailing slashes are tolerated; a file at "/" resolves to "/".
+    static func dropTargetDirectory(forRowId id: String, isDirectory: Bool) -> String {
+        var path = id
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        if isDirectory { return path }
+        guard let slash = path.lastIndex(of: "/") else { return path }
+        let parent = String(path[..<slash])
+        return parent.isEmpty ? "/" : parent
+    }
+
     /// Whether dropping `draggedIds` (dragged from the pane where `sourceIsLeft`) onto the
     /// directory at `targetDirectoryPath` in the pane where `targetIsLeft` is allowed.
     /// Rejects drops onto the source pane (which also keeps same-pane drags into subfolders

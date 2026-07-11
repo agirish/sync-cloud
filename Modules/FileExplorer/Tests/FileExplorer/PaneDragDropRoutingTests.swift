@@ -68,6 +68,24 @@ import Sync
         #expect(PaneDragSession.shared.active == nil)
     }
 
+    @Test func testDropOnFileRowRoutesToItsEnclosingFolder() {
+        // A file row's drop target is its parent directory (Finder semantics), so the
+        // delegate receives the folder, not the file's own path or the pane root.
+        let delegate = RecordingDelegate()
+        let payload = PaneDragPayload(sourceIsLeft: true, nodes: dragged)
+        PaneDragSession.shared.active = payload
+
+        let target = PaneDropLogic.dropTargetDirectory(
+            forRowId: "/right/Docs/report.pdf", isDirectory: false)
+        let accepted = FileTreeView.performPaneDrop(
+            payload, toPath: target, targetIsLeft: false, delegate: delegate)
+
+        #expect(accepted)
+        #expect(delegate.drops.count == 1)
+        #expect(delegate.drops[0].path == "/right/Docs")
+        #expect(PaneDragSession.shared.active == nil)
+    }
+
     @Test func testDropIntoDescendantOfDraggedFolderIsRejectedAtPerformTime() {
         // Perform-time re-validation matters because hover highlights are advisory only.
         let delegate = RecordingDelegate()
