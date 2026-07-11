@@ -529,8 +529,11 @@ extension FileSyncManager {
 
                 if sourceURL == targetURL {
                     if isMove {
+                        // A skipped item still counts as completed (like syncAll's skip
+                        // accounting): a trailing skip must not strand the bar below 100%.
                         _ = await MainActor.run {
                             Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
+                            progress?.completedUnitCount = Int64(index + 1)
                         }
                         continue
                     }
@@ -546,7 +549,10 @@ extension FileSyncManager {
                         switch resolution {
                         case .replace: break
                         case .keepBoth: targetURL = Self.generateUniqueURL(for: targetURL, fileManager: fm)
-                        case .skip: continue
+                        case .skip:
+                            // Same accounting as the move-onto-itself skip above.
+                            await MainActor.run { progress?.completedUnitCount = Int64(index + 1) }
+                            continue
                         }
                     }
                 }

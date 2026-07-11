@@ -171,4 +171,88 @@ import Combine
         #expect(observed.last?.total == 2)
         #expect(manager.bulkSyncProgress == nil)
     }
+
+    /// transferItems: a collision answered with Skip on the LAST item must still advance the
+    /// overlay to N/N. The skip `continue`d past the per-item progress bump, so a trailing skip
+    /// left the bar stuck at N-1 of N until the operation returned (a mid-list skip self-healed
+    /// because the next item writes index+1 absolutely).
+    @MainActor
+    @Test func testTrailingCollisionSkipCompletesTransferProgress() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // The longer id sorts last in pruneNestedNodes, guaranteeing the skip is the trailing item.
+        mockFM.virtualDisk["/src/trailing-collision.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/trailing-collision.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let manager = FileSyncManager()
+        var captured: Progress?
+        manager.collisionResolver = { [weak manager] _, _, _ in
+            captured = manager?.activeProgress
+            return .skip
+        }
+        manager.bulkCollisionResolver = { _, _, _ in (.skip, true) }
+        manager.permanentDeleteConfirmer = { _ in false }
+
+        await manager.copyItems(
+            nodes: [
+                FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false),
+                FileNode(id: "/src/trailing-collision.txt", name: "trailing-collision.txt", isDirectory: false),
+            ],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        let progress = try #require(captured)
+        #expect(progress.totalUnitCount == 2)
+        #expect(progress.completedUnitCount == 2)
+    }
+
+    /// Same accounting hole on the move-onto-itself skip: a trailing "source == destination"
+    /// item must count as completed, not leave the bar one short of full.
+    @MainActor
+    @Test func testTrailingMoveOntoItselfSkipCompletesTransferProgress() async throws {
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        inner.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // Already at the destination, so its target equals its source: the move skips it.
+        // The longer id sorts last in pruneNestedNodes, making it the trailing item.
+        inner.virtualDisk["/dst/trailing-self.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let manager = FileSyncManager()
+        manager.collisionResolver = { _, _, _ in .replace }
+        manager.bulkCollisionResolver = { _, _, _ in (.replace, true) }
+        manager.permanentDeleteConfirmer = { _ in false }
+
+        // Gate the first item's move so the operation is reliably in flight when the
+        // progress reference is captured.
+        let moveFM = GatedFileManager(inner: inner)
+        moveFM.moveGate = DispatchSemaphore(value: 0)
+
+        let op = Task {
+            await manager.moveItems(
+                nodes: [
+                    FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false),
+                    FileNode(id: "/dst/trailing-self.txt", name: "trailing-self.txt", isDirectory: false),
+                ],
+                toPath: "/dst",
+                fileManager: moveFM
+            )
+        }
+        await waitUntil("move progress becomes visible") {
+            manager.activeProgress?.localizedDescription == "Moving 2 Items"
+        }
+        let progress = try #require(manager.activeProgress)
+
+        moveFM.moveGate?.signal()
+        _ = await op.value
+
+        #expect(inner.virtualDisk["/dst/a.txt"] != nil)
+        #expect(inner.virtualDisk["/dst/trailing-self.txt"] != nil)
+        #expect(progress.totalUnitCount == 2)
+        #expect(progress.completedUnitCount == 2)
+    }
 }
