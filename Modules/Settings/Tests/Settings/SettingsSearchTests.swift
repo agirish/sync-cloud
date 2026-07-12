@@ -1,0 +1,83 @@
+import Testing
+@testable import Settings
+
+/// Pins the header settings search (item 5.1): the pure index + filter that lets someone find a
+/// setting by name across all six tabs. The SwiftUI wiring (field, results list, tab jump) isn't
+/// exercised here — this locks the matching rules the UI leans on.
+@Suite struct SettingsSearchTests {
+
+    // MARK: filterSettings behavior
+
+    @Test func emptyQueryReturnsNothing() {
+        #expect(filterSettings(SettingsSearchIndex.all, query: "").isEmpty)
+    }
+
+    @Test func whitespaceOnlyQueryReturnsNothing() {
+        #expect(filterSettings(SettingsSearchIndex.all, query: "   \n\t").isEmpty)
+    }
+
+    @Test func noMatchReturnsNothing() {
+        #expect(filterSettings(SettingsSearchIndex.all, query: "zzzznotasetting").isEmpty)
+    }
+
+    @Test func titleMatchIsFound() {
+        let results = filterSettings(SettingsSearchIndex.all, query: "Log level")
+        #expect(results.contains { $0.title == "Log level" })
+    }
+
+    @Test func matchIsCaseInsensitive() {
+        let lower = filterSettings(SettingsSearchIndex.all, query: "log level")
+        let upper = filterSettings(SettingsSearchIndex.all, query: "LOG LEVEL")
+        #expect(!lower.isEmpty)
+        #expect(lower.map(\.id) == upper.map(\.id))
+    }
+
+    @Test func keywordMatchIsFound() {
+        // "blur" appears only as a keyword on the Glass intensity control, never in a title.
+        let results = filterSettings(SettingsSearchIndex.all, query: "blur")
+        #expect(results.contains { $0.title == "Glass intensity" })
+    }
+
+    @Test func partialSubstringMatches() {
+        // Typing part of a word still surfaces the setting.
+        let results = filterSettings(SettingsSearchIndex.all, query: "trash")
+        #expect(results.contains { $0.title == "Confirm before deleting" })
+    }
+
+    @Test func surroundingWhitespaceIsTrimmedBeforeMatching() {
+        let padded = filterSettings(SettingsSearchIndex.all, query: "  accent  ")
+        #expect(padded.contains { $0.title == "Accent color" })
+    }
+
+    // MARK: matches() on a single entry
+
+    @Test func entryMatchesTitleAndKeyword() {
+        let entry = SettingsSearchEntry(tab: .sync, title: "Confirm before deleting",
+                                        keywords: ["trash", "delete confirmation"])
+        #expect(entry.matches("confirm"))       // title substring
+        #expect(entry.matches("Trash"))         // keyword, case-insensitive
+        #expect(!entry.matches("checksum"))     // unrelated term
+        #expect(!entry.matches(""))             // empty never matches
+    }
+
+    // MARK: index integrity
+
+    @Test func everyEntryPointsAtARealTab() {
+        for entry in SettingsSearchIndex.all {
+            #expect(SettingsView.SettingsTab.allCases.contains(entry.tab))
+        }
+    }
+
+    @Test func indexIsNonEmptyAndCoversEveryTab() {
+        #expect(!SettingsSearchIndex.all.isEmpty)
+        for tab in SettingsView.SettingsTab.allCases {
+            #expect(SettingsSearchIndex.all.contains { $0.tab == tab },
+                    "No searchable settings indexed for the \(tab.displayName) tab")
+        }
+    }
+
+    @Test func entryIdsAreUnique() {
+        let ids = SettingsSearchIndex.all.map(\.id)
+        #expect(Set(ids).count == ids.count)
+    }
+}

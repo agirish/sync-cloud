@@ -56,14 +56,28 @@ public enum GeneralSettings {
 /// macOS preferences layout: toolbar tabs (Appearance / Providers / Sync) over grouped forms.
 public struct SettingsView: View {
     /// Identifies a settings tab; raw values are the format of the `settingsSelectedTab`
-    /// default read at window creation, so treat them as stable.
-    public enum SettingsTab: String {
+    /// default read at window creation, so treat them as stable. `CaseIterable` backs both the
+    /// segmented picker and the search index's "every entry points at a real tab" invariant.
+    public enum SettingsTab: String, CaseIterable, Sendable {
         case general
         case appearance
         case providers
         case sync
         case tidy
         case advanced
+
+        /// The human-readable tab name shown in the picker and as the dim subtitle on a search
+        /// result. Kept here so the labels have a single source of truth.
+        public var displayName: String {
+            switch self {
+            case .general: return "General"
+            case .appearance: return "Appearance"
+            case .providers: return "Providers"
+            case .sync: return "Sync"
+            case .tidy: return "Tidy"
+            case .advanced: return "Advanced"
+            }
+        }
     }
 
     /// UserDefaults key holding the tab the Settings overlay opens on (a `SettingsTab` raw
@@ -87,6 +101,21 @@ public struct SettingsView: View {
     /// Runs the full settings reset (defaults wipe plus the host's re-seeding of live state).
     /// Provided by the host; the Reset control hides when nil.
     private let onResetAllSettings: (() -> Void)?
+
+    /// The header search text. While non-empty it takes over the content area with a list of
+    /// matching settings across every tab; selecting one jumps to its tab and clears this.
+    @State private var searchQuery = ""
+
+    /// Whether the search field currently has meaningful (non-whitespace) input. Drives the
+    /// swap between the normal tab content and the search results.
+    private var isSearching: Bool {
+        !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Entries matching the current query, in index order. Empty while the field is empty.
+    private var searchResults: [SettingsSearchEntry] {
+        filterSettings(SettingsSearchIndex.all, query: searchQuery)
+    }
 
     public init(
         selection: Binding<SettingsTab>,
@@ -122,43 +151,267 @@ public struct SettingsView: View {
             .padding(.top, 12)
             .padding(.bottom, 10)
 
+            // Search across every tab by name — the System Settings pattern. Typing here
+            // replaces the tab content with matching settings; picking one jumps to its tab.
+            searchField
+                .padding(.horizontal, 16)
+                .padding(.bottom, 10)
+
             // A segmented picker rather than a TabView: a plain TabView (outside the native
             // Settings scene) hoists its tab bar into the window toolbar. This keeps the tabs
             // inside the overlay card.
             Picker("Settings section", selection: $selectedTab) {
-                Text("General").tag(SettingsTab.general)
-                Text("Appearance").tag(SettingsTab.appearance)
-                Text("Providers").tag(SettingsTab.providers)
-                Text("Sync").tag(SettingsTab.sync)
-                Text("Tidy").tag(SettingsTab.tidy)
-                Text("Advanced").tag(SettingsTab.advanced)
+                ForEach(SettingsTab.allCases, id: \.self) { tab in
+                    Text(tab.displayName).tag(tab)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(.horizontal, 16)
             .padding(.bottom, 12)
+            // While searching, the results are the content; leave the picker visible so the
+            // current tab stays in view, but it isn't the thing being browsed.
+            .disabled(isSearching)
 
             Divider()
 
             Group {
-                switch selectedTab {
-                case .general:
-                    GeneralSettingsTab()
-                case .appearance:
-                    AppearanceSettingsTab()
-                case .providers:
-                    ProvidersSettingsTab()
-                case .sync:
-                    SyncSettingsTab(syncManager: syncManager)
-                case .tidy:
-                    TidySettingsTab(syncManager: syncManager)
-                case .advanced:
-                    AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
+                if isSearching {
+                    SettingsSearchResults(results: searchResults) { tab in
+                        // The jump: land on the matching tab and drop back to normal content.
+                        selectedTab = tab
+                        searchQuery = ""
+                    }
+                } else {
+                    switch selectedTab {
+                    case .general:
+                        GeneralSettingsTab()
+                    case .appearance:
+                        AppearanceSettingsTab()
+                    case .providers:
+                        ProvidersSettingsTab()
+                    case .sync:
+                        SyncSettingsTab(syncManager: syncManager)
+                    case .tidy:
+                        TidySettingsTab(syncManager: syncManager)
+                    case .advanced:
+                        AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 620, height: 560)
+    }
+
+    /// The header search box: a magnifier, a plain text field, and a clear button that shows
+    /// once there's text. Styled as a rounded field so it reads as "search" without the native
+    /// `.searchable` machinery, which is meant for navigation stacks rather than an overlay card.
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.callout)
+            TextField("Search settings", text: $searchQuery)
+                .textFieldStyle(.plain)
+                .accessibilityLabel("Search settings")
+            if !searchQuery.isEmpty {
+                Button {
+                    searchQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Settings search
+
+/// One searchable settings control: the tab it lives on, its display title, and a few
+/// synonyms/keywords so a search for "blur" finds "Glass intensity" and "trash" finds the
+/// delete confirmation. Pure data with a pure match — no SwiftUI — so the filter is unit-testable.
+struct SettingsSearchEntry: Identifiable, Sendable {
+    let tab: SettingsView.SettingsTab
+    let title: String
+    let keywords: [String]
+
+    /// Stable across renders: a title is unique within its tab, and tabs are distinct.
+    var id: String { "\(tab.rawValue).\(title)" }
+
+    /// Case-insensitive substring match against the title or any keyword. The query is trimmed,
+    /// and an empty query never matches — the results stay hidden until the user types something.
+    func matches(_ query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return false }
+        if title.lowercased().contains(needle) { return true }
+        return keywords.contains { $0.lowercased().contains(needle) }
+    }
+}
+
+/// The catalog of settings the header search can jump to, one entry per user-facing control
+/// across all six tabs. Titles mirror the on-screen labels; keywords add the words people are
+/// likely to type instead (synonyms, the value names, the feature they're after). This is the
+/// single place to keep in sync when a control is added or renamed.
+enum SettingsSearchIndex {
+    static let all: [SettingsSearchEntry] = [
+        // General
+        .init(tab: .general, title: "Launch SyncCloud at login",
+              keywords: ["launch", "login", "startup", "start", "open at login", "boot", "auto start"]),
+        .init(tab: .general, title: "Show hidden files by default",
+              keywords: ["hidden", "dotfiles", "invisible", "show hidden"]),
+        .init(tab: .general, title: "Reopen panes where I left off",
+              keywords: ["restore", "reopen", "last focus", "remember folders", "panes", "resume"]),
+        .init(tab: .general, title: "Sort panes by",
+              keywords: ["sort", "order", "sorting", "name", "size", "date", "default sort"]),
+        .init(tab: .general, title: "Notify when operations finish in the background",
+              keywords: ["notification", "notify", "background", "alert", "banner", "system notification"]),
+        .init(tab: .general, title: "Warn before quitting during file operations",
+              keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
+
+        // Appearance
+        .init(tab: .appearance, title: "Accent color",
+              keywords: ["accent", "color", "colour", "hue", "theme", "highlight"]),
+        .init(tab: .appearance, title: "Glass intensity",
+              keywords: ["glass", "translucency", "transparency", "frosted", "clear", "blur", "liquid glass", "material"]),
+        .init(tab: .appearance, title: "Surface tint",
+              keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
+        .init(tab: .appearance, title: "Content surface style",
+              keywords: ["surface", "unified", "framed", "solid", "pane background", "content surface"]),
+
+        // Providers
+        .init(tab: .providers, title: "Discovered providers",
+              keywords: ["providers", "cloud", "discover", "refresh", "cloudstorage"]),
+        .init(tab: .providers, title: "Provider name",
+              keywords: ["rename", "name", "provider name", "custom name", "label"]),
+        .init(tab: .providers, title: "Synchronized path",
+              keywords: ["path", "location", "root", "folder", "directory", "sync path", "browse"]),
+        .init(tab: .providers, title: "Enable or disable a provider",
+              keywords: ["enable", "disable", "show", "hide", "sidebar", "toggle provider"]),
+
+        // Sync
+        .init(tab: .sync, title: "When a file already exists",
+              keywords: ["conflict", "conflict policy", "overwrite", "replace", "keep both", "duplicate handling"]),
+        .init(tab: .sync, title: "Treat dates as equal within",
+              keywords: ["date tolerance", "date", "timestamp", "tolerance", "modified date", "rounding"]),
+        .init(tab: .sync, title: "Verify same-size files during scans",
+              keywords: ["verify", "checksum", "same size", "scan verification", "hash"]),
+        .init(tab: .sync, title: "Ignore \"newer on Google Drive\" when same size",
+              keywords: ["google drive", "newer", "ignore date", "gdrive"]),
+        .init(tab: .sync, title: "Confirm before copying or moving",
+              keywords: ["confirm copy", "confirm move", "transfer confirmation", "what goes where", "confirm before copy"]),
+        .init(tab: .sync, title: "Confirm before deleting",
+              keywords: ["confirm delete", "delete confirmation", "trash", "remove"]),
+        .init(tab: .sync, title: "Remember ignored items across rescans",
+              keywords: ["ignored items", "remember ignores", "hidden differences", "ignore"]),
+        .init(tab: .sync, title: "Ignored name patterns",
+              keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
+
+        // Tidy
+        .init(tab: .tidy, title: "Ignore files smaller than",
+              keywords: ["minimum size", "min file size", "small files", "duplicates", "threshold size"]),
+        .init(tab: .tidy, title: "Folders overlap at",
+              keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
+        .init(tab: .tidy, title: "Detect versions",
+              keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
+        .init(tab: .tidy, title: "Suggest folders with on-device AI",
+              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders", "sort files"]),
+        .init(tab: .tidy, title: "Use Claude (cloud) for the best suggestions",
+              keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai"]),
+        .init(tab: .tidy, title: "Anthropic API key",
+              keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token"]),
+        .init(tab: .tidy, title: "Cloud model",
+              keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
+        .init(tab: .tidy, title: "Read file contents on-device for better signals",
+              keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
+        .init(tab: .tidy, title: "Remembered filing rules",
+              keywords: ["filing rules", "rules", "remembered rules", "manage rules"]),
+        .init(tab: .tidy, title: "Cloud spend",
+              keywords: ["spend", "cost", "tokens", "billing", "usage", "money", "price"]),
+
+        // Advanced
+        .init(tab: .advanced, title: "Log level",
+              keywords: ["log", "logging", "debug", "verbosity", "log level", "info", "warnings", "errors"]),
+        .init(tab: .advanced, title: "Log file",
+              keywords: ["log file", "logs", "clear log", "show log"]),
+        .init(tab: .advanced, title: "Sweep orphaned temporary files",
+              keywords: ["orphan", "temp files", "tmp", "sweep", "maintenance", "cleanup", "clean up"]),
+        .init(tab: .advanced, title: "Reset all settings",
+              keywords: ["reset", "defaults", "restore defaults", "factory reset", "wipe"]),
+    ]
+}
+
+/// Filters the search index for a query. Case-insensitive, whitespace-trimmed, matching the
+/// title or any keyword; an empty (or whitespace-only) query returns nothing so the results
+/// list stays hidden until the user types. Pure and free-standing for unit testing.
+func filterSettings(_ entries: [SettingsSearchEntry], query: String) -> [SettingsSearchEntry] {
+    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return [] }
+    return entries.filter { $0.matches(trimmed) }
+}
+
+/// The search results that stand in for the tab content while the field has text: a scrollable
+/// list of matching settings, each showing its title and — dimmed — the tab it lives on. A tap
+/// hands the tab back to `SettingsView` for the jump. An empty result set shows a gentle miss.
+private struct SettingsSearchResults: View {
+    let results: [SettingsSearchEntry]
+    let onSelect: (SettingsView.SettingsTab) -> Void
+
+    var body: some View {
+        if results.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.largeTitle)
+                    .foregroundStyle(.tertiary)
+                Text("No settings match your search.")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(results) { entry in
+                        Button {
+                            onSelect(entry.tab)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.title)
+                                        .foregroundStyle(.primary)
+                                    Text(entry.tab.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().padding(.leading, 16)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
     }
 }
 
