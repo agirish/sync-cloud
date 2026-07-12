@@ -353,10 +353,14 @@ struct AppearanceSettingsTab: View {
                         Text("Clear")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     } maximumValueLabel: {
                         Text("Frosted")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     .accessibilityValue("\(Int(glassIntensity * 100)) percent")
                     Text("\(Int(glassIntensity * 100))%")
@@ -376,10 +380,14 @@ struct AppearanceSettingsTab: View {
                         Text("Subtle")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     } maximumValueLabel: {
                         Text("Vivid")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     .accessibilityValue("\(Int(surfaceTint * 100)) percent")
                     .disabled(selectedHue == .none)
