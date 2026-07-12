@@ -14,7 +14,7 @@ public struct StatusBadge: View {
                 .fill(isValid ? Color.green : Color.red)
                 .frame(width: 6, height: 6)
             
-            Text(isValid ? "Valid Path" : "Invalid Path")
+            Text(isValid ? "Valid path" : "Invalid path")
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(isValid ? .green : .red)
         }
