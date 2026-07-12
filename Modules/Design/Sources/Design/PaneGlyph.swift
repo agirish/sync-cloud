@@ -11,4 +11,7 @@ public enum PaneGlyph {
     /// "Compare these two panes": the toolbar Compare button and the pre-scan empty-state icon
     /// share this deliberately — one glyph, one verb.
     public static let compare = "rectangle.split.2x1"
+    /// The sidebar swap-panes button — the ⇄ arrows this whole vocabulary reserves for swapping.
+    /// Pinned here so the one glyph the reservation exists to protect can't itself drift.
+    public static let swapPanes = "arrow.left.arrow.right.circle"
 }

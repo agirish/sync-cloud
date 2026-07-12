@@ -21,4 +21,11 @@ import Design
         #expect(NSImage(systemSymbolName: PaneGlyph.compare, accessibilityDescription: nil) != nil,
                 "missing SF Symbol \(PaneGlyph.compare)")
     }
+
+    @Test func testSwapPanesKeepsTheReservedArrows() {
+        // ProviderSidebar's swap button owns the ⇄ arrows the other two glyphs moved away from.
+        #expect(PaneGlyph.swapPanes == "arrow.left.arrow.right.circle")
+        #expect(NSImage(systemSymbolName: PaneGlyph.swapPanes, accessibilityDescription: nil) != nil,
+                "missing SF Symbol \(PaneGlyph.swapPanes)")
+    }
 }

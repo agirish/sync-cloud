@@ -294,7 +294,9 @@ import Combine
 
         // Names sort Finder-style (localizedStandardCompare is numeric-aware), so hashing
         // schedules f0…f119 in order: f50–f55 are exactly the 6 in flight when the 50th
-        // completion publishes its progress hop.
+        // completion publishes its progress hop. The 6 here IS hashFiles' `maxConcurrent`
+        // default — if that widens, ungated files slip past 50 and the waitUntil below times
+        // out (a graceful failure, not a hang); widen this set to match.
         let gate = GatingFileManager(gatedNames: Set((50...55).map { "f\($0).bin" }))
         defer { gate.release() }   // never leave hasher tasks parked if an assertion bails early
         let manager = FileSyncManager(fileManager: gate)

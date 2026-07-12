@@ -141,13 +141,17 @@ public struct TidyView: View {
                 Spacer(minLength: 0)
                 if lens == .duplicates, hasResults, recommendedCount > 0 {
                     applyAllButton
-                } else if lens == .filing, hasFilingResults, filingRecommendedCount > 0 {
+                } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles, filingRecommendedCount > 0 {
                     fileAllButton
                 }
             }
             if lens == .duplicates, hasResults {
                 summaryRow
-            } else if lens == .filing, hasFilingResults {
+            } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
+                // Gated on the scan being fully settled: the two-phase Filing scan publishes
+                // phase-1 suggestions while phase 2 is still reading documents, and showing
+                // provisional summary counts beside a "Reading N documents…" body reads as
+                // contradictory — the numbers visibly shift when phase 2 lands.
                 filingSummaryRow
             }
         }

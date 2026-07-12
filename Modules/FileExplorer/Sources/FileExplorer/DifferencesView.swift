@@ -212,8 +212,12 @@ public struct DifferencesView: View {
                 isCountPillHovered = hovering && syncManager.hasScanned
             }
         }
-        // A fresh scan starts collapsed: expansion is opt-in per result set, not a sticky
-        // preference that silently reapplies to counts the user never asked to see.
+        // Belt-and-braces: in practice hasScanned only flips false inside
+        // invalidateComparisonState(), which also empties `differences` and unmounts this view —
+        // the remount already resets this @State. Kept so the collapse survives any future
+        // change that keeps the view mounted across a reset. Deliberately NOT wired to plain
+        // re-Compares on the same roots (hasScanned stays true): expansion persisting there is
+        // a remembered preference, not a leak.
         .onChange(of: syncManager.hasScanned) { _, hasScanned in
             if !hasScanned {
                 showItemCounts = false

@@ -3,6 +3,7 @@ import FileExplorer
 import Events
 import SwiftUI
 import Sync
+import Design
 
 /// Sidebar for choosing which cloud provider (and path) is used for the left and right comparison panes.
 public struct ProviderSidebar: View {
@@ -64,7 +65,7 @@ public struct ProviderSidebar: View {
         HStack {
             Spacer()
             Button(action: onSwap) {
-                Label("Swap panes", systemImage: "arrow.left.arrow.right.circle")
+                Label("Swap panes", systemImage: PaneGlyph.swapPanes)
                     .labelStyle(.iconOnly)
                     // Sized to sit alongside the 22×22 provider logos above and below.
                     .font(.system(size: 22))
