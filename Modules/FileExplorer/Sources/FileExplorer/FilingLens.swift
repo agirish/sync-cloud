@@ -46,14 +46,84 @@ enum FilingConfidenceTier: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The tier a suggestion belongs to, keyed on its best candidate's confidence (nil, i.e. no
-    /// candidate / "Pick a home", falls into `.low`). Mirrors `FilingSuggestionCard`'s chip.
-    static func of(_ suggestion: FilingSuggestion) -> FilingConfidenceTier {
-        switch suggestion.best?.confidence {
+    /// How many of the 3 meter bars are filled for this tier (G5) — a *quantity* readout so
+    /// confidence reads as "more bars = surer" without a color-word lookup: High 3 / Medium 2 /
+    /// Low 1. Never 0, so even the weakest tier shows a single lit bar rather than an empty meter.
+    var filledBars: Int {
+        switch self {
+        case .high:   return 3
+        case .medium: return 2
+        case .low:    return 1
+        }
+    }
+
+    /// A one-line gloss of what *raises* a suggestion into this tier — the confidence key, so the
+    /// tiers read as a scale ("what makes this High?") rather than three arbitrary color-words (G5).
+    var gloss: String {
+        switch self {
+        case .high:   return "filename match or a rule you taught"
+        case .medium: return "read from the file’s contents"
+        case .low:    return "weak signal — pick a home"
+        }
+    }
+
+    /// The tier a raw confidence value falls into (nil ⇒ `.low`, mirroring the card's "Pick a home"
+    /// default). The single source of truth both `of(_ suggestion:)` and the card key off.
+    static func of(_ confidence: FilingConfidence?) -> FilingConfidenceTier {
+        switch confidence {
         case .high?:   return .high
         case .medium?: return .medium
         default:       return .low
         }
+    }
+
+    /// The tier a suggestion belongs to, keyed on its best candidate's confidence (nil, i.e. no
+    /// candidate / "Pick a home", falls into `.low`). Mirrors `FilingSuggestionCard`'s chip.
+    static func of(_ suggestion: FilingSuggestion) -> FilingConfidenceTier {
+        of(suggestion.best?.confidence)
+    }
+}
+
+// MARK: - Confidence meter (G5)
+
+/// A compact 3-bar meter that reads confidence as a *quantity* — more filled bars = surer — so it
+/// doesn't depend on knowing which color-word (High/Medium/Low) means what. Tinted to match the
+/// tier's chip color. Shared by the per-card confidence cluster and the grouped-list section header.
+struct ConfidenceMeter: View {
+    let tier: FilingConfidenceTier
+    var barWidth: CGFloat = 3
+    var barHeight: CGFloat = 11
+    var spacing: CGFloat = 2
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: spacing) {
+            ForEach(0..<3, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                    .fill(i < tier.filledBars ? tier.color : tier.color.opacity(0.18))
+                    .frame(width: barWidth, height: barHeight)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Confidence \(tier.filledBars) of 3")
+    }
+}
+
+// MARK: - Override detection (G2)
+
+/// Whether filing into a chosen folder is an *override* of the suggestion — the correction worth
+/// remembering (G2). Pure so it can be unit-tested; keyed only on paths.
+enum FilingOverride {
+    /// True when `chosenPath` differs from the suggestion's best candidate (path-normalized), i.e.
+    /// the user picked a home other than the one suggested. A suggestion with no best candidate (the
+    /// user always had to pick) counts as an override too, since the pick still teaches where these
+    /// files go. Accepting the suggested home returns false — nothing new to learn.
+    static func isOverride(_ suggestion: FilingSuggestion, chosenPath: String) -> Bool {
+        guard let best = suggestion.best?.path else { return true }
+        return standardized(best) != standardized(chosenPath)
+    }
+
+    private static func standardized(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }
 

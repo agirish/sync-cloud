@@ -42,7 +42,7 @@ struct FilingSuggestionCard: View {
                     if let best { whyRow(best) }
                 }
                 Spacer(minLength: 8)
-                confidenceChip
+                confidenceCluster
             }
             .padding(.horizontal, 14).padding(.top, 12)
             actions
@@ -229,6 +229,19 @@ struct FilingSuggestionCard: View {
     private func evidenceTail(_ dest: FilingDestination) -> String {
         guard dest.neighborMatches > 0 else { return "read from the file" }
         return "read from the file · \(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
+    }
+
+    /// The tier this card's confidence falls into — the single key shared by the chip and the meter
+    /// so they can never disagree.
+    private var confidenceTier: FilingConfidenceTier { FilingConfidenceTier.of(best?.confidence) }
+
+    /// The confidence word (chip) paired with the 3-bar meter (G5), so confidence reads as a
+    /// quantity, not just a color-word. The meter sits left of the chip, both tinted the same.
+    private var confidenceCluster: some View {
+        HStack(spacing: 6) {
+            ConfidenceMeter(tier: confidenceTier)
+            confidenceChip
+        }
     }
 
     private var confidenceChip: some View {

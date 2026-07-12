@@ -49,6 +49,57 @@ import Sync
         #expect(sections[0].suggestions.count == 2)
     }
 
+    // MARK: G5 — confidence meter + legend
+
+    @Test func filledBarsScaleStrictlyWithConfidence() {
+        #expect(FilingConfidenceTier.high.filledBars == 3)
+        #expect(FilingConfidenceTier.medium.filledBars == 2)
+        #expect(FilingConfidenceTier.low.filledBars == 1)
+        // Never an empty meter — even the weakest tier lights one bar.
+        #expect(FilingConfidenceTier.allCases.allSatisfy { (1...3).contains($0.filledBars) })
+        // Strictly increasing, so "more bars" always reads as "surer".
+        #expect(FilingConfidenceTier.high.filledBars > FilingConfidenceTier.medium.filledBars)
+        #expect(FilingConfidenceTier.medium.filledBars > FilingConfidenceTier.low.filledBars)
+    }
+
+    @Test func tierFromRawConfidenceAgreesWithSuggestionKeying() {
+        #expect(FilingConfidenceTier.of(FilingConfidence.high) == .high)
+        #expect(FilingConfidenceTier.of(FilingConfidence.medium) == .medium)
+        #expect(FilingConfidenceTier.of(FilingConfidence.low) == .low)
+        // No candidate ("Pick a home") is the low tier — same default as the card's chip.
+        #expect(FilingConfidenceTier.of(nil as FilingConfidence?) == .low)
+        // The confidence overload and the suggestion overload must never disagree (chip == meter).
+        #expect(FilingConfidenceTier.of(suggestion("a", .high)) == FilingConfidenceTier.of(FilingConfidence.high))
+        #expect(FilingConfidenceTier.of(suggestion("d", nil)) == FilingConfidenceTier.of(nil as FilingConfidence?))
+    }
+
+    @Test func everyTierHasADistinctNonEmptyGloss() {
+        for tier in FilingConfidenceTier.allCases {
+            #expect(!tier.gloss.isEmpty, "\(tier) needs a legend gloss")
+        }
+        let glosses = FilingConfidenceTier.allCases.map { $0.gloss }
+        #expect(Set(glosses).count == glosses.count, "each tier's gloss should read differently")
+    }
+
+    // MARK: G2 — remember-on-override predicate
+
+    @Test func overrideIsTrueOnlyWhenChosenDiffersFromSuggestedHome() {
+        let s = suggestion("invoice", .high)   // best candidate path == "/root/Home"
+        // Accepting the suggested home is not an override — nothing new to learn.
+        #expect(FilingOverride.isOverride(s, chosenPath: "/root/Home") == false)
+        // Path-normalized: a trailing slash or a dot segment is still the same home.
+        #expect(FilingOverride.isOverride(s, chosenPath: "/root/Home/") == false)
+        #expect(FilingOverride.isOverride(s, chosenPath: "/root/./Home") == false)
+        // A different folder is the correction worth remembering.
+        #expect(FilingOverride.isOverride(s, chosenPath: "/root/Taxes") == true)
+    }
+
+    @Test func pickingIsAlwaysAnOverrideWhenThereWasNoSuggestion() {
+        // No candidate — the user always had to pick, so any choice teaches where these files go.
+        let s = suggestion("mystery", nil)
+        #expect(FilingOverride.isOverride(s, chosenPath: "/root/Anywhere") == true)
+    }
+
     @Test func filingGlyphsAreDistinctFromDuplicatesAndResolve() {
         // Filing's own vocabulary must never borrow the duplicate finder's symbols.
         let duplicateGlyphs: Set<String> = ["wand.and.stars", "checkmark.seal.fill"]

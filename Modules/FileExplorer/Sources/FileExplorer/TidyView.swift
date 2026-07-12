@@ -97,6 +97,10 @@ public struct TidyView: View {
     /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
     /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
     @State private var filedThisSession = false
+    /// A just-made override the user can teach as a rule (G2): they filed a loose file into a folder
+    /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
+    /// until they Remember it or dismiss it. Cleared when a new scan starts.
+    @State private var pendingRememberPrompt: PendingRememberPrompt?
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -149,7 +153,10 @@ public struct TidyView: View {
         // A fresh scan starts a fresh session: forget any files filed against the previous results,
         // so the "All filed" terminal state is only earned by this scan's work.
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
-            if isScanning { filedThisSession = false }
+            if isScanning {
+                filedThisSession = false
+                pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
+            }
         }
     }
 
@@ -484,15 +491,71 @@ public struct TidyView: View {
 
     @ViewBuilder
     private var filingContent: some View {
-        if syncManager.isSuggestingFiles {
-            filingScanningState
-        } else if !syncManager.hasSuggestedFiling {
-            filingIntroState
-        } else if syncManager.filingSuggestions.isEmpty {
-            filingCleanState
-        } else {
-            filingList
+        VStack(spacing: 0) {
+            // G2: the teach prompt sits above every Filing state (not just the list) so it survives
+            // filing the last loose file — the card that triggered it is already gone.
+            if let prompt = pendingRememberPrompt {
+                rememberOverridePrompt(prompt)
+            }
+            Group {
+                if syncManager.isSuggestingFiles {
+                    filingScanningState
+                } else if !syncManager.hasSuggestedFiling {
+                    filingIntroState
+                } else if syncManager.filingSuggestions.isEmpty {
+                    filingCleanState
+                } else {
+                    filingList
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
+    }
+
+    /// G2 — "Remember this for files like it?" The correction the user just made (filing into a
+    /// folder that wasn't the suggestion) is the strongest training signal, so surface it as a
+    /// visible, one-tap prompt rather than F3's easy-to-miss NSOpenPanel checkbox.
+    private func rememberOverridePrompt(_ prompt: PendingRememberPrompt) -> some View {
+        let folderName = (prompt.destinationPath as NSString).lastPathComponent
+        return HStack(spacing: 10) {
+            Image(systemName: "memories")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(glassHue.accentColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Remember this for files like “\(prompt.fileName)”?")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                Text("File future matches into “\(folderName)” automatically — manage or undo this in Settings ▸ Filing.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Button("Not now") { pendingRememberPrompt = nil }
+                .controlSize(.small)
+            Button("Remember") { rememberOverride(prompt) }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(glassHue.accentColor.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(glassHue.accentColor.opacity(0.28), lineWidth: 1))
+        .padding(.horizontal, 12).padding(.top, 12)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Learns the correction as an F3 rule, then dismisses the prompt. `rememberFilingRule` is
+    /// gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
+    /// (returns false) still just dismisses — no misleading "learned" banner.
+    private func rememberOverride(_ prompt: PendingRememberPrompt) {
+        if syncManager.rememberFilingRule(fileName: prompt.fileName, destinationPath: prompt.destinationPath) {
+            let folderName = (prompt.destinationPath as NSString).lastPathComponent
+            syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
+        }
+        pendingRememberPrompt = nil
     }
 
     private var filingList: some View {
@@ -513,10 +576,11 @@ public struct TidyView: View {
     }
 
     private func filingSectionHeader(_ section: FilingSuggestionSection) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 7))
-                .foregroundStyle(section.tier.color)
+        // The 3-bar meter replaces the old tint dot (G5) so the header reads as a scale, and the
+        // tier's gloss doubles as the once-per-screen legend for what raises confidence — no
+        // separate key line needed.
+        HStack(spacing: 8) {
+            ConfidenceMeter(tier: section.tier)
             Text(section.tier.title)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -524,11 +588,16 @@ public struct TidyView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
+            Text("· \(section.tier.gloss)")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 2).padding(.top, 4)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(section.tier.title), \(section.suggestions.count) file\(section.suggestions.count == 1 ? "" : "s")")
+        .accessibilityLabel("\(section.tier.title), \(section.suggestions.count) file\(section.suggestions.count == 1 ? "" : "s"). \(section.tier.gloss)")
     }
 
     private func filingCard(_ suggestion: FilingSuggestion) -> some View {
@@ -623,25 +692,22 @@ public struct TidyView: View {
         if let scanFolder = syncManager.filingScanFolder {
             panel.directoryURL = URL(fileURLWithPath: scanFolder)
         }
-        // Offer to remember the correction as a rule — but only when the filename has something
-        // distinctive to key on (a nameless "scan0012.pdf" can't seed a rule).
-        var rememberBox: NSButton?
-        if FilingEngine.canRemember(fileName: suggestion.fileName) {
-            let box = NSButton(checkboxWithTitle: "Remember: file files like this here from now on",
-                               target: nil, action: nil)
-            box.state = .off
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 36))
-            box.frame = NSRect(x: 20, y: 9, width: 400, height: 18)
-            container.addSubview(box)
-            panel.accessoryView = container
-            panel.isAccessoryViewDisclosed = true
-            rememberBox = box
-        }
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let remember = rememberBox?.state == .on
         let dest = FilingDestination(path: url.path, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
         filedThisSession = true
-        Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, remember: remember) }
+        // File immediately (no friction), then — if this was an *override* of the suggested home and
+        // the filename has something distinctive to key on — offer to remember it inline (G2). This
+        // replaces F3's easy-to-miss NSOpenPanel "Remember" checkbox with a visible one-tap prompt,
+        // so we no longer pass `remember:` here.
+        let teachable = FilingOverride.isOverride(suggestion, chosenPath: url.path)
+            && FilingEngine.canRemember(fileName: suggestion.fileName)
+        Task {
+            let filed = await syncManager.applyFilingSuggestion(suggestion, to: dest)
+            if filed && teachable {
+                pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
+                                                              destinationPath: url.path)
+            }
+        }
     }
 
     private func applyRecommendedFiling() {
@@ -741,4 +807,12 @@ public struct TidyView: View {
     private func displayPath(_ path: String) -> String {
         (path as NSString).abbreviatingWithTildeInPath
     }
+}
+
+/// One pending "remember this override?" prompt (G2) — the loose file just filed and the folder it
+/// went into, enough to seed an F3 rule. Identifiable so the inline prompt can animate in and out.
+private struct PendingRememberPrompt: Identifiable {
+    let id = UUID()
+    let fileName: String
+    let destinationPath: String
 }
