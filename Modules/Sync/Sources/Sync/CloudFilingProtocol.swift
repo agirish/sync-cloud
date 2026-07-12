@@ -115,4 +115,60 @@ public enum CloudFilingProtocol {
         }
         return out
     }
+
+    // MARK: Usage / cost accounting (for logging)
+
+    /// Token usage reported by the API, split so cache reads/writes can be priced correctly.
+    public struct Usage: Equatable, Sendable {
+        public let inputTokens: Int          // uncached input, full rate
+        public let outputTokens: Int
+        public let cacheCreationTokens: Int  // written to cache (~1.25× input)
+        public let cacheReadTokens: Int      // served from cache (~0.1× input)
+        public var totalInputTokens: Int { inputTokens + cacheCreationTokens + cacheReadTokens }
+        public init(inputTokens: Int, outputTokens: Int, cacheCreationTokens: Int, cacheReadTokens: Int) {
+            self.inputTokens = inputTokens; self.outputTokens = outputTokens
+            self.cacheCreationTokens = cacheCreationTokens; self.cacheReadTokens = cacheReadTokens
+        }
+    }
+
+    public static func parseUsage(responseData: Data) -> Usage? {
+        guard let root = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let usage = root["usage"] as? [String: Any] else { return nil }
+        func n(_ key: String) -> Int { usage[key] as? Int ?? 0 }
+        return Usage(inputTokens: n("input_tokens"), outputTokens: n("output_tokens"),
+                     cacheCreationTokens: n("cache_creation_input_tokens"),
+                     cacheReadTokens: n("cache_read_input_tokens"))
+    }
+
+    /// The response's `stop_reason` — "max_tokens" means placements were truncated.
+    public static func stopReason(responseData: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["stop_reason"] as? String
+    }
+
+    /// The API error message, if the response is an error envelope.
+    public static func errorMessage(responseData: Data) -> String? {
+        (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])
+            .flatMap { $0["error"] as? [String: Any] }
+            .flatMap { $0["message"] as? String }
+    }
+
+    /// Approximate list price ($/million tokens) as of 2026 — for a rough cost estimate only; the
+    /// Anthropic Console is the source of truth. nil for a model we don't have a rate for.
+    static func pricing(for model: String) -> (input: Double, output: Double)? {
+        if model.hasPrefix("claude-opus") { return (5, 25) }
+        if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }
+        if model.hasPrefix("claude-sonnet") { return (3, 15) }
+        if model.hasPrefix("claude-haiku") { return (1, 5) }
+        return nil
+    }
+
+    /// Estimated USD cost of a request from its usage, accounting for cache read/write rates.
+    public static func estimatedCostUSD(model: String, usage: Usage) -> Double? {
+        guard let price = pricing(for: model) else { return nil }
+        let inPerToken = price.input / 1_000_000, outPerToken = price.output / 1_000_000
+        return Double(usage.inputTokens) * inPerToken
+            + Double(usage.cacheReadTokens) * inPerToken * 0.1
+            + Double(usage.cacheCreationTokens) * inPerToken * 1.25
+            + Double(usage.outputTokens) * outPerToken
+    }
 }

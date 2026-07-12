@@ -71,4 +71,30 @@ import Testing
         let verdicts = try #require(CloudFilingProtocol.parseVerdicts(responseData: json, files: files))
         #expect(verdicts.isEmpty)                                      // index 5 has no file → skipped
     }
+
+    // MARK: Usage / cost logging
+
+    @Test func parseUsageAndStopReason() throws {
+        let json = #"{"type":"message","stop_reason":"tool_use","usage":{"input_tokens":800,"output_tokens":300,"cache_creation_input_tokens":100,"cache_read_input_tokens":2500},"content":[]}"#.data(using: .utf8)!
+        let usage = try #require(CloudFilingProtocol.parseUsage(responseData: json))
+        #expect(usage.inputTokens == 800)
+        #expect(usage.outputTokens == 300)
+        #expect(usage.cacheCreationTokens == 100)
+        #expect(usage.cacheReadTokens == 2500)
+        #expect(usage.totalInputTokens == 3400)
+        #expect(CloudFilingProtocol.stopReason(responseData: json) == "tool_use")
+    }
+
+    @Test func estimatedCostAccountsForCacheRatesAndModel() throws {
+        let usage = CloudFilingProtocol.Usage(inputTokens: 10_000, outputTokens: 2_000,
+                                              cacheCreationTokens: 1_000, cacheReadTokens: 5_000)
+        // Opus $5/$25: 0.05 (in) + 0.0025 (cache-read ×0.1) + 0.00625 (cache-write ×1.25) + 0.05 (out)
+        let opus = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-opus-4-8", usage: usage))
+        #expect(abs(opus - 0.10875) < 1e-6)
+        // Haiku $1/$5 is dramatically cheaper on the same usage.
+        let haiku = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-haiku-4-5", usage: usage))
+        #expect(haiku < opus / 4)
+        // Unknown model → no estimate rather than a wrong one.
+        #expect(CloudFilingProtocol.estimatedCostUSD(model: "gpt-9", usage: usage) == nil)
+    }
 }

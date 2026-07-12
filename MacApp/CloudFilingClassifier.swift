@@ -40,22 +40,51 @@ enum CloudFilingClassifier {
         request.setValue(CloudFilingProtocol.apiVersion, forHTTPHeaderField: "anthropic-version")
         request.httpBody = httpBody
 
-        Logger.shared.info("Cloud Filing: classifying \(files.count) file(s) via \(model)"
-                           + (allFiles.count > files.count ? " (capped from \(allFiles.count))" : ""))
+        let excerptCount = files.filter {
+            ($0.contentSnippet?.isEmpty == false) && !FilingEngine.canRemember(fileName: $0.fileName)
+        }.count
+        let cappedNote = allFiles.count > files.count ? " (capped from \(allFiles.count))" : ""
+        Logger.shared.info("Cloud Filing → \(model): \(files.count) file(s)\(cappedNote), \(excerptCount) with content excerpt")
+
+        let start = Date()
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            let elapsed = Date().timeIntervalSince(start)
             guard let http = response as? HTTPURLResponse else { return nil }
+            let requestID = http.value(forHTTPHeaderField: "request-id") ?? "—"
+
             guard http.statusCode == 200 else {
-                Logger.shared.warning("Cloud Filing HTTP \(http.statusCode) — falling back on-device")
+                let detail = CloudFilingProtocol.errorMessage(responseData: data)
+                Logger.shared.warning("Cloud Filing HTTP \(http.statusCode) [\(requestID)]: \(detail ?? "no detail") — falling back on-device")
                 return nil
             }
+
             let verdicts = CloudFilingProtocol.parseVerdicts(responseData: data, files: files)
-            if let verdicts {
-                Logger.shared.info("Cloud Filing: Claude placed \(verdicts.count) of \(files.count) file(s)")
+            let usage = CloudFilingProtocol.parseUsage(responseData: data)
+            let stop = CloudFilingProtocol.stopReason(responseData: data)
+
+            // One rich summary line: model · files · tokens (incl. cache) · est cost · latency · placed.
+            var summary = "Cloud Filing done [\(requestID)]: \(model) · \(files.count) files"
+            if let u = usage {
+                summary += " · \(u.inputTokens) in"
+                if u.cacheReadTokens > 0 { summary += " (+\(u.cacheReadTokens) cache-read)" }
+                if u.cacheCreationTokens > 0 { summary += " (+\(u.cacheCreationTokens) cache-write)" }
+                summary += " / \(u.outputTokens) out tok"
+                if let cost = CloudFilingProtocol.estimatedCostUSD(model: model, usage: u) {
+                    summary += " · ~$\(String(format: "%.3f", cost))"
+                }
+            }
+            summary += " · \(String(format: "%.1f", elapsed))s · placed \(verdicts?.count ?? 0)/\(files.count)"
+            if stop == "max_tokens" { summary += " · ⚠️ TRUNCATED (max_tokens)" }
+            Logger.shared.info(summary)
+
+            if stop == "max_tokens" {
+                Logger.shared.warning("Cloud Filing response was truncated (max_tokens) — some files may be left unplaced. Try fewer files per scan or a shorter folder.")
             }
             return verdicts
         } catch {
-            Logger.shared.warning("Cloud Filing request failed: \(error.localizedDescription) — falling back on-device")
+            let elapsed = Date().timeIntervalSince(start)
+            Logger.shared.warning("Cloud Filing request failed after \(String(format: "%.1f", elapsed))s: \(error.localizedDescription) — falling back on-device")
             return nil
         }
     }
