@@ -13,6 +13,8 @@ struct FilingSuggestionCard: View {
     let onNotHere: () -> Void
     /// Quick Look the file. nil hides the Preview button.
     var onPreview: (() -> Void)? = nil
+    /// Reject the current folder and get a different suggestion. nil hides the button.
+    var onTryAnother: (() -> Void)? = nil
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -151,6 +153,11 @@ struct FilingSuggestionCard: View {
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
                     .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+            if best != nil, let onTryAnother {
+                Button(action: onTryAnother) { Label("Try another", systemImage: "arrow.triangle.2.circlepath") }
+                    .controlSize(.small)
+                    .help("Reject this folder and suggest a different one — remembered for next time")
             }
             if let onPreview {
                 Button(action: onPreview) { Label("Preview", systemImage: "eye") }

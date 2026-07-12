@@ -847,7 +847,7 @@ struct AdvancedSettingsTab: View {
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
-    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-opus-4-8"
+    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-haiku-4-5"
     /// The API-key field's live text and whether a key is already stored in the Keychain.
     @State private var apiKeyField: String = ""
     @State private var hasStoredKey: Bool = false
@@ -889,9 +889,9 @@ struct AdvancedSettingsTab: View {
                 if filingUseCloud {
                     cloudKeyControls
                     Picker("Model", selection: $filingCloudModel) {
-                        Text("Opus — best quality").tag("claude-opus-4-8")
+                        Text("Haiku — cheapest (default)").tag("claude-haiku-4-5")
                         Text("Sonnet — balanced").tag("claude-sonnet-5")
-                        Text("Haiku — cheapest (~5× less)").tag("claude-haiku-4-5")
+                        Text("Opus — best quality").tag("claude-opus-4-8")
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)

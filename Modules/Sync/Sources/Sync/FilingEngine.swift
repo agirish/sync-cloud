@@ -112,12 +112,15 @@ public enum FilingEngine {
     ///   whose name says nothing can still find a home. Empty for the filename-only (F1) pass.
     /// - Parameter rules: Remembered filing rules (F3) — token-set → folder mappings the user
     ///   taught by correcting past suggestions. A rule that matches ranks ahead of the heuristics.
+    /// - Parameter rejectedByFile: Per-file absolute folder paths the user has rejected — dropped
+    ///   from that file's candidates so a "no, not there" is never re-suggested.
     public static func suggest(
         looseFiles: [FileNode],
         taxonomy: [FileNode],
         providerRoot: String,
         contentTokens: [String: Set<String>] = [:],
         rules: [FilingRule] = [],
+        rejectedByFile: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
         var profiles: [FolderProfile] = []
@@ -149,7 +152,10 @@ public enum FilingEngine {
             let selfParent = (file.id as NSString).deletingLastPathComponent
             candidates.removeAll { $0.path == selfParent }
 
-            let ranked = rank(candidates, limit: options.maxCandidates)
+            var ranked = rank(candidates, limit: options.maxCandidates)
+            if let rejected = rejectedByFile[file.id], !rejected.isEmpty {
+                ranked.removeAll { rejected.contains($0.path) }
+            }
             return FilingSuggestion(filePath: file.id, fileName: file.name,
                                     size: file.fileSize ?? 0, modificationDate: file.modificationDate,
                                     candidates: ranked)
@@ -449,6 +455,12 @@ public enum FilingEngine {
         fileTokens(fileName).contains { !isYear($0) }
     }
 
+    /// The filename's salient (non-year) tokens, sorted — the signature used to remember a rejection
+    /// so it generalizes to files with the same distinctive words.
+    public static func salientTokens(ofFileNamed fileName: String) -> [String] {
+        fileTokens(fileName).filter { !isYear($0) }.sorted()
+    }
+
     /// Builds a remembered rule from a correction: the file the user just filed and where they put
     /// it. The trigger prefers the *distinctive anchor* — tokens the filename shares with the
     /// destination's own folder names (e.g. "tesla" in a `…/Tesla/Insurance` path) — so the rule
@@ -519,7 +531,8 @@ public enum FilingEngine {
     /// a verdict keep their heuristic suggestion untouched — so a backend that declines never makes
     /// things worse than the keyword engine alone.
     public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
-                                     taxonomy: [FileNode], providerRoot: String) -> [FilingSuggestion] {
+                                     taxonomy: [FileNode], providerRoot: String,
+                                     rejectedByFile: [String: Set<String>] = [:]) -> [FilingSuggestion] {
         guard !verdicts.isEmpty else { return suggestions }
         // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
         let existingRelative = Set(relativeFolderPaths(of: taxonomy, limit: .max))
@@ -528,6 +541,7 @@ public enum FilingEngine {
             guard let v = verdicts[s.filePath],
                   let dest = destination(from: v, providerRoot: providerRoot, existingRelative: existingRelative)
             else { return s }
+            if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
             let others = s.candidates.filter { $0.path != dest.path }
             return FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
                                     modificationDate: s.modificationDate, candidates: [dest] + others)

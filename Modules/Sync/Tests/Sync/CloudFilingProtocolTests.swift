@@ -35,6 +35,15 @@ import Testing
         #expect(JSONSerialization.isValidJSONObject(body))
     }
 
+    @Test func requestBodyListsAvoidFoldersForReasks() throws {
+        let files = [FilingCandidateFile(filePath: "/r/a/tesla.pdf", fileName: "tesla.pdf", ext: "pdf",
+                                         year: nil, contentSnippet: nil,
+                                         excludedRelativePaths: ["Archive/Old", "Misc"])]
+        let body = CloudFilingProtocol.requestBody(taxonomyFolders: ["Documents"], files: files)
+        let userText = try #require((body["messages"] as? [[String: Any]])?.first?["content"] as? String)
+        #expect(userText.contains("avoid: Archive/Old, Misc"))
+    }
+
     @Test func parseVerdictsMapsIndicesBackToFilePaths() throws {
         let files = [file("/root/a/Geico.pdf"), file("/root/a/scan.pdf"), file("/root/a/junk.bin", ext: "bin")]
         let json = """

@@ -149,6 +149,10 @@ public class FileSyncManager: ObservableObject {
     /// Warms up the classifier backend (e.g. loads the on-device model), injected by the app. Called
     /// when a Filing scan starts so the ~cold-start latency overlaps the keyword + content phases.
     public var filingClassifierPrewarm: (@Sendable () -> Void)?
+    /// The most recent Filing scan's provider root + relative folder list, kept so a "Try another"
+    /// re-ask can classify a single file without re-walking the whole provider.
+    public var filingLastProviderRoot: String?
+    public var filingLastTaxonomyFolders: [String] = []
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

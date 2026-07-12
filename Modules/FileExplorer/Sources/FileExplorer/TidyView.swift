@@ -465,7 +465,8 @@ public struct TidyView: View {
                         onChooseFolder: { chooseFolder(for: suggestion) },
                         onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
                         onNotHere: { syncManager.dismissFilingSuggestion(suggestion) },
-                        onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } }
+                        onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
+                        onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } }
                     )
                 }
             }

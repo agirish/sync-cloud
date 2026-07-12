@@ -323,6 +323,48 @@ import Testing
         }
     }
 
+    // MARK: Rejections ("Try another")
+
+    @Test func rejectedFolderIsDroppedFromCandidates() throws {
+        let taxonomy = [dir("/root/Insurance", []),
+                        dir("/root/Health", [dir("/root/Health/Insurance", [])])]
+        let loose = [file("/root/Downloads/insurance renewal.pdf", modified: y2024)]
+        // Baseline: shallower /root/Insurance leads, with /root/Health/Insurance as an alternate.
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        #expect(base.first?.best?.path == "/root/Insurance")
+
+        // Reject /root/Insurance → it's gone and the next candidate leads.
+        let rejected = ["/root/Downloads/insurance renewal.pdf": Set(["/root/Insurance"])]
+        let out = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                       providerRoot: "/root", rejectedByFile: rejected)
+        #expect(out.first?.candidates.allSatisfy { $0.path != "/root/Insurance" } == true)
+        #expect(out.first?.best?.path == "/root/Health/Insurance")
+    }
+
+    @Test func aVerdictToARejectedFolderIsIgnored() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Family", [])])]
+        let loose = [file("/root/Downloads/report.pdf", modified: y2024)]
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        let verdicts = ["/root/Downloads/report.pdf":
+            FilingVerdict(relativePath: "Documents/Family", confidence: .high, reason: "x")]
+
+        // Normally the model verdict applies…
+        let applied = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy, providerRoot: "/root")
+        #expect(applied.first?.best?.path == "/root/Documents/Family")
+        // …but not when that folder was rejected for this file.
+        let rejected = ["/root/Downloads/report.pdf": Set(["/root/Documents/Family"])]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy,
+                                             providerRoot: "/root", rejectedByFile: rejected)
+        #expect(out.first?.best?.path != "/root/Documents/Family")
+    }
+
+    @Test func rejectedPathsMatchBySalientTokenSignature() {
+        let rejections = [FilingRejection(tokens: ["policy", "tesla"], path: "/p/Wrong")]
+        // A file sharing all the trigger tokens matches; one missing a token does not.
+        #expect(FileSyncManager.rejectedPaths(forFileNamed: "Tesla Policy Renewal.pdf", in: rejections).contains("/p/Wrong"))
+        #expect(FileSyncManager.rejectedPaths(forFileNamed: "Tesla Insurance.pdf", in: rejections).isEmpty)
+    }
+
     @Test func aVerdictNeverOverridesARememberedRule() throws {
         // A remembered rule is an explicit user correction — the model must not displace it.
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",

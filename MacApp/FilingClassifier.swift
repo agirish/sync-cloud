@@ -110,6 +110,10 @@ enum OnDeviceFilingClassifier {
         if let snippet = file.contentSnippet, !snippet.isEmpty {
             prompt += "\n\nContent excerpt:\n\(String(snippet.prefix(maxSnippetChars)))"
         }
+        if !file.excludedRelativePaths.isEmpty {
+            prompt += "\n\nThe user already rejected these folders — do NOT choose them, pick a different one: "
+                + file.excludedRelativePaths.joined(separator: ", ")
+        }
         prompt += "\n\nWhich folder should this file go in?"
 
         do {

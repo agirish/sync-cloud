@@ -299,6 +299,24 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(manager.filingRules.isEmpty)
     }
 
+    @MainActor
+    @Test func rejectionsPersistMatchAndClear() {
+        let suite = "FilingRej-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)   // rejections share filingRuleDefaults
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+
+        #expect(manager.rememberFilingRejection(fileName: "Tesla Policy.pdf", destinationPath: "/p/Archive/Old"))
+        #expect(manager.filingRejections.count == 1)
+        // A same-signature file inherits the rejection; an unrelated one doesn't.
+        #expect(FileSyncManager.rejectedPaths(forFileNamed: "Tesla Policy 2025.pdf", in: manager.filingRejections).contains("/p/Archive/Old"))
+        #expect(FileSyncManager.rejectedPaths(forFileNamed: "Geico Bill.pdf", in: manager.filingRejections).isEmpty)
+        // A nameless file can't seed a rejection.
+        #expect(manager.rememberFilingRejection(fileName: "IMG_0007.pdf", destinationPath: "/p/x") == false)
+
+        manager.clearFilingRejections()
+        #expect(manager.filingRejections.isEmpty)
+    }
+
     // MARK: Intelligent classifier (AI)
 
     @MainActor

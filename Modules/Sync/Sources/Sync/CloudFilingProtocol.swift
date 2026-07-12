@@ -5,8 +5,9 @@ import Foundation
 /// call with these pieces. One request classifies a whole batch of files against the folder
 /// taxonomy — far cheaper and more consistent than one call per file.
 public enum CloudFilingProtocol {
-    /// Default model. Opus-tier for the accuracy the whole cloud pass exists to provide.
-    public static let defaultModel = "claude-opus-4-8"
+    /// Default model — Haiku: capable for folder classification and roughly a penny a scan. Switch
+    /// to Sonnet/Opus in Settings for harder cases.
+    public static let defaultModel = "claude-haiku-4-5"
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"
@@ -27,6 +28,7 @@ public enum CloudFilingProtocol {
         • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
         parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
         • Reason about meaning, people's names, vendors, and document type — not just matching words.
+        • If a file lists "avoid" folders, the user already rejected those — never choose them; pick a genuinely different folder.
         • If you genuinely cannot tell, use the folder "none".
         Always answer with paths relative to the folder list — never absolute paths.
         """
@@ -46,6 +48,9 @@ public enum CloudFilingProtocol {
             if let snippet = f.contentSnippet, !snippet.isEmpty,
                !FilingEngine.canRemember(fileName: f.fileName) {
                 userText += "    excerpt: \(String(snippet.prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " "))\n"
+            }
+            if !f.excludedRelativePaths.isEmpty {
+                userText += "    avoid: \(f.excludedRelativePaths.joined(separator: ", "))\n"
             }
         }
         userText += "\nReturn one placement per file, keyed by its index."

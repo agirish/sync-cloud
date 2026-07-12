@@ -67,10 +67,22 @@ extension FileSyncManager {
         // Remembered rules (F3), scoped to this provider so a rule pointing into another provider's
         // tree can never fire here (its absolute destination would be wrong).
         let rules = filingRules(under: providerRoot)
+        // Rejected folders per file — a "Try another" earlier said "not there"; never re-suggest it.
+        let scopedRejections = filingRejections(under: providerRoot)
+        var rejectedByFile: [String: Set<String>] = [:]
+        for f in looseFiles {
+            let paths = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
+            if !paths.isEmpty { rejectedByFile[f.id] = paths }
+        }
+        // Cache the taxonomy for single-file re-asks (Try another).
+        let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
+        filingLastProviderRoot = providerRoot.path
+        filingLastTaxonomyFolders = taxonomyFolders
 
         // Phase 1 — filename + metadata + your taxonomy + remembered rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                               providerRoot: providerRoot.path, rules: rules, options: options)
+                                               providerRoot: providerRoot.path, rules: rules,
+                                               rejectedByFile: rejectedByFile, options: options)
         if Task.isCancelled { return }
 
         // Phase 2 — for the files with no confident home, read their contents on-device and
@@ -84,7 +96,7 @@ extension FileSyncManager {
                 if !content.isEmpty {
                     suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                        providerRoot: providerRoot.path, contentTokens: content,
-                                                       rules: rules, options: options)
+                                                       rules: rules, rejectedByFile: rejectedByFile, options: options)
                 }
             }
         }
@@ -100,7 +112,6 @@ extension FileSyncManager {
             let toClassify = looseFiles.filter { !remembered.contains($0.id) }
             if !toClassify.isEmpty {
                 filingScanStatus = "Finding the best homes…"
-                let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
                 var snippets: [String: String] = [:]
                 if filingReadsContents, let extractor = filingSnippetExtractor {
                     // Only read contents for files whose NAME says nothing — a meaningful name plus
@@ -110,16 +121,17 @@ extension FileSyncManager {
                     snippets = await Self.extractSnippets(for: namelessPaths, using: extractor)
                     if Task.isCancelled { return }
                 }
-                let files = toClassify.map { f in
-                    FilingCandidateFile(filePath: f.id, fileName: f.name,
-                                        ext: (f.name as NSString).pathExtension.lowercased(),
-                                        year: Self.modificationYear(f.modificationDate),
-                                        contentSnippet: snippets[f.id])
+                let files = toClassify.map { f -> FilingCandidateFile in
+                    let excluded = (rejectedByFile[f.id] ?? []).compactMap { Self.relativePath($0, under: providerRoot.path) }
+                    return FilingCandidateFile(filePath: f.id, fileName: f.name,
+                                               ext: (f.name as NSString).pathExtension.lowercased(),
+                                               year: Self.modificationYear(f.modificationDate),
+                                               contentSnippet: snippets[f.id], excludedRelativePaths: excluded)
                 }
                 let verdicts = await classifier(taxonomyFolders, files)
                 if Task.isCancelled { return }
-                suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions,
-                                                         taxonomy: taxonomy, providerRoot: providerRoot.path)
+                suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
+                                                         providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
             }
         }
 
@@ -217,6 +229,112 @@ extension FileSyncManager {
     /// Forgets every remembered rule.
     public func clearFilingRules() { filingRules = [] }
 
+    // MARK: Rejections + "Try another" (negative feedback)
+
+    /// Where remembered rejections are persisted (JSON, in `filingRuleDefaults`).
+    public static let rejectionsDefaultsKey = "tidyFilingRejections"
+
+    /// Folders the user has rejected for files, so suggestions never re-offer them.
+    public var filingRejections: [FilingRejection] {
+        get {
+            guard let data = filingRuleDefaults.data(forKey: Self.rejectionsDefaultsKey),
+                  let decoded = try? JSONDecoder().decode([FilingRejection].self, from: data) else { return [] }
+            return decoded
+        }
+        set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rejectionsDefaultsKey) }
+    }
+
+    /// Rejections whose folder lives inside `providerRoot`.
+    func filingRejections(under providerRoot: URL) -> [FilingRejection] {
+        let root = providerRoot.path
+        return filingRejections.filter { $0.path == root || $0.path.hasPrefix(root + "/") }
+    }
+
+    /// The absolute folder paths rejected for a file — a rejection matches when its trigger tokens
+    /// are all present in the filename's salient tokens (mirrors how F3 rules match).
+    nonisolated static func rejectedPaths(forFileNamed name: String, in rejections: [FilingRejection]) -> Set<String> {
+        let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: name))
+        guard !fileTokens.isEmpty else { return [] }
+        var out: Set<String> = []
+        for r in rejections where !r.tokens.isEmpty && Set(r.tokens).isSubset(of: fileTokens) {
+            out.insert(r.path)
+        }
+        return out
+    }
+
+    /// Records that the user rejected `destinationPath` for a file like `fileName`.
+    @discardableResult
+    public func rememberFilingRejection(fileName: String, destinationPath: String) -> Bool {
+        let tokens = FilingEngine.salientTokens(ofFileNamed: fileName)
+        guard !tokens.isEmpty else { return false }
+        let rejection = FilingRejection(tokens: tokens, path: destinationPath)
+        var all = filingRejections
+        guard !all.contains(rejection) else { return true }
+        all.append(rejection)
+        filingRejections = all
+        return true
+    }
+
+    public func clearFilingRejections() { filingRejections = [] }
+
+    /// Absolute folder path → relative to `root`, or nil if not under it.
+    nonisolated static func relativePath(_ path: String, under root: String) -> String? {
+        guard path.hasPrefix(root + "/") else { return nil }
+        return String(path.dropFirst(root.count + 1))
+    }
+
+    /// "Try another": the user rejected the current suggested folder. Records the rejection, then
+    /// shows the next non-rejected candidate the file already has — or, when those are exhausted,
+    /// re-asks the backend for a genuinely different folder (excluding everything rejected).
+    public func tryAnotherFolder(for suggestion: FilingSuggestion) async {
+        guard let rejected = suggestion.best else { return }
+        rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path)
+
+        // Every folder rejected for this file (this session's + persisted).
+        let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: suggestion.fileName))
+        let allRejected = Set(filingRejections
+            .filter { !$0.tokens.isEmpty && Set($0.tokens).isSubset(of: fileTokens) }
+            .map { $0.path })
+
+        // Cycle to the next candidate the file already carries.
+        let remaining = suggestion.candidates.filter { !allRejected.contains($0.path) }
+        if !remaining.isEmpty {
+            replaceFilingSuggestion(suggestion.id, candidates: remaining)
+            return
+        }
+
+        // Out of local ideas — re-ask the backend for one different folder, if one is available.
+        guard filingUsesAI, let classifier = filingClassifier,
+              let root = filingLastProviderRoot, !filingLastTaxonomyFolders.isEmpty else {
+            replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
+            return
+        }
+        filingScanStatus = "Looking for a different folder…"
+        defer { filingScanStatus = nil }
+        let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }
+        let file = FilingCandidateFile(filePath: suggestion.filePath, fileName: suggestion.fileName,
+                                       ext: (suggestion.fileName as NSString).pathExtension.lowercased(),
+                                       year: Self.modificationYear(suggestion.modificationDate),
+                                       contentSnippet: nil, excludedRelativePaths: excluded)
+        let verdicts = await classifier(filingLastTaxonomyFolders, [file])
+        if let verdict = verdicts[suggestion.filePath],
+           let dest = FilingEngine.destination(from: verdict, providerRoot: root,
+                                               existingRelative: Set(filingLastTaxonomyFolders)),
+           !allRejected.contains(dest.path) {
+            replaceFilingSuggestion(suggestion.id, candidates: [dest])
+        } else {
+            replaceFilingSuggestion(suggestion.id, candidates: [])
+        }
+    }
+
+    /// Replaces a suggestion's candidates in place (keeps the card, updates its shown home).
+    private func replaceFilingSuggestion(_ id: String, candidates: [FilingDestination]) {
+        guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
+        let s = filingSuggestions[i]
+        filingSuggestions[i] = FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
+                                                modificationDate: s.modificationDate, candidates: candidates)
+    }
+
     /// Runs the injected content extractor over the given paths with bounded concurrency.
     nonisolated static func extractContent(
         for paths: [String], using extractor: @escaping @Sendable (String) async -> Set<String>,
@@ -244,6 +362,8 @@ extension FileSyncManager {
         filingSuggestions = []
         filingScanFolder = nil
         hasSuggestedFiling = false
+        filingLastProviderRoot = nil
+        filingLastTaxonomyFolders = []
     }
 
     // MARK: Apply

@@ -15,13 +15,18 @@ public struct FilingCandidateFile: Sendable, Equatable, Identifiable {
     /// (read-contents off, evicted iCloud file, unsupported type). The backend may reason from the
     /// name and taxonomy alone when this is nil.
     public let contentSnippet: String?
+    /// Folders (relative paths) the user has already rejected for this file — the backend must not
+    /// suggest them again. Empty on a normal scan; populated on a "Try another" re-ask.
+    public let excludedRelativePaths: [String]
 
-    public init(filePath: String, fileName: String, ext: String, year: String?, contentSnippet: String?) {
+    public init(filePath: String, fileName: String, ext: String, year: String?, contentSnippet: String?,
+                excludedRelativePaths: [String] = []) {
         self.filePath = filePath
         self.fileName = fileName
         self.ext = ext
         self.year = year
         self.contentSnippet = contentSnippet
+        self.excludedRelativePaths = excludedRelativePaths
     }
 }
 
