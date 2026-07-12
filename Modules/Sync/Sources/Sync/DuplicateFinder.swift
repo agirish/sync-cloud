@@ -107,6 +107,12 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         self.reclaimableBytes = reclaimableBytes
     }
 
+    /// A stable identity for this cluster across scans — the sorted copy paths. Lets a
+    /// "Keep separate" choice persist so the same group isn't re-flagged next scan.
+    public var ignoreKey: String {
+        copies.map { $0.id }.sorted().joined(separator: "\n")
+    }
+
     /// The recommended copy to keep.
     public var keeper: DuplicateCopy {
         copies.first(where: { $0.isRecommendedKeeper }) ?? copies[0]
@@ -142,6 +148,31 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         case .overlapping, .nameOnly:
             return []
         }
+    }
+
+    /// Whether the user may pick a different keeper. Only identical & versions qualify — changing
+    /// an overlapping keeper would re-shuffle which items are "unique", which needs the content
+    /// hashes we don't retain after a scan.
+    public var allowsKeeperChoice: Bool { isFullyResolvableByRemoval }
+
+    /// Returns this group with a different keeper chosen (no-op unless `allowsKeeperChoice` and the
+    /// id names a non-keeper copy). Reorders keeper-first and recomputes reclaimable bytes; keeps
+    /// the same `id` so list/expansion identity is stable.
+    public func choosingKeeper(_ copyID: DuplicateCopy.ID) -> DuplicateGroup {
+        guard allowsKeeperChoice,
+              copyID != keeper.id,
+              copies.contains(where: { $0.id == copyID }) else { return self }
+        let relabelled = copies.map { c in
+            DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
+                          itemCount: c.itemCount, modificationDate: c.modificationDate,
+                          uniqueItemCount: c.uniqueItemCount, depth: c.depth,
+                          isRecommendedKeeper: c.id == copyID)
+        }
+        let newKeeper = relabelled.first { $0.id == copyID }!
+        let rest = relabelled.filter { $0.id != copyID }.sorted { ($0.depth, $0.id) < ($1.depth, $1.id) }
+        let reclaim = rest.reduce(0) { $0 + $1.size }
+        return DuplicateGroup(id: id, matchType: matchType, name: name, isDirectory: isDirectory,
+                              copies: [newKeeper] + rest, reclaimableBytes: reclaim)
     }
 }
 

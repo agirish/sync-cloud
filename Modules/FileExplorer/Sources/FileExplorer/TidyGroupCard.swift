@@ -14,6 +14,7 @@ struct TidyGroupCard: View {
     let onApply: () -> Void
     let onReveal: () -> Void
     let onKeepSeparate: () -> Void
+    let onChooseKeeper: (String) -> Void
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
@@ -139,10 +140,7 @@ struct TidyGroupCard: View {
 
     private func copyRow(_ copy: DuplicateCopy) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: copy.isRecommendedKeeper ? "largecircle.fill.circle" : "circle")
-                .font(.system(size: 15))
-                .foregroundStyle(copy.isRecommendedKeeper ? accentKeeper : Color.secondary)
-                .padding(.top, 1)
+            radio(copy)
             VStack(alignment: .leading, spacing: 4) {
                 breadcrumb(for: copy.path)
                 Text(metaLine(copy))
@@ -155,7 +153,25 @@ struct TidyGroupCard: View {
         .padding(.vertical, 11)
     }
 
-    private var accentKeeper: Color { .green }
+    /// The keeper radio. Interactive (click to keep a different copy) for identical & versions;
+    /// a static indicator otherwise.
+    @ViewBuilder
+    private func radio(_ copy: DuplicateCopy) -> some View {
+        if group.allowsKeeperChoice, !copy.isRecommendedKeeper {
+            Button { onChooseKeeper(copy.id) } label: { radioIcon(copy) }
+                .buttonStyle(.plain)
+                .help("Keep this copy instead")
+        } else {
+            radioIcon(copy)
+        }
+    }
+
+    private func radioIcon(_ copy: DuplicateCopy) -> some View {
+        Image(systemName: copy.isRecommendedKeeper ? "largecircle.fill.circle" : "circle")
+            .font(.system(size: 15))
+            .foregroundStyle(copy.isRecommendedKeeper ? Color.green : Color.secondary)
+            .padding(.top, 1)
+    }
 
     private func fateChip(_ copy: DuplicateCopy) -> some View {
         Group {

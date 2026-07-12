@@ -268,6 +268,31 @@ import Testing
         #expect(DuplicateFinder.versionStem("beach (2).jpg")?.stem == "beach")
     }
 
+    @Test func choosingKeeperRecomputesRemovalForIdentical() {
+        let a = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true)
+        let b = DuplicateCopy(id: "/b/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: false)
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false, copies: [a, b], reclaimableBytes: 100)
+
+        let g2 = g.choosingKeeper("/b/x")
+        #expect(g2.keeper.id == "/b/x")
+        #expect(g2.recommendedRemovalPaths == ["/a/x"])   // the other copy now gets trashed
+        #expect(g2.reclaimableBytes == 100)
+        #expect(g2.id == g.id)                            // list/expansion identity preserved
+    }
+
+    @Test func choosingKeeperIsNoOpForOverlapping() {
+        let a = DuplicateCopy(id: "/a", name: "Inv", isDirectory: true, size: 100, itemCount: 5,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let b = DuplicateCopy(id: "/b", name: "Inv", isDirectory: true, size: 90, itemCount: 4,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let g = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.9), name: "Inv", isDirectory: true,
+                               copies: [a, b], reclaimableBytes: 80)
+        #expect(g.allowsKeeperChoice == false)
+        #expect(g.choosingKeeper("/b").keeper.id == "/a")   // unchanged — overlap needs hashes
+    }
+
     @Test func batchEligibilityByMatchType() {
         func g(_ t: DuplicateMatchType) -> DuplicateGroup {
             let k = DuplicateCopy(id: "/a", name: "a", isDirectory: false, size: 1, itemCount: 1,

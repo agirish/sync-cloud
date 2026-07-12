@@ -106,6 +106,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var duplicateScanStatus: String? = nil
     /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
     @Published public var hasFoundDuplicates = false
+    /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).
+    public var duplicateIgnoreDefaults: UserDefaults = .standard
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

@@ -78,9 +78,29 @@ extension FileSyncManager {
             fileHashes[f.id] = realHashes[f.id] ?? ("u:" + f.id)
         }
 
-        // 3. Group (pure).
+        // 3. Group (pure), then drop anything the user has kept separate.
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options)
-        self.duplicateGroups = groups
+        let ignored = ignoredDuplicateKeys
+        self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
+    }
+
+    // MARK: Keep separate (persistent ignore)
+
+    private static let ignoreDefaultsKey = "tidyIgnoredGroupKeys"
+
+    /// The set of duplicate-group keys the user has chosen to keep separate (persisted).
+    public var ignoredDuplicateKeys: Set<String> {
+        get { Set(duplicateIgnoreDefaults.stringArray(forKey: Self.ignoreDefaultsKey) ?? []) }
+        set { duplicateIgnoreDefaults.set(Array(newValue), forKey: Self.ignoreDefaultsKey) }
+    }
+
+    /// Marks a group as intentionally separate: removes it now and remembers it so future scans
+    /// don't re-flag the same cluster.
+    public func keepDuplicateGroupSeparate(_ group: DuplicateGroup) {
+        var keys = ignoredDuplicateKeys
+        keys.insert(group.ignoreKey)
+        ignoredDuplicateKeys = keys
+        duplicateGroups.removeAll { $0.id == group.id }
     }
 
     /// Clears the current results (called when switching providers, so stale groups from one
@@ -127,9 +147,15 @@ extension FileSyncManager {
         }
     }
 
-    /// Removes a group from the list without touching disk ("Keep separate").
+    /// Removes a group from the list without touching disk (in-memory only).
     public func dismissDuplicateGroup(_ group: DuplicateGroup) {
         duplicateGroups.removeAll { $0.id == group.id }
+    }
+
+    /// Chooses a different keeper for a group (identical & versions only). Updates fates/reclaim.
+    public func setKeeper(for groupID: DuplicateGroup.ID, to copyID: String) {
+        guard let idx = duplicateGroups.firstIndex(where: { $0.id == groupID }) else { return }
+        duplicateGroups[idx] = duplicateGroups[idx].choosingKeeper(copyID)
     }
 
     // MARK: Helpers

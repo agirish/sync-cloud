@@ -255,7 +255,8 @@ public struct TidyView: View {
                         onToggle: { toggle(group.id) },
                         onApply: { apply(group) },
                         onReveal: { reveal(group) },
-                        onKeepSeparate: { syncManager.dismissDuplicateGroup(group) }
+                        onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
+                        onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) }
                     )
                 }
             }

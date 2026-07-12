@@ -156,6 +156,32 @@ import Foundation
     }
 
     @MainActor
+    @Test func keepSeparatePersistsAcrossRescans() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("A/a-only.txt"), bytes: 8, fill: 0x61)
+        try write(root.appendingPathComponent("B/b-only.txt"), bytes: 12, fill: 0x62)
+
+        let manager = FileSyncManager()
+        let suite = "TidyIgnoreTest-\(UUID().uuidString)"
+        manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
+        defer { manager.duplicateIgnoreDefaults.removePersistentDomain(forName: suite) }
+
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateGroups.count == 1)
+        let group = try #require(manager.duplicateGroups.first)
+
+        manager.keepDuplicateGroupSeparate(group)
+        #expect(manager.duplicateGroups.isEmpty)
+
+        // Rescan — a kept-separate cluster must not reappear.
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateGroups.isEmpty)
+    }
+
+    @MainActor
     @Test func clearDuplicatesResetsScanState() {
         let manager = FileSyncManager()
         manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1)]
