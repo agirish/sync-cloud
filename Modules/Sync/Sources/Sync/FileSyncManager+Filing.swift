@@ -239,7 +239,8 @@ extension FileSyncManager {
     /// of that provider (a rule's destination is an absolute path in one provider's tree).
     func filingRules(under providerRoot: URL) -> [FilingRule] {
         let root = providerRoot.path
-        return filingRules.filter { $0.destinationPath == root || $0.destinationPath.hasPrefix(root + "/") }
+        // Disabled rules (G1) stay persisted/editable in the manager but are inert for scans.
+        return filingRules.filter { $0.enabled && ($0.destinationPath == root || $0.destinationPath.hasPrefix(root + "/")) }
     }
 
     /// Learns a rule from a correction: "file <fileName> here" becomes "files like this go here."
@@ -366,7 +367,8 @@ extension FileSyncManager {
         guard let i = filingSuggestions.firstIndex(where: { $0.id == id }) else { return }
         let s = filingSuggestions[i]
         filingSuggestions[i] = FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                                modificationDate: s.modificationDate, candidates: candidates)
+                                                modificationDate: s.modificationDate, candidates: candidates,
+                                                providerRoot: s.providerRoot)
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
