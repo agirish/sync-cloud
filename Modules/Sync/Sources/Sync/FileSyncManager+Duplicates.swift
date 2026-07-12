@@ -40,8 +40,12 @@ extension FileSyncManager {
     ///   - options: Detection tuning.
     /// Starts a cancellable Find Duplicates scan, replacing any in-flight one.
     public func startFindDuplicates(root: URL, options: DuplicateFinderOptions = .init()) {
-        duplicateScanTask?.cancel()
+        let previous = duplicateScanTask
+        previous?.cancel()
         duplicateScanTask = Task { [weak self] in
+            // Let the cancelled scan fully unwind (its defer clears isFindingDuplicates) before the
+            // new one runs, so findDuplicates' re-entrancy guard doesn't silently drop the restart.
+            _ = await previous?.value
             await self?.findDuplicates(root: root, options: options)
         }
     }
@@ -129,6 +133,9 @@ extension FileSyncManager {
     /// Clears the current results (called when switching providers, so stale groups from one
     /// provider can never be shown — or acted on — under another).
     public func clearDuplicates() {
+        // Cancel any in-flight scan so it can't republish the old provider's results after the
+        // switch (findDuplicates checks Task.isCancelled before it assigns duplicateGroups).
+        duplicateScanTask?.cancel()
         duplicateGroups = []
         duplicateScanRoot = nil
         hasFoundDuplicates = false
@@ -180,12 +187,23 @@ extension FileSyncManager {
     @discardableResult
     public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         guard case .overlapping = group.matchType else { return false }
-        let keeperURL = URL(fileURLWithPath: group.keeper.path)
+        let keeperPath = group.keeper.path
+        let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
         var totalFolded = 0
-        var progressed = false
+        var allTrashed = true
 
         for redundant in group.redundantCopies {
+            // Already gone (e.g. from a prior partial merge/retry) — treat as done, don't fail.
+            guard fm.fileExists(atPath: redundant.path) else { continue }
+            // Defensive: never merge a copy that contains, or is contained by, the keeper. The
+            // engine no longer emits such nested pairs, but folding into self then trashing would
+            // delete out of the keeper. Skip it and keep the group.
+            if Self.pathsOverlap(redundant.path, keeperPath) {
+                allTrashed = false
+                continue
+            }
+
             let rURL = URL(fileURLWithPath: redundant.path)
             let plan = await Self.planMerge(from: rURL, into: keeperURL, fileManager: fm)
 
@@ -214,25 +232,37 @@ extension FileSyncManager {
             if !outcome.copied.isEmpty {
                 registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm)
                 totalFolded += outcome.copied.count
-                progressed = true
             }
             if outcome.failed {
                 // Leave the redundant copy in place so nothing is trashed after a partial copy;
                 // the group stays so the user can retry (already-copied files are skipped next time).
                 present(.syncFailed(item: redundant.name, path: redundant.path,
                                     reason: "Some files couldn't be merged; the folder was left in place."))
-                return progressed
+                return false
             }
 
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
             let removed = await deleteItems(at: [redundant.path], fileManager: fm)
-            if removed > 0 { progressed = true }
+            if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
         }
 
-        guard progressed else { return false }
+        // Only drop the group and claim success when every redundant copy actually left the disk
+        // and no error surfaced — otherwise keep the group (retry skips what already landed) and
+        // never show a false "Merged" banner over an orphaned folder.
+        guard allTrashed, currentError == nil else {
+            if totalFolded > 0 {
+                banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.")
+            }
+            return false
+        }
         duplicateGroups.removeAll { $0.id == group.id }
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name). Press ⌘Z to undo")
         return true
+    }
+
+    /// Whether two paths are the same or one contains the other.
+    nonisolated static func pathsOverlap(_ a: String, _ b: String) -> Bool {
+        a == b || a.isInsideDirectory(anyOf: [b]) || b.isInsideDirectory(anyOf: [a])
     }
 
     /// Plans the additive merge of `rURL` into `kURL`: the files under `rURL` whose content the

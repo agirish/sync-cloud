@@ -268,6 +268,73 @@ import Foundation
     }
 
     @MainActor
+    @Test func mergeKeepsGroupAndAvoidsFalseSuccessWhenTrashFails() async throws {
+        let mockFM = MockFileManager()
+        mockFM.shouldFailTrash = true                        // Trash-less volume
+        let manager = FileSyncManager(fileManager: mockFM)   // permanentDeleteConfirmer defaults to false
+        mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
+        mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
+        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(manager.duplicateGroups.count == 1)             // group kept, not vanished
+        #expect(mockFM.virtualDisk["/base/R"] != nil)           // redundant folder still on disk
+        #expect(manager.banner?.severity != .success)           // no false "Merged" success
+    }
+
+    @MainActor
+    @Test func mergeRefusesARedundantNestedInsideTheKeeper() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Data")
+        let nested = keeper.appendingPathComponent("old/Data")   // inside the keeper
+        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
+        try write(nested.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
+
+        let manager = FileSyncManager()
+        let k = DuplicateCopy(id: keeper.path, name: "Data", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: nested.path, name: "Data", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 1.0), name: "Data",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(FileManager.default.fileExists(atPath: nested.path))   // nested copy NOT trashed
+        #expect(manager.duplicateGroups.count == 1)                    // group kept
+    }
+
+    @MainActor
+    @Test func clearDuplicatesCancelsAnInFlightScan() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+
+        let manager = FileSyncManager()
+        manager.startFindDuplicates(root: root)
+        manager.clearDuplicates()                     // simulate a provider switch mid-scan
+        await manager.duplicateScanTask?.value        // let the cancelled scan unwind
+
+        #expect(manager.duplicateGroups.isEmpty)      // the cancelled scan must not republish
+        #expect(manager.hasFoundDuplicates == false)
+    }
+
+    @MainActor
     @Test func mergeIsNoOpForNonOverlappingGroup() async throws {
         let manager = FileSyncManager()
         let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1)

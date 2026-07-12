@@ -428,7 +428,12 @@ public enum DuplicateFinder {
         }
 
         var groups: [DuplicateGroup] = []
-        for (name, members) in byName {
+        for (name, allMembers) in byName {
+            // A folder nested inside another same-named folder is already *part of* that folder's
+            // content, not a separate copy. Grouping the pair would let a merge copy files into
+            // the keeper and then trash a piece of it (the nested copy) — data loss. Keep only the
+            // outermost members.
+            let members = outermost(allMembers)
             guard members.count >= 2 else { continue }
             // Drop groups that are actually identical (already handled): keep only those with at
             // least two distinct signatures.
@@ -628,6 +633,12 @@ public enum DuplicateFinder {
 
     private static func isCovered(_ path: String, by roots: Set<String>) -> Bool {
         path.isInsideDirectory(anyOf: roots)
+    }
+
+    /// Keeps only the members not nested inside another member (drops ancestor/descendant dupes).
+    private static func outermost(_ infos: [NodeInfo]) -> [NodeInfo] {
+        let paths = Set(infos.map { $0.path })
+        return infos.filter { !$0.path.isInsideDirectory(anyOf: paths.subtracting([$0.path])) }
     }
 
     static func stableHash(_ s: String) -> String {

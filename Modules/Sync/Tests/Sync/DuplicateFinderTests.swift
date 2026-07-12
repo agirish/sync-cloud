@@ -287,6 +287,24 @@ import Testing
         #expect(overridden.detectVersions == false)
     }
 
+    @Test func nestedSameNameFoldersDoNotFormAGroup() {
+        // /X/Data contains a nested /X/Data/old/Data whose file is a subset — the inner folder is
+        // PART of the outer's content, not a separate copy. Grouping them would let a merge trash
+        // a piece of the keeper. They must not be paired in one group.
+        let inner = dir("/X/Data/old/Data", [file("/X/Data/old/Data/a.txt", size: 5000)])
+        let old = dir("/X/Data/old", [inner])
+        let outer = dir("/X/Data", [file("/X/Data/a.txt", size: 5000), file("/X/Data/b.txt", size: 6000), old])
+        let hashes = [
+            "/X/Data/a.txt": "HA", "/X/Data/b.txt": "HB",
+            "/X/Data/old/Data/a.txt": "HA",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: [outer], fileHashes: hashes)
+        #expect(!groups.contains { g in
+            let paths = Set(g.copies.map { $0.path })
+            return paths.contains("/X/Data") && paths.contains("/X/Data/old/Data")
+        })
+    }
+
     @Test func choosingKeeperRecomputesRemovalForIdentical() {
         let a = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
                               modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true)
