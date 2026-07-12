@@ -1,0 +1,84 @@
+import Foundation
+
+/// One cloud (Claude) Filing classification call, recorded for the spend history.
+public struct FilingSpendEntry: Codable, Equatable, Sendable, Identifiable {
+    public let id: String
+    public let timestamp: Date
+    public let model: String
+    public let fileCount: Int
+    public let placedCount: Int
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let cacheReadTokens: Int
+    public let cacheCreationTokens: Int
+    public let estimatedCostUSD: Double
+
+    public var totalTokens: Int { inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens }
+
+    public init(id: String = UUID().uuidString, timestamp: Date, model: String, fileCount: Int,
+                placedCount: Int, inputTokens: Int, outputTokens: Int, cacheReadTokens: Int,
+                cacheCreationTokens: Int, estimatedCostUSD: Double) {
+        self.id = id; self.timestamp = timestamp; self.model = model
+        self.fileCount = fileCount; self.placedCount = placedCount
+        self.inputTokens = inputTokens; self.outputTokens = outputTokens
+        self.cacheReadTokens = cacheReadTokens; self.cacheCreationTokens = cacheCreationTokens
+        self.estimatedCostUSD = estimatedCostUSD
+    }
+}
+
+/// Lifetime totals — never trimmed, so "total so far" stays accurate even after the history is capped.
+public struct FilingSpendTotals: Codable, Equatable, Sendable {
+    public var costUSD: Double
+    public var tokens: Int
+    public var scans: Int
+    public init(costUSD: Double = 0, tokens: Int = 0, scans: Int = 0) {
+        self.costUSD = costUSD; self.tokens = tokens; self.scans = scans
+    }
+}
+
+/// Persists cloud Filing spend to UserDefaults: a capped scan history for display, a last-scan
+/// snapshot, and never-trimmed lifetime totals. Recorded by the app after each cloud call; read by
+/// the Filing UI.
+public enum FilingSpendStore {
+    static let historyKey = "tidyFilingSpendHistory"
+    static let totalsKey = "tidyFilingSpendTotals"
+    static let lastKey = "tidyFilingSpendLast"
+    static let maxEntries = 500
+
+    public static func entries(defaults: UserDefaults = .standard) -> [FilingSpendEntry] {
+        guard let data = defaults.data(forKey: historyKey),
+              let decoded = try? JSONDecoder().decode([FilingSpendEntry].self, from: data) else { return [] }
+        return decoded
+    }
+
+    public static func last(defaults: UserDefaults = .standard) -> FilingSpendEntry? {
+        guard let data = defaults.data(forKey: lastKey) else { return nil }
+        return try? JSONDecoder().decode(FilingSpendEntry.self, from: data)
+    }
+
+    public static func totals(defaults: UserDefaults = .standard) -> FilingSpendTotals {
+        guard let data = defaults.data(forKey: totalsKey),
+              let decoded = try? JSONDecoder().decode(FilingSpendTotals.self, from: data) else { return .init() }
+        return decoded
+    }
+
+    public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
+        var list = entries(defaults: defaults)
+        list.append(entry)
+        if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
+        defaults.set(try? JSONEncoder().encode(list), forKey: historyKey)
+        defaults.set(try? JSONEncoder().encode(entry), forKey: lastKey)
+
+        var t = totals(defaults: defaults)
+        t.costUSD += entry.estimatedCostUSD
+        t.tokens += entry.totalTokens
+        t.scans += 1
+        defaults.set(try? JSONEncoder().encode(t), forKey: totalsKey)
+    }
+
+    public static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: historyKey)
+        defaults.removeObject(forKey: totalsKey)
+        defaults.removeObject(forKey: lastKey)
+    }
+}

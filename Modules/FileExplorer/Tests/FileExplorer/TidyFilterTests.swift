@@ -58,6 +58,7 @@ import Design
             // Filing suggestion card (incl. F3 "Remembered" + AI badges) + rescan / preview / retry
             "arrow.turn.down.right", "arrow.right.circle", "folder", "xmark", "memories",
             "eye", "folder.badge.gearshape", "wand.and.stars", "sparkles", "arrow.triangle.2.circlepath",
+            "cloud",   // Filing spend row
         ]
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,

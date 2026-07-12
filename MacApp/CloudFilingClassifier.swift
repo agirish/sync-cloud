@@ -78,6 +78,15 @@ enum CloudFilingClassifier {
             if stop == "max_tokens" { summary += " · ⚠️ TRUNCATED (max_tokens)" }
             Logger.shared.info(summary)
 
+            // Record spend for the Filing UI (history + total).
+            if let u = usage {
+                FilingSpendStore.record(FilingSpendEntry(
+                    timestamp: Date(), model: model, fileCount: files.count, placedCount: verdicts?.count ?? 0,
+                    inputTokens: u.inputTokens, outputTokens: u.outputTokens,
+                    cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens,
+                    estimatedCostUSD: CloudFilingProtocol.estimatedCostUSD(model: model, usage: u) ?? 0))
+            }
+
             if stop == "max_tokens" {
                 Logger.shared.warning("Cloud Filing response was truncated (max_tokens) — some files may be left unplaced. Try fewer files per scan or a shorter folder.")
             }

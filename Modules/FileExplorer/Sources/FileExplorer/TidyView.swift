@@ -92,6 +92,7 @@ public struct TidyView: View {
     @State private var lens: TidyLens = .duplicates
     @State private var filter: TidyFilter = .all
     @State private var expanded: Set<UUID> = []
+    @State private var showSpendHistory = false
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -140,6 +141,7 @@ public struct TidyView: View {
             contentCard
         }
         .padding(LiquidGlass.cardGutter)
+        .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
     }
 
     // MARK: Toolbar card
@@ -167,6 +169,7 @@ public struct TidyView: View {
                 // contradictory — the numbers visibly shift when phase 2 lands.
                 filingSummaryRow
             }
+            if lens == .filing, spendTotals.scans > 0 { filingSpendRow }
         }
         .padding(12)
         .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
@@ -175,6 +178,25 @@ public struct TidyView: View {
     // MARK: Filing toolbar
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
+
+    // Cloud Filing spend (read fresh each render — cheap; only two small structs).
+    private var spendTotals: FilingSpendTotals { FilingSpendStore.totals() }
+    private var spendLast: FilingSpendEntry? { FilingSpendStore.last() }
+
+    private var filingSpendRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cloud").font(.system(size: 10))
+            if let last = spendLast {
+                Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                    .lineLimit(1).truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            Text("Total \(FilingSpendFormat.cost(spendTotals.costUSD))")
+            Button("History") { showSpendHistory = true }.controlSize(.mini)
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+    }
     private var filingRecommendedCount: Int {
         syncManager.filingSuggestions.filter { $0.isBatchEligible }.count
     }
