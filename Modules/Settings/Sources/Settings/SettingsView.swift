@@ -349,7 +349,16 @@ struct AppearanceSettingsTab: View {
                 HStack(spacing: 12) {
                     Slider(value: $glassIntensity, in: 0.0...1.0) {
                         Text("Glass effect")
+                    } minimumValueLabel: {
+                        Text("Clear")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } maximumValueLabel: {
+                        Text("Frosted")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    .accessibilityValue("\(Int(glassIntensity * 100)) percent")
                     Text("\(Int(glassIntensity * 100))%")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -363,7 +372,16 @@ struct AppearanceSettingsTab: View {
                 HStack(spacing: 12) {
                     Slider(value: $surfaceTint, in: 0.0...1.0) {
                         Text("Tint")
+                    } minimumValueLabel: {
+                        Text("Subtle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } maximumValueLabel: {
+                        Text("Vivid")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    .accessibilityValue("\(Int(surfaceTint * 100)) percent")
                     .disabled(selectedHue == .none)
                     Text("\(Int(surfaceTint * 100))%")
                         .font(.caption.weight(.semibold))
