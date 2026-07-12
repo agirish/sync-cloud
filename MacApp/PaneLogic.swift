@@ -20,17 +20,18 @@ enum PaneLogic {
         activePane.map { paneNames.other(isLeft: $0 == .left) }
     }
 
-    /// SF Symbols for the action bar's Copy/Move buttons. Copy uses the universal duplicate
-    /// glyph (`doc.on.doc`) in every state — instantly recognizable as "copy" — and carries
-    /// its direction in the button's "Copy to <pane>" label rather than a directional arrow,
-    /// since SF Symbols has no left-pointing copy glyph to pair with the right one. Move stays
-    /// directional: a box-with-arrow that points toward the pane the operation targets (the one
-    /// opposite the selection), falling back to right-pointing when there is no selection yet.
+    /// SF Symbols for the action bar's Copy/Move buttons, drawn from the shared `TransferGlyph`
+    /// vocabulary so the toolbar, the Differences header, and the right-click menus can't drift.
+    /// Copy is the universal duplicate glyph in every state — instantly recognizable, with its
+    /// direction carried in the "Copy to <pane>" label since SF Symbols has no left-pointing copy
+    /// glyph to pair with the right one. Move stays directional: a box-with-arrow pointing toward
+    /// the pane the operation targets (opposite the selection), falling back to right-pointing
+    /// when there is no selection yet.
     static func actionBarSymbols(activePane: ActivePane?) -> (copy: String, move: String) {
         switch activePane {
-        case .left: return (copy: "doc.on.doc", move: "arrow.right.square")
-        case .right: return (copy: "doc.on.doc", move: "arrow.left.square")
-        case nil: return (copy: "doc.on.doc", move: "arrow.right.square")
+        case .left: return (copy: TransferGlyph.copy, move: TransferGlyph.move(toRight: true))
+        case .right: return (copy: TransferGlyph.copy, move: TransferGlyph.move(toRight: false))
+        case nil: return (copy: TransferGlyph.copy, move: TransferGlyph.move(toRight: true))
         }
     }
 

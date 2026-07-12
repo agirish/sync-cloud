@@ -258,7 +258,13 @@ public struct DifferencesView: View {
             Button {
                 copy(direction: .copyToRight, targets: targets)
             } label: {
-                Label(actionLabel(count: targets.copyToRightCount, to: paneNames.right), systemImage: "arrow.right.circle")
+                Label(
+                    actionLabel(count: targets.copyToRightCount, to: paneNames.right),
+                    // Shares the toolbar/menu copy/move vocabulary (TransferGlyph). The button
+                    // doubles as Move when the modifier is held, so its icon follows suit:
+                    // the directional move box (pointing at the target pane) vs. the copy glyph.
+                    systemImage: modifierTracker.isMoveModifierPressed ? TransferGlyph.move(toRight: true) : TransferGlyph.copy
+                )
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -269,7 +275,10 @@ public struct DifferencesView: View {
             Button {
                 copy(direction: .copyToLeft, targets: targets)
             } label: {
-                Label(actionLabel(count: targets.copyToLeftCount, to: paneNames.left), systemImage: "arrow.left.circle")
+                Label(
+                    actionLabel(count: targets.copyToLeftCount, to: paneNames.left),
+                    systemImage: modifierTracker.isMoveModifierPressed ? TransferGlyph.move(toRight: false) : TransferGlyph.copy
+                )
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -800,7 +809,8 @@ public struct DifferencesView: View {
             Button {
                 runCopyOrMove(direction: .copyToRight, items: toRight, scope: "selection")
             } label: {
-                Label("\(isMove ? "Move" : "Copy") \(toRight.count) to \(paneNames.right)", systemImage: "arrow.right.circle")
+                Label("\(isMove ? "Move" : "Copy") \(toRight.count) to \(paneNames.right)",
+                      systemImage: isMove ? TransferGlyph.move(toRight: true) : TransferGlyph.copy)
             }
             .disabled(isSyncActionBlocked)
         }
@@ -808,7 +818,8 @@ public struct DifferencesView: View {
             Button {
                 runCopyOrMove(direction: .copyToLeft, items: toLeft, scope: "selection")
             } label: {
-                Label("\(isMove ? "Move" : "Copy") \(toLeft.count) to \(paneNames.left)", systemImage: "arrow.left.circle")
+                Label("\(isMove ? "Move" : "Copy") \(toLeft.count) to \(paneNames.left)",
+                      systemImage: isMove ? TransferGlyph.move(toRight: false) : TransferGlyph.copy)
             }
             .disabled(isSyncActionBlocked)
         }

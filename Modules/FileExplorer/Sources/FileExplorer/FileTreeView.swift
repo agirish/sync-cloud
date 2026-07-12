@@ -473,12 +473,15 @@ struct FileContextMenu: View {
             }
             Divider()
             
+            // Copy/Move to the other pane share the toolbar/header vocabulary (TransferGlyph).
+            // Non-directional here: the target pane is named in the label, and which side is
+            // "the other pane" depends on which pane this menu was opened in.
             Button(action: { delegate.handleCopy(selectedNodes) }) {
-                Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: "arrow.right.doc.on.clipboard")
+                Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
             }
 
             Button(action: { delegate.handleMove(selectedNodes) }) {
-                Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: "arrow.right.square")
+                Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move)
             }
             
             Divider()

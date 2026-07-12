@@ -33,17 +33,26 @@ import Sync
     @Test func testActionBarSymbolsMoveArrowPointsTowardTheTargetPane() {
         // Copy uses the universal duplicate glyph in every state; only Move is directional,
         // pointing toward the pane it targets — right for a left selection, and vice versa.
+        // Both come from the shared TransferGlyph vocabulary so the toolbar can't drift from
+        // the Differences header and the right-click menus.
         let fromLeft = PaneLogic.actionBarSymbols(activePane: .left)
+        #expect(fromLeft.copy == TransferGlyph.copy)
         #expect(fromLeft.copy == "doc.on.doc")
+        #expect(fromLeft.move == TransferGlyph.move(toRight: true))
         #expect(fromLeft.move == "arrow.right.square")
         let fromRight = PaneLogic.actionBarSymbols(activePane: .right)
+        #expect(fromRight.copy == TransferGlyph.copy)
         #expect(fromRight.copy == "doc.on.doc")
+        #expect(fromRight.move == TransferGlyph.move(toRight: false))
         #expect(fromRight.move == "arrow.left.square")
     }
 
     @Test func testActionBarSymbolsWithoutSelectionKeepNeutralDefaults() {
         let neutral = PaneLogic.actionBarSymbols(activePane: nil)
+        #expect(neutral.copy == TransferGlyph.copy)
         #expect(neutral.copy == "doc.on.doc")
+        // No selection yet → no direction; the move box falls back to right-pointing.
+        #expect(neutral.move == TransferGlyph.move(toRight: true))
         #expect(neutral.move == "arrow.right.square")
     }
 
