@@ -94,6 +94,16 @@ import Foundation
         #expect(Self.bareError.alertActions(hasRetryHandler: true) == [.dismiss])
     }
 
+    @Test func testRetryableWithoutHandlerAndWithoutPathIsDismissOnly() {
+        let error = SyncError(title: "Sync Failed", message: "boom", isRetryable: true)
+        #expect(error.alertActions(hasRetryHandler: false) == [.dismiss])
+    }
+
+    @Test func testNonRetryableWithPathAndNoHandlerOffersRevealAndDismiss() {
+        let error = SyncError.copyFailed(items: "a", path: "/x/a", reason: "boom")
+        #expect(error.alertActions(hasRetryHandler: false) == [.revealInFinder, .dismiss])
+    }
+
     @Test func testDismissAlwaysPresent() {
         for hasHandler in [true, false] {
             #expect(Self.bareError.alertActions(hasRetryHandler: hasHandler).contains(.dismiss))

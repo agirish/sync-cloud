@@ -159,6 +159,12 @@ public enum SyncErrorAction: String, CaseIterable, Hashable, Sendable {
 extension SyncError {
     /// The actions an alert for this error should offer, in display order.
     ///
+    /// ORDERING CONTRACT: when `.retry` is present it must stay FIRST. The app pins
+    /// `.keyboardShortcut(.defaultAction)` on the Retry button, and SwiftUI auto-promotes the
+    /// first non-cancel button when nothing is pinned — keeping Retry first makes the explicit
+    /// default and the auto-default coincide. Reordering would render two default-looking
+    /// buttons (or split the highlight from the Return key).
+    ///
     /// - Retry first (the primary recovery), only when the error is retryable *and* the caller
     ///   actually wired a re-invocation (`hasRetryHandler`) — a retryable error with nothing to
     ///   perform the retry offers none.

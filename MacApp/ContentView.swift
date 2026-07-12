@@ -626,13 +626,12 @@ struct ContentView: View {
         var lines = [error.message]
         if let reason = error.reason, !reason.isEmpty { lines.append(reason) }
         if let path = error.path {
-            // Some errors carry folder paths (createFolderFailed, deleteFailed), so ask the
-            // disk rather than hardcoding "File:". A path that no longer exists falls back to
-            // "File:" — the common case, and "Folder:" would be a guess.
-            var isDirectory: ObjCBool = false
-            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-            let label = (exists && isDirectory.boolValue) ? "Folder" : "File"
-            lines.append("\(label): \((path as NSString).abbreviatingWithTildeInPath)")
+            // "Location:" deliberately — no File/Folder distinction. Deciding one would need a
+            // stat, and this closure runs on the main thread on every alert re-render, against
+            // exactly the path most likely to sit on a dead volume (it's the one that just
+            // failed). A neutral label is also the only honest one: createFolderFailed carries
+            // the parent directory and bulkFailed only the first item's path.
+            lines.append("Location: \((path as NSString).abbreviatingWithTildeInPath)")
         }
         return lines.joined(separator: "\n")
     }
