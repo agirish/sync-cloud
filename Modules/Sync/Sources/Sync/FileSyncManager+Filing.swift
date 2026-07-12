@@ -103,7 +103,11 @@ extension FileSyncManager {
                 let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
                 var snippets: [String: String] = [:]
                 if filingReadsContents, let extractor = filingSnippetExtractor {
-                    snippets = await Self.extractSnippets(for: toClassify.map { $0.id }, using: extractor)
+                    // Only read contents for files whose NAME says nothing — a meaningful name plus
+                    // the folder tree is enough for the model, and this skips OCR/PDF work (and the
+                    // token cost) for the common named-file case.
+                    let namelessPaths = toClassify.filter { !FilingEngine.canRemember(fileName: $0.name) }.map { $0.id }
+                    snippets = await Self.extractSnippets(for: namelessPaths, using: extractor)
                     if Task.isCancelled { return }
                 }
                 let files = toClassify.map { f in
@@ -134,6 +138,9 @@ extension FileSyncManager {
     /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
     /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
     public static let usesCloudDefaultsKey = "tidyFilingUseCloud"
+    /// Which Claude model the cloud classifier uses (a model-ID string). Trades cost against quality;
+    /// defaults to the best model.
+    public static let cloudModelDefaultsKey = "tidyFilingCloudModel"
 
     private static func modificationYear(_ date: Date?) -> String? {
         guard let date else { return nil }

@@ -847,6 +847,7 @@ struct AdvancedSettingsTab: View {
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
+    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-opus-4-8"
     /// The API-key field's live text and whether a key is already stored in the Keychain.
     @State private var apiKeyField: String = ""
     @State private var hasStoredKey: Bool = false
@@ -885,7 +886,14 @@ struct AdvancedSettingsTab: View {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
-                if filingUseCloud { cloudKeyControls }
+                if filingUseCloud {
+                    cloudKeyControls
+                    Picker("Model", selection: $filingCloudModel) {
+                        Text("Opus — best quality").tag("claude-opus-4-8")
+                        Text("Sonnet — balanced").tag("claude-sonnet-5")
+                        Text("Haiku — cheapest (~5× less)").tag("claude-haiku-4-5")
+                    }
+                }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
                 LabeledContent("Remembered rules") {
                     HStack(spacing: 8) {
@@ -900,7 +908,7 @@ struct AdvancedSettingsTab: View {
             } header: {
                 Text("Filing (Tidy)")
             } footer: {
-                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default — with it on, each scan sends your folder names plus the names of the files being filed (and, if content-reading is on, short text excerpts) to Anthropic, billed to your API key. The key is stored in the macOS Keychain. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
+                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
             Section {

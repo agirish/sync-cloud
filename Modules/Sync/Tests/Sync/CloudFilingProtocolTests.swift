@@ -9,24 +9,29 @@ import Testing
                             ext: ext, year: "2025", contentSnippet: snippet)
     }
 
-    @Test func requestBodyForcesTheStructuredToolAndCarriesTheTaxonomy() throws {
-        let files = [file("/root/Downloads/Tesla Policy.pdf", snippet: "GEICO auto insurance")]
-        let body = CloudFilingProtocol.requestBody(taxonomyFolders: ["Documents", "Documents/Vehicles"], files: files)
+    @Test func requestBodyForcesTheStructuredToolAndCachesTheTaxonomy() throws {
+        let files = [file("/root/Downloads/Tesla Policy.pdf", snippet: "GEICO auto insurance"),
+                     file("/root/Downloads/IMG_0007.pdf", snippet: "Pediatric visit summary for Divit")]
+        let body = CloudFilingProtocol.requestBody(model: "claude-haiku-4-5",
+                                                   taxonomyFolders: ["Documents", "Documents/Vehicles"], files: files)
 
-        #expect(body["model"] as? String == "claude-opus-4-8")
+        #expect(body["model"] as? String == "claude-haiku-4-5")   // honors the chosen model
         // Forces the single classification tool.
         let choice = try #require(body["tool_choice"] as? [String: Any])
         #expect(choice["name"] as? String == CloudFilingProtocol.toolName)
         let tools = try #require(body["tools"] as? [[String: Any]])
-        #expect(tools.first?["name"] as? String == CloudFilingProtocol.toolName)
         #expect(tools.first?["strict"] as? Bool == true)
-        // The user turn lists the folders and the file (with its excerpt).
+        // The folder taxonomy lives in a CACHED system block (stable across scans).
+        let system = try #require(body["system"] as? [[String: Any]])
+        let folderBlock = try #require(system.last)
+        #expect((folderBlock["text"] as? String)?.contains("Documents/Vehicles") == true)
+        #expect(folderBlock["cache_control"] as? [String: String] == ["type": "ephemeral"])
+        // The user turn lists the files. A named file carries NO excerpt (cost); a nameless one does.
         let messages = try #require(body["messages"] as? [[String: Any]])
         let userText = try #require(messages.first?["content"] as? String)
-        #expect(userText.contains("Documents/Vehicles"))
         #expect(userText.contains("Tesla Policy.pdf"))
-        #expect(userText.contains("GEICO auto insurance"))
-        // The whole body must be JSON-serializable (it's sent over the wire as-is).
+        #expect(!userText.contains("GEICO auto insurance"))              // named → excerpt skipped
+        #expect(userText.contains("Pediatric visit summary for Divit"))  // nameless → excerpt kept
         #expect(JSONSerialization.isValidJSONObject(body))
     }
 

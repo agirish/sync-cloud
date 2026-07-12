@@ -11,13 +11,13 @@ public enum CloudFilingProtocol {
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"
 
-    private static let maxSnippetChars = 1500
+    private static let maxSnippetChars = 800
 
     /// The JSON request body (a plain dictionary ready for `JSONSerialization`). Forces a single
     /// structured tool call so the response is guaranteed to be the placement array.
     public static func requestBody(model: String = defaultModel, taxonomyFolders: [String],
                                    files: [FilingCandidateFile]) -> [String: Any] {
-        let system = """
+        let instructions = """
         You organize a user's files into their EXISTING folder structure. You will be given the \
         folders they already keep and a numbered list of files. For each file choose the single \
         best-fitting folder.
@@ -30,14 +30,21 @@ public enum CloudFilingProtocol {
         • If you genuinely cannot tell, use the folder "none".
         Always answer with paths relative to the folder list — never absolute paths.
         """
+        // The folder taxonomy is stable per provider — put it in a cached system block so repeated
+        // scans reuse it at cache-read rates instead of re-billing the full list each time.
+        let folderBlock = "The user's existing folders (relative paths):\n"
+            + taxonomyFolders.joined(separator: "\n")
 
-        var userText = "Folders (relative paths):\n" + taxonomyFolders.joined(separator: "\n")
-        userText += "\n\nFiles:\n"
+        var userText = "Files to file:\n"
         for (i, f) in files.enumerated() {
             userText += "[\(i)] name: \(f.fileName) | type: \(f.ext.isEmpty ? "unknown" : f.ext)"
             if let year = f.year { userText += " | modified: \(year)" }
             userText += "\n"
-            if let snippet = f.contentSnippet, !snippet.isEmpty {
+            // Spend tokens on a content excerpt ONLY when the filename says nothing (no salient
+            // tokens). A meaningful name + the folder list is enough for the model to reason, and
+            // excerpts otherwise dominate the request cost.
+            if let snippet = f.contentSnippet, !snippet.isEmpty,
+               !FilingEngine.canRemember(fileName: f.fileName) {
                 userText += "    excerpt: \(String(snippet.prefix(maxSnippetChars)).replacingOccurrences(of: "\n", with: " "))\n"
             }
         }
@@ -72,8 +79,11 @@ public enum CloudFilingProtocol {
 
         return [
             "model": model,
-            "max_tokens": min(8192, 1024 + files.count * 120),
-            "system": system,
+            "max_tokens": min(8192, 512 + files.count * 80),
+            "system": [
+                ["type": "text", "text": instructions],
+                ["type": "text", "text": folderBlock, "cache_control": ["type": "ephemeral"]],
+            ],
             "messages": [["role": "user", "content": userText]],
             "tools": [tool],
             "tool_choice": ["type": "tool", "name": toolName],
