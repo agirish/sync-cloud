@@ -84,9 +84,6 @@ public struct DifferencesView: View {
         let filtered = isReviewing ? [] : DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
         let sorted = isReviewing ? [] : filtered.sorted(using: sortOrder)
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
-        // Per-filter counts for the filter menu rows, tallied in one pass (not once per filter).
-        // Skipped in review mode — the standard header (its only reader) isn't shown there.
-        let filterCounts = isReviewing ? [:] : DifferencesQuery.counts(syncManager.differences)
 
         return VStack(spacing: 8) {
             // Toolbar card: tabs · count · filter · actions · search.
@@ -98,7 +95,7 @@ public struct DifferencesView: View {
                     if let session = reviewStore.session {
                         reviewHeaderControls(session)
                     } else {
-                        standardHeaderControls(targets: targets, sorted: sorted, filterCounts: filterCounts)
+                        standardHeaderControls(targets: targets, sorted: sorted)
                     }
                 }
                 if reviewStore.session == nil, isSearchExpanded || !searchText.isEmpty {
@@ -184,7 +181,7 @@ public struct DifferencesView: View {
     /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
     /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
     @ViewBuilder
-    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference], filterCounts: [DifferenceFilter: Int]) -> some View {
+    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
         // The count pill is a toggle for the per-side item totals: click to reveal them inline,
         // click again to collapse. No-op until a scan has run (nothing meaningful to show) —
         // so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
@@ -244,6 +241,11 @@ public struct DifferencesView: View {
         }
         Spacer()
         Menu {
+            // Per-filter counts, tallied in one pass. Computed HERE inside the menu content —
+            // SwiftUI builds this lazily on open, so the O(differences) pass runs only when the
+            // menu is shown, never on the header renders that recur per file during a bulk sync.
+            // (Only reached in non-review mode: this Menu isn't built when a review is active.)
+            let filterCounts = DifferencesQuery.counts(syncManager.differences)
             // A Picker inside a Menu gets the native menu check column; a per-row
             // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
             // on unselected rows). Same pattern as the main toolbar's Sort menu.
