@@ -850,6 +850,8 @@ struct AdvancedSettingsTab: View {
     /// The API-key field's live text and whether a key is already stored in the Keychain.
     @State private var apiKeyField: String = ""
     @State private var hasStoredKey: Bool = false
+    @State private var testingKey = false
+    @State private var keyTestResult: AnthropicKeyCheck.Result?
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
     /// Count of remembered filing rules (F3), refreshed on appear and when the manager sheet closes.
@@ -873,33 +875,19 @@ struct AdvancedSettingsTab: View {
                     Text("90%").tag(0.9)
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
-                Toggle("Filing: use on-device AI to choose folders", isOn: $filingUseAI)
-                Toggle("Filing: use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
+            } header: {
+                Text("Duplicates (Tidy)")
+            } footer: {
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan.")
+            }
+
+            Section {
+                Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
+                Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
-                if filingUseCloud {
-                    LabeledContent("Anthropic API key") {
-                        HStack(spacing: 8) {
-                            SecureField(hasStoredKey ? "•••••• saved" : "sk-ant-…", text: $apiKeyField)
-                                .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 220)
-                            Button("Save") {
-                                AnthropicKeychain.store(apiKeyField)
-                                apiKeyField = ""
-                                hasStoredKey = AnthropicKeychain.hasKey
-                            }
-                            .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
-                            Button("Clear") {
-                                AnthropicKeychain.delete()
-                                apiKeyField = ""
-                                hasStoredKey = false
-                            }
-                            .disabled(!hasStoredKey)
-                        }
-                        .controlSize(.small)
-                    }
-                }
-                Toggle("Filing: read file contents on-device for better suggestions", isOn: $filingReadContents)
-                LabeledContent("Remembered filing rules") {
+                if filingUseCloud { cloudKeyControls }
+                Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                LabeledContent("Remembered rules") {
                     HStack(spacing: 8) {
                         Text(filingRuleCount == 0 ? "None yet"
                              : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")
@@ -910,9 +898,9 @@ struct AdvancedSettingsTab: View {
                     .controlSize(.small)
                 }
             } header: {
-                Text("Duplicates (Tidy)")
+                Text("Filing (Tidy)")
             } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing’s on-device AI (Apple Intelligence, macOS 26) reasons about your folders and each file to choose a home; where it isn’t available Filing falls back to name/metadata matching. The Claude (cloud) option is more accurate for hard cases but is opt-in and off by default — with it on, each scan sends your folder names and, for the files being filed, their names and (if content-reading is on) short text excerpts to Anthropic. Your key is stored in the macOS Keychain. Reading file contents otherwise stays on your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
+                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default — with it on, each scan sends your folder names plus the names of the files being filed (and, if content-reading is on, short text excerpts) to Anthropic, billed to your API key. The key is stored in the macOS Keychain. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
             Section {
@@ -993,6 +981,77 @@ struct AdvancedSettingsTab: View {
                 }
             }
         }
+    }
+
+    /// The Anthropic key field, Save/Test/Clear, a status line, and a link to the Console.
+    @ViewBuilder private var cloudKeyControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                SecureField(hasStoredKey ? "•••• key saved" : "Paste sk-ant-… key", text: $apiKeyField)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    AnthropicKeychain.store(apiKeyField)
+                    apiKeyField = ""
+                    hasStoredKey = AnthropicKeychain.hasKey
+                    keyTestResult = nil
+                }
+                .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button { Task { await testKey() } } label: {
+                    if testingKey { ProgressView().controlSize(.small) } else { Text("Test") }
+                }
+                .disabled(testingKey || (!hasStoredKey && apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty))
+                if hasStoredKey {
+                    Button("Clear") {
+                        AnthropicKeychain.delete()
+                        apiKeyField = ""
+                        hasStoredKey = false
+                        keyTestResult = nil
+                    }
+                }
+            }
+            .controlSize(.small)
+
+            keyStatusLine
+
+            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                Text("Get a key from the Anthropic Console ↗").font(.caption)
+            }
+        }
+    }
+
+    @ViewBuilder private var keyStatusLine: some View {
+        if testingKey {
+            Label("Testing…", systemImage: "ellipsis.circle").font(.caption).foregroundStyle(.secondary)
+        } else if let keyTestResult {
+            switch keyTestResult {
+            case .valid:
+                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            case .invalid(let message):
+                Label(message, systemImage: "xmark.circle.fill")
+                    .font(.caption).foregroundStyle(.red)
+            case .failed(let message):
+                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+        } else if hasStoredKey {
+            Label("Key saved to Keychain.", systemImage: "checkmark.circle")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Validates the key in the field (or, if empty, the stored key) with a free Console call.
+    private func testKey() async {
+        let typed = apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = typed.isEmpty ? (AnthropicKeychain.read() ?? "") : typed
+        testingKey = true
+        keyTestResult = nil
+        let result = await AnthropicKeyCheck.validate(key)
+        testingKey = false
+        keyTestResult = result
     }
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
