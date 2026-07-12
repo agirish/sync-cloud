@@ -198,17 +198,31 @@ public struct DifferencesView: View {
                 color: .orange,
                 systemImage: "exclamationmark.triangle",
                 // Totals expand to the pill's right and collapse back left; the chevron
-                // points the way the next click will send them (CountPillChevron).
-                trailingSystemImage: syncManager.hasScanned ? CountPillChevron.symbol(expanded: showItemCounts) : nil
+                // points the way the next click will send them, and is withheld pre-scan
+                // (CountPillChevron owns both rules).
+                trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts)
             )
             .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            guard syncManager.hasScanned else { return }
-            withAnimation(.easeInOut(duration: 0.12)) { isCountPillHovered = hovering }
+            // Grow only post-scan, but always honor hover-exit: if hasScanned flips false
+            // mid-hover (it resets on navigation) a gated reset would strand the pill at 1.03.
+            withAnimation(.easeInOut(duration: 0.12)) {
+                isCountPillHovered = hovering && syncManager.hasScanned
+            }
         }
-        .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+        // A fresh scan starts collapsed: expansion is opt-in per result set, not a sticky
+        // preference that silently reapplies to counts the user never asked to see.
+        .onChange(of: syncManager.hasScanned) { _, hasScanned in
+            if !hasScanned {
+                showItemCounts = false
+                isCountPillHovered = false
+            }
+        }
+        .help(syncManager.hasScanned
+              ? "\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)"
+              : "Scan to see per-side item totals")
         // StatPill collapses itself to one element labeled "N Differences"; the value/hint
         // ride on the button so VoiceOver conveys the toggle state and what a click does.
         .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
