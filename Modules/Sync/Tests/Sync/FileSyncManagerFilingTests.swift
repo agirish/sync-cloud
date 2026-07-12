@@ -4,6 +4,9 @@ import Foundation
 
 /// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path
 /// (real move, creating new folders, undoable).
+/// A tiny thread-safe flag for asserting whether an injected closure ran.
+final class Flag: @unchecked Sendable { var value = false }
+
 @Suite struct FileSyncManagerFilingTests {
 
     private func makeTempDir() throws -> URL {
@@ -294,5 +297,59 @@ import Foundation
 
         manager.clearFilingRules()
         #expect(manager.filingRules.isEmpty)
+    }
+
+    // MARK: Intelligent classifier (AI)
+
+    @MainActor
+    @Test func classifierVerdictDrivesTheSuggestion() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/Physician's Report - Divit.pdf"))
+
+        let manager = FileSyncManager()
+        // A stand-in for the on-device model: it "reasons" Divit → Family/Divit.
+        manager.filingClassifier = { taxonomy, files in
+            #expect(taxonomy.contains("Documents/Family/Divit"))     // handed the real taxonomy
+            var out: [String: FilingVerdict] = [:]
+            for f in files where f.fileName.contains("Divit") {
+                out[f.filePath] = FilingVerdict(relativePath: "Documents/Family/Divit",
+                                                confidence: .high, reason: "Divit’s medical record")
+            }
+            return out
+        }
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let s = manager.filingSuggestions.first { $0.fileName.contains("Divit") }
+        #expect(s?.best?.path == root.appendingPathComponent("Documents/Family/Divit").path)
+        #expect(s?.best?.fromAI == true)
+        #expect(s?.best?.reasons.first == "Divit’s medical record")
+    }
+
+    @MainActor
+    @Test func aiToggleOffSkipsTheClassifier() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Downloads/mystery.pdf"))
+
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        manager.filingContentDefaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
+        // A classifier that WOULD give a home — proving it isn't consulted when AI is off.
+        let consulted = Flag()
+        manager.filingClassifier = { _, files in
+            consulted.value = true
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Documents", confidence: .high, reason: "x")) })
+        }
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        #expect(consulted.value == false)
+        #expect(manager.filingSuggestions.first { $0.fileName == "mystery.pdf" }?.best?.fromAI != true)
     }
 }

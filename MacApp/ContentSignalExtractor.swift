@@ -32,26 +32,37 @@ enum ContentSignalExtractor {
         }
     }
 
+    /// The seam the manager injects for the AI classifier: a bounded plain-text excerpt of the file
+    /// (PDF text / OCR / plain), or nil when there's nothing readable. Same evicted-iCloud guard and
+    /// bounds as the token path — nothing leaves the device.
+    static func snippet(forFileAt path: String) async -> String? {
+        await withCheckedContinuation { continuation in
+            workQueue.async {
+                let text = extractTextSync(URL(fileURLWithPath: path))
+                continuation.resume(returning: text.isEmpty ? nil : text)
+            }
+        }
+    }
+
     // MARK: Extraction (runs on workQueue)
 
     private static func extractSync(_ path: String) -> Set<String> {
-        let url = URL(fileURLWithPath: path)
-        // Never force-download an evicted iCloud file just to peek at its contents.
-        guard !isEvictediCloudFile(url) else { return [] }
-
-        let ext = url.pathExtension.lowercased()
-        let text: String
-        if ext == "pdf" {
-            text = pdfText(url)
-        } else if imageExtensions.contains(ext) {
-            text = ocrText(url)
-        } else if textExtensions.contains(ext) {
-            text = plainText(url)
-        } else {
-            return []
-        }
+        let text = extractTextSync(URL(fileURLWithPath: path))
         guard !text.isEmpty else { return [] }
         return tokens(fromText: text)
+    }
+
+    /// Reads a bounded amount of text from a supported file. Empty for unsupported types, evicted
+    /// iCloud files, or when nothing useful is found. Shared by the token and snippet seams.
+    private static func extractTextSync(_ url: URL) -> String {
+        // Never force-download an evicted iCloud file just to peek at its contents.
+        guard !isEvictediCloudFile(url) else { return "" }
+
+        let ext = url.pathExtension.lowercased()
+        if ext == "pdf" { return pdfText(url) }
+        if imageExtensions.contains(ext) { return ocrText(url) }
+        if textExtensions.contains(ext) { return plainText(url) }
+        return ""
     }
 
     /// True when the file is an iCloud item that isn't currently downloaded locally.

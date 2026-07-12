@@ -266,4 +266,74 @@ import Testing
         #expect(FilingEngine.canRemember(fileName: "IMG_0007.pdf") == false)
         #expect(FilingEngine.canRemember(fileName: "Tesla Policy.pdf") == true)
     }
+
+    // MARK: Intelligent classification overlay (AI)
+
+    @Test func relativeFolderPathsAreRootRelativeAndShallowFirst() {
+        let taxonomy = [dir("/root/Documents", [
+            dir("/root/Documents/Family", [dir("/root/Documents/Family/Divit", [])]),
+            dir("/root/Documents/Health", []),
+        ])]
+        let rels = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: "/root")
+        #expect(rels.contains("Documents"))
+        #expect(rels.contains("Documents/Family/Divit"))
+        #expect(!rels.contains { $0.hasPrefix("/") })              // relative, no leading slash
+        #expect(rels.first == "Documents")                          // shallowest first
+    }
+
+    @Test func verdictOverridesTheHeuristicSuggestion() throws {
+        // The keyword engine can't reason "Divit is a person"; the classifier can.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Family",
+                          [dir("/root/Documents/Family/Divit", [])])])]
+        let loose = [file("/root/Downloads/Physician's Report - Divit.pdf", modified: y2024)]
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+
+        let verdicts = ["/root/Downloads/Physician's Report - Divit.pdf":
+            FilingVerdict(relativePath: "Documents/Family/Divit", confidence: .high, reason: "Divit’s medical record")]
+        let out = FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy, providerRoot: "/root")
+        let best = try #require(out.first?.best)
+        #expect(best.path == "/root/Documents/Family/Divit")
+        #expect(best.fromAI)
+        #expect(best.confidence == .high)
+        #expect(out.first?.isBatchEligible == true)                 // confident AI home → batchable
+    }
+
+    @Test func verdictSanitizesModelPathAndProposesNewFolders() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles", [])])]
+        let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        // Model echoed the absolute path with a trailing slash — sanitize back to relative.
+        let verdicts = ["/root/Downloads/tesla.pdf":
+            FilingVerdict(relativePath: "/root/Documents/Vehicles/Tesla/", confidence: .medium, reason: "Vehicle doc")]
+        let best = try #require(FilingEngine.applyVerdicts(verdicts, to: base, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Vehicles/Tesla")
+        #expect(best.newSegments == ["Tesla"])                      // created on apply
+    }
+
+    @Test func verdictWithNoUsablePathIsIgnored() {
+        let taxonomy = [dir("/root/Documents", [])]
+        let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        // Empty and traversal paths must never produce a destination.
+        for bad in ["", "  ", "../../etc", "/root"] {
+            let v = ["/root/Downloads/tesla.pdf": FilingVerdict(relativePath: bad, confidence: .high, reason: "x")]
+            let out = FilingEngine.applyVerdicts(v, to: base, taxonomy: taxonomy, providerRoot: "/root")
+            #expect(!(out.first?.candidates.contains { $0.fromAI } ?? false), "should ignore bad path: “\(bad)”")
+        }
+    }
+
+    @Test func aVerdictNeverOverridesARememberedRule() throws {
+        // A remembered rule is an explicit user correction — the model must not displace it.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
+                          [dir("/root/Documents/Vehicles/Tesla", [])])])]
+        let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+        #expect(base.first?.best?.remembered == true)
+
+        let v = ["/root/Downloads/tesla.pdf": FilingVerdict(relativePath: "Documents/Elsewhere", confidence: .high, reason: "x")]
+        let best = try #require(FilingEngine.applyVerdicts(v, to: base, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.remembered)                                    // still the user's rule
+        #expect(best.path == "/root/Documents/Vehicles/Tesla")
+    }
 }

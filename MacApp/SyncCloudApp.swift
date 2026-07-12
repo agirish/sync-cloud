@@ -71,6 +71,17 @@ struct SyncCloudApp: App {
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
+        // Filing (AI): the on-device Apple Foundation Models classifier reasons about the folder
+        // taxonomy + document text to pick a home, overriding keyword guesses. Injected only when
+        // the model is actually available; the snippet extractor feeds it bounded document text.
+        if OnDeviceFilingClassifier.isAvailable {
+            manager.filingClassifier = { taxonomy, files in
+                await OnDeviceFilingClassifier.classify(taxonomyFolders: taxonomy, files: files)
+            }
+            manager.filingSnippetExtractor = { path in
+                await ContentSignalExtractor.snippet(forFileAt: path)
+            }
+        }
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.

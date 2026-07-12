@@ -32,6 +32,7 @@ struct FilingSuggestionCard: View {
                     sourceRow
                     if let best { destinationRow(best) }
                     if best?.remembered == true { rememberedBadge }
+                    else if best?.fromAI == true { aiBadge }
                     if let reason = best?.reasons.first { whyRow(reason) }
                 }
                 Spacer(minLength: 8)
@@ -98,6 +99,16 @@ struct FilingSuggestionCard: View {
         HStack(spacing: 4) {
             Image(systemName: "memories").font(.system(size: 9, weight: .semibold))
             Text("Remembered").font(.system(size: 9.5, weight: .bold))
+        }
+        .foregroundStyle(hueAccent)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Capsule(style: .continuous).fill(hueAccent.opacity(0.14)))
+    }
+
+    private var aiBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "sparkles").font(.system(size: 9, weight: .semibold))
+            Text("AI suggestion").font(.system(size: 9.5, weight: .bold))
         }
         .foregroundStyle(hueAccent)
         .padding(.horizontal, 6).padding(.vertical, 2)

@@ -27,16 +27,20 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// True when this destination came from a remembered rule the user taught (F3). Ranked ahead of
     /// heuristic matches of equal confidence — an explicit correction outranks a guess.
     public let remembered: Bool
+    /// True when an intelligent backend (on-device LLM / cloud) chose this destination by reasoning
+    /// about the folder taxonomy and the file's contents, rather than keyword overlap.
+    public let fromAI: Bool
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
         self.newSegments = newSegments
         self.fromContent = fromContent
         self.remembered = remembered
+        self.fromAI = fromAI
     }
 }
 
@@ -240,7 +244,7 @@ public enum FilingEngine {
     /// The trailing segments of an absolute path that don't yet exist (would be recreated on apply);
     /// empty when the whole path already exists. Lets a remembered folder that was since deleted be
     /// re-proposed with NEW tags rather than silently failing.
-    private static func missingSegments(of path: String, existingPaths: Set<String>) -> [String] {
+    static func missingSegments(of path: String, existingPaths: Set<String>) -> [String] {
         if existingPaths.contains(path) { return [] }
         var current = ""
         var missing: [String] = []
@@ -363,7 +367,8 @@ public enum FilingEngine {
                 byPath[c.path] = FilingDestination(path: c.path, confidence: winner.confidence,
                                                    reasons: Array(Set(existing.reasons + c.reasons)).sorted(),
                                                    newSegments: winner.newSegments, fromContent: winner.fromContent,
-                                                   remembered: existing.remembered || c.remembered)
+                                                   remembered: existing.remembered || c.remembered,
+                                                   fromAI: existing.fromAI || c.fromAI)
             } else {
                 byPath[c.path] = c
             }
@@ -482,4 +487,73 @@ public enum FilingEngine {
     // "return" was dropped — too ambiguous in document body text (product returns, etc.).
     static let taxTokens: Set<String> = ["tax", "taxes", "1099", "1040", "irs"]
     static let statementTokens: Set<String> = ["statement", "bank", "chase", "amex", "visa", "mastercard", "wells", "fargo"]
+
+    // MARK: Intelligent classification (overlay)
+
+    /// Folder paths relative to the provider root — the taxonomy handed to a classifier. Built
+    /// structurally from node names (not by string-stripping the root) so it's immune to symlink
+    /// prefix differences like /var vs /private/var. Shallowest first, capped so a huge tree can't
+    /// blow the model's context (deep leaves drop first).
+    public static func relativeFolderPaths(of taxonomy: [FileNode], providerRoot: String = "", limit: Int = 250) -> [String] {
+        var out: [String] = []
+        func walk(_ node: FileNode, prefix: String) {
+            guard node.isDirectory else { return }
+            let rel = prefix.isEmpty ? node.name : prefix + "/" + node.name
+            out.append(rel)
+            for child in node.children ?? [] { walk(child, prefix: rel) }
+        }
+        for node in taxonomy { walk(node, prefix: "") }
+        return out.sorted { a, b in
+            let da = a.split(separator: "/").count, db = b.split(separator: "/").count
+            if da != db { return da < db }
+            return a.localizedStandardCompare(b) == .orderedAscending
+        }.prefix(limit).map { $0 }
+    }
+
+    /// Overlays classifier verdicts onto heuristic suggestions: for any file the classifier gave a
+    /// usable home, that destination leads (heuristic candidates stay as alternates). Files without
+    /// a verdict keep their heuristic suggestion untouched — so a backend that declines never makes
+    /// things worse than the keyword engine alone.
+    public static func applyVerdicts(_ verdicts: [String: FilingVerdict], to suggestions: [FilingSuggestion],
+                                     taxonomy: [FileNode], providerRoot: String) -> [FilingSuggestion] {
+        guard !verdicts.isEmpty else { return suggestions }
+        // Relative folder set for new-vs-existing marking — symlink-proof (see relativeFolderPaths).
+        let existingRelative = Set(relativeFolderPaths(of: taxonomy, limit: .max))
+        return suggestions.map { s in
+            if s.best?.remembered == true { return s }   // an explicit user rule outranks the model
+            guard let v = verdicts[s.filePath],
+                  let dest = destination(from: v, providerRoot: providerRoot, existingRelative: existingRelative)
+            else { return s }
+            let others = s.candidates.filter { $0.path != dest.path }
+            return FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
+                                    modificationDate: s.modificationDate, candidates: [dest] + others)
+        }
+    }
+
+    /// Turns a verdict into an absolute destination, sanitizing the model's path (strip whitespace
+    /// and slashes, drop any provider-root prefix it echoed back, reject empties, absolute escapes,
+    /// and `..`/`.` traversal) and marking which trailing folders are new. nil ⇒ nothing usable.
+    static func destination(from verdict: FilingVerdict, providerRoot: String,
+                            existingRelative: Set<String>) -> FilingDestination? {
+        var rel = verdict.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if rel.hasPrefix(providerRoot) { rel = String(rel.dropFirst(providerRoot.count)) }
+        rel = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let segments = rel.split(separator: "/").map(String.init)
+        guard !segments.isEmpty, !segments.contains(".."), !segments.contains(".") else { return nil }
+
+        // Walk the relative path; any segment whose cumulative path isn't already a folder is new.
+        var newSegments: [String] = []
+        var cumulative = ""
+        var creating = false
+        for seg in segments {
+            cumulative = cumulative.isEmpty ? seg : cumulative + "/" + seg
+            if creating || !existingRelative.contains(cumulative) {
+                creating = true
+                newSegments.append(seg)
+            }
+        }
+        let abs = providerRoot + "/" + segments.joined(separator: "/")
+        return FilingDestination(path: abs, confidence: verdict.confidence, reasons: [verdict.reason],
+                                 newSegments: newSegments, fromContent: false, remembered: false, fromAI: true)
+    }
 }

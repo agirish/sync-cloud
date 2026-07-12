@@ -845,6 +845,7 @@ struct AdvancedSettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
+    @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
     /// Count of remembered filing rules (F3), refreshed on appear and when the manager sheet closes.
@@ -868,6 +869,7 @@ struct AdvancedSettingsTab: View {
                     Text("90%").tag(0.9)
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
+                Toggle("Filing: use on-device AI to choose folders", isOn: $filingUseAI)
                 Toggle("Filing: read file contents on-device for better suggestions", isOn: $filingReadContents)
                 LabeledContent("Remembered filing rules") {
                     HStack(spacing: 8) {
@@ -882,7 +884,7 @@ struct AdvancedSettingsTab: View {
             } header: {
                 Text("Duplicates (Tidy)")
             } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing content-reading uses PDF text, on-device OCR, and entity detection for files whose name says nothing — nothing leaves your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing’s on-device AI (Apple Intelligence, macOS 26) reasons about your folders and each file to choose a home; where it isn’t available Filing falls back to name/metadata matching. Reading file contents feeds both the AI and keyword paths using PDF text, on-device OCR, and entity detection — nothing leaves your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
             Section {

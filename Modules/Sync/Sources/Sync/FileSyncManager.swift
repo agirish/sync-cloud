@@ -139,6 +139,13 @@ public class FileSyncManager: ObservableObject {
     public var filingContentDefaults: UserDefaults = .standard
     /// Defaults store for remembered filing rules (F3), injectable so tests don't touch standard.
     public var filingRuleDefaults: UserDefaults = .standard
+    /// Intelligent Filing backend — reasons about the folder taxonomy + file contents to pick a
+    /// home (on-device Apple LLM, opt-in cloud), injected by the app. nil = keyword engine only.
+    /// Its verdicts override the heuristic guess for files it's confident about.
+    public var filingClassifier: FilingClassifier?
+    /// Extracts a bounded text excerpt for the classifier (PDF text / OCR / plain), injected by the
+    /// app. Gated by the same read-contents setting as F2's token extractor.
+    public var filingSnippetExtractor: (@Sendable (String) async -> String?)?
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

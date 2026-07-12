@@ -88,8 +88,71 @@ extension FileSyncManager {
         }
 
         if Task.isCancelled { return }
+
+        // Phase 3 — intelligent classification. Reasons about the folder taxonomy + document text
+        // to pick a home, overriding the keyword guess for the files it's confident about. An
+        // explicit remembered rule (F3) still wins, and a backend that declines/errors never makes
+        // things worse than the keyword engine alone.
+        if filingUsesAI, let classifier = filingClassifier {
+            let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
+            let toClassify = looseFiles.filter { !remembered.contains($0.id) }
+            if !toClassify.isEmpty {
+                filingScanStatus = "Finding the best homes…"
+                let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
+                var snippets: [String: String] = [:]
+                if filingReadsContents, let extractor = filingSnippetExtractor {
+                    snippets = await Self.extractSnippets(for: toClassify.map { $0.id }, using: extractor)
+                    if Task.isCancelled { return }
+                }
+                let files = toClassify.map { f in
+                    FilingCandidateFile(filePath: f.id, fileName: f.name,
+                                        ext: (f.name as NSString).pathExtension.lowercased(),
+                                        year: Self.modificationYear(f.modificationDate),
+                                        contentSnippet: snippets[f.id])
+                }
+                let verdicts = await classifier(taxonomyFolders, files)
+                if Task.isCancelled { return }
+                suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions,
+                                                         taxonomy: taxonomy, providerRoot: providerRoot.path)
+            }
+        }
+
+        if Task.isCancelled { return }
         self.filingSuggestions = suggestions   // single publish
         hasSuggestedFiling = true
+    }
+
+    /// True when Filing may use its intelligent backend (on-device LLM / cloud). Default on; the app
+    /// only injects a classifier when one is actually available, so this gates a present backend.
+    public static let usesAIDefaultsKey = "tidyFilingUseAI"
+    var filingUsesAI: Bool {
+        (filingContentDefaults.object(forKey: Self.usesAIDefaultsKey) as? Bool) ?? true
+    }
+
+    private static func modificationYear(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return Calendar(identifier: .gregorian).dateComponents([.year], from: date).year.map(String.init)
+    }
+
+    /// Runs the injected snippet extractor over the given paths with bounded concurrency.
+    nonisolated static func extractSnippets(
+        for paths: [String], using extractor: @escaping @Sendable (String) async -> String?,
+        maxConcurrent: Int = 4
+    ) async -> [String: String] {
+        guard !paths.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        var next = 0
+        await withTaskGroup(of: (String, String?).self) { group in
+            func schedule(_ p: String) { group.addTask { (p, await extractor(p)) } }
+            let initial = min(maxConcurrent, paths.count)
+            while next < initial { schedule(paths[next]); next += 1 }
+            for await (path, text) in group {
+                if let text, !text.isEmpty { result[path] = text }
+                if Task.isCancelled { group.cancelAll(); continue }
+                if next < paths.count { schedule(paths[next]); next += 1 }
+            }
+        }
+        return result
     }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
