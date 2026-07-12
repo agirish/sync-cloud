@@ -844,6 +844,7 @@ struct AdvancedSettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
+    @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
 
@@ -864,10 +865,11 @@ struct AdvancedSettingsTab: View {
                     Text("90%").tag(0.9)
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
+                Toggle("Filing: read file contents on-device for better suggestions", isOn: $filingReadContents)
             } header: {
                 Text("Duplicates (Tidy)")
             } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan.")
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing content-reading uses PDF text, on-device OCR, and entity detection for files whose name says nothing — nothing leaves your Mac. Changes apply on the next scan.")
             }
 
             Section {

@@ -78,6 +78,36 @@ import Testing
         #expect(best.newSegments == ["Taxes", "2024"])
     }
 
+    // MARK: Content signals (F2)
+
+    @Test func contentTokensUpgradeAFileWhoseNameSaysNothing() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles", [])])]
+        let loose = [file("/root/Downloads/scan0012.pdf", modified: y2024)]
+
+        // Filename alone → no confident home.
+        let byName = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        #expect(byName[0].candidates.isEmpty)
+
+        // Content extraction found the entities; now it lands the same place F1 does by name.
+        let content = ["/root/Downloads/scan0012.pdf": Set(["tesla", "policy", "geico"])]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", contentTokens: content).first?.best)
+        #expect(best.path == "/root/Documents/Vehicles/Tesla/Insurance")
+        #expect(best.reasons.first?.contains("read from the file") == true)
+    }
+
+    @Test func contentTokensImproveAnExistingFolderMatch() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Invoices", [])])]
+        let loose = [file("/root/Downloads/scan.pdf", modified: y2024)]
+        let content = ["/root/Downloads/scan.pdf": Set(["invoices", "acme"])]
+
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", contentTokens: content).first?.best)
+        #expect(best.path == "/root/Documents/Invoices")
+        #expect(best.confidence == .high)
+        #expect(best.reasons.first?.contains("read from the file") == true)
+    }
+
     // MARK: No confident home
 
     @Test func unrecognizedFileGetsNoConfidentHome() {

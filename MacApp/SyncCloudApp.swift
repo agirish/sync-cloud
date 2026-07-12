@@ -66,6 +66,11 @@ struct SyncCloudApp: App {
         manager.invalidNameResolver = { prompt in
             SyncOperationAlerts.promptForInvalidName(prompt)
         }
+        // Filing (F2): on-device content signals for files whose name says nothing. Gated by the
+        // read-contents Settings toggle; runs only on the no-confident-home tail.
+        manager.filingContentExtractor = { path in
+            await ContentSignalExtractor.tokens(forFileAt: path)
+        }
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so
         // skip the init-triggered scan here to avoid discovering providers twice on launch.

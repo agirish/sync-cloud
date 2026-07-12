@@ -131,6 +131,10 @@ public class FileSyncManager: ObservableObject {
     @Published public var filingScanFolder: String? = nil
     /// The in-flight Filing scan task, so the UI can cancel it.
     public var filingScanTask: Task<Void, Never>?
+    /// On-device content extractor for Filing (file path → entity/keyword tokens), injected by the
+    /// app (PDF text / OCR / NaturalLanguage). nil = filename-only (F1). Gated by the read-contents
+    /// setting. Runs only on files with no confident home from their name.
+    public var filingContentExtractor: (@Sendable (String) async -> Set<String>)?
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

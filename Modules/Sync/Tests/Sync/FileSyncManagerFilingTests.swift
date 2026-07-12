@@ -84,6 +84,26 @@ import Foundation
     }
 
     @MainActor
+    @Test func contentExtractorUpgradesFilesWithNoHomeFromTheName() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
+
+        let manager = FileSyncManager()
+        // Simulate on-device extraction finding the entities inside the uninformatively-named scan.
+        manager.filingContentExtractor = { path in
+            path.hasSuffix("scan0012.pdf") ? ["tesla", "policy", "geico"] : []
+        }
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let scan = manager.filingSuggestions.first { $0.fileName == "scan0012.pdf" }
+        #expect(scan?.best?.path.hasSuffix("Documents/Vehicles/Tesla/Insurance") == true)
+        #expect(scan?.best?.reasons.first?.contains("read from the file") == true)
+    }
+
+    @MainActor
     @Test func clearFilingResetsState() {
         let manager = FileSyncManager()
         manager.filingSuggestions = [FilingSuggestion(filePath: "/a/x", fileName: "x", size: 1,

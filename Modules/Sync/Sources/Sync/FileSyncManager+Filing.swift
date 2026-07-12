@@ -62,11 +62,51 @@ extension FileSyncManager {
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
-        let suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
+        // Phase 1 — filename + metadata + your taxonomy.
+        var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                providerRoot: providerRoot.path, options: options)
         if Task.isCancelled { return }
         self.filingSuggestions = suggestions
         hasSuggestedFiling = true
+
+        // Phase 2 — read contents on-device for the files with no confident home, then re-suggest.
+        guard filingReadsContents, let extractor = filingContentExtractor else { return }
+        let unsure = suggestions.filter { !$0.hasConfidentHome }
+        guard !unsure.isEmpty else { return }
+        filingScanStatus = "Reading \(unsure.count) document\(unsure.count == 1 ? "" : "s")…"
+        let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
+        if Task.isCancelled || content.isEmpty { return }
+        suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
+                                           providerRoot: providerRoot.path, contentTokens: content, options: options)
+        if Task.isCancelled { return }
+        self.filingSuggestions = suggestions
+    }
+
+    /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
+    public static let readContentsDefaultsKey = "tidyFilingReadContents"
+    var filingReadsContents: Bool {
+        (UserDefaults.standard.object(forKey: Self.readContentsDefaultsKey) as? Bool) ?? true
+    }
+
+    /// Runs the injected content extractor over the given paths with bounded concurrency.
+    nonisolated static func extractContent(
+        for paths: [String], using extractor: @escaping @Sendable (String) async -> Set<String>,
+        maxConcurrent: Int = 4
+    ) async -> [String: Set<String>] {
+        guard !paths.isEmpty else { return [:] }
+        var result: [String: Set<String>] = [:]
+        var next = 0
+        await withTaskGroup(of: (String, Set<String>).self) { group in
+            func schedule(_ p: String) { group.addTask { (p, await extractor(p)) } }
+            let initial = min(maxConcurrent, paths.count)
+            while next < initial { schedule(paths[next]); next += 1 }
+            for await (path, tokens) in group {
+                if !tokens.isEmpty { result[path] = tokens }
+                if Task.isCancelled { group.cancelAll(); continue }
+                if next < paths.count { schedule(paths[next]); next += 1 }
+            }
+        }
+        return result
     }
 
     /// Clears suggestions (e.g. when switching providers).

@@ -87,10 +87,14 @@ public enum FilingEngine {
     ///     folder (e.g. "Photos") may be proposed.
     ///   - options: Tuning.
     /// - Returns: One suggestion per loose file, in input order.
+    /// - Parameter contentTokens: Optional per-file tokens extracted from the file's *contents*
+    ///   (entities/keywords from PDF text, OCR, etc.), merged with the filename tokens so a file
+    ///   whose name says nothing can still find a home. Empty for the filename-only (F1) pass.
     public static func suggest(
         looseFiles: [FileNode],
         taxonomy: [FileNode],
         providerRoot: String,
+        contentTokens: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
         var profiles: [FolderProfile] = []
@@ -105,14 +109,16 @@ public enum FilingEngine {
             guard !options.ignoredNames.contains(file.name) else { return nil }
             guard (file.fileSize ?? 0) >= options.minFileSize else { return nil }
 
-            let tokens = fileTokens(file.name)
+            let content = contentTokens[file.id] ?? []
+            let tokens = fileTokens(file.name).union(content)
             let ext = (file.name as NSString).pathExtension.lowercased()
             let year = yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
-            candidates += taxonomyCandidates(tokens: tokens, profiles: profiles)
-            candidates += ruleCandidates(tokens: tokens, nameLower: file.name.lowercased(), ext: ext, year: year,
-                                         profiles: profiles, existingPaths: existingPaths, providerRoot: providerRoot)
+            candidates += taxonomyCandidates(tokens: tokens, contentTokens: content, profiles: profiles)
+            candidates += ruleCandidates(tokens: tokens, contentTokens: content, nameLower: file.name.lowercased(),
+                                         ext: ext, year: year, profiles: profiles, existingPaths: existingPaths,
+                                         providerRoot: providerRoot)
 
             // A file already sitting in a suggested folder shouldn't be told to move to where it is.
             let selfParent = (file.id as NSString).deletingLastPathComponent
@@ -161,8 +167,9 @@ public enum FilingEngine {
     }
 
     /// Existing folders whose profile overlaps the file's tokens, as ranked destinations.
-    private static func taxonomyCandidates(tokens: Set<String>, profiles: [FolderProfile]) -> [FilingDestination] {
+    private static func taxonomyCandidates(tokens: Set<String>, contentTokens: Set<String>, profiles: [FolderProfile]) -> [FilingDestination] {
         guard !tokens.isEmpty else { return [] }
+        let nameOnly = tokens.subtracting(contentTokens)
         var out: [FilingDestination] = []
         for p in profiles {
             let nameHits = tokens.intersection(p.nameTokens)
@@ -170,11 +177,14 @@ public enum FilingEngine {
             let score = nameHits.count * 3 + contentHits.count
             guard score >= 3 else { continue }   // a folder-name hit, or ≥3 content hits
             let confidence: FilingConfidence = !nameHits.isEmpty ? .high : .medium
-            let hits = nameHits.union(contentHits).sorted().prefix(3).joined(separator: ", ")
-            out.append(FilingDestination(
-                path: p.path, confidence: confidence,
-                reasons: ["Matches “\(hits)” in a folder you already keep"],
-                newSegments: []))
+            let hitSet = nameHits.union(contentHits)
+            let hits = hitSet.sorted().prefix(3).joined(separator: ", ")
+            // The match came purely from the file's contents when none of the hits are in the name.
+            let fromContent = hitSet.isDisjoint(with: nameOnly) && !hitSet.isDisjoint(with: contentTokens)
+            let reason = fromContent
+                ? "Matches “\(hits)” read from the file, in a folder you already keep"
+                : "Matches “\(hits)” in a folder you already keep"
+            out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason], newSegments: []))
         }
         return out
     }
@@ -182,10 +192,15 @@ public enum FilingEngine {
     // MARK: Universal rules
 
     private static func ruleCandidates(
-        tokens: Set<String>, nameLower: String, ext: String, year: String?,
+        tokens: Set<String>, contentTokens: Set<String>, nameLower: String, ext: String, year: String?,
         profiles: [FolderProfile], existingPaths: Set<String>, providerRoot: String
     ) -> [FilingDestination] {
         var out: [FilingDestination] = []
+        let nameOnly = tokens.subtracting(contentTokens)
+        // Appends a note when the triggering signal was found only in the file's contents.
+        func note(_ signal: Set<String>) -> String {
+            (signal.isDisjoint(with: nameOnly) && !signal.isDisjoint(with: contentTokens)) ? " (read from the file)" : ""
+        }
 
         // Photos → <Photos folder>/<year>, or a proposed Photos/<year> at the root.
         if photoExtensions.contains(ext), let year {
@@ -201,36 +216,40 @@ public enum FilingEngine {
            let vehicles = existingFolder(named: ["vehicles", "cars", "auto", "automobile"], in: profiles) {
             var segs = [brand.capitalized]
             var reason = "Vehicle document — \(brand.capitalized)"
+            var signal: Set<String> = [brand]
             if !tokens.isDisjoint(with: insuranceTokens) {
                 segs.append("Insurance"); reason = "\(brand.capitalized) insurance document"
+                signal.formUnion(tokens.intersection(insuranceTokens))
             }
-            out.append(under(vehicles, segs, existingPaths, .medium, reason))
+            out.append(under(vehicles, segs, existingPaths, .medium, reason + note(signal)))
         }
 
         // Receipts / invoices / orders → <Receipts>/<year> or <Finance|Documents>/Receipts/<year>.
-        if !tokens.isDisjoint(with: receiptTokens), let year {
+        let receiptSig = tokens.intersection(receiptTokens)
+        if !receiptSig.isEmpty, let year {
             if let receipts = existingFolder(named: ["receipts", "invoices", "purchases", "orders"], in: profiles) {
-                out.append(under(receipts, [year], existingPaths, .high, "Receipt or invoice — filed by year"))
+                out.append(under(receipts, [year], existingPaths, .high, "Receipt or invoice — filed by year" + note(receiptSig)))
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
-                out.append(under(finance, ["Receipts", year], existingPaths, .medium, "Receipt or invoice — suggested Receipts/\(year)"))
+                out.append(under(finance, ["Receipts", year], existingPaths, .medium, "Receipt or invoice — suggested Receipts/\(year)" + note(receiptSig)))
             }
         }
 
         // Tax documents → <Taxes>/<year> or <Finance|Documents>/Taxes/<year>. Form numbers like
         // 1099/1040 are pure numbers (stripped from tokens), so also sniff the raw filename.
-        let isTax = !tokens.isDisjoint(with: taxTokens) || nameLower.contains("1099") || nameLower.contains("1040")
-        if isTax, let year {
+        let taxSig = tokens.intersection(taxTokens)
+        if !taxSig.isEmpty || nameLower.contains("1099") || nameLower.contains("1040"), let year {
             if let taxes = existingFolder(named: ["taxes", "tax"], in: profiles) {
-                out.append(under(taxes, [year], existingPaths, .high, "Tax document — filed by year"))
+                out.append(under(taxes, [year], existingPaths, .high, "Tax document — filed by year" + note(taxSig)))
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
-                out.append(under(finance, ["Taxes", year], existingPaths, .medium, "Tax document — suggested Taxes/\(year)"))
+                out.append(under(finance, ["Taxes", year], existingPaths, .medium, "Tax document — suggested Taxes/\(year)" + note(taxSig)))
             }
         }
 
         // Statements → <Statements|Bank|Finance>/<year>.
-        if !tokens.isDisjoint(with: statementTokens), let year,
+        let stmtSig = tokens.intersection(statementTokens)
+        if !stmtSig.isEmpty, let year,
            let base = existingFolder(named: ["statements", "bank", "banking", "finance"], in: profiles) {
-            out.append(under(base, [year], existingPaths, .medium, "Statement — filed by year"))
+            out.append(under(base, [year], existingPaths, .medium, "Statement — filed by year" + note(stmtSig)))
         }
 
         return out
@@ -285,13 +304,18 @@ public enum FilingEngine {
     // MARK: Tokenization
 
     /// Tokens from a filename (extension stripped).
-    static func fileTokens(_ fileName: String) -> Set<String> {
+    public static func fileTokens(_ fileName: String) -> Set<String> {
         nameTokens((fileName as NSString).deletingPathExtension)
     }
 
+    /// The union of every category vocabulary — the keywords a content extractor should surface
+    /// from a document (insurers, vendors, banks, tax terms, vehicle brands) so the rules fire.
+    public static let categoryKeywords: Set<String> =
+        insuranceTokens.union(receiptTokens).union(taxTokens).union(statementTokens).union(vehicleBrands)
+
     /// Tokens from an arbitrary name: split on non-alphanumerics and camelCase, lowercase, drop
     /// stopwords and non-year pure numbers.
-    static func nameTokens(_ s: String) -> Set<String> {
+    public static func nameTokens(_ s: String) -> Set<String> {
         var spaced = ""
         var prev: Character? = nil
         for ch in s {
@@ -345,6 +369,8 @@ public enum FilingEngine {
     ]
     static let insuranceTokens: Set<String> = ["insurance", "policy", "coverage", "geico", "allstate", "progressive"]
     static let receiptTokens: Set<String> = ["receipt", "invoice", "order", "purchase", "amazon", "billing", "bill"]
+    // 1099/1040 are useful as *content* tokens (the filename path also sniffs them raw, since the
+    // tokenizer strips bare numbers from filenames).
     static let taxTokens: Set<String> = ["tax", "taxes", "1099", "1040", "irs", "return"]
     static let statementTokens: Set<String> = ["statement", "bank", "chase", "amex", "visa", "mastercard", "wells", "fargo"]
 }
