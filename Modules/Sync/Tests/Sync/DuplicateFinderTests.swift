@@ -268,6 +268,25 @@ import Testing
         #expect(DuplicateFinder.versionStem("beach (2).jpg")?.stem == "beach")
     }
 
+    @Test func optionsFromDefaultsFallsBackThenReadsOverrides() {
+        let suite = "TidyOptTest-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: suite)!
+        defer { d.removePersistentDomain(forName: suite) }
+
+        let fallback = DuplicateFinderOptions.fromDefaults(d)   // nothing set → code defaults
+        #expect(fallback.minFileSize == 4096)
+        #expect(fallback.overlapThreshold == 0.7)
+        #expect(fallback.detectVersions == true)
+
+        d.set(102_400, forKey: DuplicateFinderOptions.DefaultsKey.minFileSize)
+        d.set(0.9, forKey: DuplicateFinderOptions.DefaultsKey.overlapThreshold)
+        d.set(false, forKey: DuplicateFinderOptions.DefaultsKey.detectVersions)
+        let overridden = DuplicateFinderOptions.fromDefaults(d)
+        #expect(overridden.minFileSize == 102_400)
+        #expect(overridden.overlapThreshold == 0.9)
+        #expect(overridden.detectVersions == false)
+    }
+
     @Test func choosingKeeperRecomputesRemovalForIdentical() {
         let a = DuplicateCopy(id: "/a/x", name: "x", isDirectory: false, size: 100, itemCount: 1,
                               modificationDate: nil, uniqueItemCount: 0, depth: 2, isRecommendedKeeper: true)

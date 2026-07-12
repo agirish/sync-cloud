@@ -291,6 +291,9 @@ public struct TidyView: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
+            Button("Cancel") { syncManager.cancelFindDuplicates() }
+                .controlSize(.regular)
+                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(30)

@@ -108,6 +108,8 @@ public class FileSyncManager: ObservableObject {
     @Published public var hasFoundDuplicates = false
     /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).
     public var duplicateIgnoreDefaults: UserDefaults = .standard
+    /// The in-flight Find Duplicates task, so the UI can cancel a long scan.
+    public var duplicateScanTask: Task<Void, Never>?
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

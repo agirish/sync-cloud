@@ -815,11 +815,35 @@ struct AdvancedSettingsTab: View {
     let onResetAllSettings: (() -> Void)?
 
     @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
+    @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
 
     var body: some View {
         Form {
+            Section {
+                Picker("Ignore files smaller than", selection: $tidyMinFileSize) {
+                    Text("No minimum").tag(0)
+                    Text("4 KB").tag(4096)
+                    Text("100 KB").tag(102_400)
+                    Text("1 MB").tag(1_048_576)
+                }
+                Picker("Folders overlap at", selection: $tidyOverlapThreshold) {
+                    Text("50%").tag(0.5)
+                    Text("60%").tag(0.6)
+                    Text("70%").tag(0.7)
+                    Text("80%").tag(0.8)
+                    Text("90%").tag(0.9)
+                }
+                Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
+            } header: {
+                Text("Duplicates (Tidy)")
+            } footer: {
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan.")
+            }
+
             Section {
                 Picker("Log level", selection: $minimumLevelRaw) {
                     Text("Debug (everything)").tag(LogLevel.debug.rawValue)

@@ -38,6 +38,19 @@ extension FileSyncManager {
     /// - Parameters:
     ///   - root: The provider root (or focused folder) to scan.
     ///   - options: Detection tuning.
+    /// Starts a cancellable Find Duplicates scan, replacing any in-flight one.
+    public func startFindDuplicates(root: URL, options: DuplicateFinderOptions = .init()) {
+        duplicateScanTask?.cancel()
+        duplicateScanTask = Task { [weak self] in
+            await self?.findDuplicates(root: root, options: options)
+        }
+    }
+
+    /// Cancels a running Find Duplicates scan; results are left as they were.
+    public func cancelFindDuplicates() {
+        duplicateScanTask?.cancel()
+    }
+
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
@@ -48,14 +61,16 @@ extension FileSyncManager {
         isFindingDuplicates = true
         duplicateScanStatus = "Scanning \(root.lastPathComponent)…"
         duplicateScanRoot = root.path
+        // hasFoundDuplicates is set only on completion (below), so a cancelled scan leaves the
+        // prior state intact rather than flashing an empty "no duplicates".
         defer {
             isFindingDuplicates = false
             duplicateScanStatus = nil
-            hasFoundDuplicates = true
         }
 
         // 1. Walk the full subtree (off-main inside buildTree).
         let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
+        if Task.isCancelled { return }
 
         // 2. Only files whose size collides with another can possibly be identical — hash just
         //    those. Everything else gets a unique placeholder so folder signatures still compute
@@ -69,8 +84,14 @@ extension FileSyncManager {
             .filter { ($0.fileSize ?? -1) >= 0 && sizeCount[$0.fileSize!, default: 0] >= 2 }
             .map { $0.id }
 
-        duplicateScanStatus = "Hashing \(candidatePaths.count) candidates…"
-        let realHashes = await Self.hashFiles(candidatePaths, fileManager: fileManager)
+        let total = candidatePaths.count
+        duplicateScanStatus = "Hashing \(total) candidate\(total == 1 ? "" : "s")…"
+        let realHashes = await Self.hashFiles(candidatePaths, fileManager: fileManager) { [weak self] done in
+            if done % 50 == 0 || done == total {
+                Task { @MainActor in self?.duplicateScanStatus = "Hashing \(done) of \(total)…" }
+            }
+        }
+        if Task.isCancelled { return }
 
         var fileHashes: [String: String] = [:]
         fileHashes.reserveCapacity(allFiles.count)
@@ -80,8 +101,10 @@ extension FileSyncManager {
 
         // 3. Group (pure), then drop anything the user has kept separate.
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options)
+        if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
+        hasFoundDuplicates = true
     }
 
     // MARK: Keep separate (persistent ignore)
@@ -282,12 +305,14 @@ extension FileSyncManager {
     nonisolated static func hashFiles(
         _ paths: [String],
         fileManager: FileManaging,
-        maxConcurrent: Int = 6
+        maxConcurrent: Int = 6,
+        onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> [String: String] {
         guard !paths.isEmpty else { return [:] }
         var result: [String: String] = [:]
         result.reserveCapacity(paths.count)
         var next = 0
+        var completed = 0
         await withTaskGroup(of: (String, String?).self) { group in
             func schedule(_ path: String) {
                 group.addTask {
@@ -298,6 +323,13 @@ extension FileSyncManager {
             while next < initial { schedule(paths[next]); next += 1 }
             for await (path, hash) in group {
                 if let hash { result[path] = hash }
+                completed += 1
+                onProgress?(completed)
+                // Cancellation stops scheduling new work; already-detached hashes drain out.
+                if Task.isCancelled {
+                    group.cancelAll()
+                    continue
+                }
                 if next < paths.count { schedule(paths[next]); next += 1 }
             }
         }

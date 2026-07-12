@@ -181,6 +181,34 @@ import Foundation
         #expect(manager.duplicateGroups.isEmpty)
     }
 
+    // MARK: Cancellable scan
+
+    @MainActor
+    @Test func startFindDuplicatesRunsToCompletionViaTask() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("A/a.txt"), bytes: 8, fill: 0x61)
+        try write(root.appendingPathComponent("B/b.txt"), bytes: 9, fill: 0x62)
+
+        let manager = FileSyncManager()
+        manager.startFindDuplicates(root: root)
+        await manager.duplicateScanTask?.value
+
+        #expect(manager.hasFoundDuplicates)
+        #expect(manager.duplicateGroups.count == 1)
+        #expect(manager.isFindingDuplicates == false)
+    }
+
+    @MainActor
+    @Test func cancelWithNoRunningScanIsSafe() {
+        let manager = FileSyncManager()
+        manager.cancelFindDuplicates()   // no task in flight
+        #expect(manager.isFindingDuplicates == false)
+        #expect(manager.hasFoundDuplicates == false)
+    }
+
     // MARK: Overlapping merge
 
     @Test func planMergeCopiesUniqueButNotProvablySharedFiles() async throws {

@@ -651,7 +651,8 @@ struct ContentView: View {
         Logger.shared.info("User requested Find Duplicates in \(root)")
         selectedBottomTab = .tidy
         showingBottomPane = true
-        Task { await syncManager.findDuplicates(root: URL(fileURLWithPath: root)) }
+        let options = DuplicateFinderOptions.fromDefaults()
+        syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so

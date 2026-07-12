@@ -206,6 +206,28 @@ public struct DuplicateFinderOptions: Sendable {
         ".DS_Store", ".git", ".build", "node_modules", ".Trashes", "Thumbs.db", ".localized"
     ]
 
+    /// UserDefaults keys the Settings UI binds to (shared so the app builds the same options).
+    public enum DefaultsKey {
+        public static let minFileSize = "tidyMinFileSize"
+        public static let overlapThreshold = "tidyOverlapThreshold"
+        public static let detectVersions = "tidyDetectVersions"
+    }
+
+    /// Builds options from persisted settings, falling back to the code defaults for any unset key.
+    public static func fromDefaults(_ defaults: UserDefaults = .standard) -> DuplicateFinderOptions {
+        var options = DuplicateFinderOptions()
+        if defaults.object(forKey: DefaultsKey.minFileSize) != nil {
+            options.minFileSize = defaults.integer(forKey: DefaultsKey.minFileSize)
+        }
+        if defaults.object(forKey: DefaultsKey.overlapThreshold) != nil {
+            options.overlapThreshold = defaults.double(forKey: DefaultsKey.overlapThreshold)
+        }
+        if defaults.object(forKey: DefaultsKey.detectVersions) != nil {
+            options.detectVersions = defaults.bool(forKey: DefaultsKey.detectVersions)
+        }
+        return options
+    }
+
     /// Version-group stems this common are too generic to be useful; suppressed to cut noise.
     static let genericVersionStems: Set<String> = [
         "index", "readme", "untitled", "document", "image", "img", "photo", "screenshot",
