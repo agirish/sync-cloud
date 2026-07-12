@@ -62,6 +62,7 @@ public struct SettingsView: View {
         case appearance
         case providers
         case sync
+        case tidy
         case advanced
     }
 
@@ -129,6 +130,7 @@ public struct SettingsView: View {
                 Text("Appearance").tag(SettingsTab.appearance)
                 Text("Providers").tag(SettingsTab.providers)
                 Text("Sync").tag(SettingsTab.sync)
+                Text("Tidy").tag(SettingsTab.tidy)
                 Text("Advanced").tag(SettingsTab.advanced)
             }
             .pickerStyle(.segmented)
@@ -148,6 +150,8 @@ public struct SettingsView: View {
                     ProvidersSettingsTab()
                 case .sync:
                     SyncSettingsTab(syncManager: syncManager)
+                case .tidy:
+                    TidySettingsTab(syncManager: syncManager)
                 case .advanced:
                     AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
                 }
@@ -832,15 +836,13 @@ private struct IgnoredItemsList: View {
     }
 }
 
-// MARK: - Advanced
+// MARK: - Tidy
 
-/// Logging, maintenance, and the settings reset — the machinery that already existed in the
-/// engine but had no user-facing surface.
-struct AdvancedSettingsTab: View {
+/// Everything for the Tidy workspace: how Find Duplicates groups, how Filing suggests homes
+/// (on-device AI + opt-in Claude cloud with its key/model), remembered rules, and cloud spend.
+struct TidySettingsTab: View {
     let syncManager: FileSyncManager?
-    let onResetAllSettings: (() -> Void)?
 
-    @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
     @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
@@ -848,16 +850,17 @@ struct AdvancedSettingsTab: View {
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-haiku-4-5"
-    /// The API-key field's live text and whether a key is already stored in the Keychain.
+
     @State private var apiKeyField: String = ""
-    @State private var hasStoredKey: Bool = false
+    @State private var hasStoredKey = false
     @State private var testingKey = false
     @State private var keyTestResult: AnthropicKeyCheck.Result?
-    /// Human-readable size of the log file, refreshed on appear and after Clear Log.
-    @State private var logFileSizeText: String?
-    /// Count of remembered filing rules (F3), refreshed on appear and when the manager sheet closes.
     @State private var filingRuleCount = 0
     @State private var showRulesManager = false
+    // Cloud spend, refreshed on appear and when the history sheet closes.
+    @State private var spendTotals = FilingSpendTotals()
+    @State private var spendLast: FilingSpendEntry?
+    @State private var showSpendHistory = false
 
     var body: some View {
         Form {
@@ -877,7 +880,7 @@ struct AdvancedSettingsTab: View {
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
             } header: {
-                Text("Duplicates (Tidy)")
+                Text("Duplicates")
             } footer: {
                 Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan.")
             }
@@ -897,8 +900,7 @@ struct AdvancedSettingsTab: View {
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
                 LabeledContent("Remembered rules") {
                     HStack(spacing: 8) {
-                        Text(filingRuleCount == 0 ? "None yet"
-                             : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")
+                        Text(filingRuleCount == 0 ? "None yet" : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")
                             .foregroundStyle(.secondary)
                         Button("Manage…") { showRulesManager = true }
                             .disabled(filingRuleCount == 0 || syncManager == nil)
@@ -906,11 +908,193 @@ struct AdvancedSettingsTab: View {
                     .controlSize(.small)
                 }
             } header: {
-                Text("Filing (Tidy)")
+                Text("Filing")
             } footer: {
                 Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
+            Section {
+                LabeledContent("Total spent", value: FilingSpendFormat.cost(spendTotals.costUSD))
+                LabeledContent("Tokens", value: FilingSpendFormat.tokens(spendTotals.tokens))
+                LabeledContent("Cloud scans", value: "\(spendTotals.scans)")
+                if let last = spendLast {
+                    LabeledContent("Last scan",
+                                   value: "\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                }
+                HStack {
+                    Button("View history…") { showSpendHistory = true }
+                        .disabled(spendTotals.scans == 0)
+                    Button("Clear", role: .destructive) { FilingSpendStore.clear(); refreshSpend() }
+                        .disabled(spendTotals.scans == 0)
+                }
+                .controlSize(.small)
+            } header: {
+                Text("Cloud spend")
+            } footer: {
+                Text("Estimated from list prices for the cloud (Claude) suggestions only — the Anthropic Console is authoritative. On-device and keyword suggestions are free.")
+            }
+        }
+        .formStyle(.grouped)
+        .onAppear {
+            filingRuleCount = syncManager?.filingRules.count ?? 0
+            hasStoredKey = AnthropicKeychain.hasKey
+            refreshSpend()
+        }
+        .sheet(isPresented: $showRulesManager) {
+            if let syncManager {
+                FilingRulesManagerView(syncManager: syncManager) { filingRuleCount = syncManager.filingRules.count }
+            }
+        }
+        .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
+            TidySpendHistorySheet()
+        }
+    }
+
+    private func refreshSpend() {
+        spendTotals = FilingSpendStore.totals()
+        spendLast = FilingSpendStore.last()
+    }
+
+    /// The Anthropic key field, Save/Test/Clear, a status line, and a link to the Console.
+    @ViewBuilder private var cloudKeyControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                SecureField(hasStoredKey ? "•••• key saved" : "Paste sk-ant-… key", text: $apiKeyField)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    AnthropicKeychain.store(apiKeyField)
+                    apiKeyField = ""
+                    hasStoredKey = AnthropicKeychain.hasKey
+                    keyTestResult = nil
+                }
+                .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
+                Button { Task { await testKey() } } label: {
+                    if testingKey { ProgressView().controlSize(.small) } else { Text("Test") }
+                }
+                .disabled(testingKey || (!hasStoredKey && apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty))
+                if hasStoredKey {
+                    Button("Clear") {
+                        AnthropicKeychain.delete()
+                        apiKeyField = ""
+                        hasStoredKey = false
+                        keyTestResult = nil
+                    }
+                }
+            }
+            .controlSize(.small)
+
+            keyStatusLine
+
+            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
+                Text("Get a key from the Anthropic Console ↗").font(.caption)
+            }
+        }
+    }
+
+    @ViewBuilder private var keyStatusLine: some View {
+        if testingKey {
+            Label("Testing…", systemImage: "ellipsis.circle").font(.caption).foregroundStyle(.secondary)
+        } else if let keyTestResult {
+            switch keyTestResult {
+            case .valid:
+                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+            case .invalid(let message):
+                Label(message, systemImage: "xmark.circle.fill").font(.caption).foregroundStyle(.red)
+            case .failed(let message):
+                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+            }
+        } else if hasStoredKey {
+            Label("Key saved to Keychain.", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Validates the key in the field (or, if empty, the stored key) with a free Console call.
+    private func testKey() async {
+        let typed = apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = typed.isEmpty ? (AnthropicKeychain.read() ?? "") : typed
+        testingKey = true
+        keyTestResult = nil
+        let result = await AnthropicKeyCheck.validate(key)
+        testingKey = false
+        keyTestResult = result
+    }
+}
+
+/// The full cloud-Filing spend history as a sheet (Settings' copy — FileExplorer has its own for
+/// the Tidy lens; both read the shared FilingSpendStore).
+struct TidySpendHistorySheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var entries: [FilingSpendEntry] = []
+    @State private var totals = FilingSpendTotals()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Cloud Filing Spend").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding()
+            Divider()
+            HStack(spacing: 24) {
+                stat(FilingSpendFormat.cost(totals.costUSD), "total")
+                stat(FilingSpendFormat.tokens(totals.tokens), "tokens")
+                stat("\(totals.scans)", "cloud scans")
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 12)
+            Divider()
+            if entries.isEmpty {
+                Text("No cloud scans yet.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(entries.reversed()) { entry in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 12))
+                            Text("\(FilingSpendFormat.model(entry.model)) · \(entry.fileCount) files · placed \(entry.placedCount)")
+                                .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(FilingSpendFormat.cost(entry.estimatedCostUSD)).font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                            Text(FilingSpendFormat.tokens(entry.totalTokens)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .frame(width: 540, height: 440)
+        .onAppear {
+            entries = FilingSpendStore.entries()
+            totals = FilingSpendStore.totals()
+        }
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Advanced
+
+/// Logging, maintenance, and the settings reset — the machinery that already existed in the
+/// engine but had no user-facing surface.
+struct AdvancedSettingsTab: View {
+    let syncManager: FileSyncManager?
+    let onResetAllSettings: (() -> Void)?
+
+    @AppStorage(Logger.minimumLevelDefaultsKey) private var minimumLevelRaw: String = LogLevel.debug.rawValue
+    /// Human-readable size of the log file, refreshed on appear and after Clear Log.
+    @State private var logFileSizeText: String?
+
+    var body: some View {
+        Form {
             Section {
                 Picker("Log level", selection: $minimumLevelRaw) {
                     Text("Debug (everything)").tag(LogLevel.debug.rawValue)
@@ -978,88 +1162,6 @@ struct AdvancedSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { await refreshLogFileSize() }
-        .onAppear {
-            filingRuleCount = syncManager?.filingRules.count ?? 0
-            hasStoredKey = AnthropicKeychain.hasKey
-        }
-        .sheet(isPresented: $showRulesManager) {
-            if let syncManager {
-                FilingRulesManagerView(syncManager: syncManager) {
-                    filingRuleCount = syncManager.filingRules.count
-                }
-            }
-        }
-    }
-
-    /// The Anthropic key field, Save/Test/Clear, a status line, and a link to the Console.
-    @ViewBuilder private var cloudKeyControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                SecureField(hasStoredKey ? "•••• key saved" : "Paste sk-ant-… key", text: $apiKeyField)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    AnthropicKeychain.store(apiKeyField)
-                    apiKeyField = ""
-                    hasStoredKey = AnthropicKeychain.hasKey
-                    keyTestResult = nil
-                }
-                .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button { Task { await testKey() } } label: {
-                    if testingKey { ProgressView().controlSize(.small) } else { Text("Test") }
-                }
-                .disabled(testingKey || (!hasStoredKey && apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty))
-                if hasStoredKey {
-                    Button("Clear") {
-                        AnthropicKeychain.delete()
-                        apiKeyField = ""
-                        hasStoredKey = false
-                        keyTestResult = nil
-                    }
-                }
-            }
-            .controlSize(.small)
-
-            keyStatusLine
-
-            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                Text("Get a key from the Anthropic Console ↗").font(.caption)
-            }
-        }
-    }
-
-    @ViewBuilder private var keyStatusLine: some View {
-        if testingKey {
-            Label("Testing…", systemImage: "ellipsis.circle").font(.caption).foregroundStyle(.secondary)
-        } else if let keyTestResult {
-            switch keyTestResult {
-            case .valid:
-                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill")
-                    .font(.caption).foregroundStyle(.green)
-            case .invalid(let message):
-                Label(message, systemImage: "xmark.circle.fill")
-                    .font(.caption).foregroundStyle(.red)
-            case .failed(let message):
-                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption).foregroundStyle(.orange)
-            }
-        } else if hasStoredKey {
-            Label("Key saved to Keychain.", systemImage: "checkmark.circle")
-                .font(.caption).foregroundStyle(.secondary)
-        } else {
-            Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    /// Validates the key in the field (or, if empty, the stored key) with a free Console call.
-    private func testKey() async {
-        let typed = apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = typed.isEmpty ? (AnthropicKeychain.read() ?? "") : typed
-        testingKey = true
-        keyTestResult = nil
-        let result = await AnthropicKeyCheck.validate(key)
-        testingKey = false
-        keyTestResult = result
     }
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must

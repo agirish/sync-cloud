@@ -1,23 +1,6 @@
 import SwiftUI
 import Sync
 
-/// Compact formatting for Filing spend figures, shared by the toolbar line and the history sheet.
-enum FilingSpendFormat {
-    static func cost(_ value: Double) -> String {
-        value >= 0.01 ? String(format: "~$%.2f", value) : String(format: "~$%.4f", value)
-    }
-    static func tokens(_ n: Int) -> String {
-        n >= 1000 ? String(format: "%.1fk tok", Double(n) / 1000) : "\(n) tok"
-    }
-    static func model(_ id: String) -> String {
-        if id.contains("haiku") { return "Haiku" }
-        if id.contains("sonnet") { return "Sonnet" }
-        if id.contains("opus") { return "Opus" }
-        if id.contains("fable") { return "Fable" }
-        return id
-    }
-}
-
 /// A sheet listing every cloud (Claude) Filing scan with its tokens and estimated cost, plus
 /// lifetime totals and a clear button.
 struct FilingSpendHistoryView: View {

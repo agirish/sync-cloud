@@ -82,3 +82,20 @@ public enum FilingSpendStore {
         defaults.removeObject(forKey: lastKey)
     }
 }
+
+/// Compact formatting for Filing spend figures, shared by the Tidy lens and Settings.
+public enum FilingSpendFormat {
+    public static func cost(_ value: Double) -> String {
+        value >= 0.01 ? String(format: "~$%.2f", value) : String(format: "~$%.4f", value)
+    }
+    public static func tokens(_ n: Int) -> String {
+        n >= 1000 ? String(format: "%.1fk tok", Double(n) / 1000) : "\(n) tok"
+    }
+    public static func model(_ id: String) -> String {
+        if id.contains("haiku") { return "Haiku" }
+        if id.contains("sonnet") { return "Sonnet" }
+        if id.contains("opus") { return "Opus" }
+        if id.contains("fable") { return "Fable" }
+        return id
+    }
+}
