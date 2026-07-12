@@ -71,16 +71,26 @@ struct SyncCloudApp: App {
         manager.filingContentExtractor = { path in
             await ContentSignalExtractor.tokens(forFileAt: path)
         }
-        // Filing (AI): the on-device Apple Foundation Models classifier reasons about the folder
-        // taxonomy + document text to pick a home, overriding keyword guesses. Injected only when
-        // the model is actually available; the snippet extractor feeds it bounded document text.
+        // Filing (AI): reason about the folder taxonomy + document text to pick a home, overriding
+        // keyword guesses. Hybrid backend — opt-in cloud (Claude) as primary when enabled with a
+        // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle
+        // and key can change at runtime; the routing closure resolves the backend per scan.
+        manager.filingClassifier = { taxonomy, files in
+            if UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey), AnthropicKeychain.hasKey {
+                if let cloud = await CloudFilingClassifier.classify(taxonomyFolders: taxonomy, files: files) {
+                    return cloud   // cloud succeeded (even if it placed nothing)
+                }
+                // hard failure (no key / network / non-200) → fall back to on-device
+            }
+            if OnDeviceFilingClassifier.isAvailable {
+                return await OnDeviceFilingClassifier.classify(taxonomyFolders: taxonomy, files: files)
+            }
+            return [:]
+        }
+        manager.filingSnippetExtractor = { path in
+            await ContentSignalExtractor.snippet(forFileAt: path)
+        }
         if OnDeviceFilingClassifier.isAvailable {
-            manager.filingClassifier = { taxonomy, files in
-                await OnDeviceFilingClassifier.classify(taxonomyFolders: taxonomy, files: files)
-            }
-            manager.filingSnippetExtractor = { path in
-                await ContentSignalExtractor.snippet(forFileAt: path)
-            }
             manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
         }
         _syncManager = StateObject(wrappedValue: manager)

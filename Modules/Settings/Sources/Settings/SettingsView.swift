@@ -846,6 +846,10 @@ struct AdvancedSettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
+    @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
+    /// The API-key field's live text and whether a key is already stored in the Keychain.
+    @State private var apiKeyField: String = ""
+    @State private var hasStoredKey: Bool = false
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
     /// Count of remembered filing rules (F3), refreshed on appear and when the manager sheet closes.
@@ -870,6 +874,30 @@ struct AdvancedSettingsTab: View {
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
                 Toggle("Filing: use on-device AI to choose folders", isOn: $filingUseAI)
+                Toggle("Filing: use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
+                    .disabled(!filingUseAI)
+                if filingUseCloud {
+                    LabeledContent("Anthropic API key") {
+                        HStack(spacing: 8) {
+                            SecureField(hasStoredKey ? "•••••• saved" : "sk-ant-…", text: $apiKeyField)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 220)
+                            Button("Save") {
+                                AnthropicKeychain.store(apiKeyField)
+                                apiKeyField = ""
+                                hasStoredKey = AnthropicKeychain.hasKey
+                            }
+                            .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
+                            Button("Clear") {
+                                AnthropicKeychain.delete()
+                                apiKeyField = ""
+                                hasStoredKey = false
+                            }
+                            .disabled(!hasStoredKey)
+                        }
+                        .controlSize(.small)
+                    }
+                }
                 Toggle("Filing: read file contents on-device for better suggestions", isOn: $filingReadContents)
                 LabeledContent("Remembered filing rules") {
                     HStack(spacing: 8) {
@@ -884,7 +912,7 @@ struct AdvancedSettingsTab: View {
             } header: {
                 Text("Duplicates (Tidy)")
             } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing’s on-device AI (Apple Intelligence, macOS 26) reasons about your folders and each file to choose a home; where it isn’t available Filing falls back to name/metadata matching. Reading file contents feeds both the AI and keyword paths using PDF text, on-device OCR, and entity detection — nothing leaves your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing’s on-device AI (Apple Intelligence, macOS 26) reasons about your folders and each file to choose a home; where it isn’t available Filing falls back to name/metadata matching. The Claude (cloud) option is more accurate for hard cases but is opt-in and off by default — with it on, each scan sends your folder names and, for the files being filed, their names and (if content-reading is on) short text excerpts to Anthropic. Your key is stored in the macOS Keychain. Reading file contents otherwise stays on your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
             Section {
@@ -954,7 +982,10 @@ struct AdvancedSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { await refreshLogFileSize() }
-        .onAppear { filingRuleCount = syncManager?.filingRules.count ?? 0 }
+        .onAppear {
+            filingRuleCount = syncManager?.filingRules.count ?? 0
+            hasStoredKey = AnthropicKeychain.hasKey
+        }
         .sheet(isPresented: $showRulesManager) {
             if let syncManager {
                 FilingRulesManagerView(syncManager: syncManager) {

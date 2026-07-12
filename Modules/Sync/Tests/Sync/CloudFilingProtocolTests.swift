@@ -1,0 +1,69 @@
+import Foundation
+import Testing
+@testable import Sync
+
+@Suite struct CloudFilingProtocolTests {
+
+    private func file(_ path: String, ext: String = "pdf", snippet: String? = nil) -> FilingCandidateFile {
+        FilingCandidateFile(filePath: path, fileName: (path as NSString).lastPathComponent,
+                            ext: ext, year: "2025", contentSnippet: snippet)
+    }
+
+    @Test func requestBodyForcesTheStructuredToolAndCarriesTheTaxonomy() throws {
+        let files = [file("/root/Downloads/Tesla Policy.pdf", snippet: "GEICO auto insurance")]
+        let body = CloudFilingProtocol.requestBody(taxonomyFolders: ["Documents", "Documents/Vehicles"], files: files)
+
+        #expect(body["model"] as? String == "claude-opus-4-8")
+        // Forces the single classification tool.
+        let choice = try #require(body["tool_choice"] as? [String: Any])
+        #expect(choice["name"] as? String == CloudFilingProtocol.toolName)
+        let tools = try #require(body["tools"] as? [[String: Any]])
+        #expect(tools.first?["name"] as? String == CloudFilingProtocol.toolName)
+        #expect(tools.first?["strict"] as? Bool == true)
+        // The user turn lists the folders and the file (with its excerpt).
+        let messages = try #require(body["messages"] as? [[String: Any]])
+        let userText = try #require(messages.first?["content"] as? String)
+        #expect(userText.contains("Documents/Vehicles"))
+        #expect(userText.contains("Tesla Policy.pdf"))
+        #expect(userText.contains("GEICO auto insurance"))
+        // The whole body must be JSON-serializable (it's sent over the wire as-is).
+        #expect(JSONSerialization.isValidJSONObject(body))
+    }
+
+    @Test func parseVerdictsMapsIndicesBackToFilePaths() throws {
+        let files = [file("/root/a/Geico.pdf"), file("/root/a/scan.pdf"), file("/root/a/junk.bin", ext: "bin")]
+        let json = """
+        {"type":"message","content":[
+          {"type":"tool_use","name":"file_placements","input":{"placements":[
+            {"index":0,"folder":"Finance/Insurance","confidence":92,"reason":"Auto insurance policy"},
+            {"index":1,"folder":"none","confidence":10,"reason":"Unclear"},
+            {"index":2,"folder":"  ","confidence":0,"reason":"x"}
+          ]}}
+        ]}
+        """.data(using: .utf8)!
+
+        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(responseData: json, files: files))
+        #expect(verdicts.count == 1)                                   // "none" and blank are dropped
+        let geico = try #require(verdicts["/root/a/Geico.pdf"])
+        #expect(geico.relativePath == "Finance/Insurance")
+        #expect(geico.confidence == .high)                             // 92 → high
+        #expect(geico.reason == "Auto insurance policy")
+    }
+
+    @Test func parseVerdictsReturnsNilOnErrorOrJunk() {
+        let files = [file("/root/a/x.pdf")]
+        let error = #"{"type":"error","error":{"type":"authentication_error","message":"bad key"}}"#.data(using: .utf8)!
+        #expect(CloudFilingProtocol.parseVerdicts(responseData: error, files: files) == nil)      // API error → fall back
+        #expect(CloudFilingProtocol.parseVerdicts(responseData: Data("nonsense".utf8), files: files) == nil)
+        // A message with no tool_use block is unreadable → nil (fall back), not an empty success.
+        let noTool = #"{"type":"message","content":[{"type":"text","text":"hi"}]}"#.data(using: .utf8)!
+        #expect(CloudFilingProtocol.parseVerdicts(responseData: noTool, files: files) == nil)
+    }
+
+    @Test func parseVerdictsIgnoresOutOfRangeIndices() throws {
+        let files = [file("/root/a/x.pdf")]
+        let json = #"{"type":"message","content":[{"type":"tool_use","name":"file_placements","input":{"placements":[{"index":5,"folder":"Documents","confidence":80,"reason":"x"}]}}]}"#.data(using: .utf8)!
+        let verdicts = try #require(CloudFilingProtocol.parseVerdicts(responseData: json, files: files))
+        #expect(verdicts.isEmpty)                                      // index 5 has no file → skipped
+    }
+}

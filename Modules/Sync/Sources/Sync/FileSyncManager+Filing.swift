@@ -131,6 +131,10 @@ extension FileSyncManager {
         (filingContentDefaults.object(forKey: Self.usesAIDefaultsKey) as? Bool) ?? true
     }
 
+    /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
+    /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
+    public static let usesCloudDefaultsKey = "tidyFilingUseCloud"
+
     private static func modificationYear(_ date: Date?) -> String? {
         guard let date else { return nil }
         return Calendar(identifier: .gregorian).dateComponents([.year], from: date).year.map(String.init)
