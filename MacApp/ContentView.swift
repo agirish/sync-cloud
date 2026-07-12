@@ -269,6 +269,7 @@ struct ContentView: View {
             Logger.shared.info("User switched left provider to \(newId)")
             endReviewForComparisonChange()
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
+            syncManager.clearFiling()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
@@ -283,6 +284,7 @@ struct ContentView: View {
             Logger.shared.info("User switched right provider to \(newId)")
             endReviewForComparisonChange()
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
+            syncManager.clearFiling()
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
@@ -669,6 +671,23 @@ struct ContentView: View {
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
+    /// The provider root of the pane a Tidy/Filing action targets (the focused pane, else left).
+    var tidyProviderRootExpanded: String {
+        let id = (activePane == .right) ? rightProviderId : leftProviderId
+        return (settings.path(for: id) as NSString).expandingTildeInPath
+    }
+
+    /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
+    func findFilingSuggestionsAction() {
+        let folder = tidyScanRootExpanded
+        let root = tidyProviderRootExpanded
+        guard !folder.isEmpty, !root.isEmpty else { return }
+        Logger.shared.info("User requested Filing suggestions for \(folder)")
+        showingBottomPane = true
+        syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
+                                               providerRoot: URL(fileURLWithPath: root))
+    }
+
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so
     /// the header and tree builders don't each repeat the same `isLeft ?` pairs (a copy-paste
     /// drift hazard when a side-specific argument changes on one side only).
@@ -881,7 +900,8 @@ struct ContentView: View {
                 syncManager: syncManager,
                 providerName: tidyProviderName,
                 leadingHeader: AnyView(bottomTabPicker),
-                onFindDuplicates: findDuplicatesAction
+                onFindDuplicates: findDuplicatesAction,
+                onFindFilingSuggestions: findFilingSuggestionsAction
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.

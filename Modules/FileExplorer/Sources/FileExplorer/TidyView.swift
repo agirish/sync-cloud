@@ -96,17 +96,20 @@ public struct TidyView: View {
     private let providerName: String?
     private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
+    private let onFindFilingSuggestions: () -> Void
 
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
         leadingHeader: AnyView? = nil,
-        onFindDuplicates: @escaping () -> Void
+        onFindDuplicates: @escaping () -> Void,
+        onFindFilingSuggestions: @escaping () -> Void = {}
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
         self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
+        self.onFindFilingSuggestions = onFindFilingSuggestions
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -138,14 +141,50 @@ public struct TidyView: View {
                 Spacer(minLength: 0)
                 if lens == .duplicates, hasResults, recommendedCount > 0 {
                     applyAllButton
+                } else if lens == .filing, hasFilingResults, filingRecommendedCount > 0 {
+                    fileAllButton
                 }
             }
             if lens == .duplicates, hasResults {
                 summaryRow
+            } else if lens == .filing, hasFilingResults {
+                filingSummaryRow
             }
         }
         .padding(12)
         .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+    }
+
+    // MARK: Filing toolbar
+
+    private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
+    private var filingRecommendedCount: Int {
+        syncManager.filingSuggestions.filter { $0.hasConfidentHome }.count
+    }
+
+    private var fileAllButton: some View {
+        Button(action: applyRecommendedFiling) {
+            Label("File \(filingRecommendedCount) suggested", systemImage: "arrow.right.circle.fill")
+        }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .disabled(syncManager.isSuggestingFiles)
+    }
+
+    private var filingSummaryRow: some View {
+        let s = syncManager.filingSummary
+        return HStack(spacing: 8) {
+            StatPill(count: s.fileCount, label: "loose files", color: .blue, systemImage: "doc")
+            StatPill(count: s.withConfidentHome, label: "with a home", color: .green, systemImage: "checkmark.circle")
+            if s.needNewFolders > 0 {
+                StatPill(count: s.needNewFolders, label: "new folders", color: glassHue.accentColor, systemImage: "folder.badge.plus")
+            }
+            let unsure = s.fileCount - s.withConfidentHome
+            if unsure > 0 {
+                StatPill(count: unsure, label: "unsure", color: .yellow, systemImage: "questionmark.circle")
+            }
+            Spacer(minLength: 8)
+        }
     }
 
     private var lensPicker: some View {
@@ -223,7 +262,7 @@ public struct TidyView: View {
         VStack(spacing: 0) {
             switch lens {
             case .duplicates: duplicatesContent
-            case .filing: filingPlaceholder
+            case .filing: filingContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -323,13 +362,115 @@ public struct TidyView: View {
         }
     }
 
-    private var filingPlaceholder: some View {
+    // MARK: Filing content
+
+    @ViewBuilder
+    private var filingContent: some View {
+        if syncManager.isSuggestingFiles {
+            filingScanningState
+        } else if !syncManager.hasSuggestedFiling {
+            filingIntroState
+        } else if syncManager.filingSuggestions.isEmpty {
+            filingCleanState
+        } else {
+            filingList
+        }
+    }
+
+    private var filingList: some View {
+        ScrollView {
+            LazyVStack(spacing: 10) {
+                ForEach(syncManager.filingSuggestions) { suggestion in
+                    FilingSuggestionCard(
+                        suggestion: suggestion,
+                        onFileHere: { dest in Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) } },
+                        onChooseFolder: { chooseFolder(for: suggestion) },
+                        onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
+                        onNotHere: { syncManager.dismissFilingSuggestion(suggestion) }
+                    )
+                }
+            }
+            .padding(12)
+        }
+        .scrollContentBackground(.hidden)
+    }
+
+    private var filingIntroState: some View {
         centeredState(
             symbol: "folder.badge.gearshape",
             tint: glassHue.accentColor,
-            title: "Filing is coming next",
-            message: "Filing will suggest where loose files belong — a Tesla insurance PDF into Documents › Vehicles › Tesla › Insurance — reusing the folders you already keep. Duplicates ships first."
-        ) { EmptyView() }
+            title: "File loose files in \(filingFolderName)",
+            message: "Suggest a home for the files sitting in this folder — reusing the folders you already keep, and proposing new ones only when it's sure. Nothing moves without your say-so, and every move is undoable."
+        ) {
+            Button(action: onFindFilingSuggestions) {
+                Label("Suggest homes", systemImage: "folder.badge.gearshape")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+    }
+
+    private var filingScanningState: some View {
+        VStack(spacing: 14) {
+            ProgressView().controlSize(.large)
+            Text(syncManager.filingScanStatus ?? "Analyzing…")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+            Button("Cancel") { syncManager.cancelFindFilingSuggestions() }
+                .controlSize(.regular)
+                .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(30)
+    }
+
+    private var filingCleanState: some View {
+        centeredState(
+            symbol: "checkmark.seal.fill",
+            tint: .green,
+            title: "Nothing loose to file",
+            message: "No files in \(filingFolderName) need a home right now."
+        ) {
+            Button(action: onFindFilingSuggestions) {
+                Label("Scan again", systemImage: "arrow.clockwise")
+            }
+            .controlSize(.regular)
+        }
+    }
+
+    private var filingFolderName: String {
+        guard let folder = syncManager.filingScanFolder else { return "this folder" }
+        return (folder as NSString).lastPathComponent
+    }
+
+    private func chooseFolder(for suggestion: FilingSuggestion) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "File Here"
+        panel.message = "Choose a folder for “\(suggestion.fileName)”"
+        if let scanFolder = syncManager.filingScanFolder {
+            panel.directoryURL = URL(fileURLWithPath: scanFolder)
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let dest = FilingDestination(path: url.path, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
+        Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
+    }
+
+    private func applyRecommendedFiling() {
+        let batch = syncManager.filingSuggestions.filter { $0.hasConfidentHome }
+        guard !batch.isEmpty else { return }
+        let newFolders = batch.filter { $0.best?.isNew == true }.count
+        let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""
+        let ok = NativeAlerts.confirmDestructive(
+            messageText: "File \(batch.count) file\(batch.count == 1 ? "" : "s") into their suggested homes?",
+            informativeText: "Moves each file into its suggested folder.\(folderNote) Unsure files stay put. Every move can be undone with ⌘Z.",
+            confirmTitle: "File"
+        )
+        guard ok else { return }
+        Task { await syncManager.applyRecommendedFiling() }
     }
 
     private func centeredState<Accessory: View>(

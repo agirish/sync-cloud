@@ -117,6 +117,21 @@ public class FileSyncManager: ObservableObject {
     /// The in-flight Find Duplicates task, so the UI can cancel a long scan.
     public var duplicateScanTask: Task<Void, Never>?
 
+    // MARK: Filing — suggest where loose files go (see FileSyncManager+Filing.swift)
+
+    /// Filing suggestions from the most recent scan of a picked folder.
+    @Published public var filingSuggestions: [FilingSuggestion] = []
+    /// True while a Filing scan (walk folder + learn taxonomy + suggest) is running.
+    @Published public var isSuggestingFiles = false
+    /// Human-readable progress for the running Filing scan.
+    @Published public var filingScanStatus: String? = nil
+    /// True once a Filing scan has completed at least once.
+    @Published public var hasSuggestedFiling = false
+    /// The folder the current suggestions were scanned from.
+    @Published public var filingScanFolder: String? = nil
+    /// The in-flight Filing scan task, so the UI can cancel it.
+    public var filingScanTask: Task<Void, Never>?
+
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
         didSet {
