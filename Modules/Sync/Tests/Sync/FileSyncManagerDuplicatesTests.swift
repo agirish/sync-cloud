@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import Sync
 
 /// Manager-level coverage for Tidy: the end-to-end scan (real files, so the SHA-256 layer runs)
@@ -207,6 +208,66 @@ import Foundation
         manager.cancelFindDuplicates()   // no task in flight
         #expect(manager.isFindingDuplicates == false)
         #expect(manager.hasFoundDuplicates == false)
+    }
+
+    // MARK: Numeric scan progress (drives Tidy's determinate bar)
+
+    @MainActor
+    @Test func duplicateScanProgressPublishesMonotonicallyThenResets() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // 120 same-size files with pairwise-distinct content: every one is a size-collision
+        // hash candidate, so the every-50 progress cadence fires mid-scan (50, 100) as well
+        // as the final done == total update.
+        for i in 0..<120 {
+            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+        }
+
+        let manager = FileSyncManager()
+        manager.duplicateScanProgress = (completed: 3, total: 9)   // stale; scan start must clear it
+
+        var observed: [(completed: Int, total: Int)?] = []
+        let sub = manager.$duplicateScanProgress.sink { observed.append($0) }
+        defer { sub.cancel() }
+
+        await manager.findDuplicates(root: root)
+
+        // Drop the sink's initial replay (the stale value); everything after comes from the scan.
+        let published = Array(observed.dropFirst())
+        try #require(!published.isEmpty)
+        #expect(published.first! == nil)   // reset to nil on scan start (walk phase, total unknown)
+
+        let numeric = published.compactMap { $0 }
+        try #require(!numeric.isEmpty)
+        #expect(numeric.allSatisfy { $0.total == 120 })                 // total constant while hashing
+        #expect(zip(numeric, numeric.dropFirst()).allSatisfy { $0.completed <= $1.completed })  // monotonic
+        #expect(numeric.contains { $0.completed >= 50 })                // mid-hash updates arrived
+        #expect(numeric.allSatisfy { $0.completed <= $0.total })
+
+        // Nil after completion — and stays nil once any straggler main-actor hops drain
+        // (the epoch bump in findDuplicates' defer makes them drop themselves).
+        #expect(manager.duplicateScanProgress == nil)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(manager.duplicateScanProgress == nil)
+    }
+
+    @MainActor
+    @Test func duplicateScanProgressResetsOnCancel() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        for i in 0..<8 {
+            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+        }
+
+        let manager = FileSyncManager()
+        manager.startFindDuplicates(root: root)
+        manager.cancelFindDuplicates()
+        await manager.duplicateScanTask?.value   // let the cancelled scan unwind
+
+        #expect(manager.duplicateScanProgress == nil)
+        #expect(manager.isFindingDuplicates == false)
+        for _ in 0..<20 { await Task.yield() }
+        #expect(manager.duplicateScanProgress == nil)   // no stale republish after cancel
     }
 
     // MARK: Overlapping merge

@@ -104,6 +104,12 @@ public class FileSyncManager: ObservableObject {
     @Published public var isFindingDuplicates = false
     /// Human-readable progress for the running duplicate scan (e.g. "Hashing 340 candidates").
     @Published public var duplicateScanStatus: String? = nil
+    /// Numeric progress for the duplicate scan's hashing phase; nil during the walk phase (total
+    /// unknown) and whenever no scan is running. Drives the determinate bar in Tidy.
+    @Published public var duplicateScanProgress: (completed: Int, total: Int)? = nil
+    /// Bumped when a duplicate scan starts or ends, so main-actor progress hops scheduled by a
+    /// finished/cancelled scan drop themselves instead of republishing stale status or numbers.
+    var duplicateScanEpoch = 0
     /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
     @Published public var hasFoundDuplicates = false
     /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).

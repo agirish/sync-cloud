@@ -64,12 +64,19 @@ extension FileSyncManager {
         let fileManager = fm ?? self.fileManager
         isFindingDuplicates = true
         duplicateScanStatus = "Scanning \(root.lastPathComponent)…"
+        duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
         duplicateScanRoot = root.path
+        duplicateScanEpoch += 1
+        let epoch = duplicateScanEpoch
         // hasFoundDuplicates is set only on completion (below), so a cancelled scan leaves the
         // prior state intact rather than flashing an empty "no duplicates".
         defer {
+            // Bump the epoch so hashing-progress hops still in the main-actor queue can't
+            // republish status/numbers after this scan has ended (or into the next scan).
+            duplicateScanEpoch += 1
             isFindingDuplicates = false
             duplicateScanStatus = nil
+            duplicateScanProgress = nil
         }
 
         // 1. Walk the full subtree (off-main inside buildTree).
@@ -90,9 +97,14 @@ extension FileSyncManager {
 
         let total = candidatePaths.count
         duplicateScanStatus = "Hashing \(total) candidate\(total == 1 ? "" : "s")…"
+        duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
         let realHashes = await Self.hashFiles(candidatePaths, fileManager: fileManager) { [weak self] done in
             if done % 50 == 0 || done == total {
-                Task { @MainActor in self?.duplicateScanStatus = "Hashing \(done) of \(total)…" }
+                Task { @MainActor in
+                    guard let self, self.duplicateScanEpoch == epoch else { return }
+                    self.duplicateScanStatus = "Hashing \(done) of \(total)…"
+                    self.duplicateScanProgress = (completed: done, total: total)
+                }
             }
         }
         if Task.isCancelled { return }

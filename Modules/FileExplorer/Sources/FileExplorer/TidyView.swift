@@ -285,8 +285,18 @@ public struct TidyView: View {
 
     private var scanningState: some View {
         VStack(spacing: 14) {
-            ProgressView()
-                .controlSize(.large)
+            // Determinate linear bar once the hashing phase knows exact counts (matches the
+            // Differences syncProgressRow look); indeterminate spinner during the walk phase.
+            if let progress = syncManager.duplicateScanProgress, progress.total > 0 {
+                let completed = min(progress.completed, progress.total)
+                ProgressView(value: Double(completed), total: Double(progress.total))
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 320)
+                    .accessibilityValue("\(completed.formatted()) of \(progress.total.formatted())")
+            } else {
+                ProgressView()
+                    .controlSize(.large)
+            }
             Text(syncManager.duplicateScanStatus ?? "Analyzing…")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
