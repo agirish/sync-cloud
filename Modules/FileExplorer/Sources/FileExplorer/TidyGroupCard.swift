@@ -15,6 +15,7 @@ struct TidyGroupCard: View {
     let onReveal: () -> Void
     let onKeepSeparate: () -> Void
     let onChooseKeeper: (String) -> Void
+    let onMerge: () -> Void
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
@@ -247,7 +248,8 @@ struct TidyGroupCard: View {
             return "The newest version is kept; older versions move to the Trash and can be restored with Undo."
         case .overlapping(let f):
             let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
-            return "These folders share \(Int((f * 100).rounded()))% of their contents; the other copies add \(unique) unique item\(unique == 1 ? "" : "s"). Additive merge is coming soon — for now, reveal and reconcile them by hand, or keep them separate."
+            let many = group.redundantCopies.count != 1
+            return "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
         case .nameOnly:
             return "Same name, different contents — likely two unrelated things. Tidy won't remove either; keep them separate, or rename one to disambiguate."
         }
@@ -260,6 +262,12 @@ struct TidyGroupCard: View {
             if group.isFullyResolvableByRemoval {
                 Button(action: onApply) {
                     Label(applyTitle, systemImage: "trash")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            } else if group.matchType.kind == .overlapping {
+                Button(action: onMerge) {
+                    Label("Merge into keeper", systemImage: "arrow.triangle.merge")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)

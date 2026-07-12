@@ -181,6 +181,74 @@ import Foundation
         #expect(manager.duplicateGroups.isEmpty)
     }
 
+    // MARK: Overlapping merge
+
+    @Test func planMergeCopiesUniqueButNotProvablySharedFiles() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
+        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)   // same content as keeper's
+        try write(redundant.appendingPathComponent("sub/unique.txt"), bytes: 5000, fill: 0x52)
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        let srcNames = plan.map { $0.src.lastPathComponent }
+
+        #expect(srcNames.contains("unique.txt"))          // content the keeper lacks → copied
+        #expect(!srcNames.contains("shared.txt"))         // provably already in keeper → skipped
+        // Destination preserves the relative layout under the keeper.
+        let uniqueStep = try #require(plan.first { $0.src.lastPathComponent == "unique.txt" })
+        #expect(uniqueStep.dst.path == keeper.appendingPathComponent("sub/unique.txt").path)
+    }
+
+    @MainActor
+    @Test func mergeFoldsUniqueFilesThenTrashesRedundant() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let rName = "Folded-\(UUID().uuidString)"
+        let redundant = base.appendingPathComponent(rName)
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(keeper.appendingPathComponent("keeper-only.txt"), bytes: 5000, fill: 0x4B)
+        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
+        // The redundant folder is trashed to ~/.Trash on success — clean it up.
+        defer {
+            let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
+            try? FileManager.default.removeItem(at: trashed)
+        }
+
+        let manager = FileSyncManager()
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 10000, itemCount: 2,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+        await waitUntil("redundant folder trashed") { !FileManager.default.fileExists(atPath: redundant.path) }
+
+        #expect(ok)
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("redundant-only.txt").path))  // unique folded in
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("keeper-only.txt").path))     // keeper intact
+        #expect(!FileManager.default.fileExists(atPath: redundant.path))                                            // redundant gone
+        #expect(manager.duplicateGroups.isEmpty)
+    }
+
+    @MainActor
+    @Test func mergeIsNoOpForNonOverlappingGroup() async throws {
+        let manager = FileSyncManager()
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1)
+        manager.duplicateGroups = [group]
+        let ok = await manager.mergeDuplicateGroup(group)
+        #expect(ok == false)
+        #expect(manager.duplicateGroups.count == 1)   // untouched
+    }
+
     @MainActor
     @Test func clearDuplicatesResetsScanState() {
         let manager = FileSyncManager()

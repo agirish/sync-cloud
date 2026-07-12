@@ -256,7 +256,8 @@ public struct TidyView: View {
                         onApply: { apply(group) },
                         onReveal: { reveal(group) },
                         onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
-                        onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) }
+                        onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
+                        onMerge: { merge(group) }
                     )
                 }
             }
@@ -378,6 +379,18 @@ public struct TidyView: View {
         )
         guard ok else { return }
         Task { await syncManager.applyRecommendedDuplicates() }
+    }
+
+    private func merge(_ group: DuplicateGroup) {
+        let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
+        let many = group.redundantCopies.count != 1
+        let ok = NativeAlerts.confirmDestructive(
+            messageText: "Merge \"\(group.name)\" into one folder?",
+            informativeText: "Copies \(unique) unique item\(unique == 1 ? "" : "s") into \"\(group.keeper.name)\", then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
+            confirmTitle: "Merge"
+        )
+        guard ok else { return }
+        Task { await syncManager.mergeDuplicateGroup(group) }
     }
 
     private func reveal(_ group: DuplicateGroup) {

@@ -147,6 +147,110 @@ extension FileSyncManager {
         }
     }
 
+    // MARK: Overlapping merge
+
+    /// Additively merges an overlapping group's redundant copies into its keeper: copies every
+    /// file the keeper doesn't already have into it, then moves the now-fully-contained copy to
+    /// the Trash. Safe by construction — a file is skipped only if its content is *provably*
+    /// already in the keeper (a known, matching hash); anything unhashable is copied, so trashing
+    /// the folded copy can never lose data. Reversible with Undo.
+    @discardableResult
+    public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
+        guard case .overlapping = group.matchType else { return false }
+        let keeperURL = URL(fileURLWithPath: group.keeper.path)
+        let fm = fileManager
+        var totalFolded = 0
+        var progressed = false
+
+        for redundant in group.redundantCopies {
+            let rURL = URL(fileURLWithPath: redundant.path)
+            let plan = await Self.planMerge(from: rURL, into: keeperURL, fileManager: fm)
+
+            let outcome: (copied: [CopyItemState], failed: Bool) = await enqueueFileOperation {
+                var copied: [CopyItemState] = []
+                var failed = false
+                var reserved = Set<String>()
+                for step in plan {
+                    do {
+                        try FileSyncManager.ensureParentDirectoryExists(for: step.dst, fileManager: fm)
+                        var dst = step.dst
+                        if fm.fileExists(atPath: dst.path) || reserved.contains(dst.path) {
+                            dst = FileSyncManager.generateUniqueURL(for: step.dst, fileManager: fm, reserved: reserved)
+                        }
+                        reserved.insert(dst.path)
+                        let overwritten = try FileSyncManager.safeCopyItem(at: step.src, to: dst, fileManager: fm)
+                        copied.append((source: step.src, destination: dst, overwritten: overwritten))
+                    } catch {
+                        failed = true
+                        break
+                    }
+                }
+                return (copied, failed)
+            }
+
+            if !outcome.copied.isEmpty {
+                registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm)
+                totalFolded += outcome.copied.count
+                progressed = true
+            }
+            if outcome.failed {
+                // Leave the redundant copy in place so nothing is trashed after a partial copy;
+                // the group stays so the user can retry (already-copied files are skipped next time).
+                present(.syncFailed(item: redundant.name, path: redundant.path,
+                                    reason: "Some files couldn't be merged; the folder was left in place."))
+                return progressed
+            }
+
+            // Every file in the redundant copy is now present in the keeper → safe to trash it.
+            let removed = await deleteItems(at: [redundant.path], fileManager: fm)
+            if removed > 0 { progressed = true }
+        }
+
+        guard progressed else { return false }
+        duplicateGroups.removeAll { $0.id == group.id }
+        banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name). Press ⌘Z to undo")
+        return true
+    }
+
+    /// Plans the additive merge of `rURL` into `kURL`: the files under `rURL` whose content the
+    /// keeper does NOT provably already have, mapped to their destination under the keeper.
+    /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
+    /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
+    nonisolated static func planMerge(
+        from rURL: URL, into kURL: URL, fileManager fm: FileManaging
+    ) async -> [(src: URL, dst: URL)] {
+        let kFiles = flattenFiles(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
+        let keeperHashes = Set(await hashFiles(kFiles.map { $0.id }, fileManager: fm).values)
+
+        let rItems = flattenFilesWithRelativePaths(await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil))
+        let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm)
+
+        var plan: [(src: URL, dst: URL)] = []
+        for item in rItems {
+            // Skip ONLY when we can prove the keeper already has this content.
+            if let h = rHashes[item.id], keeperHashes.contains(h) { continue }
+            plan.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
+        }
+        return plan
+    }
+
+    /// Flattens a walked tree into (relative path, absolute path) leaf pairs, accumulating the
+    /// relative path from node names during the walk.
+    nonisolated static func flattenFilesWithRelativePaths(
+        _ nodes: [FileNode], prefix: String = ""
+    ) -> [(rel: String, id: String)] {
+        var out: [(rel: String, id: String)] = []
+        for n in nodes {
+            let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+            if n.isDirectory {
+                out.append(contentsOf: flattenFilesWithRelativePaths(n.children ?? [], prefix: rel))
+            } else {
+                out.append((rel: rel, id: n.id))
+            }
+        }
+        return out
+    }
+
     /// Removes a group from the list without touching disk (in-memory only).
     public func dismissDuplicateGroup(_ group: DuplicateGroup) {
         duplicateGroups.removeAll { $0.id == group.id }
