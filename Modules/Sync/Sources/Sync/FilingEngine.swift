@@ -20,14 +20,19 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// Trailing path segments that don't exist yet and would be created on apply (e.g. ["Tesla",
     /// "Insurance"]). Empty when the whole path already exists.
     public let newSegments: [String]
+    /// True when the deciding signal came from the file's *contents* (F2), not its name. Such
+    /// matches are capped to medium confidence and excluded from the blind "File recommended"
+    /// batch — reading a common word out of a document is a weaker signal than a filename.
+    public let fromContent: Bool
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String]) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
         self.newSegments = newSegments
+        self.fromContent = fromContent
     }
 }
 
@@ -44,6 +49,9 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
 
     public var best: FilingDestination? { candidates.first }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
+    /// Eligible for the blind "File recommended" batch: a confident home derived from the filename
+    /// (not content). Content-derived homes still show a per-file "File here" but aren't auto-filed.
+    public var isBatchEligible: Bool { hasConfidentHome && best?.fromContent == false }
 
     public init(filePath: String, fileName: String, size: Int, modificationDate: Date?, candidates: [FilingDestination]) {
         self.id = filePath
@@ -102,29 +110,27 @@ public enum FilingEngine {
         for node in taxonomy {
             collectProfiles(node, ancestorTokens: [], into: &profiles, paths: &existingPaths, options: options)
         }
-        let looseSet = Set(looseFiles.map { $0.id })
 
         return looseFiles.compactMap { file -> FilingSuggestion? in
             guard !file.isDirectory else { return nil }
             guard !options.ignoredNames.contains(file.name) else { return nil }
             guard (file.fileSize ?? 0) >= options.minFileSize else { return nil }
 
+            let nameToks = fileTokens(file.name)
             let content = contentTokens[file.id] ?? []
-            let tokens = fileTokens(file.name).union(content)
+            let tokens = nameToks.union(content)
             let ext = (file.name as NSString).pathExtension.lowercased()
             let year = yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
-            candidates += taxonomyCandidates(tokens: tokens, contentTokens: content, profiles: profiles)
-            candidates += ruleCandidates(tokens: tokens, contentTokens: content, nameLower: file.name.lowercased(),
-                                         ext: ext, year: year, profiles: profiles, existingPaths: existingPaths,
-                                         providerRoot: providerRoot)
+            candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
+            candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
+                                         nameLower: file.name.lowercased(), ext: ext, year: year,
+                                         profiles: profiles, existingPaths: existingPaths, providerRoot: providerRoot)
 
             // A file already sitting in a suggested folder shouldn't be told to move to where it is.
             let selfParent = (file.id as NSString).deletingLastPathComponent
             candidates.removeAll { $0.path == selfParent }
-            // Don't suggest moving a file into another loose file's slot (defensive).
-            candidates.removeAll { looseSet.contains($0.path) }
 
             let ranked = rank(candidates, limit: options.maxCandidates)
             return FilingSuggestion(filePath: file.id, fileName: file.name,
@@ -167,24 +173,27 @@ public enum FilingEngine {
     }
 
     /// Existing folders whose profile overlaps the file's tokens, as ranked destinations.
-    private static func taxonomyCandidates(tokens: Set<String>, contentTokens: Set<String>, profiles: [FolderProfile]) -> [FilingDestination] {
+    private static func taxonomyCandidates(tokens: Set<String>, nameTokens: Set<String>,
+                                           contentTokens: Set<String>, profiles: [FolderProfile]) -> [FilingDestination] {
         guard !tokens.isEmpty else { return [] }
-        let nameOnly = tokens.subtracting(contentTokens)
         var out: [FilingDestination] = []
         for p in profiles {
             let nameHits = tokens.intersection(p.nameTokens)
             let contentHits = tokens.intersection(p.contentTokens).subtracting(nameHits)
             let score = nameHits.count * 3 + contentHits.count
             guard score >= 3 else { continue }   // a folder-name hit, or ≥3 content hits
-            let confidence: FilingConfidence = !nameHits.isEmpty ? .high : .medium
             let hitSet = nameHits.union(contentHits)
             let hits = hitSet.sorted().prefix(3).joined(separator: ", ")
-            // The match came purely from the file's contents when none of the hits are in the name.
-            let fromContent = hitSet.isDisjoint(with: nameOnly) && !hitSet.isDisjoint(with: contentTokens)
+            // Content-derived when the deciding tokens are NOT in the filename (compare to the real
+            // filename tokens, so a token in BOTH name and content counts as from the name).
+            let fromContent = hitSet.isDisjoint(with: nameTokens) && !hitSet.isDisjoint(with: contentTokens)
+            let base: FilingConfidence = !nameHits.isEmpty ? .high : .medium
+            let confidence = fromContent ? min(base, .medium) : base
             let reason = fromContent
                 ? "Matches “\(hits)” read from the file, in a folder you already keep"
                 : "Matches “\(hits)” in a folder you already keep"
-            out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason], newSegments: []))
+            out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
+                                         newSegments: [], fromContent: fromContent))
         }
         return out
     }
@@ -192,22 +201,26 @@ public enum FilingEngine {
     // MARK: Universal rules
 
     private static func ruleCandidates(
-        tokens: Set<String>, contentTokens: Set<String>, nameLower: String, ext: String, year: String?,
-        profiles: [FolderProfile], existingPaths: Set<String>, providerRoot: String
+        tokens: Set<String>, nameTokens: Set<String>, contentTokens: Set<String>, nameLower: String,
+        ext: String, year: String?, profiles: [FolderProfile], existingPaths: Set<String>, providerRoot: String
     ) -> [FilingDestination] {
         var out: [FilingDestination] = []
-        let nameOnly = tokens.subtracting(contentTokens)
-        // Appends a note when the triggering signal was found only in the file's contents.
-        func note(_ signal: Set<String>) -> String {
-            (signal.isDisjoint(with: nameOnly) && !signal.isDisjoint(with: contentTokens)) ? " (read from the file)" : ""
+        // A signal is "from content" when none of its tokens appear in the filename. Content-derived
+        // matches are capped to medium (a common word in a document is weaker than a filename) and
+        // get a "(read from the file)" note, which also keeps them out of the blind batch apply.
+        func rule(_ anchor: String, _ segs: [String], _ base: FilingConfidence, _ reason: String, signal: Set<String>) {
+            let fc = signal.isDisjoint(with: nameTokens) && !signal.isDisjoint(with: contentTokens)
+            out.append(under(anchor, segs, existingPaths,
+                             fc ? min(base, .medium) : base,
+                             reason + (fc ? " (read from the file)" : ""), fromContent: fc))
         }
 
-        // Photos → <Photos folder>/<year>, or a proposed Photos/<year> at the root.
+        // Photos → <Photos folder>/<year>, or a proposed Photos/<year> at the root (extension-based).
         if photoExtensions.contains(ext), let year {
             if let photos = existingFolder(named: ["photos", "pictures", "images", "camera roll"], in: profiles) {
-                out.append(under(photos, [year], existingPaths, .high, "Photo — filed by capture year"))
+                rule(photos, [year], .high, "Photo — filed by capture year", signal: [])
             } else {
-                out.append(under(providerRoot, ["Photos", year], existingPaths, .medium, "Photo — suggested Photos/\(year)"))
+                rule(providerRoot, ["Photos", year], .medium, "Photo — suggested Photos/\(year)", signal: [])
             }
         }
 
@@ -221,27 +234,30 @@ public enum FilingEngine {
                 segs.append("Insurance"); reason = "\(brand.capitalized) insurance document"
                 signal.formUnion(tokens.intersection(insuranceTokens))
             }
-            out.append(under(vehicles, segs, existingPaths, .medium, reason + note(signal)))
+            rule(vehicles, segs, .medium, reason, signal: signal)
         }
 
         // Receipts / invoices / orders → <Receipts>/<year> or <Finance|Documents>/Receipts/<year>.
         let receiptSig = tokens.intersection(receiptTokens)
         if !receiptSig.isEmpty, let year {
             if let receipts = existingFolder(named: ["receipts", "invoices", "purchases", "orders"], in: profiles) {
-                out.append(under(receipts, [year], existingPaths, .high, "Receipt or invoice — filed by year" + note(receiptSig)))
+                rule(receipts, [year], .high, "Receipt or invoice — filed by year", signal: receiptSig)
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
-                out.append(under(finance, ["Receipts", year], existingPaths, .medium, "Receipt or invoice — suggested Receipts/\(year)" + note(receiptSig)))
+                rule(finance, ["Receipts", year], .medium, "Receipt or invoice — suggested Receipts/\(year)", signal: receiptSig)
             }
         }
 
         // Tax documents → <Taxes>/<year> or <Finance|Documents>/Taxes/<year>. Form numbers like
-        // 1099/1040 are pure numbers (stripped from tokens), so also sniff the raw filename.
+        // 1099/1040 are bare digits (stripped from filename tokens), so also sniff the raw name —
+        // when they're in the NAME the match is a name signal (not content).
         let taxSig = tokens.intersection(taxTokens)
-        if !taxSig.isEmpty || nameLower.contains("1099") || nameLower.contains("1040"), let year {
+        let taxFromName = nameLower.contains("1099") || nameLower.contains("1040")
+        if !taxSig.isEmpty || taxFromName, let year {
+            let taxSignal: Set<String> = taxFromName ? [] : taxSig
             if let taxes = existingFolder(named: ["taxes", "tax"], in: profiles) {
-                out.append(under(taxes, [year], existingPaths, .high, "Tax document — filed by year" + note(taxSig)))
+                rule(taxes, [year], .high, "Tax document — filed by year", signal: taxSignal)
             } else if let finance = existingFolder(named: ["finance", "documents", "financial"], in: profiles) {
-                out.append(under(finance, ["Taxes", year], existingPaths, .medium, "Tax document — suggested Taxes/\(year)" + note(taxSig)))
+                rule(finance, ["Taxes", year], .medium, "Tax document — suggested Taxes/\(year)", signal: taxSignal)
             }
         }
 
@@ -249,7 +265,7 @@ public enum FilingEngine {
         let stmtSig = tokens.intersection(statementTokens)
         if !stmtSig.isEmpty, let year,
            let base = existingFolder(named: ["statements", "bank", "banking", "finance"], in: profiles) {
-            out.append(under(base, [year], existingPaths, .medium, "Statement — filed by year" + note(stmtSig)))
+            rule(base, [year], .medium, "Statement — filed by year", signal: stmtSig)
         }
 
         return out
@@ -258,7 +274,7 @@ public enum FilingEngine {
     /// Builds a destination under an EXISTING anchor folder, appending segments and marking which
     /// are new (don't yet exist).
     private static func under(_ anchor: String, _ segments: [String], _ existingPaths: Set<String>,
-                             _ confidence: FilingConfidence, _ reason: String) -> FilingDestination {
+                             _ confidence: FilingConfidence, _ reason: String, fromContent: Bool = false) -> FilingDestination {
         var path = anchor
         var newSegments: [String] = []
         var creating = false
@@ -269,7 +285,8 @@ public enum FilingEngine {
                 newSegments.append(seg)
             }
         }
-        return FilingDestination(path: path, confidence: confidence, reasons: [reason], newSegments: newSegments)
+        return FilingDestination(path: path, confidence: confidence, reasons: [reason],
+                                 newSegments: newSegments, fromContent: fromContent)
     }
 
     private static func existingFolder(named candidates: [String], in profiles: [FolderProfile]) -> String? {
@@ -285,10 +302,10 @@ public enum FilingEngine {
         var byPath: [String: FilingDestination] = [:]
         for c in candidates {
             if let existing = byPath[c.path] {
-                let best = c.confidence > existing.confidence ? c : existing
-                byPath[c.path] = FilingDestination(path: c.path, confidence: best.confidence,
+                let winner = c.confidence > existing.confidence ? c : existing
+                byPath[c.path] = FilingDestination(path: c.path, confidence: winner.confidence,
                                                    reasons: Array(Set(existing.reasons + c.reasons)).sorted(),
-                                                   newSegments: best.newSegments)
+                                                   newSegments: winner.newSegments, fromContent: winner.fromContent)
             } else {
                 byPath[c.path] = c
             }
@@ -297,6 +314,10 @@ public enum FilingEngine {
             if a.confidence != b.confidence { return a.confidence > b.confidence }
             if a.isNew != b.isNew { return !a.isNew }                    // prefer existing folders
             if a.newSegments.count != b.newSegments.count { return a.newSegments.count < b.newSegments.count }
+            // Among equally-good matches, prefer the shallower, more general folder — so a generic
+            // doc lands in top-level /Insurance, not a nested namesake like /Health/Insurance.
+            let da = a.path.split(separator: "/").count, db = b.path.split(separator: "/").count
+            if da != db { return da < db }
             return a.path.localizedStandardCompare(b.path) == .orderedAscending
         }.prefix(limit).map { $0 }
     }
@@ -371,6 +392,7 @@ public enum FilingEngine {
     static let receiptTokens: Set<String> = ["receipt", "invoice", "order", "purchase", "amazon", "billing", "bill"]
     // 1099/1040 are useful as *content* tokens (the filename path also sniffs them raw, since the
     // tokenizer strips bare numbers from filenames).
-    static let taxTokens: Set<String> = ["tax", "taxes", "1099", "1040", "irs", "return"]
+    // "return" was dropped — too ambiguous in document body text (product returns, etc.).
+    static let taxTokens: Set<String> = ["tax", "taxes", "1099", "1040", "irs"]
     static let statementTokens: Set<String> = ["statement", "bank", "chase", "amex", "visa", "mastercard", "wells", "fargo"]
 }

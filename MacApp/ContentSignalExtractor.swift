@@ -8,10 +8,12 @@ import Sync
 /// On-device content signals for Filing (F2). Given a file, it reads a bounded amount of text —
 /// PDF text via PDFKit, image/scan text via Vision OCR, or a plain-text head — and pulls
 /// entity/keyword tokens via NaturalLanguage. Nothing leaves the device. Returns an empty set for
-/// unsupported types or when nothing useful is found.
+/// unsupported types, evicted iCloud files, or when nothing useful is found.
+///
+/// The heavy synchronous work (PDF parse, OCR) runs on a dedicated queue so it never blocks the
+/// Swift cooperative thread pool.
 enum ContentSignalExtractor {
 
-    /// Cap the text we analyze so a huge PDF/scan stays fast.
     private static let maxTextChars = 20_000
     private static let maxTokens = 40
     private static let maxPDFPages = 5
@@ -19,15 +21,30 @@ enum ContentSignalExtractor {
     private static let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "tiff", "tif", "gif", "bmp"]
     private static let textExtensions: Set<String> = ["txt", "md", "markdown", "csv", "tsv", "log", "text"]
 
+    /// Dedicated concurrent queue — keeps synchronous PDF/OCR work off the cooperative executor.
+    private static let workQueue = DispatchQueue(label: "com.synccloud.content-signals",
+                                                 qos: .utility, attributes: .concurrent)
+
     /// The seam the manager injects: `syncManager.filingContentExtractor = ContentSignalExtractor.tokens(forFileAt:)`.
     static func tokens(forFileAt path: String) async -> Set<String> {
+        await withCheckedContinuation { continuation in
+            workQueue.async { continuation.resume(returning: extractSync(path)) }
+        }
+    }
+
+    // MARK: Extraction (runs on workQueue)
+
+    private static func extractSync(_ path: String) -> Set<String> {
         let url = URL(fileURLWithPath: path)
+        // Never force-download an evicted iCloud file just to peek at its contents.
+        guard !isEvictediCloudFile(url) else { return [] }
+
         let ext = url.pathExtension.lowercased()
         let text: String
         if ext == "pdf" {
             text = pdfText(url)
         } else if imageExtensions.contains(ext) {
-            text = await ocrText(url)
+            text = ocrText(url)
         } else if textExtensions.contains(ext) {
             text = plainText(url)
         } else {
@@ -37,7 +54,13 @@ enum ContentSignalExtractor {
         return tokens(fromText: text)
     }
 
-    // MARK: Text extraction
+    /// True when the file is an iCloud item that isn't currently downloaded locally.
+    private static func isEvictediCloudFile(_ url: URL) -> Bool {
+        guard let vals = try? url.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey]),
+              vals.isUbiquitousItem == true,
+              let status = vals.ubiquitousItemDownloadingStatus else { return false }
+        return status != .current
+    }
 
     private static func pdfText(_ url: URL) -> String {
         guard let doc = PDFDocument(url: url) else { return "" }
@@ -54,24 +77,23 @@ enum ContentSignalExtractor {
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func ocrText(_ url: URL) async -> String {
+    /// Synchronous OCR: Vision's `.fast` CPU recognizer runs `perform` inline and populates
+    /// `request.results`, so we read the results directly — no completion-handler continuation
+    /// (which risked a double-resume crash or a never-resume hang).
+    private static func ocrText(_ url: URL) -> String {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return "" }
-        return await withCheckedContinuation { continuation in
-            let request = VNRecognizeTextRequest { req, _ in
-                let text = (req.results as? [VNRecognizedTextObservation])?
-                    .compactMap { $0.topCandidates(1).first?.string }
-                    .joined(separator: " ") ?? ""
-                continuation.resume(returning: text)
-            }
-            request.recognitionLevel = .fast
-            request.usesLanguageCorrection = false
-            let handler = VNImageRequestHandler(cgImage: image, options: [:])
-            do { try handler.perform([request]) } catch { continuation.resume(returning: "") }
-        }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .fast
+        request.usesLanguageCorrection = false
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        do { try handler.perform([request]) } catch { return "" }
+        return (request.results ?? [])
+            .compactMap { $0.topCandidates(1).first?.string }
+            .joined(separator: " ")
     }
 
-    // MARK: Tokenization (testable)
+    // MARK: Tokenization (pure, testable)
 
     /// Entity + category-keyword tokens from a block of text, using the same tokenizer as the
     /// FilingEngine so content and filename tokens are comparable.

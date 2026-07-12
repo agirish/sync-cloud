@@ -159,7 +159,7 @@ public struct TidyView: View {
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
     private var filingRecommendedCount: Int {
-        syncManager.filingSuggestions.filter { $0.hasConfidentHome }.count
+        syncManager.filingSuggestions.filter { $0.isBatchEligible }.count
     }
 
     private var fileAllButton: some View {
@@ -460,7 +460,7 @@ public struct TidyView: View {
     }
 
     private func applyRecommendedFiling() {
-        let batch = syncManager.filingSuggestions.filter { $0.hasConfidentHome }
+        let batch = syncManager.filingSuggestions.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
         let newFolders = batch.filter { $0.best?.isNew == true }.count
         let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""

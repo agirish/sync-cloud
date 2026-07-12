@@ -62,30 +62,35 @@ extension FileSyncManager {
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
-        // Phase 1 — filename + metadata + your taxonomy.
+        // Phase 1 — filename + metadata + your taxonomy (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                providerRoot: providerRoot.path, options: options)
         if Task.isCancelled { return }
-        self.filingSuggestions = suggestions
-        hasSuggestedFiling = true
 
-        // Phase 2 — read contents on-device for the files with no confident home, then re-suggest.
-        guard filingReadsContents, let extractor = filingContentExtractor else { return }
-        let unsure = suggestions.filter { !$0.hasConfidentHome }
-        guard !unsure.isEmpty else { return }
-        filingScanStatus = "Reading \(unsure.count) document\(unsure.count == 1 ? "" : "s")…"
-        let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
-        if Task.isCancelled || content.isEmpty { return }
-        suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                           providerRoot: providerRoot.path, contentTokens: content, options: options)
+        // Phase 2 — for the files with no confident home, read their contents on-device and
+        // re-suggest with those tokens merged in.
+        if filingReadsContents, let extractor = filingContentExtractor {
+            let unsure = suggestions.filter { !$0.hasConfidentHome }
+            if !unsure.isEmpty {
+                filingScanStatus = "Reading \(unsure.count) document\(unsure.count == 1 ? "" : "s")…"
+                let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
+                if Task.isCancelled { return }
+                if !content.isEmpty {
+                    suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
+                                                       providerRoot: providerRoot.path, contentTokens: content, options: options)
+                }
+            }
+        }
+
         if Task.isCancelled { return }
-        self.filingSuggestions = suggestions
+        self.filingSuggestions = suggestions   // single publish
+        hasSuggestedFiling = true
     }
 
     /// True when Filing may read file contents (on-device) to improve suggestions. Default on.
     public static let readContentsDefaultsKey = "tidyFilingReadContents"
     var filingReadsContents: Bool {
-        (UserDefaults.standard.object(forKey: Self.readContentsDefaultsKey) as? Bool) ?? true
+        (filingContentDefaults.object(forKey: Self.readContentsDefaultsKey) as? Bool) ?? true
     }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
@@ -119,31 +124,51 @@ extension FileSyncManager {
 
     // MARK: Apply
 
+    private enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
+
     /// Moves the suggestion's file into the chosen destination, creating any new folders in the
     /// path, and drops it from the list. Reversible with Undo (⌘Z). Never overwrites — a name
     /// collision keeps both by uniquifying.
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> Bool {
-        let ok = await performFiling(suggestion, to: destination)
-        if ok, currentError == nil {
+        switch await performFiling(suggestion, to: destination) {
+        case .moved(let move):
+            registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo")
+            return true
+        case .noMoveNeeded:
+            return true   // the chosen folder is where the file already lives — nothing to do
+        case .failed:
+            return false
         }
-        return ok
     }
 
-    /// Files every suggestion that has a confident home into its best destination.
+    /// Files every batch-eligible suggestion (a confident home derived from the filename) into its
+    /// best destination, as one undoable batch.
     public func applyRecommendedFiling() async {
-        let batch = filingSuggestions.filter { $0.hasConfidentHome }
+        let batch = filingSuggestions.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
-        var filed = 0
+        var moves: [MoveItemState] = []
+        var failures = 0
         for s in batch {
             guard let dest = s.best else { continue }
-            if await performFiling(s, to: dest) { filed += 1 }
+            switch await performFiling(s, to: dest) {
+            case .moved(let move): moves.append(move)
+            case .noMoveNeeded: break
+            case .failed: failures += 1
+            }
         }
-        if filed > 0, currentError == nil {
-            banner = .success("Filed \(filed) file\(filed == 1 ? "" : "s"). Press ⌘Z to undo")
+        guard !moves.isEmpty else {
+            if failures > 0 { banner = .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").") }
+            return
         }
+        // One undo action reverts the whole batch, so ⌘Z is honest.
+        registerMoveUndo(items: moves, actionName: "File \(moves.count) Items", fileManager: fileManager)
+        let n = moves.count
+        banner = failures > 0
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo")
+            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo")
     }
 
     /// Removes a suggestion without moving anything ("Not here" / leave it).
@@ -151,12 +176,17 @@ extension FileSyncManager {
         filingSuggestions.removeAll { $0.id == suggestion.id }
     }
 
-    /// The move + undo + list-drop, without a banner (so batch shows a single summary).
-    @discardableResult
-    private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> Bool {
+    /// The move + list-drop (no undo registration — the caller registers, so a batch is one undo).
+    private func performFiling(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> FilingOutcome {
         let fm = fileManager
         let src = URL(fileURLWithPath: suggestion.filePath)
         let destFolder = URL(fileURLWithPath: destination.path)
+
+        // No-op: the chosen folder IS the file's current folder — leave it, don't rename to "(2)".
+        if destFolder.standardizedFileURL.path == src.deletingLastPathComponent().standardizedFileURL.path {
+            filingSuggestions.removeAll { $0.id == suggestion.id }
+            return .noMoveNeeded
+        }
 
         let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool) = await enqueueFileOperation {
             do {
@@ -176,11 +206,9 @@ extension FileSyncManager {
         guard let moved = outcome.movedTo, !outcome.failed else {
             present(.syncFailed(item: suggestion.fileName, path: suggestion.filePath,
                                 reason: "Couldn't file this item; it was left in place."))
-            return false
+            return .failed
         }
-        registerMoveUndo(items: [(from: src, to: moved, overwritten: outcome.overwritten)],
-                         actionName: "File \(suggestion.fileName)", fileManager: fm)
         filingSuggestions.removeAll { $0.id == suggestion.id }
-        return true
+        return .moved((from: src, to: moved, overwritten: outcome.overwritten))
     }
 }

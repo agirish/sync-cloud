@@ -104,8 +104,46 @@ import Testing
         let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
                                                      providerRoot: "/root", contentTokens: content).first?.best)
         #expect(best.path == "/root/Documents/Invoices")
-        #expect(best.confidence == .high)
+        #expect(best.confidence == .medium)   // content-derived matches are capped to medium
         #expect(best.reasons.first?.contains("read from the file") == true)
+    }
+
+    @Test func contentDerivedMatchIsMediumAndNotBatchEligible() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Invoices", [])])]
+        let loose = [file("/root/Downloads/scan.pdf", modified: y2024)]
+        let content = ["/root/Downloads/scan.pdf": Set(["invoices"])]
+        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                  providerRoot: "/root", contentTokens: content).first)
+        #expect(s.best?.confidence == .medium)
+        #expect(s.hasConfidentHome)            // still offers a per-file "File here"
+        #expect(s.isBatchEligible == false)    // but never auto-filed by the batch
+        #expect(s.best?.fromContent == true)
+    }
+
+    @Test func reasonIsNotContentWhenTokenIsAlsoInTheName() throws {
+        let taxonomy = [dir("/root/Insurance", [])]
+        let loose = [file("/root/Downloads/insurance.pdf", modified: y2024)]
+        let content = ["/root/Downloads/insurance.pdf": Set(["insurance"])]   // also in the name
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", contentTokens: content).first?.best)
+        #expect(best.confidence == .high)                                     // name-derived → not capped
+        #expect(best.reasons.first?.contains("read from the file") == false)
+    }
+
+    @Test func rankPrefersTheShallowerNamesakeFolder() throws {
+        // A generic doc should land in top-level /Insurance, not a nested /Health/Insurance namesake.
+        let taxonomy = [dir("/root/Insurance", []),
+                        dir("/root/Health", [dir("/root/Health/Insurance", [])])]
+        let loose = [file("/root/Downloads/insurance renewal.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Insurance")
+    }
+
+    @Test func returnIsNoLongerATaxSignal() {
+        let taxonomy = [dir("/root/Taxes", [])]
+        let loose = [file("/root/Downloads/product return form.pdf", modified: y2024)]
+        let s = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        #expect(!(s.first?.candidates.contains { $0.path.contains("Taxes") } ?? false))
     }
 
     // MARK: No confident home

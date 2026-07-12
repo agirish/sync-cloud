@@ -135,6 +135,8 @@ public class FileSyncManager: ObservableObject {
     /// app (PDF text / OCR / NaturalLanguage). nil = filename-only (F1). Gated by the read-contents
     /// setting. Runs only on files with no confident home from their name.
     public var filingContentExtractor: (@Sendable (String) async -> Set<String>)?
+    /// Defaults store for the Filing read-contents toggle (injectable so tests don't touch standard).
+    public var filingContentDefaults: UserDefaults = .standard
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

@@ -104,6 +104,96 @@ import Foundation
     }
 
     @MainActor
+    @Test func applyingToTheFilesOwnFolderIsANoOpNotARename() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
+        try write(srcPath)
+
+        let manager = FileSyncManager()
+        let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
+                                 modificationDate: nil, candidates: [])
+        manager.filingSuggestions = [s]
+        let dest = FilingDestination(path: root.appendingPathComponent("Downloads").path,
+                                     confidence: .high, reasons: [], newSegments: [])
+
+        let ok = await manager.applyFilingSuggestion(s, to: dest)
+
+        #expect(ok)
+        #expect(FileManager.default.fileExists(atPath: srcPath.path))                                   // unchanged
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/report 2.pdf").path))
+        #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
+    }
+
+    @MainActor
+    @Test func batchFilingIsASingleUndo() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        let tesla = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
+        let toyota = root.appendingPathComponent("Downloads/Toyota Registration.pdf")
+        try write(tesla); try write(toyota)
+
+        let manager = FileSyncManager()
+        let undo = UndoManager()
+        manager.undoManager = undo
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        #expect(manager.filingSuggestions.filter { $0.isBatchEligible }.count == 2)
+
+        await manager.applyRecommendedFiling()
+        #expect(!FileManager.default.fileExists(atPath: tesla.path))
+        #expect(!FileManager.default.fileExists(atPath: toyota.path))
+
+        // A single ⌘Z reverts the whole batch.
+        #expect(undo.canUndo)
+        undo.undo()
+        await waitUntil("both files restored") {
+            FileManager.default.fileExists(atPath: tesla.path) && FileManager.default.fileExists(atPath: toyota.path)
+        }
+    }
+
+    @MainActor
+    @Test func batchSkipsContentDerivedSuggestions() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        let srcPath = root.appendingPathComponent("Downloads/scan0012.pdf")
+        try write(srcPath)
+
+        let manager = FileSyncManager()
+        manager.filingContentExtractor = { $0.hasSuffix("scan0012.pdf") ? ["tesla", "policy"] : [] }
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let scan = manager.filingSuggestions.first { $0.fileName == "scan0012.pdf" }
+        #expect(scan?.hasConfidentHome == true)     // content gave it a home
+        #expect(scan?.isBatchEligible == false)     // but content-derived → not batch-eligible
+
+        await manager.applyRecommendedFiling()
+        #expect(FileManager.default.fileExists(atPath: srcPath.path))   // the batch did NOT move it
+    }
+
+    @MainActor
+    @Test func readContentsToggleOffSkipsExtraction() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
+
+        let manager = FileSyncManager()
+        let suite = "FilingToggle-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        manager.filingContentDefaults.set(false, forKey: FileSyncManager.readContentsDefaultsKey)
+        // An extractor that WOULD give a home — proving it isn't consulted when the toggle is off.
+        manager.filingContentExtractor = { _ in ["tesla", "policy"] }
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        let scan = manager.filingSuggestions.first { $0.fileName == "scan0012.pdf" }
+        #expect(scan?.hasConfidentHome == false)   // stayed no-home → contents were not read
+    }
+
+    @MainActor
     @Test func clearFilingResetsState() {
         let manager = FileSyncManager()
         manager.filingSuggestions = [FilingSuggestion(filePath: "/a/x", fileName: "x", size: 1,
