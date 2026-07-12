@@ -94,6 +94,10 @@ public struct TidyView: View {
     @State private var expanded: Set<UUID> = []
 
     private let providerName: String?
+    /// The folder a Filing rescan would target — the focused pane's current directory. Lets the
+    /// Filing lens name the folder up front and offer to rescan when the user has navigated away
+    /// from the folder the current results were scanned from.
+    private let filingTargetFolder: String?
     private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
@@ -101,12 +105,14 @@ public struct TidyView: View {
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
+        filingTargetFolder: String? = nil,
         leadingHeader: AnyView? = nil,
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {}
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
+        self.filingTargetFolder = filingTargetFolder
         self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
@@ -141,8 +147,9 @@ public struct TidyView: View {
                 Spacer(minLength: 0)
                 if lens == .duplicates, hasResults, recommendedCount > 0 {
                     applyAllButton
-                } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles, filingRecommendedCount > 0 {
-                    fileAllButton
+                } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
+                    rescanFilingButton
+                    if filingRecommendedCount > 0 { fileAllButton }
                 }
             }
             if lens == .duplicates, hasResults {
@@ -175,9 +182,59 @@ public struct TidyView: View {
         .disabled(syncManager.isSuggestingFiles)
     }
 
+    /// The folder a rescan would walk (the focused pane's current directory), by leaf name.
+    private var filingTargetName: String {
+        guard let f = filingTargetFolder, !f.isEmpty else { return "this folder" }
+        return (f as NSString).lastPathComponent
+    }
+
+    /// The leaf name of the folder the current results were scanned from.
+    private var scannedFolderName: String? {
+        syncManager.filingScanFolder.map { ($0 as NSString).lastPathComponent }
+    }
+
+    /// True once the user has navigated the pane to a different folder than the one the current
+    /// Filing results came from — the cue to offer scanning the new folder.
+    private var filingTargetMoved: Bool {
+        guard let target = filingTargetFolder, !target.isEmpty,
+              let scanned = syncManager.filingScanFolder else { return false }
+        return URL(fileURLWithPath: target).standardizedFileURL.path
+             != URL(fileURLWithPath: scanned).standardizedFileURL.path
+    }
+
+    /// Re-runs Filing on the focused folder. Becomes a prominent "Scan '<folder>'" once the user
+    /// has moved to a different directory, so navigating and rescanning is one obvious click.
+    @ViewBuilder
+    private var rescanFilingButton: some View {
+        if filingTargetMoved {
+            Button(action: onFindFilingSuggestions) {
+                Label("Scan “\(filingTargetName)”", systemImage: "folder.badge.gearshape")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(syncManager.isSuggestingFiles)
+            .help("Suggest homes for “\(filingTargetName)” — the folder now focused above")
+        } else {
+            Button(action: onFindFilingSuggestions) {
+                Label("Rescan", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(syncManager.isSuggestingFiles)
+            .help("Scan this folder again")
+        }
+    }
+
     private var filingSummaryRow: some View {
         let s = syncManager.filingSummary
         return HStack(spacing: 8) {
+            if let scannedFolderName {
+                Label(scannedFolderName, systemImage: "folder")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help("These suggestions are for “\(scannedFolderName)”")
+            }
             StatPill(count: s.fileCount, label: "loose files", color: .blue, systemImage: "doc")
             StatPill(count: s.withConfidentHome, label: "with a home", color: .green, systemImage: "checkmark.circle")
             if s.needNewFolders > 0 {
@@ -403,7 +460,7 @@ public struct TidyView: View {
         centeredState(
             symbol: "folder.badge.gearshape",
             tint: glassHue.accentColor,
-            title: "File loose files in \(filingFolderName)",
+            title: "File loose files in \(filingTargetName)",
             message: "Suggest a home for the files sitting in this folder — reusing the folders you already keep, and proposing new ones only when it's sure. Nothing moves without your say-so, and every move is undoable."
         ) {
             Button(action: onFindFilingSuggestions) {

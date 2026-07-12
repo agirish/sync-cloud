@@ -898,6 +898,7 @@ struct ContentView: View {
             TidyView(
                 syncManager: syncManager,
                 providerName: tidyProviderName,
+                filingTargetFolder: tidyScanRootExpanded,
                 leadingHeader: AnyView(bottomTabPicker),
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: findFilingSuggestionsAction
