@@ -898,10 +898,11 @@ struct ContentView: View {
             TidyView(
                 syncManager: syncManager,
                 providerName: tidyProviderName,
-                filingTargetFolder: tidyScanRootExpanded,
+                scanTargetFolder: tidyScanRootExpanded,
                 leadingHeader: AnyView(bottomTabPicker),
                 onFindDuplicates: findDuplicatesAction,
-                onFindFilingSuggestions: findFilingSuggestionsAction
+                onFindFilingSuggestions: findFilingSuggestionsAction,
+                onQuickLook: { quickLookURL = $0 }
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.

@@ -55,8 +55,9 @@ import Design
             "chevron.down", "chevron.right", "checkmark", "trash", "arrow.triangle.merge",
             "circle.slash", "largecircle.fill.circle", "circle", "info.circle",
             RevealGlyph.inFinder, "lock",
-            // Filing suggestion card (incl. F3 "Remembered" badge)
+            // Filing suggestion card (incl. F3 "Remembered" badge) + rescan / preview
             "arrow.turn.down.right", "arrow.right.circle", "folder", "xmark", "memories",
+            "eye", "folder.badge.gearshape", "wand.and.stars",
         ]
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,

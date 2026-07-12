@@ -94,28 +94,33 @@ public struct TidyView: View {
     @State private var expanded: Set<UUID> = []
 
     private let providerName: String?
-    /// The folder a Filing rescan would target — the focused pane's current directory. Lets the
-    /// Filing lens name the folder up front and offer to rescan when the user has navigated away
-    /// from the folder the current results were scanned from.
-    private let filingTargetFolder: String?
+    /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
+    /// name the folder up front and offer to rescan when the user has navigated away from the
+    /// folder the current results were scanned from.
+    private let scanTargetFolder: String?
     private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
+    /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
+    /// spacebar shortcut uses). nil disables the per-card Preview button.
+    private let onQuickLook: ((URL) -> Void)?
 
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
-        filingTargetFolder: String? = nil,
+        scanTargetFolder: String? = nil,
         leadingHeader: AnyView? = nil,
         onFindDuplicates: @escaping () -> Void,
-        onFindFilingSuggestions: @escaping () -> Void = {}
+        onFindFilingSuggestions: @escaping () -> Void = {},
+        onQuickLook: ((URL) -> Void)? = nil
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
-        self.filingTargetFolder = filingTargetFolder
+        self.scanTargetFolder = scanTargetFolder
         self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
+        self.onQuickLook = onQuickLook
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -145,8 +150,9 @@ public struct TidyView: View {
                 if let leadingHeader { leadingHeader }
                 lensPicker
                 Spacer(minLength: 0)
-                if lens == .duplicates, hasResults, recommendedCount > 0 {
-                    applyAllButton
+                if lens == .duplicates, hasResults, !syncManager.isFindingDuplicates {
+                    rescanDuplicatesButton
+                    if recommendedCount > 0 { applyAllButton }
                 } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
                     rescanFilingButton
                     if filingRecommendedCount > 0 { fileAllButton }
@@ -183,58 +189,68 @@ public struct TidyView: View {
     }
 
     /// The folder a rescan would walk (the focused pane's current directory), by leaf name.
-    private var filingTargetName: String {
-        guard let f = filingTargetFolder, !f.isEmpty else { return "this folder" }
+    private var scanTargetName: String {
+        guard let f = scanTargetFolder, !f.isEmpty else { return "this folder" }
         return (f as NSString).lastPathComponent
     }
 
-    /// The leaf name of the folder the current results were scanned from.
-    private var scannedFolderName: String? {
-        syncManager.filingScanFolder.map { ($0 as NSString).lastPathComponent }
+    private func standardizedPath(_ p: String) -> String {
+        URL(fileURLWithPath: p).standardizedFileURL.path
     }
 
-    /// True once the user has navigated the pane to a different folder than the one the current
-    /// Filing results came from — the cue to offer scanning the new folder.
-    private var filingTargetMoved: Bool {
-        guard let target = filingTargetFolder, !target.isEmpty,
-              let scanned = syncManager.filingScanFolder else { return false }
-        return URL(fileURLWithPath: target).standardizedFileURL.path
-             != URL(fileURLWithPath: scanned).standardizedFileURL.path
+    /// True once the focused pane has moved to a different folder than the one `scannedRoot` was
+    /// walked from — the cue to offer scanning the new folder.
+    private func targetMoved(from scannedRoot: String?) -> Bool {
+        guard let target = scanTargetFolder, !target.isEmpty, let scanned = scannedRoot else { return false }
+        return standardizedPath(target) != standardizedPath(scanned)
     }
 
-    /// Re-runs Filing on the focused folder. Becomes a prominent "Scan '<folder>'" once the user
-    /// has moved to a different directory, so navigating and rescanning is one obvious click.
+    /// A rescan button that becomes a prominent "Scan '<folder>'" once the user has navigated
+    /// away, so navigate-then-rescan is one obvious click. Shared shape for both lenses.
     @ViewBuilder
-    private var rescanFilingButton: some View {
-        if filingTargetMoved {
-            Button(action: onFindFilingSuggestions) {
-                Label("Scan “\(filingTargetName)”", systemImage: "folder.badge.gearshape")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(syncManager.isSuggestingFiles)
-            .help("Suggest homes for “\(filingTargetName)” — the folder now focused above")
+    private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool, action: @escaping () -> Void, movedHelp: String) -> some View {
+        if moved {
+            Button(action: action) { Label("Scan “\(scanTargetName)”", systemImage: movedIcon) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+                .disabled(disabled).help(movedHelp)
         } else {
-            Button(action: onFindFilingSuggestions) {
-                Label("Rescan", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .disabled(syncManager.isSuggestingFiles)
-            .help("Scan this folder again")
+            Button(action: action) { Label("Rescan", systemImage: "arrow.clockwise") }
+                .buttonStyle(.bordered).controlSize(.small)
+                .disabled(disabled).help("Scan this folder again")
+        }
+    }
+
+    private var rescanFilingButton: some View {
+        rescanButton(moved: targetMoved(from: syncManager.filingScanFolder),
+                     movedIcon: "folder.badge.gearshape", disabled: syncManager.isSuggestingFiles,
+                     action: onFindFilingSuggestions,
+                     movedHelp: "Suggest homes for “\(scanTargetName)” — the folder now focused above")
+    }
+
+    private var rescanDuplicatesButton: some View {
+        rescanButton(moved: targetMoved(from: syncManager.duplicateScanRoot),
+                     movedIcon: "wand.and.stars", disabled: syncManager.isFindingDuplicates,
+                     action: onFindDuplicates,
+                     movedHelp: "Find duplicates in “\(scanTargetName)” — the folder now focused above")
+    }
+
+    /// A leading chip naming the folder a lens's current results were scanned from.
+    @ViewBuilder
+    private func scannedFolderChip(_ root: String?) -> some View {
+        if let root {
+            let name = (root as NSString).lastPathComponent
+            Label(name, systemImage: "folder")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help("These results are for “\(name)”")
         }
     }
 
     private var filingSummaryRow: some View {
         let s = syncManager.filingSummary
         return HStack(spacing: 8) {
-            if let scannedFolderName {
-                Label(scannedFolderName, systemImage: "folder")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .help("These suggestions are for “\(scannedFolderName)”")
-            }
+            scannedFolderChip(syncManager.filingScanFolder)
             StatPill(count: s.fileCount, label: "loose files", color: .blue, systemImage: "doc")
             StatPill(count: s.withConfidentHome, label: "with a home", color: .green, systemImage: "checkmark.circle")
             if s.needNewFolders > 0 {
@@ -260,6 +276,7 @@ public struct TidyView: View {
     private var summaryRow: some View {
         let s = syncManager.duplicateSummary
         return HStack(spacing: 8) {
+            scannedFolderChip(syncManager.duplicateScanRoot)
             StatPill(count: s.groupCount, label: "groups", color: .blue, systemImage: "square.on.square")
             reclaimPill(s.reclaimableBytes)
             StatPill(count: s.redundantCopyCount, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
@@ -447,7 +464,8 @@ public struct TidyView: View {
                         onFileHere: { dest in Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) } },
                         onChooseFolder: { chooseFolder(for: suggestion) },
                         onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
-                        onNotHere: { syncManager.dismissFilingSuggestion(suggestion) }
+                        onNotHere: { syncManager.dismissFilingSuggestion(suggestion) },
+                        onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } }
                     )
                 }
             }
@@ -460,7 +478,7 @@ public struct TidyView: View {
         centeredState(
             symbol: "folder.badge.gearshape",
             tint: glassHue.accentColor,
-            title: "File loose files in \(filingTargetName)",
+            title: "File loose files in \(scanTargetName)",
             message: "Suggest a home for the files sitting in this folder — reusing the folders you already keep, and proposing new ones only when it's sure. Nothing moves without your say-so, and every move is undoable."
         ) {
             Button(action: onFindFilingSuggestions) {

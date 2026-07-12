@@ -11,6 +11,8 @@ struct FilingSuggestionCard: View {
     let onChooseFolder: () -> Void
     let onReveal: () -> Void
     let onNotHere: () -> Void
+    /// Quick Look the file. nil hides the Preview button.
+    var onPreview: (() -> Void)? = nil
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -138,6 +140,10 @@ struct FilingSuggestionCard: View {
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
                     .buttonStyle(.borderedProminent).controlSize(.small)
+            }
+            if let onPreview {
+                Button(action: onPreview) { Label("Preview", systemImage: "eye") }
+                    .controlSize(.small)
             }
             Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
                 .controlSize(.small)
