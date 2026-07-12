@@ -3,6 +3,7 @@ import Sync
 import Combine
 import UniformTypeIdentifiers
 import AppKit
+import Design
 
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
 /// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
@@ -388,7 +389,7 @@ public struct DetailsSidebar: View {
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: data.path)])
             } label: {
-                Label("Reveal in Finder", systemImage: "magnifyingglass")
+                Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
             }
             Button {
                 NSPasteboard.general.clearContents()

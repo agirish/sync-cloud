@@ -445,7 +445,7 @@ struct FileContextMenu: View {
                 // Same direct reveal the Differences row menu and the error alert use;
                 // there is no FileActionHandler reveal to delegate to.
                 Button(action: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: singleNode.id)]) }) {
-                    Label("Reveal in Finder", systemImage: "magnifyingglass")
+                    Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
                 }
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
                     Label("Quick Look", systemImage: "doc.viewfinder")

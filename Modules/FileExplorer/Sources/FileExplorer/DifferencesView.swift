@@ -771,7 +771,7 @@ public struct DifferencesView: View {
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: side.path)])
             } label: {
-                Label("Reveal in Finder (\(side.paneName))", systemImage: "magnifyingglass")
+                Label("Reveal in Finder (\(side.paneName))", systemImage: RevealGlyph.inFinder)
             }
         }
         if let onQuickLook {

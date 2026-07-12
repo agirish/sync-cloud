@@ -273,7 +273,7 @@ struct TidyGroupCard: View {
                 .controlSize(.small)
             }
             Button(action: onReveal) {
-                Label("Reveal", systemImage: "magnifyingglass")
+                Label("Reveal", systemImage: RevealGlyph.inFinder)
             }
             .controlSize(.small)
             Button(action: onKeepSeparate) {

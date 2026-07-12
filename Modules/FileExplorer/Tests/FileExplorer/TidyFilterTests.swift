@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import Sync
+import Design
 @testable import FileExplorer
 
 /// Coverage for TidyFilter.matches — the predicate driving which duplicate groups the Tidy list
@@ -53,7 +54,7 @@ import Sync
             "exclamationmark.triangle", "square.on.square",
             "chevron.down", "chevron.right", "checkmark", "trash", "arrow.triangle.merge",
             "circle.slash", "largecircle.fill.circle", "circle", "info.circle",
-            "magnifyingglass", "lock",
+            RevealGlyph.inFinder, "lock",
         ]
         for symbol in symbols {
             #expect(NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil,
