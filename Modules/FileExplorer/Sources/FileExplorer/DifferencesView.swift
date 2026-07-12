@@ -368,7 +368,11 @@ public struct DifferencesView: View {
             Button {
                 copyRemaining(session)
             } label: {
-                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)…", systemImage: "arrow.forward.circle")
+                // Share the copy/move action vocabulary (TransferGlyph) like the other bulk
+                // buttons; "Remaining" resolves each item in its own direction, so it's the
+                // non-directional copy/move glyph rather than a single-direction arrow.
+                Label("\(session.isMove ? "Move" : "Copy") Remaining \(pendingCount)…",
+                      systemImage: session.isMove ? TransferGlyph.move : TransferGlyph.copy)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
