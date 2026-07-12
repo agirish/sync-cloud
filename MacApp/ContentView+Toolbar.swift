@@ -4,6 +4,24 @@ import Sync
 import Dashboard
 import FileExplorer
 
+/// State→presentation mapping for the bottom-pane toolbar toggle, kept out of the view
+/// builder so tests can pin the strings and the symbol name.
+///
+/// SF Symbols ships no outline sibling of `rectangle.bottomthird.inset.filled`
+/// (`rectangle.bottomthird.inset` does not resolve via NSImage(systemSymbolName:)),
+/// so the button conveys state with tint instead of a filled/outline symbol swap.
+enum BottomPaneToggle {
+    static let symbol = "rectangle.bottomthird.inset.filled"
+
+    static func title(paneVisible: Bool) -> String {
+        paneVisible ? "Hide Bottom Pane" : "Show Bottom Pane"
+    }
+
+    static func helpText(paneVisible: Bool) -> String {
+        paneVisible ? "Hide the bottom pane" : "Show the bottom pane"
+    }
+}
+
 /// The window toolbar, extracted from ContentView.swift for size. An extension (not a
 /// separate View) because the toolbar reads ContentView's selection/provider state and
 /// action handler directly; the members it touches are internal rather than private so
@@ -149,9 +167,16 @@ extension ContentView {
             .help("Scan for changes")
 
             Button(action: { withAnimation { showingBottomPane.toggle() } }) {
-                Label("Toggle Bottom Pane", systemImage: "rectangle.bottomthird.inset.filled")
+                Label(BottomPaneToggle.title(paneVisible: showingBottomPane),
+                      systemImage: BottomPaneToggle.symbol)
+                    // SF Symbols has no un-filled sibling of this glyph (see BottomPaneToggle),
+                    // so state reads through tint: accent while the pane is up, dimmed when hidden.
+                    .foregroundStyle(showingBottomPane
+                        ? AnyShapeStyle(Color.accentColor)
+                        : AnyShapeStyle(.secondary))
             }
-            .help("Toggle the bottom pane")
+            .help(BottomPaneToggle.helpText(paneVisible: showingBottomPane))
+            .accessibilityLabel(BottomPaneToggle.title(paneVisible: showingBottomPane))
 
             Button(action: { openWindow(id: "activity-log") }) {
                 Label("Logs", systemImage: "list.bullet.rectangle")
