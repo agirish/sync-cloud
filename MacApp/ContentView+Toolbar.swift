@@ -3,6 +3,7 @@ import AppKit
 import Sync
 import Dashboard
 import FileExplorer
+import Design
 
 /// State→presentation mapping for the bottom-pane toolbar toggle, kept out of the view
 /// builder so tests can pin the strings and the symbol name.
@@ -69,7 +70,7 @@ extension ContentView {
                 let isLeft = (activePane == .left)
                 actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }) {
-                Label("Compare", systemImage: "rectangle.split.2x1")
+                Label("Compare", systemImage: PaneGlyph.compare)
             }
             .labelStyle(.titleAndIcon)
             .disabled(selectionNodes.count != 1 || !selectionNodes[0].isDirectory)

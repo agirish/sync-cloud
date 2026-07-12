@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Design
 
 /// Clickable breadcrumb inside each `PaneHeader`: the provider root (named after the root
 /// folder, full path in the tooltip) followed by the pane's relative-path segments. Clicking
@@ -68,7 +69,7 @@ struct PaneBreadcrumb: View {
             linkBothPanes.toggle()
         } label: {
             // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
-            Image(systemName: "link")
+            Image(systemName: PaneGlyph.linkBothPanes)
                 .foregroundColor(linkBothPanes ? .accentColor : .secondary)
         }
         .buttonStyle(.plain)

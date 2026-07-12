@@ -1,20 +1,24 @@
 import Testing
 import AppKit
+import Design
 
 /// UX 1.2: three unrelated features used to share the ⇄ arrows. Now the link-panes toggle is a
 /// chain, the pre-scan empty state reuses the toolbar Compare glyph, and ⇄ is swap-panes only.
+/// These pins read the `PaneGlyph` constants the views actually render, so a typo'd or drifted
+/// symbol name fails here instead of drawing a blank icon at runtime.
 @Suite struct PaneGlyphTests {
 
-    @Test func testLinkPanesGlyphExistsInSFSymbols() {
-        // PaneBreadcrumb's link-both-panes toggle. A typo'd symbol name renders as a blank
-        // icon at runtime; pin that the name resolves.
-        #expect(NSImage(systemSymbolName: "link", accessibilityDescription: nil) != nil,
-                "missing SF Symbol link")
+    @Test func testLinkPanesGlyphIsAChainAndExistsInSFSymbols() {
+        // PaneBreadcrumb's link-both-panes toggle: a chain, never arrows.
+        #expect(PaneGlyph.linkBothPanes == "link")
+        #expect(NSImage(systemSymbolName: PaneGlyph.linkBothPanes, accessibilityDescription: nil) != nil,
+                "missing SF Symbol \(PaneGlyph.linkBothPanes)")
     }
 
     @Test func testCompareGlyphExistsInSFSymbols() {
-        // ContentView's pre-scan empty state + toolbar Compare button share this symbol.
-        #expect(NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil) != nil,
-                "missing SF Symbol rectangle.split.2x1")
+        // ContentView's pre-scan empty state + toolbar Compare button share this constant.
+        #expect(PaneGlyph.compare == "rectangle.split.2x1")
+        #expect(NSImage(systemSymbolName: PaneGlyph.compare, accessibilityDescription: nil) != nil,
+                "missing SF Symbol \(PaneGlyph.compare)")
     }
 }

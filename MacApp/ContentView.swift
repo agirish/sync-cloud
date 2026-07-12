@@ -606,6 +606,10 @@ struct ContentView: View {
                 syncManager.currentError = nil
                 retry?()
             }
+            // Deliberately the Return-key default (it's also listed first): retrying is safe to
+            // mash because every destructive operation in this app confirms separately. Escape
+            // stays on Dismiss via its .cancel role.
+            .keyboardShortcut(.defaultAction)
         case .dismiss:
             Button("Dismiss", role: .cancel) {
                 syncManager.currentError = nil
@@ -620,7 +624,13 @@ struct ContentView: View {
         var lines = [error.message]
         if let reason = error.reason, !reason.isEmpty { lines.append(reason) }
         if let path = error.path {
-            lines.append("File: \((path as NSString).abbreviatingWithTildeInPath)")
+            // Some errors carry folder paths (createFolderFailed, deleteFailed), so ask the
+            // disk rather than hardcoding "File:". A path that no longer exists falls back to
+            // "File:" — the common case, and "Folder:" would be a guess.
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+            let label = (exists && isDirectory.boolValue) ? "Folder" : "File"
+            lines.append("\(label): \((path as NSString).abbreviatingWithTildeInPath)")
         }
         return lines.joined(separator: "\n")
     }
@@ -904,7 +914,7 @@ struct ContentView: View {
                             VStack(spacing: 12) {
                                 // Same symbol as the toolbar's Compare button — one glyph for
                                 // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
-                                Image(systemName: "rectangle.split.2x1")
+                                Image(systemName: PaneGlyph.compare)
                                     .font(.system(size: 44))
                                     .foregroundStyle(glassHue.accentColor)
                                 Text("Compare \(paneNames.left) ↔ \(paneNames.right)")

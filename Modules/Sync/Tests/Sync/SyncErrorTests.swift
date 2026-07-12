@@ -82,6 +82,13 @@ import Foundation
         #expect(error.alertActions(hasRetryHandler: true) == [.revealInFinder, .dismiss])
     }
 
+    @Test func testRetryableWithHandlerButNoPathOffersRetryAndDismissOnly() {
+        // No path hides Reveal but must not hide Retry — e.g. a bulk failure that kept no
+        // single representative path.
+        let error = SyncError(title: "Sync Failed", message: "boom", isRetryable: true)
+        #expect(error.alertActions(hasRetryHandler: true) == [.retry, .dismiss])
+    }
+
     @Test func testRevealHiddenWithoutPath() {
         // No path, not retryable → only Dismiss.
         #expect(Self.bareError.alertActions(hasRetryHandler: true) == [.dismiss])
