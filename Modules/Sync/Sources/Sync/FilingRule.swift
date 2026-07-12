@@ -12,15 +12,35 @@ public struct FilingRule: Sendable, Equatable, Codable, Identifiable, Hashable {
     public let tokens: [String]
     /// Absolute path of the folder the matching file should be filed into.
     public let destinationPath: String
+    /// Whether the rule is active. A disabled rule is kept (so the user's teaching isn't lost) but
+    /// the engine skips it when suggesting homes. Defaults to `true`; excluded from `id` so
+    /// disabling a rule never changes its identity.
+    public var enabled: Bool
 
-    /// Stable identity: the trigger set plus the destination.
+    /// Stable identity: the trigger set plus the destination. Deliberately independent of
+    /// `enabled` — forgetting or replacing a rule matches on this id.
     public var id: String { tokens.joined(separator: "+") + "→" + destinationPath }
 
     /// The last path component of the destination — for compact display.
     public var destinationName: String { (destinationPath as NSString).lastPathComponent }
 
-    public init(tokens: [String], destinationPath: String) {
+    public init(tokens: [String], destinationPath: String, enabled: Bool = true) {
         self.tokens = tokens
         self.destinationPath = destinationPath
+        self.enabled = enabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tokens, destinationPath, enabled
+    }
+
+    /// Tolerant decode: rules persisted before `enabled` existed have no such key, so treat a
+    /// missing `enabled` as `true` rather than throwing — otherwise a single legacy rule would
+    /// fail the whole `[FilingRule]` decode and silently drop every rule the user taught.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tokens = try container.decode([String].self, forKey: .tokens)
+        destinationPath = try container.decode(String.self, forKey: .destinationPath)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
     }
 }

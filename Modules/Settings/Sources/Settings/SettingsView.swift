@@ -1197,8 +1197,34 @@ struct AdvancedSettingsTab: View {
     }
 }
 
-/// Reviews and forgets the remembered filing rules (F3). Each rule is a trigger token-set the user
-/// taught by correcting a Filing suggestion, mapped to the folder those files should go into.
+/// Turns a remembered rule's canonical trigger tokens and absolute destination into the plain
+/// words shown in the manager — a rule should read as something a person can understand and undo,
+/// not as a raw token dump. Pure and internal so it can be pinned by tests.
+enum FilingRulePhrasing {
+    /// Natural-language phrasing of a rule's trigger tokens, e.g. `Files with "invoice" and "acme"`.
+    /// Falls back to `Any file` for the (unexpected) empty set.
+    static func trigger(_ tokens: [String]) -> String {
+        let quoted = tokens.map { "\"\($0)\"" }
+        switch quoted.count {
+        case 0: return "Any file"
+        case 1: return "Files with \(quoted[0])"
+        case 2: return "Files with \(quoted[0]) and \(quoted[1])"
+        default:
+            let head = quoted.dropLast().joined(separator: ", ")
+            return "Files with \(head), and \(quoted.last!)"
+        }
+    }
+
+    /// Home-abbreviated destination for compact display, e.g. `~/Documents/Invoices`.
+    static func destination(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
+    }
+}
+
+/// Reviews, edits, disables, and forgets the remembered filing rules (F3). Each rule is a trigger
+/// token-set the user taught by correcting a Filing suggestion, mapped to the folder those files
+/// should go into. Rendered in plain words with a live "drives N suggestions" read-out so a rule
+/// is legible and manageable rather than an opaque, invisible token map.
 struct FilingRulesManagerView: View {
     let syncManager: FileSyncManager
     /// Called after any change so the caller can refresh its rule count.
@@ -1206,6 +1232,8 @@ struct FilingRulesManagerView: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var rules: [FilingRule] = []
+    /// The rule currently open in the editor sheet, if any.
+    @State private var editingRule: FilingRule?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1225,23 +1253,19 @@ struct FilingRulesManagerView: View {
             } else {
                 List {
                     ForEach(rules) { rule in
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(rule.tokens.joined(separator: " + "))
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                HStack(spacing: 5) {
-                                    Image(systemName: "arrow.turn.down.right")
-                                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                                    Text(rule.destinationPath)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1).truncationMode(.middle)
-                                }
-                            }
-                            Spacer(minLength: 8)
-                            Button("Forget") { forget(rule) }.controlSize(.small)
-                        }
-                        .padding(.vertical, 3)
+                        FilingRuleRow(
+                            rule: rule,
+                            drivesCount: drivesCount(for: rule),
+                            // Built here (not forwarded as a stored closure) so the Binding's
+                            // @Sendable set closure captures the MainActor method directly, the
+                            // same pattern ProviderSettingsSection.enabledBinding uses.
+                            enabled: Binding(
+                                get: { rule.enabled },
+                                set: { setEnabled($0, for: rule) }
+                            ),
+                            onEdit: { editingRule = rule },
+                            onForget: { forget(rule) }
+                        )
                     }
                 }
             }
@@ -1257,12 +1281,49 @@ struct FilingRulesManagerView: View {
             }
             .padding()
         }
-        .frame(width: 480, height: 380)
+        .frame(width: 500, height: 400)
         .onAppear { rules = syncManager.filingRules }
+        .sheet(item: $editingRule) { rule in
+            FilingRuleEditor(original: rule) { edited in
+                applyEdit(original: rule, edited: edited)
+            }
+        }
+    }
+
+    /// How many of the current scan's suggestions this rule accounts for — a suggestion whose best
+    /// home came from a remembered rule pointing at this destination. Read directly (not observed):
+    /// suggestions don't change while this modal is open, and an approximate count is fine.
+    private func drivesCount(for rule: FilingRule) -> Int {
+        syncManager.filingSuggestions.filter {
+            $0.best?.remembered == true && $0.best?.path == rule.destinationPath
+        }.count
     }
 
     private func forget(_ rule: FilingRule) {
         syncManager.forgetFilingRule(rule)
+        rules = syncManager.filingRules
+        onChange()
+    }
+
+    /// Flips a rule's `enabled` flag and persists it through the manager's `filingRules` setter.
+    /// The id is independent of `enabled`, so this replaces the same rule in place.
+    private func setEnabled(_ enabled: Bool, for rule: FilingRule) {
+        var all = syncManager.filingRules
+        guard let idx = all.firstIndex(where: { $0.id == rule.id }) else { return }
+        all[idx] = FilingRule(tokens: rule.tokens, destinationPath: rule.destinationPath, enabled: enabled)
+        syncManager.filingRules = all
+        rules = syncManager.filingRules
+        onChange()
+    }
+
+    /// Replaces the edited rule via the `filingRules` setter. The edit can change tokens and/or
+    /// destination — both feed the derived id — so drop the original *and* anything already sharing
+    /// the edited id (a merge into an existing rule) before appending, avoiding duplicate ids.
+    private func applyEdit(original: FilingRule, edited: FilingRule) {
+        var all = syncManager.filingRules
+        all.removeAll { $0.id == original.id || $0.id == edited.id }
+        all.append(edited)
+        syncManager.filingRules = all
         rules = syncManager.filingRules
         onChange()
     }
@@ -1280,5 +1341,167 @@ struct FilingRulesManagerView: View {
         syncManager.clearFilingRules()
         rules = []
         onChange()
+    }
+}
+
+/// One rule in the manager: an enable switch, the plain-words trigger + home-abbreviated
+/// destination, a "drives N suggestions" read-out, and Edit / Forget. Disabled rules read dimmed.
+private struct FilingRuleRow: View {
+    let rule: FilingRule
+    let drivesCount: Int
+    @Binding var enabled: Bool
+    let onEdit: () -> Void
+    let onForget: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Toggle("", isOn: $enabled)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .help(rule.enabled ? "Disable this rule (kept for later)" : "Enable this rule")
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(FilingRulePhrasing.trigger(rule.tokens))
+                    .font(.system(size: 12.5, weight: .semibold))
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.turn.down.right")
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                    Text(FilingRulePhrasing.destination(rule.destinationPath))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(rule.destinationPath)
+                }
+                Text(drivesLabel)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+            }
+            // Dim only the description of a disabled rule; leave its controls fully usable so it
+            // can be re-enabled or edited.
+            .opacity(rule.enabled ? 1 : 0.5)
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                Button("Edit") { onEdit() }
+                Button("Forget") { onForget() }
+            }
+            .controlSize(.small)
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var drivesLabel: String {
+        drivesCount == 0
+            ? "No current matches"
+            : "Drives \(drivesCount) suggestion\(drivesCount == 1 ? "" : "s")"
+    }
+}
+
+/// Edits a remembered rule's trigger words and destination. Trigger words are re-canonicalized on
+/// save (lowercased, de-duplicated, sorted) to match how the engine stores and matches them; the
+/// rule's `enabled` state is carried through unchanged.
+private struct FilingRuleEditor: View {
+    let original: FilingRule
+    let onSave: (FilingRule) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var tokensText: String
+    @State private var destination: String
+
+    init(original: FilingRule, onSave: @escaping (FilingRule) -> Void) {
+        self.original = original
+        self.onSave = onSave
+        _tokensText = State(initialValue: original.tokens.joined(separator: ", "))
+        _destination = State(initialValue: original.destinationPath)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Edit Rule").font(.headline)
+                Spacer()
+            }
+            .padding()
+
+            Divider()
+
+            Form {
+                Section {
+                    TextField("invoice, acme", text: $tokensText)
+                } header: {
+                    Text("Trigger words")
+                } footer: {
+                    Text("A file matches when its name or contents include all of these words. Separate with commas or spaces.")
+                }
+
+                Section {
+                    HStack(spacing: 8) {
+                        TextField("Destination folder", text: $destination)
+                            .font(.system(.callout, design: .monospaced))
+                            .textFieldStyle(.roundedBorder)
+                        Button("Browse…") { browse() }
+                    }
+                } header: {
+                    Text("File matching files into")
+                } footer: {
+                    Text(destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                         ? "Choose the folder these files should be filed into."
+                         : FilingRulePhrasing.destination(normalizedDestination))
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            HStack {
+                Button("Cancel", role: .cancel) { dismiss() }
+                Spacer()
+                Button("Save") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isValid)
+            }
+            .padding()
+        }
+        .frame(width: 460, height: 380)
+    }
+
+    /// Canonical form the engine expects: lowercased, trimmed, de-duplicated, sorted.
+    private var canonicalTokens: [String] {
+        let separators = CharacterSet(charactersIn: ",").union(.whitespacesAndNewlines)
+        let parts = tokensText
+            .lowercased()
+            .components(separatedBy: separators)
+            .filter { !$0.isEmpty }
+        return Array(Set(parts)).sorted()
+    }
+
+    private var normalizedDestination: String {
+        destination.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isValid: Bool {
+        !canonicalTokens.isEmpty && !normalizedDestination.isEmpty
+    }
+
+    private func save() {
+        guard isValid else { return }
+        onSave(FilingRule(tokens: canonicalTokens, destinationPath: normalizedDestination, enabled: original.enabled))
+        dismiss()
+    }
+
+    private func browse() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose where matching files should be filed"
+        if !normalizedDestination.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: (normalizedDestination as NSString).expandingTildeInPath)
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            destination = url.path
+        }
     }
 }
