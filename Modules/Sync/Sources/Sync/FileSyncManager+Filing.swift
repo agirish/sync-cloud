@@ -23,6 +23,40 @@ extension FileSyncManager {
                              withConfidentHome: confident, needNewFolders: needFolders)
     }
 
+    /// The phase a running Filing scan is in. Suggestions are published once, at the very end of the
+    /// scan, so the results stay empty while phases 2–3 (on-device content + intelligent homes) keep
+    /// refining. Surfacing the phase — and, for the slow later passes, "suggestions still improving" —
+    /// through `filingScanStatus` keeps the scanning view from reading as finished before it is. This
+    /// is additive: it only shapes the status string, it doesn't change what the scan does.
+    public enum FilingScanPhase: Sendable, Equatable {
+        /// Phase 1 — reading the loose files in the picked folder.
+        case scanningFolder(String)
+        /// Phase 1 — walking the provider to learn its folder taxonomy.
+        case learningFolders
+        /// Phase 2 — reading document contents on-device for files with no confident home.
+        case readingContent(Int)
+        /// Phase 3 — the intelligent classifier reasoning about the best homes.
+        case findingHomes
+        /// A single-file "Try another" re-ask (not part of the initial scan's phase sequence).
+        case lookingForDifferent
+
+        /// The user-facing status line shown in the scanning view.
+        public var status: String {
+            switch self {
+            case .scanningFolder(let name):
+                return "Phase 1 · scanning \(name)…"
+            case .learningFolders:
+                return "Phase 1 · learning your folders…"
+            case .readingContent(let n):
+                return "Phase 2 · reading \(n) document\(n == 1 ? "" : "s") — suggestions still improving"
+            case .findingHomes:
+                return "Phase 3 · finding the best homes — suggestions still improving"
+            case .lookingForDifferent:
+                return "Looking for a different folder…"
+            }
+        }
+    }
+
     // MARK: Scan
 
     /// Starts a cancellable Filing scan, replacing any in-flight one.
@@ -46,7 +80,7 @@ extension FileSyncManager {
         guard !isSuggestingFiles else { return }
         let fileManager = fm ?? self.fileManager
         isSuggestingFiles = true
-        filingScanStatus = "Reading \(folder.lastPathComponent)…"
+        filingScanStatus = FilingScanPhase.scanningFolder(folder.lastPathComponent).status
         filingScanFolder = folder.path
         // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
         if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
@@ -60,7 +94,7 @@ extension FileSyncManager {
         let looseFiles = looseTree.filter { !$0.isDirectory }
         if Task.isCancelled { return }
 
-        filingScanStatus = "Learning your folders…"
+        filingScanStatus = FilingScanPhase.learningFolders.status
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
@@ -90,7 +124,7 @@ extension FileSyncManager {
         if filingReadsContents, let extractor = filingContentExtractor {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
-                filingScanStatus = "Reading \(unsure.count) document\(unsure.count == 1 ? "" : "s")…"
+                filingScanStatus = FilingScanPhase.readingContent(unsure.count).status
                 let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
                 if Task.isCancelled { return }
                 if !content.isEmpty {
@@ -111,7 +145,7 @@ extension FileSyncManager {
             let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
             let toClassify = looseFiles.filter { !remembered.contains($0.id) }
             if !toClassify.isEmpty {
-                filingScanStatus = "Finding the best homes…"
+                filingScanStatus = FilingScanPhase.findingHomes.status
                 var snippets: [String: String] = [:]
                 if filingReadsContents, let extractor = filingSnippetExtractor {
                     // Only read contents for files whose NAME says nothing — a meaningful name plus
@@ -309,7 +343,7 @@ extension FileSyncManager {
             replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
             return
         }
-        filingScanStatus = "Looking for a different folder…"
+        filingScanStatus = FilingScanPhase.lookingForDifferent.status
         defer { filingScanStatus = nil }
         let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }
         let file = FilingCandidateFile(filePath: suggestion.filePath, fileName: suggestion.fileName,

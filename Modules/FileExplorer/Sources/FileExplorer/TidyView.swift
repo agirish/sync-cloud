@@ -93,6 +93,10 @@ public struct TidyView: View {
     @State private var filter: TidyFilter = .all
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
+    /// True once the user has filed at least one loose file since the current Filing scan finished.
+    /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
+    /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
+    @State private var filedThisSession = false
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -142,6 +146,11 @@ public struct TidyView: View {
         }
         .padding(LiquidGlass.cardGutter)
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
+        // A fresh scan starts a fresh session: forget any files filed against the previous results,
+        // so the "All filed" terminal state is only earned by this scan's work.
+        .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
+            if isScanning { filedThisSession = false }
+        }
     }
 
     // MARK: Toolbar card
@@ -156,17 +165,18 @@ public struct TidyView: View {
                     rescanDuplicatesButton
                     if recommendedCount > 0 { applyAllButton }
                 } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
+                    // The batch action lives down in the summary row (next to the counts it acts on),
+                    // not detached up here — so only the rescan control sits in the toolbar.
                     rescanFilingButton
-                    if filingRecommendedCount > 0 { fileAllButton }
                 }
             }
             if lens == .duplicates, hasResults {
                 summaryRow
             } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
-                // Gated on the scan being fully settled: the two-phase Filing scan publishes
-                // phase-1 suggestions while phase 2 is still reading documents, and showing
-                // provisional summary counts beside a "Reading N documents…" body reads as
-                // contradictory — the numbers visibly shift when phase 2 lands.
+                // The Filing scan publishes its suggestions once, at the very end, so results are
+                // empty (hasFilingResults == false) for the whole scan; the `!isSuggestingFiles`
+                // guard is belt-and-suspenders. The running phase is surfaced in the scanning view
+                // itself (filingScanStatus), not here.
                 filingSummaryRow
             }
             if lens == .filing, spendTotals.scans > 0 { filingSpendRow }
@@ -202,12 +212,15 @@ public struct TidyView: View {
     }
 
     private var fileAllButton: some View {
-        Button(action: applyRecommendedFiling) {
-            Label("File \(filingRecommendedCount) suggested", systemImage: "arrow.right.circle.fill")
+        let n = filingRecommendedCount
+        return Button(action: applyRecommendedFiling) {
+            Label("File all \(n) confident", systemImage: "arrow.right.circle.fill")
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
         .disabled(syncManager.isSuggestingFiles)
+        .help("Files the \(n) name-matched suggestion\(n == 1 ? "" : "s") with a confident home. "
+              + "Content- and AI-based picks stay for you to review; every move undoes with ⌘Z.")
     }
 
     /// The folder a rescan would walk (the focused pane's current directory), by leaf name.
@@ -244,7 +257,7 @@ public struct TidyView: View {
 
     private var rescanFilingButton: some View {
         rescanButton(moved: targetMoved(from: syncManager.filingScanFolder),
-                     movedIcon: "folder.badge.gearshape", disabled: syncManager.isSuggestingFiles,
+                     movedIcon: FilingGlyph.lens, disabled: syncManager.isSuggestingFiles,
                      action: onFindFilingSuggestions,
                      movedHelp: "Suggest homes for “\(scanTargetName)” — the folder now focused above")
     }
@@ -271,18 +284,23 @@ public struct TidyView: View {
 
     private var filingSummaryRow: some View {
         let s = syncManager.filingSummary
+        let unsure = s.fileCount - s.withConfidentHome
         return HStack(spacing: 8) {
             scannedFolderChip(syncManager.filingScanFolder)
-            StatPill(count: s.fileCount, label: "loose files", color: .blue, systemImage: "doc")
-            StatPill(count: s.withConfidentHome, label: "with a home", color: .green, systemImage: "checkmark.circle")
+            // "to file" = every loose file found; "ready" = the ones with a confident home now.
+            StatPill(count: s.fileCount, label: "to file", color: .blue, systemImage: "doc")
+            StatPill(count: s.withConfidentHome, label: "ready", color: .green, systemImage: "checkmark.circle")
             if s.needNewFolders > 0 {
-                StatPill(count: s.needNewFolders, label: "new folders", color: glassHue.accentColor, systemImage: "folder.badge.plus")
+                StatPill(count: s.needNewFolders, label: s.needNewFolders == 1 ? "new folder" : "new folders",
+                         color: glassHue.accentColor, systemImage: "folder.badge.plus")
             }
-            let unsure = s.fileCount - s.withConfidentHome
             if unsure > 0 {
                 StatPill(count: unsure, label: "unsure", color: .yellow, systemImage: "questionmark.circle")
             }
             Spacer(minLength: 8)
+            // The batch action sits right beside the counts it acts on (G3), not detached in the
+            // toolbar. Only shown when there's actually a confident, name-based batch to file.
+            if filingRecommendedCount > 0 { fileAllButton }
         }
     }
 
@@ -479,17 +497,14 @@ public struct TidyView: View {
 
     private var filingList: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
-                ForEach(syncManager.filingSuggestions) { suggestion in
-                    FilingSuggestionCard(
-                        suggestion: suggestion,
-                        onFileHere: { dest in Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) } },
-                        onChooseFolder: { chooseFolder(for: suggestion) },
-                        onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
-                        onNotHere: { syncManager.dismissFilingSuggestion(suggestion) },
-                        onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
-                        onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } }
-                    )
+            LazyVStack(alignment: .leading, spacing: 10) {
+                // Grouped by confidence (High / Medium / Low) so the list reads as "these are sure,
+                // these are maybes, these need you" rather than one undifferentiated wall of cards.
+                ForEach(FilingSuggestionGrouping.sections(syncManager.filingSuggestions)) { section in
+                    filingSectionHeader(section)
+                    ForEach(section.suggestions) { suggestion in
+                        filingCard(suggestion)
+                    }
                 }
             }
             .padding(12)
@@ -497,15 +512,49 @@ public struct TidyView: View {
         .scrollContentBackground(.hidden)
     }
 
+    private func filingSectionHeader(_ section: FilingSuggestionSection) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 7))
+                .foregroundStyle(section.tier.color)
+            Text(section.tier.title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(section.suggestions.count.formatted())
+                .font(.system(size: 11, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.tertiary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 2).padding(.top, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(section.tier.title), \(section.suggestions.count) file\(section.suggestions.count == 1 ? "" : "s")")
+    }
+
+    private func filingCard(_ suggestion: FilingSuggestion) -> some View {
+        FilingSuggestionCard(
+            suggestion: suggestion,
+            onFileHere: { dest in
+                filedThisSession = true
+                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
+            },
+            onChooseFolder: { chooseFolder(for: suggestion) },
+            onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
+            onNotHere: { syncManager.dismissFilingSuggestion(suggestion) },
+            onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
+            onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } }
+        )
+    }
+
     private var filingIntroState: some View {
         centeredState(
-            symbol: "folder.badge.gearshape",
+            symbol: FilingGlyph.lens,
             tint: glassHue.accentColor,
             title: "File loose files in \(scanTargetName)",
             message: "Suggest a home for the files sitting in this folder — reusing the folders you already keep, and proposing new ones only when it's sure. Nothing moves without your say-so, and every move is undoable."
         ) {
             Button(action: onFindFilingSuggestions) {
-                Label("Suggest homes", systemImage: "folder.badge.gearshape")
+                Label("Suggest homes", systemImage: FilingGlyph.lens)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -527,17 +576,35 @@ public struct TidyView: View {
         .padding(30)
     }
 
+    @ViewBuilder
     private var filingCleanState: some View {
-        centeredState(
-            symbol: "checkmark.seal.fill",
-            tint: .green,
-            title: "Nothing loose to file",
-            message: "No files in \(filingFolderName) need a home right now."
-        ) {
-            Button(action: onFindFilingSuggestions) {
-                Label("Scan again", systemImage: "arrow.clockwise")
+        if filedThisSession {
+            // Earned: the user just filed everything loose this session — a positive terminal state,
+            // not a neutral empty one. Its own glyph (a full tray), never the duplicate finder's seal.
+            centeredState(
+                symbol: FilingGlyph.allFiled,
+                tint: .green,
+                title: "All filed",
+                message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more."
+            ) {
+                Button(action: onFindFilingSuggestions) {
+                    Label("Scan again", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.regular)
             }
-            .controlSize(.regular)
+        } else {
+            // Neutral: the scan found nothing loose to begin with.
+            centeredState(
+                symbol: FilingGlyph.nothingLoose,
+                tint: .secondary,
+                title: "Nothing loose to file",
+                message: "No files in \(filingFolderName) need a home right now."
+            ) {
+                Button(action: onFindFilingSuggestions) {
+                    Label("Scan again", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.regular)
+            }
         }
     }
 
@@ -573,6 +640,7 @@ public struct TidyView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let remember = rememberBox?.state == .on
         let dest = FilingDestination(path: url.path, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
+        filedThisSession = true
         Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, remember: remember) }
     }
 
@@ -587,6 +655,7 @@ public struct TidyView: View {
             confirmTitle: "File"
         )
         guard ok else { return }
+        filedThisSession = true
         Task { await syncManager.applyRecommendedFiling() }
     }
 
