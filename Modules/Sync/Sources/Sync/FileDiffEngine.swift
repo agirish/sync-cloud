@@ -83,10 +83,7 @@ public struct FileDiffEngine {
     public static func getFilesInDirectory(_ url: URL, fileManager: FileManaging = FileManager.default) throws -> [String: FileInfo] {
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey, .fileSizeKey]
         let keySet = Set(keys)
-        guard let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
-            return [:]
-        }
-        
+
         var result: [String: FileInfo] = [:]
         // Unreadable entries are aggregated and logged once after the walk: a permission-denied
         // or placeholder-heavy subtree can fail for tens of thousands of entries, and logging
@@ -94,87 +91,132 @@ public struct FileDiffEngine {
         var unreadableCount = 0
         var unreadableSamples: [String] = []
         let maxIndividuallyLogged = 3
-        var basePath = url.path
-        if fileManager is FileManager {
-            // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
-            // root given via a symlinked path (/var/..., a linked user folder) would never match the
-            // prefix trim below and every key would come back near-absolute. Canonicalize the base
-            // to match. resolvingSymlinksInPath can't be used here: it deliberately strips /private.
-            // Mock file managers echo back the URLs they were given, so they keep the raw base.
-            if let canonicalPath = try? url.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
-                basePath = canonicalPath
-            }
-        }
-        
-        for case let fileURL as URL in enumerator {
-            // A superseded scan's results are discarded wholesale (generation-gated publish);
-            // abort mid-walk instead of holding the scanning slot for a walk nobody will read.
-            try Task.checkCancellation()
-            do {
-                var isReg = true
-                var modDate: Date? = nil
-                var size: Int? = nil
-                var isDir = false
-                
-                if let _ = fileManager as? FileManager {
-                    let resourceValues = try fileURL.resourceValues(forKeys: keySet)
-                    if resourceValues.isSymbolicLink == true {
-                        // Align with the tree path (buildNode): symlinked entries participate
-                        // with the TARGET's type/size/date — the link's own stat is meaningless
-                        // for diffing — and broken links are dropped. A symlinked DIRECTORY is
-                        // reported as a directory, but the enumerator does not walk into it;
-                        // its contents participate only via the tree-derived scan.
-                        guard let target = try? fileURL.resolvingSymlinksInPath().resourceValues(forKeys: keySet) else {
-                            continue
-                        }
-                        isReg = target.isRegularFile ?? false
-                        isDir = target.isDirectory ?? false
-                        modDate = target.contentModificationDate
-                        size = target.fileSize
-                    } else {
-                        isReg = resourceValues.isRegularFile ?? true
-                        modDate = resourceValues.contentModificationDate
-                        size = resourceValues.fileSize
-                        isDir = resourceValues.isDirectory ?? false
-                    }
-                } else {
-                    let attrs = try fileManager.attributesOfItem(atPath: fileURL.path)
-                    let fileType = attrs[FileAttributeKey.type] as? FileAttributeType
-                    isReg = (fileType == FileAttributeType.typeRegular)
-                    isDir = (fileType == FileAttributeType.typeDirectory)
-                    modDate = attrs[FileAttributeKey.modificationDate] as? Date
-                    if let s = attrs[FileAttributeKey.size] as? NSNumber {
-                        size = s.intValue
-                    } else if let s = attrs[FileAttributeKey.size] as? Int {
-                        size = s
-                    }
-                }
-                
-                if isReg || isDir {
-                    var relativePath = fileURL.path
-                    if relativePath.hasPrefix(basePath) {
-                        relativePath = String(relativePath.dropFirst(basePath.count))
-                    }
-                    if relativePath.hasPrefix("/") {
-                        relativePath.removeFirst()
-                    }
-                    
-                    if relativePath.isEmpty { continue }
 
-                    result[relativePath] = FileInfo(
-                        url: fileURL, 
-                        modificationDate: modDate,
-                        fileSize: size,
-                        isDirectory: isDir
-                    )
+        /// Stable identity of the directory a URL ultimately refers to (through symlinks), for
+        /// the symlink-descent cycle guard below — the disk-walk counterpart of the tree walk's
+        /// `directoryIdentity`. Mock file managers contain no symlinks, so the raw-path fallback
+        /// only ever fires for them (and for real-FS stat failures, where refusing to descend is
+        /// the safe answer).
+        func canonicalIdentity(_ dirURL: URL) -> String {
+            // Resolve the link itself first — canonicalPathKey canonicalizes the path (case,
+            // /private) but does NOT resolve a leaf symlink, and an unresolved leaf makes every
+            // link look distinct from its target, defeating the cycle guard.
+            let resolved = dirURL.resolvingSymlinksInPath()
+            if fileManager is FileManager,
+               let canonical = try? resolved.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+                return canonical
+            }
+            return resolved.standardizedFileURL.path
+        }
+
+        // Directories already being walked (by canonical identity): the scan root plus every
+        // symlinked directory we've descended into. Breaks A→B→A link cycles and self-links.
+        var visitedDirectories: Set<String> = [canonicalIdentity(url)]
+
+        func walk(_ rootURL: URL, prefix: String) throws {
+            guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys, options: []) else {
+                return
+            }
+            var basePath = rootURL.path
+            if fileManager is FileManager {
+                // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
+                // root given via a symlinked path (/var/..., a linked user folder) would never match the
+                // prefix trim below and every key would come back near-absolute. Canonicalize the base
+                // to match. resolvingSymlinksInPath can't be used here: it deliberately strips /private.
+                // Mock file managers echo back the URLs they were given, so they keep the raw base.
+                if let canonicalPath = try? rootURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
+                    basePath = canonicalPath
                 }
-            } catch {
-                unreadableCount += 1
-                if unreadableSamples.count < maxIndividuallyLogged {
-                    unreadableSamples.append("Error reading resource values for \(fileURL): \(error)")
+            }
+
+            for case let fileURL as URL in enumerator {
+                // A superseded scan's results are discarded wholesale (generation-gated publish);
+                // abort mid-walk instead of holding the scanning slot for a walk nobody will read.
+                try Task.checkCancellation()
+                do {
+                    var isReg = true
+                    var modDate: Date? = nil
+                    var size: Int? = nil
+                    var isDir = false
+                    var isSymlinkedDir = false
+
+                    if let _ = fileManager as? FileManager {
+                        let resourceValues = try fileURL.resourceValues(forKeys: keySet)
+                        if resourceValues.isSymbolicLink == true {
+                            // Align with the tree path (buildNode): symlinked entries participate
+                            // with the TARGET's type/size/date — the link's own stat is meaningless
+                            // for diffing — and broken links are dropped.
+                            guard let target = try? fileURL.resolvingSymlinksInPath().resourceValues(forKeys: keySet) else {
+                                continue
+                            }
+                            isReg = target.isRegularFile ?? false
+                            isDir = target.isDirectory ?? false
+                            modDate = target.contentModificationDate
+                            size = target.fileSize
+                            isSymlinkedDir = isDir
+                        } else {
+                            isReg = resourceValues.isRegularFile ?? true
+                            modDate = resourceValues.contentModificationDate
+                            size = resourceValues.fileSize
+                            isDir = resourceValues.isDirectory ?? false
+                        }
+                    } else {
+                        let attrs = try fileManager.attributesOfItem(atPath: fileURL.path)
+                        let fileType = attrs[FileAttributeKey.type] as? FileAttributeType
+                        isReg = (fileType == FileAttributeType.typeRegular)
+                        isDir = (fileType == FileAttributeType.typeDirectory)
+                        modDate = attrs[FileAttributeKey.modificationDate] as? Date
+                        if let s = attrs[FileAttributeKey.size] as? NSNumber {
+                            size = s.intValue
+                        } else if let s = attrs[FileAttributeKey.size] as? Int {
+                            size = s
+                        }
+                    }
+
+                    if isReg || isDir {
+                        var relativePath = fileURL.path
+                        if relativePath.hasPrefix(basePath) {
+                            relativePath = String(relativePath.dropFirst(basePath.count))
+                        }
+                        if relativePath.hasPrefix("/") {
+                            relativePath.removeFirst()
+                        }
+
+                        if relativePath.isEmpty { continue }
+                        let keyPath = prefix.isEmpty ? relativePath : prefix + "/" + relativePath
+
+                        result[keyPath] = FileInfo(
+                            url: fileURL,
+                            modificationDate: modDate,
+                            fileSize: size,
+                            isDirectory: isDir
+                        )
+
+                        // The URL enumerator never walks INTO a symlinked directory, but the tree
+                        // walk always has — leaving the two scan branches disagreeing: a cold-cache
+                        // (disk) scan reported a linked folder's contents as missing on this side
+                        // while a warm-cache (tree) scan reported them present, phantom rows whose
+                        // bulk-accept would re-copy data over the link's real target. Descend
+                        // manually (cycle-guarded, via the resolved target) so both branches see
+                        // the same files.
+                        if isSymlinkedDir {
+                            if visitedDirectories.insert(canonicalIdentity(fileURL)).inserted {
+                                try walk(fileURL.resolvingSymlinksInPath(), prefix: keyPath)
+                            }
+                        }
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    unreadableCount += 1
+                    if unreadableSamples.count < maxIndividuallyLogged {
+                        unreadableSamples.append("Error reading resource values for \(fileURL): \(error)")
+                    }
                 }
             }
         }
+
+        try walk(url, prefix: "")
 
         if unreadableCount > 0 {
             let count = unreadableCount

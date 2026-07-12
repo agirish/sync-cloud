@@ -1,6 +1,17 @@
 import Foundation
 import Testing
 
+/// Awaits a semaphore off the main actor (a blocking `wait` on the test's actor would deadlock
+/// anything the signaller needs from it). Bounded, so a mis-wired test fails instead of hanging.
+func awaitSignal(_ semaphore: DispatchSemaphore, timeout: TimeInterval = 10) async {
+    await withCheckedContinuation { cont in
+        DispatchQueue.global().async {
+            _ = semaphore.wait(timeout: .now() + timeout)
+            cont.resume()
+        }
+    }
+}
+
 /// Polls a main-actor condition until it holds or the timeout expires, recording a labeled
 /// test failure on timeout. The single shared replacement for the per-suite polling helpers
 /// and the fixed post-operation sleeps that flaked under parallel-suite main-actor

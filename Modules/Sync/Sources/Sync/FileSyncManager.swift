@@ -153,6 +153,10 @@ public class FileSyncManager: ObservableObject {
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
     public var filingLastTaxonomyFolders: [String] = []
+    /// Session-scoped "Try another" rejections keyed by file path. Persisted rejections are keyed
+    /// by salient filename tokens, which token-less names ("IMG_0007", "Scan 12") don't have — this
+    /// set is what stops those files from being re-offered the folder they just rejected.
+    public var filingSessionRejections: [String: Set<String>] = [:]
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
@@ -986,6 +990,15 @@ public class FileSyncManager: ObservableObject {
         // would clearSyncing an id the first call still owns (the set is not a refcount),
         // making the parked sync invisible to Verify All's exclusion guard.
         guard !syncingDifferenceIds.contains(difference.id) else { return false }
+
+        // Verify All's exclusion guard, mirrored in the write direction: Verify All refuses
+        // to START while anything is writing, but a transfer starting MID-verify could still
+        // overwrite a file as it's hashed — the pair can read "identical" against bytes that
+        // no longer exist, poisoning the copy-to-match-dates offer.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before syncing")
+            return false
+        }
 
         // Mark the difference as syncing BEFORE any prompt can hold this call, not after:
         // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a

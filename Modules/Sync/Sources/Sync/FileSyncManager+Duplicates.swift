@@ -65,7 +65,6 @@ extension FileSyncManager {
         isFindingDuplicates = true
         duplicateScanStatus = "Scanning \(root.lastPathComponent)…"
         duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
-        duplicateScanRoot = root.path
         duplicateScanEpoch += 1
         let epoch = duplicateScanEpoch
         // hasFoundDuplicates is set only on completion (below), so a cancelled scan leaves the
@@ -129,6 +128,9 @@ extension FileSyncManager {
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
+        // Published with the results, not at scan start: the root labels what's on screen, and a
+        // cancelled rescan of a different folder must not relabel the previous results.
+        duplicateScanRoot = root.path
         hasFoundDuplicates = true
     }
 
@@ -164,18 +166,49 @@ extension FileSyncManager {
 
     // MARK: Resolve
 
+    /// Whether a group's keeper is still where the scan saw it. Groups are point-in-time
+    /// snapshots: if the keeper was deleted, renamed, or moved externally between scan and click,
+    /// trashing the "redundant" copies would trash the *last* copies — the one invariant Tidy
+    /// promises never to break. Re-verified at resolve time, not just scan time.
+    private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
+        fileManager.fileExists(atPath: group.keeper.path)
+    }
+
+    /// Drops every group whose recommended copies are all off the disk — trashed just now,
+    /// trashed via a pruned ancestor, or already gone externally — keeping partially or wholly
+    /// failed groups visible for a retry. Returns the resolved groups. The disk is the ground
+    /// truth here: a mid-batch cancel or declined permanent-delete leaves real files behind,
+    /// and those groups must stay listed however the delete call accounted for them.
+    private func dropFullyRemovedGroups(from groups: [DuplicateGroup]) -> [DuplicateGroup] {
+        let done = groups.filter { group in
+            group.recommendedRemovalPaths.allSatisfy { !fileManager.fileExists(atPath: $0) }
+        }
+        let doneIDs = Set(done.map { $0.id })
+        duplicateGroups.removeAll { doneIDs.contains($0.id) }
+        return done
+    }
+
     /// Applies a single group's recommended removal (Trash the fully-redundant / older copies).
     /// No-op for groups that need a merge or manual review. Reversible via Undo (⌘Z).
     @discardableResult
     public func resolveDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         let paths = group.recommendedRemovalPaths
         guard !paths.isEmpty else { return false }
+        guard keeperStillExists(group) else {
+            banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before removing its copies.")
+            return false
+        }
         let bytes = group.reclaimableBytes
         let removed = await deleteItems(at: paths, fileManager: fileManager)
-        // Only drop the group and claim success if items actually left the disk — a declined or
-        // failed trash must not vanish the group behind a false "Reclaimed" banner.
-        guard removed > 0 else { return false }
-        duplicateGroups.removeAll { $0.id == group.id }
+        // Only drop the group and claim success if every copy actually left the disk — a declined,
+        // failed, or cancelled trash must not vanish still-listed copies behind a false banner.
+        guard !removed.isEmpty else { return false }
+        guard !dropFullyRemovedGroups(from: [group]).isEmpty else {
+            if currentError == nil {
+                banner = .warning("Removed \(removed.count) of \(paths.count) copies — the group stays listed until the rest are handled.")
+            }
+            return false
+        }
         if currentError == nil {
             banner = .success("Reclaimed \(Self.formatBytes(bytes)) — press ⌘Z to undo")
         }
@@ -185,16 +218,27 @@ extension FileSyncManager {
     /// Applies the recommended removal for every batch-eligible group (byte-identical only).
     /// Versions, name-only, and overlapping groups are deliberately left for a per-group look.
     public func applyRecommendedDuplicates() async {
-        let batch = duplicateGroups.filter { $0.isRecommendedForBatch }
+        let eligible = duplicateGroups.filter { $0.isRecommendedForBatch }
+        let batch = eligible.filter { keeperStillExists($0) }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
-        guard !paths.isEmpty else { return }
-        let bytes = batch.reduce(0) { $0 + $1.reclaimableBytes }
-        let ids = Set(batch.map { $0.id })
+        guard !paths.isEmpty else {
+            if !eligible.isEmpty {
+                banner = .warning("The keepers are no longer at their scanned locations — rescan before removing copies.")
+            }
+            return
+        }
         let removed = await deleteItems(at: paths, fileManager: fileManager)
-        guard removed > 0 else { return }
-        duplicateGroups.removeAll { ids.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        let done = dropFullyRemovedGroups(from: batch)
+        let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
         if currentError == nil {
-            banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(batch.count) groups — press ⌘Z to undo")
+            if done.count == batch.count, batch.count == eligible.count {
+                banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s") — press ⌘Z to undo")
+            } else {
+                // Partial (cancelled mid-batch, declined fallback, or skipped missing keepers):
+                // claim only what landed; the rest stay listed.
+                banner = .warning("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) of \(eligible.count) groups — the rest stay listed. Press ⌘Z to undo")
+            }
         }
     }
 
@@ -208,6 +252,11 @@ extension FileSyncManager {
     @discardableResult
     public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         guard case .overlapping = group.matchType else { return false }
+        // A vanished keeper must refuse, not silently recreate itself from the copies being folded.
+        guard keeperStillExists(group) else {
+            banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.")
+            return false
+        }
         let keeperPath = group.keeper.path
         let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
@@ -264,7 +313,7 @@ extension FileSyncManager {
 
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
             let removed = await deleteItems(at: [redundant.path], fileManager: fm)
-            if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
+            if removed.isEmpty { allTrashed = false }   // trash declined/failed — don't claim the group done
         }
 
         // Only drop the group and claim success when every redundant copy actually left the disk

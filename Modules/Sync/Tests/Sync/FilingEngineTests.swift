@@ -276,6 +276,18 @@ import Testing
         #expect(best.isNew)
     }
 
+    @Test func rememberedRuleMissingTailIsRelativeToARealMultiSegmentRoot() throws {
+        // A realistic root ("/Users/x/Dropbox") whose own ancestors are never in the walked
+        // taxonomy: only the tail past the deepest existing folder is NEW, not the whole path.
+        let root = "/Users/x/Dropbox"
+        let taxonomy = [dir("\(root)/Documents", [])]
+        let loose = [file("\(root)/Downloads/tesla.pdf", modified: y2024)]
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "\(root)/Documents/Vehicles/Tesla")
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: root, rules: [rule]).first?.best)
+        #expect(best.newSegments == ["Vehicles", "Tesla"])
+    }
+
     @Test func contentOnlyRuleMatchIsCappedToMedium() throws {
         let taxonomy = [dir("/root/Documents", [])]
         let loose = [file("/root/Downloads/scan0007.pdf", modified: y2024)]   // name says nothing

@@ -127,18 +127,20 @@ import Foundation
     @Test func testActiveOperationTracking() async throws {
         let manager = FileSyncManager()
         #expect(manager.activeFileOperationsCount == 0)
-        
-        // Use a task that sleeps to simulate a long operation
+
+        // A long operation that parks until the test has observed it in flight — deterministic,
+        // unlike the old sleep pairing that flaked under a loaded parallel test run.
+        let release = DispatchSemaphore(value: 0)
         let operationTask = Task {
             await manager.enqueueFileOperation {
-                try? await Task.sleep(nanoseconds: 200_000_000)
+                await awaitSignal(release)
             }
         }
-        
-        // Wait a bit for the operation to start and increment the count
-        try await Task.sleep(nanoseconds: 50_000_000)
+
+        await waitUntil("operation counted in flight") { manager.activeFileOperationsCount == 1 }
         #expect(manager.activeFileOperationsCount == 1)
-        
+
+        release.signal()
         await operationTask.value
         #expect(manager.activeFileOperationsCount == 0)
     }
@@ -254,20 +256,20 @@ import Foundation
     @MainActor
     @Test func testLoadingStateAccuracy() async throws {
         let mockFM = MockFileManager()
-        // Wide margin between "load observably in flight" and "check ran": the old
-        // 50ms-delay / 10ms-sleep pairing lost its race under a loaded parallel test run
-        // (the sleep overshot the whole load) and flaked.
-        mockFM.enumeratorDelay = 0.5
+        // Deterministic: the walk parks at the gate (no wall-clock delay/sleep pairing to lose
+        // under a loaded parallel test run), so "load in flight" stays observable for exactly
+        // as long as the test needs.
+        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
 
-        // Start loading and check state
         let task = Task { await manager.loadTree(path: "/src", isLeft: true) }
 
-        // Yield to allow task to start
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await awaitSignal(gate.entered)              // the walk is parked inside the load
         #expect(manager.isLoadingLeftTree)
 
+        gate.release.signal()
         await task.value
         #expect(!manager.isLoadingLeftTree)
     }

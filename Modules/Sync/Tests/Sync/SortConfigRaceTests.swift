@@ -126,7 +126,8 @@ import Testing
         // A walk that started under .name (ascending by name = ascending by size here,
         // i.e. the wrong order for .size, which sorts descending).
         let staleTree = [node("a.txt", size: 1), node("b.txt", size: 2), node("c.txt", size: 3)]
-        await manager.adoptFreshDeepTree(staleTree, builtWith: .name, isLeft: true, focusPath: "/root")
+        await manager.adoptFreshDeepTree(staleTree, builtWith: .name, isLeft: true, focusPath: "/root",
+                                         loadToken: manager.leftLoadGeneration, configToken: manager.scanConfigGeneration)
 
         #expect(manager.leftTree.map(\.name) == ["c.txt", "b.txt", "a.txt"], "published tree must follow the LIVE sort option")
         #expect(manager.prefetchedTrees["/root"] == nil, "a stale-mode tree must never enter the cache")
@@ -138,7 +139,8 @@ import Testing
         manager.sortOption = .size
 
         let tree = [node("c.txt", size: 3), node("b.txt", size: 2)]
-        await manager.adoptFreshDeepTree(tree, builtWith: .size, isLeft: true, focusPath: "/root")
+        await manager.adoptFreshDeepTree(tree, builtWith: .size, isLeft: true, focusPath: "/root",
+                                         loadToken: manager.leftLoadGeneration, configToken: manager.scanConfigGeneration)
 
         #expect(manager.leftTree.map(\.name) == ["c.txt", "b.txt"])
         #expect(manager.prefetchedTrees["/root"] != nil, "a current-mode deep tree still feeds the cache")

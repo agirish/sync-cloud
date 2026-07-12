@@ -141,6 +141,14 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     public var enumeratorDelay: TimeInterval = 0
     public var failRemovePathsOnce: Set<String> = []
 
+    /// Deterministic enumerator gate: when set, the FIRST enumerator call signals `entered` and
+    /// then parks until `release` is signalled (bounded wait, so a mis-wired test fails instead
+    /// of hanging). Use this — not `enumeratorDelay` sleeps — for "load observably in flight"
+    /// tests: any fixed delay/sleep pairing loses its race under a loaded parallel test run.
+    public var enumeratorGate: (entered: DispatchSemaphore, release: DispatchSemaphore)?
+    private let gateLock = NSLock()
+    private var gateFired = false
+
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
         try sync {
             if shouldFailTrash {
@@ -231,6 +239,13 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     public func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        if let gate = enumeratorGate {
+            gateLock.lock(); let first = !gateFired; if first { gateFired = true }; gateLock.unlock()
+            if first {
+                gate.entered.signal()
+                _ = gate.release.wait(timeout: .now() + 10)
+            }
+        }
         if enumeratorDelay > 0 {
             Thread.sleep(forTimeInterval: enumeratorDelay)
         }

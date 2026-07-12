@@ -291,16 +291,19 @@ public enum FilingEngine {
     static func missingSegments(of path: String, existingPaths: Set<String>) -> [String] {
         if existingPaths.contains(path) { return [] }
         var current = ""
-        var missing: [String] = []
-        var creating = false
+        var segments: [(prefix: String, seg: String)] = []
         for seg in path.split(separator: "/") {
             current += "/" + seg
-            if creating || !existingPaths.contains(current) {
-                creating = true
-                missing.append(String(seg))
-            }
+            segments.append((current, String(seg)))
         }
-        return missing
+        // The missing tail is everything after the LONGEST prefix that exists. Latching at the
+        // first non-existing prefix instead would mark every segment from the filesystem root:
+        // `existingPaths` holds the provider root and its walked folders, never the root's own
+        // ancestors ("/Users", …), so for a real multi-segment provider root the first prefix
+        // always misses and a deleted remembered folder would flag the whole path as NEW.
+        let lastExisting = segments.lastIndex { existingPaths.contains($0.prefix) }
+        let missingStart = lastExisting.map { $0 + 1 } ?? 0
+        return segments[missingStart...].map { $0.seg }
     }
 
     // MARK: Universal rules

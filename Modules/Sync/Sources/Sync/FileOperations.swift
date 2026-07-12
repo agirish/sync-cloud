@@ -120,6 +120,12 @@ extension FileSyncManager {
         let checkName: @MainActor (URL) -> DestinationNameDecision = { [weak self] url in
             self?.checkDestinationName(for: url, isMove: isMove) ?? .clean
         }
+        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
+        // syncFile's): a transfer starting mid-verify can overwrite a file as it's hashed.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before copying or moving items")
+            return []
+        }
         let prunedNodes = nodes.pruneNestedNodes()
         let total = Int64(prunedNodes.count)
         // Standardize away a trailing slash for the existence stat; an empty root must stay
@@ -409,10 +415,12 @@ extension FileSyncManager {
 
     /// Permanently deletes files or directories from disk.
     /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
-    /// Trash-less volumes). Returns the number of items actually removed — 0 when everything failed
-    /// or a permanent delete was declined, so callers don't report a false success.
+    /// Trash-less volumes). Returns the original paths of the items actually removed — empty when
+    /// everything failed or a permanent delete was declined, and missing the untouched tail after
+    /// a mid-batch cancel — so callers can tell partial success from full and never report a false
+    /// success. Nested paths pruned in favor of an ancestor count as removed via that ancestor.
     @discardableResult
-    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> Int {
+    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> [String] {
         let confirmPermanentDelete = permanentDeleteConfirmer
 
         // Prune nested paths to avoid redundant operations on children if parent is trashed
@@ -516,6 +524,6 @@ extension FileSyncManager {
         if let progress, self.activeProgress === progress {
             self.activeProgress = nil
         }
-        return items.count
+        return items.map { $0.original.path }
     }
 }

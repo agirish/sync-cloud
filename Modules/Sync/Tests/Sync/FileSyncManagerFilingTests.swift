@@ -211,6 +211,29 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(manager.hasSuggestedFiling == false)
     }
 
+    /// "Try another" on a file whose name has no salient tokens ("IMG 0007" — exactly the files
+    /// the content/AI pipeline exists for) can't persist a token-keyed rejection, but the click
+    /// must still take effect: the rejected folder never comes back for that file. It used to
+    /// re-install the identical candidate list forever.
+    @MainActor
+    @Test func tryAnotherAdvancesForTokenlessFilenames() async throws {
+        let manager = FileSyncManager()
+        manager.filingRuleDefaults = UserDefaults(suiteName: "tryAnotherTokenless-\(UUID().uuidString)")!
+        let first = FilingDestination(path: "/root/A", confidence: .medium, reasons: [], newSegments: [])
+        let second = FilingDestination(path: "/root/B", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/root/Loose/IMG 0007.pdf", fileName: "IMG 0007.pdf", size: 1,
+                                 modificationDate: nil, candidates: [first, second], providerRoot: "/root")
+        manager.filingSuggestions = [s]
+
+        await manager.tryAnotherFolder(for: s)
+        #expect(manager.filingSuggestions.first?.best?.path == "/root/B", "first rejection advances to the next candidate")
+
+        let advanced = try #require(manager.filingSuggestions.first)
+        await manager.tryAnotherFolder(for: advanced)
+        // Both candidates rejected; no classifier is wired, so the card falls back to "Choose a folder…".
+        #expect(manager.filingSuggestions.first?.candidates.isEmpty == true, "a rejected folder must never be re-offered")
+    }
+
     // MARK: Remembered rules (F3)
 
     /// Points the manager's rule store at a throwaway suite so tests never touch standard defaults.

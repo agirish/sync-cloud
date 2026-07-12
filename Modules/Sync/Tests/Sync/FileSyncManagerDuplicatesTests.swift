@@ -120,7 +120,8 @@ import Combine
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)
         let size: [FileAttributeKey: Any] = [.size: 1000]
-        for p in ["/b/x", "/a/r.doc", "/b/Inv"] {
+        // Keepers must exist on disk too — resolve re-verifies them before trashing copies.
+        for p in ["/b/x", "/a/r.doc", "/b/Inv", "/a/x", "/a/r (1).doc", "/a/Inv"] {
             mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
         }
         manager.duplicateGroups = [
@@ -145,6 +146,7 @@ import Combine
         mockFM.shouldFailTrash = true                                // no Trash on this volume
         let manager = FileSyncManager(fileManager: mockFM)           // permanentDeleteConfirmer defaults to false
         mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
+        mockFM.virtualDisk["/a/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
         let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
         manager.duplicateGroups = [group]
 
@@ -154,6 +156,140 @@ import Combine
         #expect(mockFM.virtualDisk["/b/x"] != nil)                   // file still there
         #expect(manager.duplicateGroups.count == 1)                  // group NOT dropped
         #expect(manager.banner == nil)                               // no false "Reclaimed" banner
+    }
+
+    @MainActor
+    @Test func resolveRefusesWhenKeeperVanishedSinceScan() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // Only the redundant copy is on disk — the keeper was deleted externally after the scan.
+        mockFM.virtualDisk["/b/x"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 1000], contents: nil)
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.virtualDisk["/b/x"] != nil, "the last remaining copy must never be trashed")
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.duplicateGroups.count == 1, "group stays until a rescan re-establishes a keeper")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    @MainActor
+    @Test func applyRecommendedSkipsGroupsWhoseKeeperVanished() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        // Group 1 intact (keeper + copy); group 2's keeper is gone from disk.
+        for p in ["/a/x", "/b/x", "/b/y"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        manager.duplicateGroups = [
+            grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000),
+            grp(.identical, keeper: "/a/y", redundant: ["/b/y"], reclaim: 1000),
+        ]
+
+        await manager.applyRecommendedDuplicates()
+
+        #expect(mockFM.virtualDisk["/b/x"] == nil, "intact group's copy is trashed")
+        #expect(mockFM.virtualDisk["/b/y"] != nil, "keeper-less group's copy must never be trashed")
+        #expect(manager.duplicateGroups.count == 1, "only the fully-resolved group is dropped")
+        #expect(manager.duplicateGroups.first?.keeper.path == "/a/y")
+        #expect(manager.banner?.severity == .warning, "partial outcome must not read as full success")
+    }
+
+    @MainActor
+    @Test func applyRecommendedKeepsGroupsWhoseCopiesSurvivedTheDelete() async throws {
+        let mockFM = MockFileManager()
+        mockFM.shouldFailTrash = true                                // no Trash on this volume
+        let manager = FileSyncManager(fileManager: mockFM)           // permanent-delete confirm declines
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        for p in ["/a/x", "/b/x"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)]
+
+        await manager.applyRecommendedDuplicates()
+
+        #expect(mockFM.virtualDisk["/b/x"] != nil, "declined permanent delete leaves the copy on disk")
+        #expect(manager.duplicateGroups.count == 1, "a group whose copies survived must stay listed")
+    }
+
+    @MainActor
+    @Test func mergeRefusesWhenKeeperVanishedSinceScan() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // Only the redundant folder is on disk — the keeper was deleted externally after the scan.
+        // A merge would silently recreate the keeper from the copy being folded in, then trash
+        // that copy: the last real bytes would survive only by accident of the fold order.
+        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
+        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.virtualDisk["/base/K"] == nil, "the vanished keeper must not be recreated")
+        #expect(mockFM.virtualDisk["/base/R"] != nil, "the last remaining copy must never be trashed")
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.duplicateGroups.count == 1, "group stays until a rescan re-establishes a keeper")
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    @MainActor
+    @Test func resolveReportsPartialWhenOnlySomeCopiesLeftTheDisk() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)   // permanent-delete confirm declines
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        for p in ["/a/x", "/b/x", "/c/x"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        // /c/x refuses to leave the disk (its trash's remove step fails once); /b/x trashes fine.
+        mockFM.failRemovePathsOnce = ["/c/x"]
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x", "/c/x"], reclaim: 2000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.resolveDuplicateGroup(group)
+
+        #expect(ok == false, "a partial removal must not read as success")
+        #expect(mockFM.virtualDisk["/b/x"] == nil)
+        #expect(mockFM.virtualDisk["/c/x"] != nil)
+        #expect(manager.duplicateGroups.count == 1, "the group stays listed until every copy is handled")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("1 of 2") == true, "the banner must claim only what landed")
+    }
+
+    /// `duplicateScanRoot` labels what's ON SCREEN, so it publishes with the results — a
+    /// cancelled rescan of a different folder must not relabel the previous results.
+    @MainActor
+    @Test func duplicateScanRootLabelsResultsNotTheInFlightScan() async throws {
+        let rootA = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: rootA) }
+        try write(rootA.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
+        try write(rootA.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
+        let rootB = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: rootB) }
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: rootA)
+        #expect(manager.duplicateScanRoot == rootA.path, "a completed scan labels its results")
+        let groupsBefore = manager.duplicateGroups.map(\.id)
+
+        // A rescan of a DIFFERENT folder, cancelled before it publishes.
+        manager.startFindDuplicates(root: rootB)
+        manager.cancelFindDuplicates()
+        await manager.duplicateScanTask?.value
+
+        #expect(manager.duplicateScanRoot == rootA.path, "the label must still match the on-screen results")
+        #expect(manager.duplicateGroups.map(\.id) == groupsBefore)
     }
 
     @MainActor

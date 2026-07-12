@@ -179,8 +179,9 @@ import Foundation
     /// Regression: the two scan sources classified symlinks differently — the tree path carried
     /// the LINK's own size/mtime for symlinked files, and the disk walk excluded symlinks
     /// entirely — so the same disk state produced different rows depending on which branch ran.
-    /// Both paths must report symlinked files with the TARGET's size/date. (One divergence
-    /// remains and is pinned below: only the tree path walks a symlinked directory's contents.)
+    /// Both paths must report symlinked files with the TARGET's size/date, and both must walk
+    /// a symlinked directory's contents (the disk walk once didn't, so a linked folder's files
+    /// flipped between "present" and "missing" with cache state).
     @Test func testSymlinkedFilesReportTargetMetadataInBothScanPaths() async throws {
         let fm = FileManager.default
         // Canonical root: both paths key by root-relative path against canonical child URLs.
@@ -209,9 +210,10 @@ import Foundation
         // The symlinked directory is reported as a directory; broken links are dropped.
         #expect(walk["dlink"]?.isDirectory == true)
         #expect(walk["broken"] == nil)
-        // Pinned divergence: the enumerator does not walk INTO symlinked directories —
-        // their contents participate only via the tree path.
-        #expect(walk["dlink/inner.txt"] == nil)
+        // The disk walk descends into symlinked directories (cycle-guarded), matching the
+        // tree path — the same disk state must produce the same rows on both branches.
+        #expect(walk["dlink/inner.txt"]?.isDirectory == false)
+        #expect(walk["dlink/inner.txt"]?.fileSize == 1)
 
         // Tree path: same target metadata for the symlinked file, and linked dirs walked.
         let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
@@ -222,5 +224,23 @@ import Foundation
         #expect(abs(treeDate.timeIntervalSince(knownDate)) < 1)
         #expect(derived["broken"] == nil)
         #expect(derived["dlink/inner.txt"] != nil)
+    }
+
+    /// The disk walk's symlink descent must terminate on link cycles (dir/loop → root): the
+    /// cycle guard reports the looping link as a directory but never re-enters it.
+    @Test func testDiskWalkSymlinkCycleTerminates() async throws {
+        let fm = FileManager.default
+        let root = try makeCanonicalTempRoot(prefix: "DiffEngineSymlinkCycle")
+        defer { try? fm.removeItem(at: root) }
+        let dir = root.appendingPathComponent("dir")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: dir.appendingPathComponent("f.txt"))
+        try fm.createSymbolicLink(at: dir.appendingPathComponent("loop"), withDestinationURL: root)
+
+        let walk = try FileDiffEngine.getFilesInDirectory(root)
+
+        #expect(walk["dir/f.txt"] != nil)
+        #expect(walk["dir/loop"]?.isDirectory == true)          // reported…
+        #expect(walk["dir/loop/dir/f.txt"] == nil)              // …but never descended into
     }
 }

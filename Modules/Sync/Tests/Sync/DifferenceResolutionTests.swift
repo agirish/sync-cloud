@@ -333,20 +333,22 @@ import Foundation
     @MainActor
     @Test func testPrefetchFastPathClearsStaleLoadingSpinner() async throws {
         let mockFM = MockFileManager()
-        // 0.5s delay / 50ms sleep: the old 50ms/20ms pairing lost its race under a loaded
-        // parallel test run (the sleep overshot the whole load) and flaked.
-        mockFM.enumeratorDelay = 0.5
+        // Deterministic: the slow load's walk parks at the gate (no wall-clock delay/sleep
+        // pairing to lose under a loaded parallel test run).
+        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/slow/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let slowLoad = Task { await manager.loadTree(path: "/slow", isLeft: true) }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await awaitSignal(gate.entered)              // the slow walk is parked inside the load
         #expect(manager.isLoadingLeftTree)
 
         // Switching to a prefetched provider cancels the slow load and takes the fast path.
         manager.prefetchedTrees["/fast"] = [FileNode(id: "/fast/a.txt", name: "a.txt", isDirectory: false)]
         await manager.loadTree(path: "/fast", isLeft: true)
+        gate.release.signal()                        // let the cancelled slow walk unwind
         await slowLoad.value
 
         #expect(!manager.isLoadingLeftTree)    // regression: spinner used to stick forever
@@ -361,18 +363,20 @@ import Foundation
     @MainActor
     @Test func testCancelledLoadWithNoSuccessorClearsItsLoadingSpinner() async throws {
         let mockFM = MockFileManager()
-        // Same widened margins as testPrefetchFastPathClearsStaleLoadingSpinner above.
-        mockFM.enumeratorDelay = 0.5
+        // Same deterministic gate as testPrefetchFastPathClearsStaleLoadingSpinner above.
+        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/slow"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/slow/file.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
         let load = Task { await manager.loadTree(path: "/slow", isLeft: false) }
-        try await Task.sleep(nanoseconds: 50_000_000)
+        await awaitSignal(gate.entered)              // the walk is parked inside the load
         #expect(manager.isLoadingRightTree)
 
         // Cancel the load with nothing else starting for this pane to take the flag over.
         load.cancel()
+        gate.release.signal()                        // let the cancelled walk unwind
         await load.value
 
         #expect(!manager.isLoadingRightTree)   // regression: a cancelled load used to strand the spinner

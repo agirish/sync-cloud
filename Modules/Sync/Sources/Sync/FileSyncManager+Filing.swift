@@ -81,7 +81,6 @@ extension FileSyncManager {
         let fileManager = fm ?? self.fileManager
         isSuggestingFiles = true
         filingScanStatus = FilingScanPhase.scanningFolder(folder.lastPathComponent).status
-        filingScanFolder = folder.path
         // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
         if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
         defer {
@@ -105,7 +104,10 @@ extension FileSyncManager {
         let scopedRejections = filingRejections(under: providerRoot)
         var rejectedByFile: [String: Set<String>] = [:]
         for f in looseFiles {
+            // Token-keyed persisted rejections plus this session's path-keyed ones — the latter are
+            // the only record for token-less filenames, which can't persist a rejection.
             let paths = Self.rejectedPaths(forFileNamed: f.name, in: scopedRejections)
+                .union(filingSessionRejections[f.id] ?? [])
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
         }
         // Cache the taxonomy for single-file re-asks (Try another).
@@ -171,6 +173,9 @@ extension FileSyncManager {
 
         if Task.isCancelled { return }
         self.filingSuggestions = suggestions   // single publish
+        // Published with the results, not at scan start: the folder labels what's on screen, and a
+        // cancelled rescan of a different folder must not relabel the previous results.
+        filingScanFolder = folder.path
         hasSuggestedFiling = true
     }
 
@@ -323,13 +328,18 @@ extension FileSyncManager {
     /// re-asks the backend for a genuinely different folder (excluding everything rejected).
     public func tryAnotherFolder(for suggestion: FilingSuggestion) async {
         guard let rejected = suggestion.best else { return }
+        // The persisted (token-keyed) rejection is best-effort — token-less filenames can't store
+        // one. The session set, keyed by file path, is what guarantees the click always takes
+        // effect: the rejected folder never comes back for this file, whatever its name.
         rememberFilingRejection(fileName: suggestion.fileName, destinationPath: rejected.path)
+        filingSessionRejections[suggestion.filePath, default: []].insert(rejected.path)
 
         // Every folder rejected for this file (this session's + persisted).
         let fileTokens = Set(FilingEngine.salientTokens(ofFileNamed: suggestion.fileName))
         let allRejected = Set(filingRejections
             .filter { !$0.tokens.isEmpty && Set($0.tokens).isSubset(of: fileTokens) }
             .map { $0.path })
+            .union(filingSessionRejections[suggestion.filePath] ?? [])
 
         // Cycle to the next candidate the file already carries.
         let remaining = suggestion.candidates.filter { !allRejected.contains($0.path) }
@@ -339,8 +349,12 @@ extension FileSyncManager {
         }
 
         // Out of local ideas — re-ask the backend for one different folder, if one is available.
+        // The cached root/taxonomy must belong to this suggestion's provider: a scan of another
+        // provider (even a cancelled one) overwrites the cache, and resolving against it would
+        // build — and then move the file into — a destination in the wrong provider's tree.
         guard filingUsesAI, let classifier = filingClassifier,
-              let root = filingLastProviderRoot, !filingLastTaxonomyFolders.isEmpty else {
+              let root = filingLastProviderRoot, root == suggestion.providerRoot,
+              !filingLastTaxonomyFolders.isEmpty else {
             replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
             return
         }
@@ -400,6 +414,7 @@ extension FileSyncManager {
         hasSuggestedFiling = false
         filingLastProviderRoot = nil
         filingLastTaxonomyFolders = []
+        filingSessionRejections = [:]
     }
 
     // MARK: Apply

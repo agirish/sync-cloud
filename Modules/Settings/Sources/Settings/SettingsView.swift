@@ -1704,7 +1704,11 @@ private struct FilingRuleEditor: View {
                 } header: {
                     Text("Trigger words")
                 } footer: {
-                    Text("A file matches when its name or contents include all of these words. Separate with commas or spaces.")
+                    if canonicalTokens.isEmpty && !tokensText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
+                    } else {
+                        Text("A file matches when its name or contents include all of these words. Separate with commas or spaces.")
+                    }
                 }
 
                 Section {
@@ -1738,22 +1742,25 @@ private struct FilingRuleEditor: View {
         .frame(width: 460, height: 380)
     }
 
-    /// Canonical form the engine expects: lowercased, trimmed, de-duplicated, sorted.
+    /// Canonical form the engine expects — produced by the SAME tokenizer that files are matched
+    /// with (`FilingEngine.nameTokens`: split on every non-alphanumeric, lowercase, drop stopwords
+    /// and short/bare-number tokens). A hand-split on commas/whitespace let entries like
+    /// "tesla-model-3" or "acme_corp" save verbatim, and a hyphenated/underscored trigger can
+    /// never be a subset of any file's tokens — the rule saved fine and then never fired again.
     private var canonicalTokens: [String] {
-        let separators = CharacterSet(charactersIn: ",").union(.whitespacesAndNewlines)
-        let parts = tokensText
-            .lowercased()
-            .components(separatedBy: separators)
-            .filter { !$0.isEmpty }
-        return Array(Set(parts)).sorted()
+        FilingEngine.nameTokens(tokensText).sorted()
     }
 
     private var normalizedDestination: String {
-        destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "" : (trimmed as NSString).expandingTildeInPath
     }
 
     private var isValid: Bool {
-        !canonicalTokens.isEmpty && !normalizedDestination.isEmpty
+        // The destination must be an absolute path: `filingRules(under:)` matches rules to a
+        // provider by absolute-path prefix, so a relative destination is silently filtered out
+        // of every scan forever — a rule that looks saved but can never fire.
+        !canonicalTokens.isEmpty && normalizedDestination.hasPrefix("/")
     }
 
     private func save() {

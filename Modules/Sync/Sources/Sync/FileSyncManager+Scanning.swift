@@ -70,6 +70,9 @@ extension FileSyncManager {
             // so no extra detached hop is needed here.
             let fm = self.fileManager
             let sortOp = self.sortOption
+            // Config epoch before the walks: if a file operation (or any scan-affecting change)
+            // lands while they run, this load's tree predates it and must not be cached.
+            let configToken = self.scanConfigGeneration
 
             // Progressive first paint: publish the immediate children right away (one
             // directory listing), then swap in the deep tree when the full walk finishes —
@@ -91,7 +94,8 @@ extension FileSyncManager {
 
             guard !Task.isCancelled else { return }
 
-            await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath)
+            await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
+                                          loadToken: loadToken, configToken: configToken)
             Logger.shared.debug("\(label) Tree Loaded. Count: \(isLeft ? leftItemCount : rightItemCount)")
         }
 
@@ -117,7 +121,8 @@ extension FileSyncManager {
     /// `sortOption.didSet` cleared the cache expecting the next walk to rebuild it for the
     /// new option, and writing this one back would poison the cache fast path, which serves
     /// cached trees as-is (for Tags, with no way to ever recover the missing metadata).
-    func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String) async {
+    func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
+                            loadToken: Int, configToken: Int) async {
         var tree = tree
         let liveSort = sortOption
         if liveSort != sortOp {
@@ -135,17 +140,29 @@ extension FileSyncManager {
             Task { await self.resortTreesAndRefilter() }
         }
         await applyFilters()
-        if isLeft {
-            isLoadingLeftTree = false
-        } else {
-            isLoadingRightTree = false
+        // Release the spinner only while this load is still the pane's current one (mirrors
+        // loadTree's deferred cleanup). A superseded load resuming here after the applyFilters
+        // suspension would otherwise clear the SUCCESSOR's spinner mid-walk — and, since the
+        // loading flag is what keeps pruneSelection off the interim shallow tree, let a prune
+        // wipe valid selections deeper than the shallow tree can see.
+        let stillCurrent = isLeft ? (leftLoadGeneration == loadToken) : (rightLoadGeneration == loadToken)
+        if stillCurrent {
+            if isLeft {
+                isLoadingLeftTree = false
+            } else {
+                isLoadingRightTree = false
+            }
         }
         // Cache the deep tree for this focus (never the shallow one — cache consumers,
         // including the in-memory diff scan, rely on cached trees being fully walked), and
-        // only when the sort option never moved while this load ran (re-checked after every
-        // await above): cached trees are always served verbatim, so they must match the
-        // current option's order and metadata exactly.
-        if sortOption == sortOp {
+        // only when BOTH invariants re-checked after every await above still hold:
+        //  - the sort option never moved while this load ran (cached trees are served
+        //    verbatim, so they must match the current option's order and metadata exactly);
+        //  - the scan-config epoch never moved (a file operation finishing mid-load cleared
+        //    this cache and bumped the epoch; writing this pre-operation tree back would
+        //    resurrect it, and the cache fast path would then serve pre-op state as current
+        //    until the next invalidation).
+        if sortOption == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
         }
     }
