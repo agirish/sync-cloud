@@ -20,3 +20,20 @@ import Testing
         #expect(TidyKeeperMarker.inert.accessibilityLabel == nil)
     }
 }
+
+/// Pins the cursor-stack bookkeeping behind the selectable radio's hover effect: NSCursor's
+/// stack is global, so a push must happen exactly once per hovered state and a pop only for a
+/// push we made — even when SwiftUI repeats an onHover callback without a state change.
+@Suite struct HoverCursorTransitionTests {
+    @Test func pushesOnlyOnEnterTransition() {
+        #expect(HoverCursorTransition.decide(wasHovering: false, isNowInside: true) == .push)
+        // Repeated onHover(true) without an intervening false must not double-push.
+        #expect(HoverCursorTransition.decide(wasHovering: true, isNowInside: true) == .none)
+    }
+
+    @Test func popsOnlyOnExitTransition() {
+        #expect(HoverCursorTransition.decide(wasHovering: true, isNowInside: false) == .pop)
+        // Repeated onHover(false) must not pop a cursor someone else pushed.
+        #expect(HoverCursorTransition.decide(wasHovering: false, isNowInside: false) == .none)
+    }
+}

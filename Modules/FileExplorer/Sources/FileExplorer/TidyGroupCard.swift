@@ -175,7 +175,9 @@ struct TidyGroupCard: View {
                 .fill(.tertiary)
                 .frame(width: 5, height: 5)
                 .frame(width: 15)   // keep the text column aligned with the radio rows
-                .padding(.top, 6)
+                // 7 centers the dot on the radios: the 15pt-font symbols render 18pt tall with
+                // ink spanning 2–17pt (center 9.5 after their 1pt top pad); 6 + 2.5 sat 1pt high.
+                .padding(.top, 7)
                 .accessibilityHidden(true)
         }
     }
@@ -369,6 +371,22 @@ enum TidyKeeperMarker: Equatable {
     }
 }
 
+/// Pure decision for hover-driven NSCursor bookkeeping. The cursor stack is global, so the
+/// invariant is: push exactly once when hovering begins, pop exactly once when it ends, and
+/// ignore repeated same-state callbacks — SwiftUI can deliver `onHover(true)` twice without an
+/// intervening `false` when layout shifts under the pointer.
+enum HoverCursorTransition: Equatable {
+    case push, pop, none
+
+    static func decide(wasHovering: Bool, isNowInside: Bool) -> HoverCursorTransition {
+        switch (wasHovering, isNowInside) {
+        case (false, true): return .push
+        case (true, false): return .pop
+        default: return .none
+        }
+    }
+}
+
 /// The clickable "keep this copy instead" radio: hollow circle that gains an accent tint, a soft
 /// glow ring, and a pointing-hand cursor on hover, so pickable radios read differently from the
 /// static keeper indicator.
@@ -394,8 +412,15 @@ private struct SelectableKeeperRadio: View {
         .help("Keep this copy instead")
         .accessibilityLabel(TidyKeeperMarker.selectable.accessibilityLabel ?? "")
         .onHover { inside in
+            // NSCursor's stack is global and SwiftUI may repeat onHover(true) without an
+            // intervening false (layout thrash), so push/pop only on real transitions:
+            // exactly one push per hovered state, and pop only what we pushed.
+            switch HoverCursorTransition.decide(wasHovering: isHovering, isNowInside: inside) {
+            case .push: NSCursor.pointingHand.push()
+            case .pop: NSCursor.pop()
+            case .none: break
+            }
             isHovering = inside
-            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
         .onDisappear {
             // Choosing a keeper reorders the rows out from under the cursor; don't leave the
