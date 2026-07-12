@@ -565,24 +565,48 @@ struct ContentView: View {
                 .ignoresSafeArea()
                 .onTapGesture { showSettings = false }
 
-            SettingsView(
-                selection: $settingsTab,
-                onClose: { showSettings = false },
-                syncManager: syncManager,
-                onResetAllSettings: { resetAllSettingsAction() }
-            )
-                .environmentObject(settings)
-                .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.5)
-                )
-                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+            settingsCard
                 // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
                 .contentShape(Rectangle())
         }
         .transition(.opacity)
+    }
+
+    /// The Settings card, decorated to reflect the app's own content-surface style — the panel that
+    /// *configures* translucency should itself *obey* it (item 5.4). `.solid` is an opaque panel;
+    /// `.unified`/`.cards` are a frosted glass card whose translucency tracks the glass-intensity
+    /// slider and whose fill picks up the accent tint. Radius, clip, and shadow come from the shared
+    /// LiquidGlass system (`glassCardStyle`, `cardCornerRadius`) rather than hardcoded values, so the
+    /// card matches the rest of the glass surfaces it sits over.
+    @ViewBuilder
+    private var settingsCard: some View {
+        // Same fill + clip both branches share: the surface-style fill (opaque base for `.solid`,
+        // tint-only wash otherwise) clipped to the shared card radius.
+        let shaped = SettingsView(
+            selection: $settingsTab,
+            onClose: { showSettings = false },
+            syncManager: syncManager,
+            onResetAllSettings: { resetAllSettingsAction() }
+        )
+            .environmentObject(settings)
+            .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
+            .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+        let border = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+            .strokeBorder(.quaternary, lineWidth: 0.5)
+
+        switch surfaceStyle {
+        case .solid:
+            // Opaque panel — no see-through material — plus the floating-modal drop shadow.
+            shaped
+                .overlay(border)
+                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+        case .unified, .cards:
+            // Frosted glass card: `glassCardStyle` handles the macOS-26/15 gating and clip+shadow,
+            // and its translucency scales with the glass-intensity slider.
+            shaped
+                .glassCardStyle(intensity: glassIntensity)
+                .overlay(border)
+        }
     }
 
     /// Renders one abstract `SyncErrorAction` as its concrete alert button. Dismissing is implicit
