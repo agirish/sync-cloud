@@ -847,6 +847,9 @@ struct AdvancedSettingsTab: View {
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     /// Human-readable size of the log file, refreshed on appear and after Clear Log.
     @State private var logFileSizeText: String?
+    /// Count of remembered filing rules (F3), refreshed on appear and when the manager sheet closes.
+    @State private var filingRuleCount = 0
+    @State private var showRulesManager = false
 
     var body: some View {
         Form {
@@ -866,10 +869,20 @@ struct AdvancedSettingsTab: View {
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
                 Toggle("Filing: read file contents on-device for better suggestions", isOn: $filingReadContents)
+                LabeledContent("Remembered filing rules") {
+                    HStack(spacing: 8) {
+                        Text(filingRuleCount == 0 ? "None yet"
+                             : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")
+                            .foregroundStyle(.secondary)
+                        Button("Manage…") { showRulesManager = true }
+                            .disabled(filingRuleCount == 0 || syncManager == nil)
+                    }
+                    .controlSize(.small)
+                }
             } header: {
                 Text("Duplicates (Tidy)")
             } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing content-reading uses PDF text, on-device OCR, and entity detection for files whose name says nothing — nothing leaves your Mac. Changes apply on the next scan.")
+                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Filing content-reading uses PDF text, on-device OCR, and entity detection for files whose name says nothing — nothing leaves your Mac. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
             }
 
             Section {
@@ -939,6 +952,14 @@ struct AdvancedSettingsTab: View {
         }
         .formStyle(.grouped)
         .task { await refreshLogFileSize() }
+        .onAppear { filingRuleCount = syncManager?.filingRules.count ?? 0 }
+        .sheet(isPresented: $showRulesManager) {
+            if let syncManager {
+                FilingRulesManagerView(syncManager: syncManager) {
+                    filingRuleCount = syncManager.filingRules.count
+                }
+            }
+        }
     }
 
     /// Confirmation ahead of the defaults wipe; Cancel is the default button (Return must
@@ -971,5 +992,91 @@ struct AdvancedSettingsTab: View {
             return (attributes?[.size] as? NSNumber)?.intValue
         }.value
         logFileSizeText = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+    }
+}
+
+/// Reviews and forgets the remembered filing rules (F3). Each rule is a trigger token-set the user
+/// taught by correcting a Filing suggestion, mapped to the folder those files should go into.
+struct FilingRulesManagerView: View {
+    let syncManager: FileSyncManager
+    /// Called after any change so the caller can refresh its rule count.
+    let onChange: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var rules: [FilingRule] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Remembered Filing Rules").font(.headline)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+            .padding()
+
+            Divider()
+
+            if rules.isEmpty {
+                Text("No remembered rules.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(rules) { rule in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(rule.tokens.joined(separator: " + "))
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                HStack(spacing: 5) {
+                                    Image(systemName: "arrow.turn.down.right")
+                                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                                    Text(rule.destinationPath)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            Button("Forget") { forget(rule) }.controlSize(.small)
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+            }
+
+            Divider()
+
+            HStack {
+                Button("Forget All…", role: .destructive) { forgetAll() }
+                    .disabled(rules.isEmpty)
+                Spacer()
+                Text("Rules are consulted on the next Filing scan.")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+            }
+            .padding()
+        }
+        .frame(width: 480, height: 380)
+        .onAppear { rules = syncManager.filingRules }
+    }
+
+    private func forget(_ rule: FilingRule) {
+        syncManager.forgetFilingRule(rule)
+        rules = syncManager.filingRules
+        onChange()
+    }
+
+    private func forgetAll() {
+        let alert = NSAlert()
+        alert.messageText = "Forget all remembered filing rules?"
+        alert.informativeText = "Filing will go back to suggesting homes from scratch. Your files aren't affected."
+        alert.addButton(withTitle: "Forget All")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.keyEquivalent = ""
+        alert.buttons.last?.keyEquivalent = "\r"
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        syncManager.clearFilingRules()
+        rules = []
+        onChange()
     }
 }

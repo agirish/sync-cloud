@@ -173,4 +173,97 @@ import Testing
         #expect(!FilingEngine.fileTokens("order 114").contains("114"))                 // non-year number dropped
         #expect(FilingEngine.fileTokens("photos from 2001").contains("2001"))          // year kept
     }
+
+    // MARK: Remembered rules (F3)
+
+    @Test func rememberedRuleFilesAMatchingFileTheHeuristicsWouldMiss() throws {
+        // No Vehicles folder, so the heuristics give this no confident home…
+        let taxonomy = [dir("/root/Documents", [])]
+        let loose = [file("/root/Downloads/Tesla renewal.pdf", modified: y2024)]
+        #expect(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")[0].candidates.isEmpty)
+
+        // …but a remembered rule keyed on "tesla" files it, high-confidence and batch-eligible.
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
+        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                  providerRoot: "/root", rules: [rule]).first)
+        #expect(s.best?.path == "/root/Documents/Vehicles/Tesla")
+        #expect(s.best?.confidence == .high)
+        #expect(s.best?.remembered == true)
+        #expect(s.isBatchEligible)
+        #expect(s.best?.reasons.first?.contains("Remembered") == true)
+    }
+
+    @Test func rememberedRuleOutranksAHeuristicMatchOfEqualConfidence() throws {
+        // Heuristic would send "tesla registration" into the existing Tesla folder (high). A rule
+        // that says these go somewhere else must win.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
+                          [dir("/root/Documents/Vehicles/Tesla", [])])])]
+        let loose = [file("/root/Downloads/tesla registration.pdf", modified: y2024)]
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Archive/Cars")
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", rules: [rule]).first?.best)
+        #expect(best.path == "/root/Archive/Cars")
+        #expect(best.remembered)
+    }
+
+    @Test func ruleMatchesOnlyWhenAllTriggerTokensPresent() {
+        let taxonomy = [dir("/root/Documents", [])]
+        let rule = FilingRule(tokens: ["geico", "policy"], destinationPath: "/root/Insurance/Geico")
+        // Has "geico" but not "policy" → no match.
+        let miss = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico letter.pdf", modified: y2024)],
+                                        taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+        #expect(!(miss.first?.candidates.contains { $0.remembered } ?? false))
+        // Has both (plus extras) → matches.
+        let hit = FilingEngine.suggest(looseFiles: [file("/root/Downloads/geico policy renewal.pdf", modified: y2024)],
+                                       taxonomy: taxonomy, providerRoot: "/root", rules: [rule])
+        #expect(hit.first?.best?.path == "/root/Insurance/Geico")
+    }
+
+    @Test func rememberedRuleRecreatesAMissingFolder() throws {
+        let taxonomy = [dir("/root/Documents", [])]   // the remembered folder no longer exists
+        let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles/Tesla")
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", rules: [rule]).first?.best)
+        #expect(best.newSegments == ["Vehicles", "Tesla"])   // Documents exists; the tail is recreated on apply
+        #expect(best.isNew)
+    }
+
+    @Test func contentOnlyRuleMatchIsCappedToMedium() throws {
+        let taxonomy = [dir("/root/Documents", [])]
+        let loose = [file("/root/Downloads/scan0007.pdf", modified: y2024)]   // name says nothing
+        let rule = FilingRule(tokens: ["tesla"], destinationPath: "/root/Vehicles/Tesla")
+        let content = ["/root/Downloads/scan0007.pdf": Set(["tesla"])]        // only content carries "tesla"
+        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                  providerRoot: "/root", contentTokens: content, rules: [rule]).first)
+        #expect(s.best?.remembered == true)
+        #expect(s.best?.confidence == .medium)       // content-only → capped
+        #expect(s.isBatchEligible == false)          // …and kept out of the blind batch
+    }
+
+    // MARK: Rule construction
+
+    @Test func ruleBuilderPicksTheDistinctiveAnchor() throws {
+        // Tesla insurance filed into …/Vehicles/Tesla/Insurance → the rule keys on the single token
+        // the filename shares with the destination folders ("tesla"), so it generalizes to the next
+        // Tesla document without keying on incidental words ("auto", "policy") or the year.
+        let rule = try #require(FilingEngine.rule(forFileNamed: "Tesla — Auto Policy 2024.pdf",
+                                                  filedInto: "/root/Documents/Vehicles/Tesla/Insurance"))
+        #expect(rule.tokens == ["tesla"])
+        #expect(!rule.tokens.contains("2024"))           // the year is never a trigger
+        #expect(rule.destinationPath == "/root/Documents/Vehicles/Tesla/Insurance")
+    }
+
+    @Test func ruleBuilderFallsBackToSalientNameTokens() throws {
+        // The folder name shares nothing with the file, so the rule keys on the single salient token.
+        let rule = try #require(FilingEngine.rule(forFileNamed: "paystub.pdf", filedInto: "/root/Finance/Pay"))
+        #expect(rule.tokens == ["paystub"])
+    }
+
+    @Test func ruleBuilderReturnsNilForANamelessFile() {
+        // "IMG_0007" tokenizes to nothing (img = stopword, 0007 = non-year number), so no rule.
+        #expect(FilingEngine.rule(forFileNamed: "IMG_0007.pdf", filedInto: "/root/Documents/Medical") == nil)
+        #expect(FilingEngine.canRemember(fileName: "IMG_0007.pdf") == false)
+        #expect(FilingEngine.canRemember(fileName: "Tesla Policy.pdf") == true)
+    }
 }

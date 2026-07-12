@@ -29,6 +29,7 @@ struct FilingSuggestionCard: View {
                         .lineLimit(1).truncationMode(.middle)
                     sourceRow
                     if let best { destinationRow(best) }
+                    if best?.remembered == true { rememberedBadge }
                     if let reason = best?.reasons.first { whyRow(reason) }
                 }
                 Spacer(minLength: 8)
@@ -89,6 +90,16 @@ struct FilingSuggestionCard: View {
                 }
             }
         }
+    }
+
+    private var rememberedBadge: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "memories").font(.system(size: 9, weight: .semibold))
+            Text("Remembered").font(.system(size: 9.5, weight: .bold))
+        }
+        .foregroundStyle(hueAccent)
+        .padding(.horizontal, 6).padding(.vertical, 2)
+        .background(Capsule(style: .continuous).fill(hueAccent.opacity(0.14)))
     }
 
     private func whyRow(_ reason: String) -> some View {

@@ -62,9 +62,13 @@ extension FileSyncManager {
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
-        // Phase 1 — filename + metadata + your taxonomy (not published yet).
+        // Remembered rules (F3), scoped to this provider so a rule pointing into another provider's
+        // tree can never fire here (its absolute destination would be wrong).
+        let rules = filingRules(under: providerRoot)
+
+        // Phase 1 — filename + metadata + your taxonomy + remembered rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                               providerRoot: providerRoot.path, options: options)
+                                               providerRoot: providerRoot.path, rules: rules, options: options)
         if Task.isCancelled { return }
 
         // Phase 2 — for the files with no confident home, read their contents on-device and
@@ -77,7 +81,8 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
                 if !content.isEmpty {
                     suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
-                                                       providerRoot: providerRoot.path, contentTokens: content, options: options)
+                                                       providerRoot: providerRoot.path, contentTokens: content,
+                                                       rules: rules, options: options)
                 }
             }
         }
@@ -92,6 +97,49 @@ extension FileSyncManager {
     var filingReadsContents: Bool {
         (filingContentDefaults.object(forKey: Self.readContentsDefaultsKey) as? Bool) ?? true
     }
+
+    // MARK: Remembered rules (F3)
+
+    /// Where remembered filing rules are persisted (JSON, in `filingRuleDefaults`).
+    public static let rulesDefaultsKey = "tidyFilingRules"
+
+    /// The rules the user has taught by correcting suggestions. Persisted across scans and sessions.
+    public var filingRules: [FilingRule] {
+        get {
+            guard let data = filingRuleDefaults.data(forKey: Self.rulesDefaultsKey),
+                  let rules = try? JSONDecoder().decode([FilingRule].self, from: data) else { return [] }
+            return rules
+        }
+        set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rulesDefaultsKey) }
+    }
+
+    /// Rules whose destination lives inside `providerRoot` — the only ones safe to apply to a scan
+    /// of that provider (a rule's destination is an absolute path in one provider's tree).
+    func filingRules(under providerRoot: URL) -> [FilingRule] {
+        let root = providerRoot.path
+        return filingRules.filter { $0.destinationPath == root || $0.destinationPath.hasPrefix(root + "/") }
+    }
+
+    /// Learns a rule from a correction: "file <fileName> here" becomes "files like this go here."
+    /// No-op (returns false) when the filename yields nothing distinctive to key on.
+    @discardableResult
+    public func rememberFilingRule(fileName: String, contentTokens: Set<String> = [], destinationPath: String) -> Bool {
+        guard let rule = FilingEngine.rule(forFileNamed: fileName, contentTokens: contentTokens,
+                                           filedInto: destinationPath) else { return false }
+        var rules = filingRules
+        rules.removeAll { $0.tokens == rule.tokens }   // newest destination for a trigger wins
+        rules.append(rule)
+        filingRules = rules
+        return true
+    }
+
+    /// Forgets one remembered rule.
+    public func forgetFilingRule(_ rule: FilingRule) {
+        filingRules.removeAll { $0.id == rule.id }
+    }
+
+    /// Forgets every remembered rule.
+    public func clearFilingRules() { filingRules = [] }
 
     /// Runs the injected content extractor over the given paths with bounded concurrency.
     nonisolated static func extractContent(
@@ -130,9 +178,12 @@ extension FileSyncManager {
     /// path, and drops it from the list. Reversible with Undo (⌘Z). Never overwrites — a name
     /// collision keeps both by uniquifying.
     @discardableResult
-    public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination) async -> Bool {
+    public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
+                                      remember: Bool = false) async -> Bool {
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
+            // Remember only on an actual move — a rule keyed on where the file already lived is noise.
+            if remember { rememberFilingRule(fileName: suggestion.fileName, destinationPath: destination.path) }
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo")

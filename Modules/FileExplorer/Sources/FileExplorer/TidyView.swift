@@ -458,9 +458,24 @@ public struct TidyView: View {
         if let scanFolder = syncManager.filingScanFolder {
             panel.directoryURL = URL(fileURLWithPath: scanFolder)
         }
+        // Offer to remember the correction as a rule — but only when the filename has something
+        // distinctive to key on (a nameless "scan0012.pdf" can't seed a rule).
+        var rememberBox: NSButton?
+        if FilingEngine.canRemember(fileName: suggestion.fileName) {
+            let box = NSButton(checkboxWithTitle: "Remember: file files like this here from now on",
+                               target: nil, action: nil)
+            box.state = .off
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 36))
+            box.frame = NSRect(x: 20, y: 9, width: 400, height: 18)
+            container.addSubview(box)
+            panel.accessoryView = container
+            panel.isAccessoryViewDisclosed = true
+            rememberBox = box
+        }
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let remember = rememberBox?.state == .on
         let dest = FilingDestination(path: url.path, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
-        Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
+        Task { await syncManager.applyFilingSuggestion(suggestion, to: dest, remember: remember) }
     }
 
     private func applyRecommendedFiling() {

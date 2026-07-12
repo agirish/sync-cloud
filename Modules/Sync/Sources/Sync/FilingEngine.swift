@@ -24,15 +24,19 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// matches are capped to medium confidence and excluded from the blind "File recommended"
     /// batch — reading a common word out of a document is a weaker signal than a filename.
     public let fromContent: Bool
+    /// True when this destination came from a remembered rule the user taught (F3). Ranked ahead of
+    /// heuristic matches of equal confidence — an explicit correction outranks a guess.
+    public let remembered: Bool
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
         self.newSegments = newSegments
         self.fromContent = fromContent
+        self.remembered = remembered
     }
 }
 
@@ -98,11 +102,14 @@ public enum FilingEngine {
     /// - Parameter contentTokens: Optional per-file tokens extracted from the file's *contents*
     ///   (entities/keywords from PDF text, OCR, etc.), merged with the filename tokens so a file
     ///   whose name says nothing can still find a home. Empty for the filename-only (F1) pass.
+    /// - Parameter rules: Remembered filing rules (F3) — token-set → folder mappings the user
+    ///   taught by correcting past suggestions. A rule that matches ranks ahead of the heuristics.
     public static func suggest(
         looseFiles: [FileNode],
         taxonomy: [FileNode],
         providerRoot: String,
         contentTokens: [String: Set<String>] = [:],
+        rules: [FilingRule] = [],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
         var profiles: [FolderProfile] = []
@@ -123,6 +130,8 @@ public enum FilingEngine {
             let year = yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
+            candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
+                                               contentTokens: content, existingPaths: existingPaths)
             candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
             candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                          nameLower: file.name.lowercased(), ext: ext, year: year,
@@ -196,6 +205,54 @@ public enum FilingEngine {
                                          newSegments: [], fromContent: fromContent))
         }
         return out
+    }
+
+    // MARK: Remembered rules (F3)
+
+    /// Destinations from remembered rules whose trigger tokens are all present in the file. A rule
+    /// match is high confidence (the user taught it) — unless the match rests only on content
+    /// tokens, which is capped to medium like any other content-derived signal.
+    private static func rememberedCandidates(
+        rules: [FilingRule], tokens: Set<String>, nameTokens: Set<String>,
+        contentTokens: Set<String>, existingPaths: Set<String>
+    ) -> [FilingDestination] {
+        guard !rules.isEmpty, !tokens.isEmpty else { return [] }
+        var out: [FilingDestination] = []
+        for rule in rules {
+            let trigger = Set(rule.tokens)
+            guard !trigger.isEmpty, trigger.isSubset(of: tokens) else { continue }
+            // From content when none of the trigger tokens appear in the filename.
+            let fromContent = trigger.isDisjoint(with: nameTokens) && !trigger.isDisjoint(with: contentTokens)
+            let shown = rule.tokens.sorted().prefix(3).joined(separator: ", ")
+            let reason = fromContent
+                ? "Remembered — you file “\(shown)” documents here (read from the file)"
+                : "Remembered — you file “\(shown)” here"
+            out.append(FilingDestination(
+                path: rule.destinationPath,
+                confidence: fromContent ? .medium : .high,
+                reasons: [reason],
+                newSegments: missingSegments(of: rule.destinationPath, existingPaths: existingPaths),
+                fromContent: fromContent, remembered: true))
+        }
+        return out
+    }
+
+    /// The trailing segments of an absolute path that don't yet exist (would be recreated on apply);
+    /// empty when the whole path already exists. Lets a remembered folder that was since deleted be
+    /// re-proposed with NEW tags rather than silently failing.
+    private static func missingSegments(of path: String, existingPaths: Set<String>) -> [String] {
+        if existingPaths.contains(path) { return [] }
+        var current = ""
+        var missing: [String] = []
+        var creating = false
+        for seg in path.split(separator: "/") {
+            current += "/" + seg
+            if creating || !existingPaths.contains(current) {
+                creating = true
+                missing.append(String(seg))
+            }
+        }
+        return missing
     }
 
     // MARK: Universal rules
@@ -305,13 +362,15 @@ public enum FilingEngine {
                 let winner = c.confidence > existing.confidence ? c : existing
                 byPath[c.path] = FilingDestination(path: c.path, confidence: winner.confidence,
                                                    reasons: Array(Set(existing.reasons + c.reasons)).sorted(),
-                                                   newSegments: winner.newSegments, fromContent: winner.fromContent)
+                                                   newSegments: winner.newSegments, fromContent: winner.fromContent,
+                                                   remembered: existing.remembered || c.remembered)
             } else {
                 byPath[c.path] = c
             }
         }
         return byPath.values.sorted { a, b in
             if a.confidence != b.confidence { return a.confidence > b.confidence }
+            if a.remembered != b.remembered { return a.remembered }      // a correction you taught outranks a guess
             if a.isNew != b.isNew { return !a.isNew }                    // prefer existing folders
             if a.newSegments.count != b.newSegments.count { return a.newSegments.count < b.newSegments.count }
             // Among equally-good matches, prefer the shallower, more general folder — so a generic
@@ -370,6 +429,34 @@ public enum FilingEngine {
     private static func yearString(_ date: Date?) -> String? {
         guard let date else { return nil }
         return Calendar(identifier: .gregorian).dateComponents([.year], from: date).year.map(String.init)
+    }
+
+    // MARK: Remembered-rule construction (F3)
+
+    /// Whether a rule can be learned from this filename at all — true when the name yields at least
+    /// one salient (non-year) token. A file whose name says nothing (e.g. "scan0012.pdf") can't seed
+    /// a rule, so the UI shouldn't offer to remember it.
+    public static func canRemember(fileName: String) -> Bool {
+        fileTokens(fileName).contains { !isYear($0) }
+    }
+
+    /// Builds a remembered rule from a correction: the file the user just filed and where they put
+    /// it. The trigger prefers the *distinctive anchor* — tokens the filename shares with the
+    /// destination's own folder names (e.g. "tesla" in a `…/Tesla/Insurance` path) — so the rule
+    /// generalizes ("the next Tesla document") without keying on incidental words. Falls back to the
+    /// file's salient tokens when there's no shared anchor. Returns nil when nothing usable remains.
+    public static func rule(forFileNamed fileName: String, contentTokens: Set<String> = [],
+                            filedInto destinationPath: String) -> FilingRule? {
+        let salientName = fileTokens(fileName).filter { !isYear($0) }
+        // Only the leaf folders carry meaning; the provider-root prefix would add noise.
+        let destTokens = destinationPath.split(separator: "/").suffix(3)
+            .reduce(into: Set<String>()) { $0.formUnion(nameTokens(String($1))) }
+
+        var trigger = salientName.intersection(destTokens)
+        if trigger.isEmpty { trigger = contentTokens.filter { !isYear($0) }.intersection(destTokens) }
+        if trigger.isEmpty { trigger = salientName }
+        guard !trigger.isEmpty else { return nil }
+        return FilingRule(tokens: trigger.sorted(), destinationPath: destinationPath)
     }
 
     // MARK: Vocabularies

@@ -137,6 +137,8 @@ public class FileSyncManager: ObservableObject {
     public var filingContentExtractor: (@Sendable (String) async -> Set<String>)?
     /// Defaults store for the Filing read-contents toggle (injectable so tests don't touch standard).
     public var filingContentDefaults: UserDefaults = .standard
+    /// Defaults store for remembered filing rules (F3), injectable so tests don't touch standard.
+    public var filingRuleDefaults: UserDefaults = .standard
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

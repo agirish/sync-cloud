@@ -207,4 +207,92 @@ import Foundation
         #expect(manager.filingScanFolder == nil)
         #expect(manager.hasSuggestedFiling == false)
     }
+
+    // MARK: Remembered rules (F3)
+
+    /// Points the manager's rule store at a throwaway suite so tests never touch standard defaults.
+    @MainActor private func manager(withRuleSuite suite: String) -> FileSyncManager {
+        let m = FileSyncManager()
+        m.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        return m
+    }
+
+    @MainActor
+    @Test func applyingWithRememberPersistsAReusableRule() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
+        let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
+        try write(srcPath)
+
+        let suite = "FilingRules-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+
+        // File it into Archive/Tesla and ask Filing to remember the correction.
+        let s = FilingSuggestion(filePath: srcPath.path, fileName: "Tesla Policy.pdf", size: 5000,
+                                 modificationDate: nil, candidates: [])
+        manager.filingSuggestions = [s]
+        let dest = FilingDestination(path: root.appendingPathComponent("Archive/Tesla").path,
+                                     confidence: .high, reasons: [], newSegments: [])
+        _ = await manager.applyFilingSuggestion(s, to: dest, remember: true)
+
+        // A rule keyed on "tesla" now exists…
+        #expect(manager.filingRules.count == 1)
+        #expect(manager.filingRules.first?.tokens == ["tesla"])
+
+        // …and a fresh scan of another Tesla file files it into that same remembered folder,
+        // high-confidence & batch-eligible, carrying the "remembered" flag.
+        try write(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let renewal = manager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
+        #expect(renewal?.best?.path == root.appendingPathComponent("Archive/Tesla").path)
+        #expect(renewal?.best?.remembered == true)
+        #expect(renewal?.isBatchEligible == true)
+    }
+
+    @MainActor
+    @Test func rulesAreScopedToTheProviderTheyPointInto() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
+
+        let suite = "FilingRules-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        // A rule whose destination lives in a DIFFERENT provider's tree must never fire here.
+        manager.filingRules = [FilingRule(tokens: ["tesla"], destinationPath: "/SomeOtherProvider/Cars")]
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let s = manager.filingSuggestions.first { $0.fileName == "tesla thing.pdf" }
+        #expect(!(s?.candidates.contains { $0.remembered } ?? false))
+    }
+
+    @MainActor
+    @Test func rememberForgetAndClearRules() {
+        let suite = "FilingRules-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+
+        #expect(manager.rememberFilingRule(fileName: "Tesla Policy.pdf", destinationPath: "/p/Vehicles/Tesla"))
+        #expect(manager.rememberFilingRule(fileName: "Geico Bill.pdf", destinationPath: "/p/Insurance/Geico"))
+        #expect(manager.filingRules.count == 2)
+
+        // A nameless file (IMG_0007 → no usable tokens) yields nothing to key on — nothing remembered.
+        #expect(manager.rememberFilingRule(fileName: "IMG_0007.pdf", destinationPath: "/p/Misc") == false)
+        #expect(manager.filingRules.count == 2)
+
+        // Re-teaching the same trigger replaces the destination rather than duplicating.
+        _ = manager.rememberFilingRule(fileName: "Tesla Card.pdf", destinationPath: "/p/Cars/Tesla")
+        #expect(manager.filingRules.count == 2)
+        #expect(manager.filingRules.first { $0.tokens == ["tesla"] }?.destinationPath == "/p/Cars/Tesla")
+
+        if let geico = manager.filingRules.first(where: { $0.tokens == ["geico"] }) {
+            manager.forgetFilingRule(geico)
+        }
+        #expect(manager.filingRules.count == 1)
+
+        manager.clearFilingRules()
+        #expect(manager.filingRules.isEmpty)
+    }
 }
