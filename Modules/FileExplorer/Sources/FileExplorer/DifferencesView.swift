@@ -20,6 +20,8 @@ public struct DifferencesView: View {
     /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
     /// clicking again collapses. Off by default so the header stays uncluttered until asked.
     @State private var showItemCounts = false
+    /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
+    @State private var isCountPillHovered = false
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
@@ -184,15 +186,33 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference], filterCounts: [DifferenceFilter: Int]) -> some View {
         // The count pill is a toggle for the per-side item totals: click to reveal them inline,
-        // click again to collapse. No-op until a scan has run (nothing meaningful to show).
+        // click again to collapse. No-op until a scan has run (nothing meaningful to show) —
+        // so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
         Button {
             guard syncManager.hasScanned else { return }
             withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
         } label: {
-            StatPill(count: syncManager.differences.count, label: "Differences", color: .orange, systemImage: "exclamationmark.triangle")
+            StatPill(
+                count: syncManager.differences.count,
+                label: "Differences",
+                color: .orange,
+                systemImage: "exclamationmark.triangle",
+                // Totals expand to the pill's right and collapse back left; the chevron
+                // points the way the next click will send them (CountPillChevron).
+                trailingSystemImage: syncManager.hasScanned ? CountPillChevron.symbol(expanded: showItemCounts) : nil
+            )
+            .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            guard syncManager.hasScanned else { return }
+            withAnimation(.easeInOut(duration: 0.12)) { isCountPillHovered = hovering }
+        }
         .help("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+        // StatPill collapses itself to one element labeled "N Differences"; the value/hint
+        // ride on the button so VoiceOver conveys the toggle state and what a click does.
+        .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
+        .accessibilityHint(syncManager.hasScanned ? "Shows or hides the per-side item totals" : "")
         // Revealed on demand; `hasScanned` keeps it from ever reading "0 · 0" pre-scan, and the
         // pill's `.help` still spells out the full text on hover when this truncates.
         if syncManager.hasScanned, showItemCounts {
@@ -293,6 +313,9 @@ public struct DifferencesView: View {
             }
             .buttonStyle(.bordered)
             .disabled(isSyncActionBlocked)
+            // Same explanation as the review card's Verify, scoped to what the bulk run
+            // actually covers: only date-only differences whose sizes match are checksummed.
+            .help("Checksum both sides of each same-size, date-only difference to confirm whether the contents actually differ")
         }
         // Search collapses to an icon; clicking it reveals the field on a second
         // line, which takes focus itself on appear (a FocusState write here, in
