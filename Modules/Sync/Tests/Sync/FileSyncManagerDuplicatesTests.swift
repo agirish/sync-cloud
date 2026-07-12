@@ -243,6 +243,11 @@ import Combine
         #expect(zip(numeric, numeric.dropFirst()).allSatisfy { $0.completed <= $1.completed })  // monotonic
         #expect(numeric.contains { $0.completed >= 50 })                // mid-hash updates arrived
         #expect(numeric.allSatisfy { $0.completed <= $0.total })
+        // Deterministic terminal state: findDuplicates pins (total, total) synchronously
+        // after hashing (the unstructured done == total hop can lose the race against the
+        // scan's own resumption and be epoch-dropped), so the last numeric publish is
+        // always the full bar — never stuck at the last 50-multiple.
+        #expect(numeric.last! == (completed: 120, total: 120))
 
         // Nil after completion — and stays nil once any straggler main-actor hops drain
         // (the epoch bump in findDuplicates' defer makes them drop themselves).
@@ -268,6 +273,56 @@ import Combine
         #expect(manager.isFindingDuplicates == false)
         for _ in 0..<20 { await Task.yield() }
         #expect(manager.duplicateScanProgress == nil)   // no stale republish after cancel
+    }
+
+    /// The epoch guard's actual scenario: cancellation landing MID-HASH, with numeric progress
+    /// already live (the 8-file test above cancels in the walk phase and never gets there).
+    /// A gating file manager freezes hashing at exactly 50 completions — files f50–f55 block
+    /// in `sha256Hex`'s pre-hash stat, filling the 6-wide scheduling window so nothing past
+    /// f55 is ever scheduled — making the cancel point deterministic without sleeps. After
+    /// cancel + release, the drain (f50–f55) can reach neither another 50-multiple nor
+    /// done == total, so ANY numeric publish after the cancel is a stale straggler that the
+    /// epoch guard should have dropped.
+    @MainActor
+    @Test func cancelMidHashRepublishesNoNumericProgress() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Same-size, pairwise-distinct files: every one is a hash candidate, so total == 120.
+        for i in 0..<120 {
+            try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
+        }
+
+        // Names sort Finder-style (localizedStandardCompare is numeric-aware), so hashing
+        // schedules f0…f119 in order: f50–f55 are exactly the 6 in flight when the 50th
+        // completion publishes its progress hop.
+        let gate = GatingFileManager(gatedNames: Set((50...55).map { "f\($0).bin" }))
+        defer { gate.release() }   // never leave hasher tasks parked if an assertion bails early
+        let manager = FileSyncManager(fileManager: gate)
+
+        var observed: [(completed: Int, total: Int)?] = []
+        let sub = manager.$duplicateScanProgress.sink { value in
+            observed.append(value)
+            // (0, 120) is published synchronously after the walk, right before hashing
+            // starts — the race-free moment to arm the gate (the walk must never block).
+            if let v = value, v == (completed: 0, total: 120) { gate.arm() }
+        }
+        defer { sub.cancel() }
+
+        manager.startFindDuplicates(root: root)
+        await waitUntil("mid-hash progress published") { manager.duplicateScanProgress?.completed == 50 }
+        manager.cancelFindDuplicates()
+        let publishCountAtCancel = observed.count
+
+        gate.release()
+        await manager.duplicateScanTask?.value   // scan unwinds; its defer bumps the epoch
+        for _ in 0..<20 { await Task.yield() }   // let any straggler main-actor hops drain
+
+        let afterCancel = observed.dropFirst(publishCountAtCancel)
+        #expect(!afterCancel.isEmpty)                      // the defer's nil reset arrived…
+        #expect(afterCancel.allSatisfy { $0 == nil })      // …and no stale numbers came with it
+        #expect(manager.duplicateScanProgress == nil)
+        #expect(manager.isFindingDuplicates == false)
+        #expect(manager.hasFoundDuplicates == false)       // cancelled scan published no results
     }
 
     // MARK: Overlapping merge
@@ -442,5 +497,65 @@ import Combine
         // But it can be dismissed manually ("Keep separate").
         manager.dismissDuplicateGroup(group)
         #expect(manager.duplicateGroups.isEmpty)
+    }
+}
+
+/// A real FileManager that, once armed, parks callers statting one of `gatedNames` via
+/// `fileExists(atPath:isDirectory:)` — the first call `sha256Hex` makes for every file it
+/// hashes — until `release()`. It must be a FileManager SUBCLASS, not a plain FileManaging
+/// wrapper: buildTree's walk only fetches file sizes on its `fileManager is FileManager`
+/// fast path (anything else is treated as a metadata-less mock), and without sizes there are
+/// no hash candidates to gate. The walk itself never calls this override for regular files
+/// (it stats via URL.resourceValues), so only the hash phase can block. Freezing a handful of
+/// named files mid-scan lets the cancel-mid-hash test pick its cancellation point
+/// deterministically (no sleeps).
+private final class GatingFileManager: FileManager, @unchecked Sendable {
+    /// Lock-guarded flags in a box of their own: FileManager is already (unchecked) Sendable,
+    /// and a subclass may not add mutable stored state to a Sendable class directly.
+    private final class Gate: @unchecked Sendable {
+        private let lock = NSLock()
+        private let semaphore = DispatchSemaphore(value: 0)
+        private var armed = false
+        private var released = false
+
+        func arm() {
+            lock.lock(); armed = true; lock.unlock()
+        }
+
+        func release() {
+            lock.lock(); released = true; lock.unlock()
+            // Wake anything already parked; over-signaling a semaphore is harmless.
+            for _ in 0..<64 { semaphore.signal() }
+        }
+
+        func waitIfArmed() {
+            lock.lock()
+            let mustWait = armed && !released
+            lock.unlock()
+            // If release() lands between the check and the wait, its banked signals make
+            // the wait return immediately — no lost-wakeup hang.
+            if mustWait { semaphore.wait() }
+        }
+    }
+
+    private let gatedNames: Set<String>
+    private let gate = Gate()
+
+    init(gatedNames: Set<String>) {
+        self.gatedNames = gatedNames
+        super.init()
+    }
+
+    /// Starts gating. Called only once the walk phase is over, so tree building never blocks.
+    func arm() { gate.arm() }
+
+    /// Unblocks every parked and future gated call. Idempotent.
+    func release() { gate.release() }
+
+    override func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
+        if gatedNames.contains((path as NSString).lastPathComponent) {
+            gate.waitIfArmed()
+        }
+        return super.fileExists(atPath: path, isDirectory: isDirectory)
     }
 }

@@ -108,6 +108,15 @@ extension FileSyncManager {
             }
         }
         if Task.isCancelled { return }
+        // Deterministic terminal publish: the done == total update above is an unstructured
+        // main-actor Task that can lose the race against this resumption — the defer's epoch
+        // bump would then drop it, ending the bar at the last 50-multiple instead of full.
+        // We're back on the main actor with the epoch still current (and not cancelled, per
+        // the guard above), so pin the bar to 100% before the grouping pass below.
+        if total > 0 {
+            duplicateScanStatus = "Hashing \(total) of \(total)…"
+            duplicateScanProgress = (completed: total, total: total)
+        }
 
         var fileHashes: [String: String] = [:]
         fileHashes.reserveCapacity(allFiles.count)
