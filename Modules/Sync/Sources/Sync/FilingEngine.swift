@@ -30,10 +30,18 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
     /// True when an intelligent backend (on-device LLM / cloud) chose this destination by reasoning
     /// about the folder taxonomy and the file's contents, rather than keyword overlap.
     public let fromAI: Bool
+    /// For a content-derived match (F2), the specific evidence word *read from the file* that
+    /// decided this home (display-ready, e.g. "Invoice") — nil for a filename match. Lets the card
+    /// surface content evidence distinctly (a highlight chip) so the stronger signal is legible,
+    /// not indistinguishable from a plain name match.
+    public let evidenceToken: String?
+    /// How many files already in the destination share the matched signal — neighbor corroboration
+    /// for a content match ("N similar files already in the target"). 0 when unknown or none.
+    public let neighborMatches: Int
 
     public var isNew: Bool { !newSegments.isEmpty }
 
-    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false) {
+    public init(path: String, confidence: FilingConfidence, reasons: [String], newSegments: [String], fromContent: Bool = false, remembered: Bool = false, fromAI: Bool = false, evidenceToken: String? = nil, neighborMatches: Int = 0) {
         self.id = path
         self.confidence = confidence
         self.reasons = reasons
@@ -41,6 +49,8 @@ public struct FilingDestination: Identifiable, Sendable, Equatable, Hashable {
         self.fromContent = fromContent
         self.remembered = remembered
         self.fromAI = fromAI
+        self.evidenceToken = evidenceToken
+        self.neighborMatches = neighborMatches
     }
 }
 
@@ -54,6 +64,10 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public let modificationDate: Date?
     /// Ranked destinations, best first. Empty when nothing confident fits ("no confident home").
     public let candidates: [FilingDestination]
+    /// Absolute path of the provider root this file lives under, when known — lets the UI render the
+    /// destination breadcrumb provider-relative (e.g. "iCloud › Documents › …") instead of leaking
+    /// the `/Users/<you>` home prefix. nil ⇒ the UI tilde-abbreviates instead.
+    public let providerRoot: String?
 
     public var best: FilingDestination? { candidates.first }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
@@ -65,12 +79,13 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
         hasConfidentHome && best?.fromContent == false && best?.fromAI == false
     }
 
-    public init(filePath: String, fileName: String, size: Int, modificationDate: Date?, candidates: [FilingDestination]) {
+    public init(filePath: String, fileName: String, size: Int, modificationDate: Date?, candidates: [FilingDestination], providerRoot: String? = nil) {
         self.id = filePath
         self.fileName = fileName
         self.size = size
         self.modificationDate = modificationDate
         self.candidates = candidates
+        self.providerRoot = providerRoot
     }
 }
 
@@ -158,7 +173,7 @@ public enum FilingEngine {
             }
             return FilingSuggestion(filePath: file.id, fileName: file.name,
                                     size: file.fileSize ?? 0, modificationDate: file.modificationDate,
-                                    candidates: ranked)
+                                    candidates: ranked, providerRoot: providerRoot)
         }
     }
 
@@ -172,6 +187,9 @@ public enum FilingEngine {
         let nameTokens: Set<String>
         /// Tokens from the names of files directly inside (weaker signal).
         let contentTokens: Set<String>
+        /// For each content token, how many files directly inside carry it — the count behind
+        /// "N similar files already in the target".
+        let contentTokenFileCounts: [String: Int]
     }
 
     private static func collectProfiles(
@@ -183,12 +201,16 @@ public enum FilingEngine {
 
         let combinedNameTokens = ancestorTokens.union(nameTokens(node.name))
         var contentTokens = Set<String>()
+        var contentTokenFileCounts: [String: Int] = [:]
         for child in node.children ?? [] where !child.isDirectory {
-            contentTokens.formUnion(fileTokens(child.name))
+            let toks = fileTokens(child.name)
+            contentTokens.formUnion(toks)
+            for t in toks { contentTokenFileCounts[t, default: 0] += 1 }
         }
         profiles.append(FolderProfile(
             path: node.id, name: node.name, depth: node.id.split(separator: "/").count,
-            nameTokens: combinedNameTokens, contentTokens: contentTokens))
+            nameTokens: combinedNameTokens, contentTokens: contentTokens,
+            contentTokenFileCounts: contentTokenFileCounts))
 
         for child in node.children ?? [] where child.isDirectory {
             collectProfiles(child, ancestorTokens: combinedNameTokens, into: &profiles, paths: &paths, options: options)
@@ -212,11 +234,23 @@ public enum FilingEngine {
             let fromContent = hitSet.isDisjoint(with: nameTokens) && !hitSet.isDisjoint(with: contentTokens)
             let base: FilingConfidence = !nameHits.isEmpty ? .high : .medium
             let confidence = fromContent ? min(base, .medium) : base
-            let reason = fromContent
-                ? "Matches “\(hits)” read from the file, in a folder you already keep"
-                : "Matches “\(hits)” in a folder you already keep"
-            out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
-                                         newSegments: [], fromContent: fromContent))
+            if fromContent {
+                // Surface the single strongest evidence word (prefer a sibling-content hit, which
+                // carries a neighbor count) plus how many files already in the target share it —
+                // legible corroboration a plain name match can't offer.
+                let evidenceRaw = contentHits.sorted().first ?? nameHits.sorted().first ?? hitSet.sorted().first ?? ""
+                let neighbors = p.contentTokenFileCounts[evidenceRaw] ?? 0
+                let reason = neighbors > 0
+                    ? "Matched “\(evidenceRaw)” read from the file — \(neighbors) similar file\(neighbors == 1 ? "" : "s") already in the target"
+                    : "Matched “\(evidenceRaw)” read from the file, in a folder you already keep"
+                out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
+                                             newSegments: [], fromContent: true,
+                                             evidenceToken: evidenceRaw.capitalized, neighborMatches: neighbors))
+            } else {
+                let reason = "Matches “\(hits)” in a folder you already keep"
+                out.append(FilingDestination(path: p.path, confidence: confidence, reasons: [reason],
+                                             newSegments: [], fromContent: false))
+            }
         }
         return out
     }
@@ -378,7 +412,8 @@ public enum FilingEngine {
                                                    reasons: Array(Set(existing.reasons + c.reasons)).sorted(),
                                                    newSegments: winner.newSegments, fromContent: winner.fromContent,
                                                    remembered: existing.remembered || c.remembered,
-                                                   fromAI: existing.fromAI || c.fromAI)
+                                                   fromAI: existing.fromAI || c.fromAI,
+                                                   evidenceToken: winner.evidenceToken, neighborMatches: winner.neighborMatches)
             } else {
                 byPath[c.path] = c
             }
@@ -544,7 +579,8 @@ public enum FilingEngine {
             if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
             let others = s.candidates.filter { $0.path != dest.path }
             return FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
-                                    modificationDate: s.modificationDate, candidates: [dest] + others)
+                                    modificationDate: s.modificationDate, candidates: [dest] + others,
+                                    providerRoot: s.providerRoot)
         }
     }
 

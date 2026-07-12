@@ -19,6 +19,10 @@ struct FilingSuggestionCard: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
+    /// Count of the destination folder's existing entries (G6 "peek"), loaded off the render path.
+    /// nil until counted / when the destination doesn't exist yet.
+    @State private var destinationItemCount: Int? = nil
+
     private var best: FilingDestination? { suggestion.best }
 
     var body: some View {
@@ -35,7 +39,7 @@ struct FilingSuggestionCard: View {
                     if let best { destinationRow(best) }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
-                    if let reason = best?.reasons.first { whyRow(reason) }
+                    if let best { whyRow(best) }
                 }
                 Spacer(minLength: 8)
                 confidenceChip
@@ -63,11 +67,43 @@ struct FilingSuggestionCard: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
             breadcrumb(dest)
+            if let peek = destinationPeekLabel(dest) {
+                Text("· \(peek)")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .help("Files already in the destination folder")
+            }
         }
+        .task(id: dest.path) { await loadDestinationCount(for: dest) }
     }
 
+    // MARK: G6 — destination "peek" (existing contents)
+
+    /// A short "· N items" / "· empty" label for the destination's current contents. nil while the
+    /// count is loading, or when the folder doesn't exist yet (a proposed NEW folder has no peek —
+    /// the NEW badges already say it'll be created).
+    private func destinationPeekLabel(_ dest: FilingDestination) -> String? {
+        guard !dest.isNew, let count = destinationItemCount else { return nil }
+        return count == 0 ? "empty" : "\(count) item\(count == 1 ? "" : "s")"
+    }
+
+    /// Counts the destination folder's visible entries off the render path (small folders, cheap).
+    private func loadDestinationCount(for dest: FilingDestination) async {
+        destinationItemCount = nil   // drop any stale count from a prior destination while reloading
+        guard !dest.isNew else { return }
+        let path = dest.path
+        let count = await Task.detached(priority: .utility) { () -> Int? in
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+            return entries.filter { !$0.hasPrefix(".") }.count
+        }.value
+        destinationItemCount = count
+    }
+
+    // MARK: G10 — home-relative breadcrumb
+
     private func breadcrumb(_ dest: FilingDestination) -> some View {
-        let comps = dest.path.split(separator: "/").map(String.init)
+        let comps = breadcrumbComponents(dest)
         let shown = Array(comps.suffix(5))
         let truncated = comps.count > shown.count
         let newStart = max(0, shown.count - dest.newSegments.count)
@@ -97,6 +133,48 @@ struct FilingSuggestionCard: View {
         }
     }
 
+    /// The breadcrumb's path components with the dead `/Users/<you>` head dropped. Provider-relative
+    /// (e.g. "iCloud › Documents › …") when the suggestion knows its provider root; otherwise
+    /// tilde-abbreviated ("~ › Documents › …"), reusing the app's standard home-abbreviation.
+    private func breadcrumbComponents(_ dest: FilingDestination) -> [String] {
+        if let root = suggestion.providerRoot, isPath(dest.path, under: root) {
+            let rel = String(dest.path.dropFirst(root.count)).split(separator: "/").map(String.init)
+            return [providerLabel(for: root)] + rel
+        }
+        return (dest.path as NSString).abbreviatingWithTildeInPath.split(separator: "/").map(String.init)
+    }
+
+    /// Whether `path` is the provider root itself or lives inside it (boundary-safe on "/").
+    private func isPath(_ path: String, under root: String) -> Bool {
+        path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
+    /// A friendly label for a provider root path — "iCloud" / "Dropbox" / "Google Drive" for the
+    /// known cloud roots, else the root folder's own name.
+    private func providerLabel(for root: String) -> String {
+        let lower = root.lowercased()
+        if lower.contains("com~apple~clouddocs") || lower.contains("mobile documents") { return "iCloud" }
+        if let r = root.range(of: "/CloudStorage/") {
+            let vendor = root[r.upperBound...].split(separator: "/").first.map(String.init) ?? ""
+            return prettifyVendor(vendor)
+        }
+        let last = (root as NSString).lastPathComponent
+        return last.isEmpty ? "Cloud" : last
+    }
+
+    /// Turns a CloudStorage vendor folder ("GoogleDrive-me@x.com", "OneDrive-Personal") into a
+    /// readable provider name.
+    private func prettifyVendor(_ v: String) -> String {
+        let base = v.split(separator: "-").first.map(String.init) ?? v
+        switch base.lowercased() {
+        case "googledrive": return "Google Drive"
+        case "onedrive":    return "OneDrive"
+        case "dropbox":     return "Dropbox"
+        case "box":         return "Box"
+        default:            return base
+        }
+    }
+
     private var rememberedBadge: some View {
         HStack(spacing: 4) {
             Image(systemName: "memories").font(.system(size: 9, weight: .semibold))
@@ -117,12 +195,40 @@ struct FilingSuggestionCard: View {
         .background(Capsule(style: .continuous).fill(hueAccent.opacity(0.14)))
     }
 
-    private func whyRow(_ reason: String) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(.blue)
-            Text(reason).font(.system(size: 12)).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    // MARK: G4 — legible content evidence
+
+    @ViewBuilder
+    private func whyRow(_ dest: FilingDestination) -> some View {
+        if let token = dest.evidenceToken {
+            // Content-derived (F2): the deciding word was read from the file, not its name — the
+            // stronger, less-obvious signal. Highlight it so it reads distinctly from a name match.
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 11)).foregroundStyle(.green)
+                Text("Matched").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(token)
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule(style: .continuous).fill(Color.green.opacity(0.18)))
+                    .foregroundStyle(Color.green)
+                Text(evidenceTail(dest)).font(.system(size: 12)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(dest.reasons.first ?? "Matched \(token) read from the file")
+        } else if let reason = dest.reasons.first {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(.blue)
+                Text(reason).font(.system(size: 12)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    /// The descriptive tail after the highlighted evidence chip, naming the neighbor corroboration
+    /// ("N similar files already here") when the target already holds matching files.
+    private func evidenceTail(_ dest: FilingDestination) -> String {
+        guard dest.neighborMatches > 0 else { return "read from the file" }
+        return "read from the file · \(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
     }
 
     private var confidenceChip: some View {

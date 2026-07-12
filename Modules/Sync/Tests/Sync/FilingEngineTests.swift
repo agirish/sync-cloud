@@ -106,6 +106,53 @@ import Testing
         #expect(best.path == "/root/Documents/Invoices")
         #expect(best.confidence == .medium)   // content-derived matches are capped to medium
         #expect(best.reasons.first?.contains("read from the file") == true)
+        #expect(best.evidenceToken == "Invoices")   // G4: the read-from-content word is surfaced for highlighting
+        #expect(best.neighborMatches == 0)          // the target has no files, so no neighbor corroboration
+    }
+
+    // MARK: Content evidence (G4)
+
+    @Test func contentMatchSurfacesEvidenceTokenAndSimilarNeighbors() throws {
+        // The target already holds three invoices; a content-detected invoice should name the
+        // evidence word AND how many similar files already live there.
+        let invoiceFolder = dir("/root/Documents/Invoice", [
+            file("/root/Documents/Invoice/Invoice-Jan.pdf"),
+            file("/root/Documents/Invoice/Invoice-Feb.pdf"),
+            file("/root/Documents/Invoice/Invoice-Mar.pdf"),
+        ])
+        let taxonomy = [dir("/root/Documents", [invoiceFolder])]
+        let loose = [file("/root/Downloads/scan0003.pdf", modified: y2024)]   // name says nothing
+        let content = ["/root/Downloads/scan0003.pdf": Set(["invoice"])]      // read from the file
+
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                                     providerRoot: "/root", contentTokens: content).first?.best)
+        #expect(best.path == "/root/Documents/Invoice")
+        #expect(best.fromContent == true)
+        #expect(best.evidenceToken == "Invoice")            // display-ready highlight token
+        #expect(best.neighborMatches == 3)                  // three similar files already in the target
+        #expect(best.reasons.first?.contains("3 similar files") == true)
+        #expect(best.reasons.first?.contains("read from the file") == true)
+    }
+
+    @Test func nameMatchHasNoEvidenceToken() throws {
+        // A plain filename match must NOT carry an evidence token — that decoration is reserved for
+        // the stronger, less-obvious content signal.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles",
+                          [dir("/root/Documents/Vehicles/Tesla", [])])])]
+        let loose = [file("/root/Downloads/tesla registration card.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.fromContent == false)
+        #expect(best.evidenceToken == nil)
+        #expect(best.neighborMatches == 0)
+    }
+
+    // MARK: Provider-relative breadcrumb (G10)
+
+    @Test func suggestionCarriesProviderRootForRelativeDisplay() throws {
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Vehicles", [])])]
+        let loose = [file("/root/Downloads/Tesla Policy 2024.pdf", modified: y2024)]
+        let s = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first)
+        #expect(s.providerRoot == "/root")   // the UI strips this to render "Root › …" instead of the home prefix
     }
 
     @Test func contentDerivedMatchIsMediumAndNotBatchEligible() throws {
@@ -297,6 +344,7 @@ import Testing
         #expect(best.confidence == .high)
         #expect(out.first?.hasConfidentHome == true)
         #expect(out.first?.isBatchEligible == false)                // AI picks need a per-file glance
+        #expect(out.first?.providerRoot == "/root")                 // overlay preserves the provider root
     }
 
     @Test func verdictSanitizesModelPathAndProposesNewFolders() throws {
