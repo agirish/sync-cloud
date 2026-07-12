@@ -67,7 +67,8 @@ struct PaneBreadcrumb: View {
         Button {
             linkBothPanes.toggle()
         } label: {
-            Image(systemName: "arrow.left.arrow.right")
+            // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
+            Image(systemName: "link")
                 .foregroundColor(linkBothPanes ? .accentColor : .secondary)
         }
         .buttonStyle(.plain)

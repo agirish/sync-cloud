@@ -902,7 +902,9 @@ struct ContentView: View {
                             }
                         } else {
                             VStack(spacing: 12) {
-                                Image(systemName: "arrow.left.arrow.right.circle")
+                                // Same symbol as the toolbar's Compare button — one glyph for
+                                // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
+                                Image(systemName: "rectangle.split.2x1")
                                     .font(.system(size: 44))
                                     .foregroundStyle(glassHue.accentColor)
                                 Text("Compare \(paneNames.left) ↔ \(paneNames.right)")
