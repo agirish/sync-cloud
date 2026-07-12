@@ -154,24 +154,30 @@ struct TidyGroupCard: View {
         .padding(.vertical, 11)
     }
 
-    /// The keeper radio. Interactive (click to keep a different copy) for identical & versions;
-    /// a static indicator otherwise.
+    /// The keeper marker. The keeper's green filled radio everywhere (it reads "this one is
+    /// kept"); a clickable hollow radio with a hover glow where the user may pick a different
+    /// keeper (identical & versions); a plain dot where no choice exists, so the row never
+    /// advertises a pick that isn't there.
     @ViewBuilder
     private func radio(_ copy: DuplicateCopy) -> some View {
-        if group.allowsKeeperChoice, !copy.isRecommendedKeeper {
-            Button { onChooseKeeper(copy.id) } label: { radioIcon(copy) }
-                .buttonStyle(.plain)
-                .help("Keep this copy instead")
-        } else {
-            radioIcon(copy)
+        switch TidyKeeperMarker.style(allowsKeeperChoice: group.allowsKeeperChoice,
+                                      isKeeper: copy.isRecommendedKeeper) {
+        case .keeper:
+            Image(systemName: "largecircle.fill.circle")
+                .font(.system(size: 15))
+                .foregroundStyle(Color.green)
+                .padding(.top, 1)
+                .accessibilityLabel(TidyKeeperMarker.keeper.accessibilityLabel ?? "")
+        case .selectable:
+            SelectableKeeperRadio(accent: hueAccent) { onChooseKeeper(copy.id) }
+        case .inert:
+            Circle()
+                .fill(.tertiary)
+                .frame(width: 5, height: 5)
+                .frame(width: 15)   // keep the text column aligned with the radio rows
+                .padding(.top, 6)
+                .accessibilityHidden(true)
         }
-    }
-
-    private func radioIcon(_ copy: DuplicateCopy) -> some View {
-        Image(systemName: copy.isRecommendedKeeper ? "largecircle.fill.circle" : "circle")
-            .font(.system(size: 15))
-            .foregroundStyle(copy.isRecommendedKeeper ? Color.green : Color.secondary)
-            .padding(.top, 1)
     }
 
     private func fateChip(_ copy: DuplicateCopy) -> some View {
@@ -334,4 +340,71 @@ struct TidyGroupCard: View {
         f.timeStyle = .none
         return f
     }()
+}
+
+// MARK: - Keeper marker
+
+/// Pure mapping from (does this group allow picking a keeper?, is this copy the keeper?) to the
+/// marker its row shows, so inert rows never draw a radio that looks pickable.
+enum TidyKeeperMarker: Equatable {
+    /// Green filled radio — this copy is kept.
+    case keeper
+    /// Hollow radio, clickable — the user may keep this copy instead.
+    case selectable
+    /// Small tertiary dot — no keeper choice exists in this group.
+    case inert
+
+    static func style(allowsKeeperChoice: Bool, isKeeper: Bool) -> TidyKeeperMarker {
+        if isKeeper { return .keeper }
+        return allowsKeeperChoice ? .selectable : .inert
+    }
+
+    /// VoiceOver label; nil when the marker carries no information beyond the row itself.
+    var accessibilityLabel: String? {
+        switch self {
+        case .keeper: return "Kept copy"
+        case .selectable: return "Keep this copy"
+        case .inert: return nil
+        }
+    }
+}
+
+/// The clickable "keep this copy instead" radio: hollow circle that gains an accent tint, a soft
+/// glow ring, and a pointing-hand cursor on hover, so pickable radios read differently from the
+/// static keeper indicator.
+private struct SelectableKeeperRadio: View {
+    let accent: Color
+    let action: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "circle")
+                .font(.system(size: 15))
+                .foregroundStyle(isHovering ? accent : Color.secondary)
+                .background(
+                    Circle()
+                        .fill(accent.opacity(isHovering ? 0.18 : 0))
+                        .frame(width: 26, height: 26)
+                )
+                .padding(.top, 1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Keep this copy instead")
+        .accessibilityLabel(TidyKeeperMarker.selectable.accessibilityLabel ?? "")
+        .onHover { inside in
+            isHovering = inside
+            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
+        }
+        .onDisappear {
+            // Choosing a keeper reorders the rows out from under the cursor; don't leave the
+            // pushed pointing hand stranded on the cursor stack.
+            if isHovering {
+                NSCursor.pop()
+                isHovering = false
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: isHovering)
+    }
 }
