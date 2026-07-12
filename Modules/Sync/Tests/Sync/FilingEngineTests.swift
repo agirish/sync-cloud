@@ -295,7 +295,8 @@ import Testing
         #expect(best.path == "/root/Documents/Family/Divit")
         #expect(best.fromAI)
         #expect(best.confidence == .high)
-        #expect(out.first?.isBatchEligible == true)                 // confident AI home → batchable
+        #expect(out.first?.hasConfidentHome == true)
+        #expect(out.first?.isBatchEligible == false)                // AI picks need a per-file glance
     }
 
     @Test func verdictSanitizesModelPathAndProposesNewFolders() throws {

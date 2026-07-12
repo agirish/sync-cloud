@@ -58,8 +58,12 @@ public struct FilingSuggestion: Identifiable, Sendable, Equatable {
     public var best: FilingDestination? { candidates.first }
     public var hasConfidentHome: Bool { (best?.confidence ?? .low) >= .medium }
     /// Eligible for the blind "File recommended" batch: a confident home derived from the filename
-    /// (not content). Content-derived homes still show a per-file "File here" but aren't auto-filed.
-    public var isBatchEligible: Bool { hasConfidentHome && best?.fromContent == false }
+    /// (not content, not the LLM). Content-derived and AI homes still show a per-file "File here"
+    /// but aren't auto-filed — a weaker/less-verifiable signal shouldn't move files unseen (the
+    /// on-device model can be confidently wrong).
+    public var isBatchEligible: Bool {
+        hasConfidentHome && best?.fromContent == false && best?.fromAI == false
+    }
 
     public init(filePath: String, fileName: String, size: Int, modificationDate: Date?, candidates: [FilingDestination]) {
         self.id = filePath

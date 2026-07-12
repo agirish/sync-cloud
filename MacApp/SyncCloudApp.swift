@@ -81,6 +81,7 @@ struct SyncCloudApp: App {
             manager.filingSnippetExtractor = { path in
                 await ContentSignalExtractor.snippet(forFileAt: path)
             }
+            manager.filingClassifierPrewarm = { OnDeviceFilingClassifier.prewarm() }
         }
         _syncManager = StateObject(wrappedValue: manager)
         // ContentView.onAppear awaits discoverProviders() as part of its bootstrap sequence, so

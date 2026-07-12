@@ -14,9 +14,33 @@ import FoundationModels
 enum OnDeviceFilingClassifier {
 
     /// Cap on files classified per scan, so a huge loose folder can't spin the model for minutes.
-    private static let maxFiles = 40
+    /// On-device runs ~5s/file once warm, so this bounds a scan to a couple of minutes worst case.
+    private static let maxFiles = 25
     /// Chars of a document excerpt included in the prompt — enough to judge, small enough to be fast.
     private static let maxSnippetChars = 1_200
+
+    /// A retained session kept warm so the first real classification skips the ~cold-start model
+    /// load (measured ~27s cold vs ~5s warm). Set by `prewarm()`.
+    #if canImport(FoundationModels)
+    @available(macOS 26.0, *)
+    private static var warmSession: LanguageModelSession? {
+        get { _warmSession as? LanguageModelSession }
+        set { _warmSession = newValue }
+    }
+    nonisolated(unsafe) private static var _warmSession: AnyObject?
+    #endif
+
+    /// Loads the on-device model in the background so a subsequent scan doesn't pay the cold start.
+    /// Safe to call repeatedly; a no-op when the model isn't available.
+    static func prewarm() {
+        #if canImport(FoundationModels)
+        if #available(macOS 26.0, *) {
+            guard case .available = SystemLanguageModel.default.availability else { return }
+            if warmSession == nil { warmSession = LanguageModelSession() }
+            warmSession?.prewarm()
+        }
+        #endif
+    }
 
     /// Whether on-device classification can run right now (framework present, OS new enough, model
     /// downloaded and enabled). Cheap to call; used to gate the Settings toggle and injection.

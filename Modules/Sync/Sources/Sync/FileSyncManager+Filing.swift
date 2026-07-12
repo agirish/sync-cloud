@@ -48,6 +48,8 @@ extension FileSyncManager {
         isSuggestingFiles = true
         filingScanStatus = "Reading \(folder.lastPathComponent)…"
         filingScanFolder = folder.path
+        // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
+        if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
         defer {
             isSuggestingFiles = false
             filingScanStatus = nil
