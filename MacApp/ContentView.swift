@@ -176,7 +176,7 @@ struct ContentView: View {
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
         .alert(
-            syncManager.currentError?.title ?? "Error",
+            syncManager.currentError?.title ?? "Something Went Wrong",
             isPresented: Binding(
                 get: { syncManager.currentError != nil },
                 // Clearing currentError also drops its retry handler (via the manager's didSet).
@@ -614,10 +614,14 @@ struct ContentView: View {
     }
 
     /// The alert body: the human message, then the underlying reason and affected path when known.
+    /// The path is labeled and tilde-abbreviated, matching the "From:/To:" convention in
+    /// `SyncOperationAlerts`.
     private func errorAlertMessage(_ error: SyncError) -> String {
         var lines = [error.message]
         if let reason = error.reason, !reason.isEmpty { lines.append(reason) }
-        if let path = error.path { lines.append(path) }
+        if let path = error.path {
+            lines.append("File: \((path as NSString).abbreviatingWithTildeInPath)")
+        }
         return lines.joined(separator: "\n")
     }
 

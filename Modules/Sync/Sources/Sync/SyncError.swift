@@ -159,14 +159,15 @@ public enum SyncErrorAction: String, CaseIterable, Hashable, Sendable {
 extension SyncError {
     /// The actions an alert for this error should offer, in display order.
     ///
+    /// - Retry first (the primary recovery), only when the error is retryable *and* the caller
+    ///   actually wired a re-invocation (`hasRetryHandler`) — a retryable error with nothing to
+    ///   perform the retry offers none.
     /// - Reveal in Finder whenever a `path` is known.
-    /// - Retry only when the error is retryable *and* the caller actually wired a re-invocation
-    ///   (`hasRetryHandler`) — a retryable error with nothing to perform the retry offers none.
     /// - Dismiss always.
     public func alertActions(hasRetryHandler: Bool) -> [SyncErrorAction] {
         var actions: [SyncErrorAction] = []
-        if path != nil { actions.append(.revealInFinder) }
         if isRetryable && hasRetryHandler { actions.append(.retry) }
+        if path != nil { actions.append(.revealInFinder) }
         actions.append(.dismiss)
         return actions
     }

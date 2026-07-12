@@ -69,7 +69,7 @@ import Foundation
 
     @Test func testActionsWithPathRetryableAndHandler() {
         let error = SyncError.syncFailed(item: "a", path: "/x/a", reason: "boom")
-        #expect(error.alertActions(hasRetryHandler: true) == [.revealInFinder, .retry, .dismiss])
+        #expect(error.alertActions(hasRetryHandler: true) == [.retry, .revealInFinder, .dismiss])
     }
 
     @Test func testRetryHiddenWhenNoHandlerEvenIfRetryable() {
