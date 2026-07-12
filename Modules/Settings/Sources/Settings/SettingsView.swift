@@ -785,7 +785,10 @@ struct ProviderSettingsSection: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var draftPath: String = ""
     @State private var draftName: String = ""
+    // Both editable fields share one commit model: Return or focus-loss commits,
+    // so each needs its own focus state to observe its own blur.
     @FocusState private var nameFieldFocused: Bool
+    @FocusState private var pathFieldFocused: Bool
 
     private var isEnabled: Bool {
         settings.isEnabled(provider.id)
@@ -853,11 +856,18 @@ struct ProviderSettingsSection: View {
             }
 
             LabeledContent("Location") {
+                // Mirrors the name field above: Enter or clicking away commits.
+                // No Save button — focus-loss covers the same ground, so the two
+                // fields commit through one identical set of triggers.
                 TextField("Synchronized path", text: $draftPath)
                     .textFieldStyle(.plain)
                     .font(.system(.callout, design: .monospaced))
                     .labelsHidden()
+                    .focused($pathFieldFocused)
                     .onSubmit { commitPath() }
+                    .onChange(of: pathFieldFocused) { _, focused in
+                        if !focused { commitPath() }
+                    }
             }
             .disabled(!isEnabled)
 
@@ -866,8 +876,6 @@ struct ProviderSettingsSection: View {
                 Button("Reset") { resetToDefault() }
                 Button("Show in Finder") { openInFinder() }
                 Spacer()
-                Button("Save") { commitPath() }
-                    .disabled(draftPath == provider.path)
             }
             .controlSize(.small)
             .disabled(!isEnabled)
@@ -906,16 +914,19 @@ struct ProviderSettingsSection: View {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
     }
 
+    // Both fields commit on Return AND on focus-loss (one shared model), so a blur that
+    // lands on an unchanged value must be a harmless no-op — hence both guard on
+    // ProviderFieldEdit.shouldCommit before writing.
     private func commitPath() {
         let normalized = ProviderFieldEdit.normalized(draftPath)
         draftPath = normalized
-        guard normalized != provider.path else { return }
+        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.path) else { return }
         settings.setPath(normalized, for: provider.id)
     }
 
     private func commitName() {
         let normalized = ProviderFieldEdit.normalized(draftName)
-        if normalized == provider.displayName {
+        guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.displayName) else {
             draftName = normalized
             return
         }
@@ -934,6 +945,13 @@ enum ProviderFieldEdit {
     /// visual hint — the badge just goes red — so both fields trim whitespace and newlines alike.
     static func normalized(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether a commit should actually write. Both fields now commit on Return *and* on
+    /// focus-loss (one shared model), so an unchanged blur must be a no-op: committing is
+    /// gated on the normalized draft differing from the currently stored value.
+    static func shouldCommit(draft: String, committed: String) -> Bool {
+        normalized(draft) != committed
     }
 }
 
