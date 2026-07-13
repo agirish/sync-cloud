@@ -15,6 +15,9 @@ struct ContentView: View {
 
     /// Drives the in-window settings overlay (owned by the App so ⌘, can open it).
     @Binding var showSettings: Bool
+    /// Drives the in-window Help overlay (owned by the App so the Help ▸ SyncCloud Help / ⌘?
+    /// menu command can open it). ContentView renders it and owns dismissal.
+    @Binding var showHelp: Bool
     /// Whether the once-per-session part of the `onAppear` bootstrap has already run. Owned by
     /// the App (session-scoped, never persisted) because closing and Dock-reopening the single
     /// window recreates ContentView and all its `@State` — a view-owned flag would forget.
@@ -181,6 +184,8 @@ struct ContentView: View {
         .overlay {
             if showSettings {
                 settingsOverlay
+            } else if showHelp {
+                helpOverlay
             } else if !welcomeDismissedThisSession && !isBootstrappingProviders && FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
                 // Wait for provider discovery to finish before showing the welcome card.
                 // Its primary action is derived from enabledProviders.count, which is empty at
@@ -191,9 +196,16 @@ struct ContentView: View {
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
+        .animation(.easeOut(duration: 0.15), value: showHelp)
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
         .animation(.easeOut(duration: 0.15), value: welcomeDismissedThisSession)
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
+        // The overlays are mutually exclusive; Settings wins the precedence above. Close Help
+        // from every Settings entry point (toolbar, ⌘,, the invalid-pane fix-it) so it can't be
+        // left lingering underneath a Settings card the user opened on top of it.
+        .onChange(of: showSettings) { _, isOpen in
+            if isOpen { showHelp = false }
+        }
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
         .alert(
@@ -597,6 +609,20 @@ struct ContentView: View {
                 openProviderSettings()
             },
             onDismiss: { dontShowAgain in dismissWelcome(persist: dontShowAgain) }
+        )
+    }
+
+    /// The in-window Help overlay (Help ▸ SyncCloud Help / ⌘?). HelpOverlay owns the backdrop,
+    /// card decoration, and the searchable topic/article layout; this just feeds it the current
+    /// surface style so the Help card matches Settings and Welcome, and wires dismissal.
+    @ViewBuilder
+    private var helpOverlay: some View {
+        HelpOverlay(
+            surfaceStyle: surfaceStyle,
+            glassHue: glassHue,
+            glassIntensity: glassIntensity,
+            surfaceTint: surfaceTint,
+            onClose: { showHelp = false }
         )
     }
 

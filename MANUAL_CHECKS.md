@@ -82,6 +82,26 @@ Check items off as you verify them, and note anything that misbehaves.
   footer clears without reopening the tab. If the system rejects registration, the
   toggle snaps back.
 
+## Help feature (2026-07-13) — HelpBook + overlay + Help menu
+
+Logic is green (HelpBookTests: 11 pins over structure + search); build + crash-free
+launch confirmed. Live overlay rendering is the human-only part.
+
+- [ ] **SyncCloud Help opens the overlay.** Help ▸ SyncCloud Help (or ⌘?) → a centered
+  frosted card appears over a dimmed window (no more "Help isn't available"). It obeys
+  the current surface style (Solid = opaque panel; Unified/Cards = glass).
+- [ ] **Sidebar + article.** Topics are grouped into five sections; clicking one shows its
+  article on the right. "Reading the list" shows the colored difference-badge legend.
+- [ ] **Search narrows.** Type in the sidebar search (e.g. "checksum", "keeper") → the list
+  filters to matching topics; clearing it restores all. "No topics found" for gibberish.
+- [ ] **Related chips jump.** Click a related-topic chip at the bottom of an article → the
+  selection moves to that topic.
+- [ ] **Dismissal.** ✕, Esc, and clicking the dimmed backdrop all close it. Opening Settings
+  (⌘,) while Help is up closes Help (they never stack).
+- [ ] **New Help-menu items.** Open Activity Log opens the log window; Reveal Log File in
+  Finder selects ~/sync-cloud.log; About SyncCloud shows the standard About panel;
+  Keyboard Shortcuts (⌘/) and Welcome to SyncCloud still work.
+
 ## CLI (Waves 1D, 2F) — spot checks (e2e-verified during the review)
 
 - [ ] `synccloud sync --help` documents `--strategy` default `replace` and Trash

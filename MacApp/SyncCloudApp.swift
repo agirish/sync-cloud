@@ -24,6 +24,9 @@ struct SyncCloudApp: App {
     /// Drives the in-window settings overlay. Hoisted to App scope so the ⌘, menu command can
     /// open it; ContentView renders the overlay and owns which tab is shown.
     @State private var showSettings = false
+    /// Drives the in-window Help overlay. Hoisted to App scope so the Help ▸ SyncCloud Help (⌘?)
+    /// menu command can open it; ContentView renders the overlay and owns dismissal.
+    @State private var showHelp = false
     /// Whether ContentView's once-per-session bootstrap has run. App-owned because a window
     /// close + Dock reopen recreates ContentView (and its @State) while the session — the
     /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
@@ -150,6 +153,7 @@ struct SyncCloudApp: App {
                 ContentView(
                     syncManager: syncManager,
                     showSettings: $showSettings,
+                    showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
                     welcomeDismissedThisSession: $welcomeDismissedThisSession
                 )
@@ -175,19 +179,47 @@ struct SyncCloudApp: App {
                 Button("Settings…") { showSettings = true }
                     .keyboardShortcut(",", modifiers: .command)
             }
-            // The discoverability half of the shortcuts story: review-mode keys, the drag
-            // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.
-            CommandGroup(after: .help) {
+            // Replace the whole Help menu. AppKit's default `.help` group is just the
+            // `showHelp:` item (and its search field), which — with no registered Help Book —
+            // answers "Help isn't available for SyncCloud." Swapping the group lets our own
+            // SyncCloud Help overlay take that slot, and hosts the rest of the Help entries.
+            CommandGroup(replacing: .help) {
+                // The real front door: open the in-window Help overlay. Close Settings first so
+                // the two overlays never stack (ContentView also enforces this).
+                Button("SyncCloud Help") {
+                    showSettings = false
+                    showHelp = true
+                }
+                .keyboardShortcut("?", modifiers: .command)
+
                 // Re-summon the welcome tour on demand (it only auto-shows once per install). Close
-                // Settings first — the welcome overlay is suppressed while the in-window Settings
-                // overlay is up — then clear both the persisted seen flag and this session's
-                // dismissal so the tour shows again from the start. ContentView observes both.
+                // the other overlays first, then clear both the persisted seen flag and this
+                // session's dismissal so the tour shows again from the start. ContentView observes both.
                 Button("Welcome to SyncCloud") {
                     showSettings = false
+                    showHelp = false
                     hasSeenFirstRunWelcome = false
                     welcomeDismissedThisSession = false
                 }
+                // The discoverability half of the shortcuts story: review-mode keys, the drag
+                // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.
                 ShortcutsWindowCommand()
+
+                Divider()
+
+                // Surface the Activity Log window (it otherwise has no menu entry) and a jump to
+                // the on-disk log — the two things a user reaches for when troubleshooting or
+                // filing a report.
+                ActivityLogWindowCommand()
+                Button("Reveal Log File in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
+                }
+
+                Divider()
+
+                Button("About SyncCloud") {
+                    NSApp.orderFrontStandardAboutPanel(nil)
+                }
             }
         }
 
