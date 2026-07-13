@@ -21,4 +21,17 @@ import Testing
         // to every existing user.
         #expect(FirstRunWelcome.hasSeenDefaultsKey == "hasSeenFirstRunWelcome")
     }
+
+    @Test func testTourStartsWithWelcomeAndHasFeaturePages() {
+        // The view special-cases index 0 as the intro (app icon + pane pill), so the sequence
+        // must lead with the welcome page and carry at least one feature page after it.
+        #expect(FirstRunWelcome.pages.first?.title == "Welcome to SyncCloud")
+        #expect(FirstRunWelcome.pages.count >= 2)
+        // Every page needs a title and blurb to render; feature pages (index > 0) also need a symbol.
+        for (i, page) in FirstRunWelcome.pages.enumerated() {
+            #expect(!page.title.isEmpty)
+            #expect(!page.blurb.isEmpty)
+            if i > 0 { #expect(!page.systemImage.isEmpty) }
+        }
+    }
 }

@@ -27,9 +27,16 @@ struct ContentView: View {
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
 
-    /// One-shot first-run welcome gate (H1). Persisted, and set on every dismissal path of the
-    /// welcome overlay, so the card appears exactly once per install.
+    /// First-run welcome gate (H1). Persisted; set when the welcome tour is dismissed with "Don't
+    /// show this again" left checked (the default), so it auto-shows once per install.
     @AppStorage(FirstRunWelcome.hasSeenDefaultsKey) private var hasSeenFirstRunWelcome: Bool = false
+    /// Whether the welcome tour has been dismissed for the rest of this session. App-owned (a
+    /// binding) for the same reason as `hasBootstrappedSession`: a window close + Dock reopen
+    /// recreates ContentView and its @State, and the tour shouldn't reappear after the user already
+    /// dismissed it. Separate from the persisted flag so an unchecked "Don't show this again" can
+    /// hide the tour now yet let it return next launch. Help ▸ Welcome to SyncCloud flips this back
+    /// to false to re-summon the tour mid-session.
+    @Binding var welcomeDismissedThisSession: Bool
 
     /// Number of provider-id `onChange` notifications still expected from an in-flight pane
     /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
@@ -174,7 +181,7 @@ struct ContentView: View {
         .overlay {
             if showSettings {
                 settingsOverlay
-            } else if !isBootstrappingProviders && FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
+            } else if !welcomeDismissedThisSession && !isBootstrappingProviders && FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
                 // Wait for provider discovery to finish before showing the welcome card.
                 // Its primary action is derived from enabledProviders.count, which is empty at
                 // first render (discovery runs async in onAppear); showing it early would flash
@@ -185,6 +192,7 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
+        .animation(.easeOut(duration: 0.15), value: welcomeDismissedThisSession)
         .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
@@ -567,9 +575,9 @@ struct ContentView: View {
         syncManager.clearAllIgnoredItems()
     }
 
-    /// The one-time first-run welcome card (H1). FirstRunOverlay owns the layout and the
-    /// primary-action choice; this wires it to the toolbar's scan, the Providers-tab settings
-    /// path, and the seen flag (set on every dismissal so the card never reappears).
+    /// The first-run welcome tour (H1). FirstRunOverlay owns the paged layout and primary-action
+    /// choice; this wires it to the toolbar's scan, the Providers-tab settings path, and the
+    /// dismissal bookkeeping (`dismissWelcome`).
     @ViewBuilder
     private var firstRunOverlay: some View {
         FirstRunOverlay(
@@ -580,16 +588,25 @@ struct ContentView: View {
             glassHue: glassHue,
             glassIntensity: glassIntensity,
             surfaceTint: surfaceTint,
-            onScan: {
-                hasSeenFirstRunWelcome = true
+            onScan: { dontShowAgain in
+                dismissWelcome(persist: dontShowAgain)
                 forceRefreshAction()
             },
-            onChooseProviders: {
-                hasSeenFirstRunWelcome = true
+            onChooseProviders: { dontShowAgain in
+                dismissWelcome(persist: dontShowAgain)
                 openProviderSettings()
             },
-            onDismiss: { hasSeenFirstRunWelcome = true }
+            onDismiss: { dontShowAgain in dismissWelcome(persist: dontShowAgain) }
         )
+    }
+
+    /// Hide the welcome tour for the rest of this session, and — when the user left "Don't show
+    /// this again" checked — persist the seen flag so it won't auto-open on future launches.
+    /// Leaving it unchecked keeps the flag false, so the tour returns next launch; Help ▸ Welcome
+    /// to SyncCloud re-opens it any time regardless.
+    private func dismissWelcome(persist: Bool) {
+        welcomeDismissedThisSession = true
+        if persist { hasSeenFirstRunWelcome = true }
     }
 
     /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered

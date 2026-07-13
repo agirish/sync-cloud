@@ -29,10 +29,15 @@ struct SyncCloudApp: App {
     /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
     /// @State, not @AppStorage: it must reset on every app launch.
     @State private var hasBootstrappedSession = false
-    /// The one-time first-run welcome gate, shared with ContentView by key. Held here too so the
-    /// Help ▸ Welcome to SyncCloud command can flip it back to `false` and re-summon the card:
-    /// ContentView's `@AppStorage` on the same key observes the write and re-renders the overlay.
+    /// The first-run welcome gate, shared with ContentView by key. Held here too so the Help ▸
+    /// Welcome to SyncCloud command can flip it back to `false` and re-summon the tour: ContentView's
+    /// `@AppStorage` on the same key observes the write and re-renders the overlay.
     @AppStorage(FirstRunWelcome.hasSeenDefaultsKey) private var hasSeenFirstRunWelcome = false
+    /// Whether the welcome tour has been dismissed this session. App-owned (like hasBootstrappedSession)
+    /// so a window close + Dock reopen doesn't resurrect it; the Help command resets it to re-summon
+    /// the tour even after the user dismissed it earlier this session. @State (never persisted): a
+    /// dismissal only lasts the session unless "Don't show this again" also set the persisted flag.
+    @State private var welcomeDismissedThisSession = false
     private let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     
     init() {
@@ -145,7 +150,8 @@ struct SyncCloudApp: App {
                 ContentView(
                     syncManager: syncManager,
                     showSettings: $showSettings,
-                    hasBootstrappedSession: $hasBootstrappedSession
+                    hasBootstrappedSession: $hasBootstrappedSession,
+                    welcomeDismissedThisSession: $welcomeDismissedThisSession
                 )
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
@@ -172,13 +178,14 @@ struct SyncCloudApp: App {
             // The discoverability half of the shortcuts story: review-mode keys, the drag
             // move modifier, and ⌥-breadcrumb navigation are otherwise invisible.
             CommandGroup(after: .help) {
-                // Re-summon the one-time welcome card on demand (it only auto-shows once per
-                // install). Close Settings first — the welcome overlay is suppressed while the
-                // in-window Settings overlay is up — then clear the seen flag; ContentView's
-                // `@AppStorage` on the same key observes the write and shows the card.
+                // Re-summon the welcome tour on demand (it only auto-shows once per install). Close
+                // Settings first — the welcome overlay is suppressed while the in-window Settings
+                // overlay is up — then clear both the persisted seen flag and this session's
+                // dismissal so the tour shows again from the start. ContentView observes both.
                 Button("Welcome to SyncCloud") {
                     showSettings = false
                     hasSeenFirstRunWelcome = false
+                    welcomeDismissedThisSession = false
                 }
                 ShortcutsWindowCommand()
             }
