@@ -249,19 +249,21 @@ import Combine
         let mockFM = MockFileManager()
         let manager = FileSyncManager(fileManager: mockFM)   // permanent-delete confirm declines
         let size: [FileAttributeKey: Any] = [.size: 1000]
-        for p in ["/a/x", "/b/x", "/c/x"] {
+        // Distinct copy names (identical groups match by content, not name) so the mock's
+        // name-keyed trash staging can't collide and make the outcome order-dependent.
+        for p in ["/a/x", "/b/x2", "/c/x3"] {
             mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
         }
-        // /c/x refuses to leave the disk (its trash's remove step fails once); /b/x trashes fine.
-        mockFM.failRemovePathsOnce = ["/c/x"]
-        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x", "/c/x"], reclaim: 2000)
+        // /c/x3 refuses to leave the disk (its trash's remove step fails once); /b/x2 trashes fine.
+        mockFM.failRemovePathsOnce = ["/c/x3"]
+        let group = grp(.identical, keeper: "/a/x", redundant: ["/b/x2", "/c/x3"], reclaim: 2000)
         manager.duplicateGroups = [group]
 
         let ok = await manager.resolveDuplicateGroup(group)
 
         #expect(ok == false, "a partial removal must not read as success")
-        #expect(mockFM.virtualDisk["/b/x"] == nil)
-        #expect(mockFM.virtualDisk["/c/x"] != nil)
+        #expect(mockFM.virtualDisk["/b/x2"] == nil)
+        #expect(mockFM.virtualDisk["/c/x3"] != nil)
         #expect(manager.duplicateGroups.count == 1, "the group stays listed until every copy is handled")
         #expect(manager.banner?.severity == .warning)
         #expect(manager.banner?.message.contains("1 of 2") == true, "the banner must claim only what landed")

@@ -145,4 +145,47 @@ import Testing
         #expect(manager.leftTree.map(\.name) == ["c.txt", "b.txt"])
         #expect(manager.prefetchedTrees["/root"] != nil, "a current-mode deep tree still feeds the cache")
     }
+
+    /// A file operation (or any scan-affecting change) finishing while a load runs bumps the
+    /// scan-config epoch and clears the cache; a tree walked BEFORE that change must not write
+    /// itself back — the cache fast path serves cached trees verbatim, so it would present
+    /// pre-operation state as current until the next invalidation.
+    @MainActor
+    @Test func testStaleConfigEpochTreeNeverEntersCache() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        let staleConfigToken = manager.scanConfigGeneration
+        manager.noteScanConfigChanged()   // a file operation landed while this load's walk ran
+
+        await manager.adoptFreshDeepTree([node("a.txt", size: 1)], builtWith: .name, isLeft: true,
+                                         focusPath: "/root",
+                                         loadToken: manager.leftLoadGeneration, configToken: staleConfigToken)
+
+        #expect(manager.leftTree.map(\.name) == ["a.txt"], "the tree itself still publishes — only the cache is off-limits")
+        #expect(manager.prefetchedTrees["/root"] == nil, "a pre-operation tree must never resurrect the cleared cache")
+    }
+
+    /// A superseded load resuming after adoptFreshDeepTree's awaits must not clear the
+    /// SUCCESSOR's spinner: the loading flag is what keeps pruneSelection off the successor's
+    /// interim shallow tree, so releasing it early can wipe valid deep selections.
+    @MainActor
+    @Test func testSupersededLoadDoesNotClearSuccessorsSpinner() async {
+        let manager = FileSyncManager(fileManager: MockFileManager())
+
+        let staleLoadToken = manager.leftLoadGeneration
+        manager.leftLoadGeneration += 1     // a newer load owns the pane now
+        manager.isLoadingLeftTree = true    // …and is still mid-walk
+
+        await manager.adoptFreshDeepTree([node("a.txt", size: 1)], builtWith: .name, isLeft: true,
+                                         focusPath: "/root",
+                                         loadToken: staleLoadToken, configToken: manager.scanConfigGeneration)
+
+        #expect(manager.isLoadingLeftTree, "only the pane's current load may release its spinner")
+
+        // The pane's current load, by contrast, does release it.
+        await manager.adoptFreshDeepTree([node("a.txt", size: 1)], builtWith: .name, isLeft: true,
+                                         focusPath: "/root",
+                                         loadToken: manager.leftLoadGeneration, configToken: manager.scanConfigGeneration)
+        #expect(!manager.isLoadingLeftTree)
+    }
 }

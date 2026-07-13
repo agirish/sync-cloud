@@ -49,9 +49,35 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/parent/child.txt"] == nil)
         
         // Verify only one trash operation was attempted (for the parent)
-        // Verify only one trash operation was attempted (for the parent)
         #expect(mockFM.trashedPaths.count == 1)
         #expect(mockFM.trashedPaths.first?.hasSuffix("/parent") == true)
+    }
+
+    /// Pins `deleteItems`' return contract: the count of items actually removed, with a pruned
+    /// nested family counting once via its ancestor — callers (Tidy's resolve, banners) compare
+    /// it against what they asked for to tell partial success from full, so a child double-count
+    /// would make a partial batch read as complete.
+    @MainActor
+    @Test func testDeleteItemsCountsAPrunedFamilyOnce() async throws {
+        let manager = FileSyncManager()
+        let mockFM = MockFileManager()
+        mockFM.virtualDisk["/src/parent"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["child.txt"])
+        mockFM.virtualDisk["/src/parent/child.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/solo.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let removed = await manager.deleteItems(
+            at: ["/src/parent", "/src/parent/child.txt", "/src/solo.txt"], fileManager: mockFM)
+
+        #expect(removed == 2, "parent+child count once via the ancestor; solo counts on its own")
+        #expect(mockFM.virtualDisk["/src/parent"] == nil)
+        #expect(mockFM.virtualDisk["/src/solo.txt"] == nil)
+
+        // And a delete where nothing leaves the disk reports zero, not the request size.
+        mockFM.shouldFailTrash = true                       // Trash-less volume…
+        mockFM.virtualDisk["/src/stuck.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        let stuck = await manager.deleteItems(at: ["/src/stuck.txt"], fileManager: mockFM)
+        #expect(stuck == 0, "…and the permanent-delete fallback was declined")
+        #expect(mockFM.virtualDisk["/src/stuck.txt"] != nil)
     }
 
     /// The delete prune must only drop real descendants: a path that merely starts with another

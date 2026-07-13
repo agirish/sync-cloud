@@ -96,4 +96,93 @@ import Foundation
         #expect(manager.activeFileOperationsCount == 0)
         manager.isVerifyAllRunning = false
     }
+
+    @MainActor
+    @Test func deleteItemsRefusedWhileVerifyAllInFlight() async throws {
+        let (manager, mockFM) = try makeFixture()
+
+        manager.isVerifyAllRunning = true
+        let removed = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM)
+
+        #expect(removed == 0)
+        #expect(manager.banner?.message == "Wait for Verify All to finish before deleting items")
+        #expect(manager.banner?.severity == .warning)
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil, "nothing may leave the disk mid-verify")
+        #expect(mockFM.trashedPaths.isEmpty)
+        #expect(manager.isVerifyAllRunning)
+
+        // With the verify run finished, the identical call goes through.
+        manager.isVerifyAllRunning = false
+        manager.banner = nil
+        let removedAfter = await manager.deleteItems(at: ["/src/f.txt"], fileManager: mockFM)
+        #expect(removedAfter == 1)
+        #expect(mockFM.virtualDisk["/src/f.txt"] == nil)
+    }
+
+    @MainActor
+    @Test func mergeDuplicateGroupRefusedWhileVerifyAllInFlight() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        // Both folders on disk — only the verify run blocks the merge.
+        mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
+        mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
+        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        manager.duplicateGroups = [group]
+
+        manager.isVerifyAllRunning = true
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(manager.banner?.message == "Wait for Verify All to finish before merging duplicates")
+        #expect(manager.banner?.severity == .warning)
+        // The merge copies into the keeper while Verify All may be hashing it — nothing may move.
+        #expect(mockFM.virtualDisk["/base/K/rfile"] == nil)
+        #expect(mockFM.virtualDisk["/base/R"] != nil)
+        #expect(manager.duplicateGroups.count == 1)
+        manager.isVerifyAllRunning = false
+    }
+
+    @MainActor
+    @Test func applyFilingSuggestionRefusedWhileVerifyAllInFlight() async throws {
+        let (manager, mockFM) = try makeFixture()
+        let s = FilingSuggestion(filePath: "/src/f.txt", fileName: "f.txt", size: 1,
+                                 modificationDate: nil, candidates: [])
+        let dest = FilingDestination(path: "/dst", confidence: .high, reasons: [], newSegments: [])
+        manager.filingSuggestions = [s]
+
+        manager.isVerifyAllRunning = true
+        let ok = await manager.applyFilingSuggestion(s, to: dest)
+
+        #expect(ok == false)
+        #expect(manager.banner?.message == "Wait for Verify All to finish before filing")
+        #expect(manager.banner?.severity == .warning)
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil, "the file must stay put mid-verify")
+        #expect(manager.filingSuggestions.count == 1, "a refused filing must not vanish the card")
+        manager.isVerifyAllRunning = false
+    }
+
+    @MainActor
+    @Test func applyRecommendedFilingRefusedWhileVerifyAllInFlight() async throws {
+        let (manager, mockFM) = try makeFixture()
+        let dest = FilingDestination(path: "/dst", confidence: .high, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/src/f.txt", fileName: "f.txt", size: 1,
+                                 modificationDate: nil, candidates: [dest])
+        manager.filingSuggestions = [s]
+
+        manager.isVerifyAllRunning = true
+        await manager.applyRecommendedFiling()
+
+        #expect(manager.banner?.message == "Wait for Verify All to finish before filing")
+        #expect(manager.banner?.severity == .warning)
+        #expect(mockFM.virtualDisk["/src/f.txt"] != nil, "the batch must not move files mid-verify")
+        #expect(manager.filingSuggestions.count == 1)
+        manager.isVerifyAllRunning = false
+    }
 }

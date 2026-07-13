@@ -427,6 +427,12 @@ extension FileSyncManager {
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
                                       remember: Bool = false) async -> Bool {
+        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
+        // syncFile's): filing moves a file Verify All may be hashing.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before filing")
+            return false
+        }
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
             // Remember only on an actual move — a rule keyed on where the file already lived is noise.
@@ -445,6 +451,12 @@ extension FileSyncManager {
     /// Files every batch-eligible suggestion (a confident home derived from the filename) into its
     /// best destination, as one undoable batch.
     public func applyRecommendedFiling() async {
+        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
+        // syncFile's): filing moves files Verify All may be hashing.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before filing")
+            return
+        }
         let batch = filingSuggestions.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
         var moves: [MoveItemState] = []

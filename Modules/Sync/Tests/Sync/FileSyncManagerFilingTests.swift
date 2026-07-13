@@ -203,12 +203,16 @@ final class Flag: @unchecked Sendable { var value = false }
                                                       modificationDate: nil, candidates: [])]
         manager.filingScanFolder = "/a"
         manager.hasSuggestedFiling = true
+        manager.filingSessionRejections = ["/a/x": ["/a/Docs"]]
 
         manager.clearFiling()
 
         #expect(manager.filingSuggestions.isEmpty)
         #expect(manager.filingScanFolder == nil)
         #expect(manager.hasSuggestedFiling == false)
+        // Session rejections are keyed by file path; a provider switch invalidates them (another
+        // provider can legitimately host a same-named path), so clearFiling must drop them.
+        #expect(manager.filingSessionRejections.isEmpty)
     }
 
     /// "Try another" on a file whose name has no salient tokens ("IMG 0007" — exactly the files
@@ -392,5 +396,79 @@ final class Flag: @unchecked Sendable { var value = false }
 
         #expect(consulted.value == false)
         #expect(manager.filingSuggestions.first { $0.fileName == "mystery.pdf" }?.best?.fromAI != true)
+    }
+
+    // MARK: "Try another" (provider-scoped cache)
+
+    /// The cached root/taxonomy for single-file re-asks must belong to THIS suggestion's provider:
+    /// a scan of another provider (even a cancelled one) overwrites the cache, and resolving
+    /// against it would move the file into the wrong provider's tree.
+    @MainActor
+    @Test func tryAnotherFolderIgnoresAnotherProvidersCachedTaxonomy() async throws {
+        let manager = FileSyncManager()
+        let consulted = Flag()
+        manager.filingClassifier = { _, _ in consulted.value = true; return [:] }
+        manager.filingLastProviderRoot = "/other"          // stale: another provider's scan
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0008.HEIC", fileName: "IMG_0008.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        await manager.tryAnotherFolder(for: s)
+
+        #expect(consulted.value == false, "must not resolve against the wrong provider's taxonomy")
+        #expect(manager.filingSuggestions.first?.candidates.isEmpty == true, "falls back to Choose a folder…")
+    }
+
+    @MainActor
+    @Test func tryAnotherFolderReasksBackendWhenCacheMatchesProvider() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        manager.filingClassifier = { _, files in
+            Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"              // cache belongs to this provider
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0009.HEIC", fileName: "IMG_0009.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        await manager.tryAnotherFolder(for: s)
+
+        let best = manager.filingSuggestions.first?.best
+        #expect(best?.path == "/p/Docs/Fresh")
+        #expect(best?.fromAI == true)
+        #expect(best?.newSegments == ["Fresh"])
+    }
+
+    /// `filingScanFolder` labels what's ON SCREEN, so it publishes with the results — a cancelled
+    /// rescan of a different folder must not relabel the previous results.
+    @MainActor
+    @Test func filingScanFolderLabelsResultsNotTheInFlightScan() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
+        let downloads = root.appendingPathComponent("Downloads")
+        let rootB = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: rootB) }
+
+        let manager = FileSyncManager()
+        await manager.findFilingSuggestions(folder: downloads, providerRoot: root)
+        #expect(manager.filingScanFolder == downloads.path, "a completed scan labels its results")
+        let suggestionsBefore = manager.filingSuggestions.map(\.id)
+
+        // A rescan of a DIFFERENT folder, cancelled before it publishes.
+        manager.startFindFilingSuggestions(folder: rootB.appendingPathComponent("Downloads"), providerRoot: rootB)
+        manager.cancelFindFilingSuggestions()
+        await manager.filingScanTask?.value
+
+        #expect(manager.filingScanFolder == downloads.path, "the label must still match the on-screen results")
+        #expect(manager.filingSuggestions.map(\.id) == suggestionsBefore)
     }
 }

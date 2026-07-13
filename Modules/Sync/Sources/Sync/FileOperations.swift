@@ -415,12 +415,18 @@ extension FileSyncManager {
 
     /// Permanently deletes files or directories from disk.
     /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
-    /// Trash-less volumes). Returns the original paths of the items actually removed — empty when
-    /// everything failed or a permanent delete was declined, and missing the untouched tail after
-    /// a mid-batch cancel — so callers can tell partial success from full and never report a false
-    /// success. Nested paths pruned in favor of an ancestor count as removed via that ancestor.
+    /// Trash-less volumes). Returns the number of items actually removed — 0 when everything
+    /// failed or a permanent delete was declined, and short of the batch after a mid-batch
+    /// cancel — so callers can tell partial success from full and never report a false success.
+    /// Nested paths pruned in favor of an ancestor count as removed via that ancestor (once).
     @discardableResult
-    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> [String] {
+    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> Int {
+        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
+        // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before deleting items")
+            return 0
+        }
         let confirmPermanentDelete = permanentDeleteConfirmer
 
         // Prune nested paths to avoid redundant operations on children if parent is trashed
@@ -524,6 +530,6 @@ extension FileSyncManager {
         if let progress, self.activeProgress === progress {
             self.activeProgress = nil
         }
-        return items.map { $0.original.path }
+        return items.count
     }
 }

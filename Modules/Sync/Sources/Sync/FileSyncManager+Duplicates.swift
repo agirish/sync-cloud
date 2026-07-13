@@ -202,10 +202,10 @@ extension FileSyncManager {
         let removed = await deleteItems(at: paths, fileManager: fileManager)
         // Only drop the group and claim success if every copy actually left the disk — a declined,
         // failed, or cancelled trash must not vanish still-listed copies behind a false banner.
-        guard !removed.isEmpty else { return false }
+        guard removed > 0 else { return false }
         guard !dropFullyRemovedGroups(from: [group]).isEmpty else {
             if currentError == nil {
-                banner = .warning("Removed \(removed.count) of \(paths.count) copies — the group stays listed until the rest are handled.")
+                banner = .warning("Removed \(removed) of \(paths.count) copies — the group stays listed until the rest are handled.")
             }
             return false
         }
@@ -228,7 +228,7 @@ extension FileSyncManager {
             return
         }
         let removed = await deleteItems(at: paths, fileManager: fileManager)
-        guard !removed.isEmpty else { return }
+        guard removed > 0 else { return }
         let done = dropFullyRemovedGroups(from: batch)
         let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
         if currentError == nil {
@@ -252,6 +252,12 @@ extension FileSyncManager {
     @discardableResult
     public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         guard case .overlapping = group.matchType else { return false }
+        // Verify All's exclusion guard, mirrored in the write direction (same rationale as
+        // syncFile's): the merge copies into the keeper while Verify All may be hashing it.
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before merging duplicates")
+            return false
+        }
         // A vanished keeper must refuse, not silently recreate itself from the copies being folded.
         guard keeperStillExists(group) else {
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.")
@@ -313,7 +319,7 @@ extension FileSyncManager {
 
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
             let removed = await deleteItems(at: [redundant.path], fileManager: fm)
-            if removed.isEmpty { allTrashed = false }   // trash declined/failed — don't claim the group done
+            if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
         }
 
         // Only drop the group and claim success when every redundant copy actually left the disk
