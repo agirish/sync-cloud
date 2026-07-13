@@ -90,10 +90,21 @@ public struct TidyView: View {
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
+    /// Honors Settings ▸ Accessibility ▸ Reduce motion: when true, the row-exit slides (H4) and the
+    /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
+    /// acceptable motion under Reduce motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var lens: TidyLens = .duplicates
     @State private var filter: TidyFilter = .all
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
+    /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
+    /// Drives the "… freed this session" count-up caption on the reclaim pill.
+    @State private var reclaim = ReclaimTally()
+    /// Bumped on every successful resolve to flash the reclaim pill's green glow once (H5). A token,
+    /// not a Bool, so back-to-back resolves each retrigger the fade cleanly.
+    @State private var reclaimFlashToken = 0
     /// True once the user has filed at least one loose file since the current Filing scan finished.
     /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
     /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
@@ -162,6 +173,27 @@ public struct TidyView: View {
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
             }
         }
+        // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
+        // counts the current results' work (H5).
+        .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
+            if isScanning { reclaim.reset() }
+        }
+    }
+
+    // MARK: Row-exit motion (H4)
+
+    /// The removal transition for the card lists: rows slide out to the leading edge and fade, so a
+    /// destructive or moving action reads as a thing that happened rather than a silent swap. Insertion
+    /// stays `.identity` — freshly scanned cards should just be there, not animate in.
+    private var cardRemoval: AnyTransition {
+        .asymmetric(insertion: .identity,
+                    removal: .opacity.combined(with: .move(edge: .leading)))
+    }
+
+    /// The animation that settles the list as a row leaves — nil under Reduce motion, which restores
+    /// today's instant swap (the `.transition` only fires inside an animated transaction).
+    private var listSettle: Animation? {
+        reduceMotion ? nil : .easeInOut(duration: 0.22)
     }
 
     // MARK: Toolbar card
@@ -329,7 +361,10 @@ public struct TidyView: View {
         return HStack(spacing: 8) {
             scannedFolderChip(syncManager.duplicateScanRoot)
             StatPill(count: s.groupCount, label: "groups", color: .blue, systemImage: "square.on.square")
-            reclaimPill(s.reclaimableBytes)
+            ReclaimPill(reclaimableBytes: s.reclaimableBytes,
+                        freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
+                        flashToken: reclaimFlashToken,
+                        reduceMotion: reduceMotion)
             StatPill(count: s.redundantCopyCount, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
             if s.needsReviewCount > 0 {
                 StatPill(count: s.needsReviewCount, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
@@ -339,19 +374,12 @@ public struct TidyView: View {
         }
     }
 
-    private func reclaimPill(_ bytes: Int) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "internaldrive")
-                .font(.system(size: 11, weight: .bold))
-                .symbolRenderingMode(.hierarchical)
-            Text("\(FileSyncManager.formatBytes(bytes)) reclaimable")
-                .font(.system(size: 12, weight: .semibold))
-        }
-        .foregroundStyle(Color.green)
-        .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(Color.green.opacity(0.14)))
-        .overlay(Capsule(style: .continuous).strokeBorder(Color.green.opacity(0.45), lineWidth: 0.5))
-        .fixedSize()
+    /// Credits a completed resolve to the session tally and flashes the reclaim pill (H5). Called only
+    /// on success, with the bytes actually reclaimed, so the count-up is honest.
+    private func creditReclaim(_ bytes: Int) {
+        guard bytes > 0 else { return }
+        reclaim.credit(bytes)
+        reclaimFlashToken &+= 1
     }
 
     private var filterMenu: some View {
@@ -427,9 +455,14 @@ public struct TidyView: View {
                         onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
                         onMerge: { merge(group) }
                     )
+                    .transition(cardRemoval)
                 }
             }
             .padding(densityMetrics.cardListPadding)
+            // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
+            // the visible id list so only membership changes animate — expand/collapse and keeper
+            // picks (which don't change the id set) stay instant.
+            .animation(listSettle, value: filteredGroups.map(\.id))
         }
         .scrollContentBackground(.hidden)
     }
@@ -565,10 +598,14 @@ public struct TidyView: View {
                     filingSectionHeader(section)
                     ForEach(section.suggestions) { suggestion in
                         filingCard(suggestion)
+                            .transition(cardRemoval)
                     }
                 }
             }
             .padding(densityMetrics.cardListPadding)
+            // Slide + fade a filed/dismissed card out and settle the list (H4). Keyed on the id list
+            // so only a card leaving animates; an emptied tier's header falls away in the same pass.
+            .animation(listSettle, value: syncManager.filingSuggestions.map(\.id))
         }
         .scrollContentBackground(.hidden)
     }
@@ -734,7 +771,10 @@ public struct TidyView: View {
             confirmTitle: "Move to Trash"
         )
         guard ok else { return }
-        Task { await syncManager.resolveDuplicateGroup(group) }
+        let reclaimable = group.reclaimableBytes
+        Task {
+            if await syncManager.resolveDuplicateGroup(group) { creditReclaim(reclaimable) }
+        }
     }
 
     private func applyRecommended() {
@@ -750,7 +790,14 @@ public struct TidyView: View {
             confirmTitle: "Tidy"
         )
         guard ok else { return }
-        Task { await syncManager.applyRecommendedDuplicates() }
+        // Credit the batch by the reclaimable it actually erased (the drop in the still-reclaimable
+        // figure), so a partial failure counts only what really landed — `applyRecommendedDuplicates`
+        // returns Void, so we measure the delta rather than trust the dialog's promised total.
+        let before = syncManager.duplicateSummary.reclaimableBytes
+        Task {
+            await syncManager.applyRecommendedDuplicates()
+            creditReclaim(before - syncManager.duplicateSummary.reclaimableBytes)
+        }
     }
 
     private func merge(_ group: DuplicateGroup) {
@@ -781,4 +828,59 @@ private struct PendingRememberPrompt: Identifiable {
     let id = UUID()
     let fileName: String
     let destinationPath: String
+}
+
+// MARK: - Reclaim pill (H5)
+
+/// The Duplicates summary's reclaim figure, given the H5 payoff: the still-reclaimable number rolls
+/// with `numericText` as groups resolve, an optional "… freed this session" caption counts *up*, and
+/// a green glow flashes once per resolve and fades over ~1s — the one flourish the feature earns.
+private struct ReclaimPill: View {
+    /// Bytes still reclaimable across the remaining groups (counts *down* as you resolve).
+    let reclaimableBytes: Int
+    /// "… freed this session" — nil until something's been reclaimed, so it's hidden at zero.
+    let freedCaption: String?
+    /// Bumped once per successful resolve to retrigger the glow.
+    let flashToken: Int
+    let reduceMotion: Bool
+
+    /// Glow strength, 1 at the instant of a resolve, eased to 0 over ~1s.
+    @State private var glow: Double = 0
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "internaldrive")
+                .font(.system(size: 11, weight: .bold))
+                .symbolRenderingMode(.hierarchical)
+            Text("\(FileSyncManager.formatBytes(reclaimableBytes)) reclaimable")
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                // Numeric roll is kept even under Reduce motion (an acceptable content transition).
+                .contentTransition(.numericText())
+            if let freedCaption {
+                Text("· \(freedCaption)")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.green.opacity(0.85))
+                    .contentTransition(.numericText())
+            }
+        }
+        .foregroundStyle(Color.green)
+        .padding(.horizontal, 10).padding(.vertical, 4)
+        .background(Capsule(style: .continuous).fill(Color.green.opacity(0.14 + 0.30 * glow)))
+        .overlay(Capsule(style: .continuous)
+            .strokeBorder(Color.green.opacity(0.45 + 0.45 * glow), lineWidth: 0.5 + glow))
+        .shadow(color: Color.green.opacity(0.55 * glow), radius: 7 * glow)
+        .fixedSize()
+        // Roll the numbers whenever they change (both the count-down and the count-up caption).
+        .animation(.easeInOut(duration: 0.35), value: reclaimableBytes)
+        .animation(.easeInOut(duration: 0.35), value: freedCaption)
+        .onChange(of: flashToken) { _, _ in
+            // The glow is pure decoration, so it's dropped under Reduce motion — the numeric roll above
+            // still conveys the change.
+            guard !reduceMotion else { return }
+            glow = 1
+            withAnimation(.easeOut(duration: 1.0)) { glow = 0 }
+        }
+    }
 }
