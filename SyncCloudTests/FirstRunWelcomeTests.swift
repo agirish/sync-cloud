@@ -23,15 +23,18 @@ import Testing
     }
 
     @Test func testTourStartsWithWelcomeAndHasFeaturePages() {
-        // The view special-cases index 0 as the intro (app icon + pane pill), so the sequence
-        // must lead with the welcome page and carry at least one feature page after it.
+        // The tour leads with the welcome page (app icon + pane pill on the final page) and
+        // carries feature pages after it.
+        #expect(FirstRunWelcome.pages.first?.art == .welcome)
         #expect(FirstRunWelcome.pages.first?.title == "Welcome to SyncCloud")
         #expect(FirstRunWelcome.pages.count >= 2)
-        // Every page needs a title and blurb to render; feature pages (index > 0) also need a symbol.
-        for (i, page) in FirstRunWelcome.pages.enumerated() {
+        // Every page needs a title and blurb to render.
+        for page in FirstRunWelcome.pages {
             #expect(!page.title.isEmpty)
             #expect(!page.blurb.isEmpty)
-            if i > 0 { #expect(!page.systemImage.isEmpty) }
         }
+        // Each page's artwork is distinct, so no two pages render the same illustration.
+        let arts = FirstRunWelcome.pages.map(\.art)
+        #expect(Set(arts).count == arts.count)
     }
 }

@@ -29,32 +29,34 @@ enum FirstRunWelcome {
         providerCount >= 2 ? .scan : .chooseProviders
     }
 
+    /// Which illustration heads a page. Kept on the pure data so reordering pages can never
+    /// desync the artwork from the copy.
+    enum Art: Hashable { case welcome, compare, transfer, tidy, filing }
+
     /// One page of the welcome tour. Pure data so the sequence is testable.
     struct Page: Equatable {
-        /// SF Symbol for feature pages. The intro page (index 0) draws the app icon instead, so
-        /// its `systemImage` is unused.
-        let systemImage: String
+        let art: Art
         let title: String
         let blurb: String
     }
 
-    /// The tour: an intro page, then one page per headline feature. The view special-cases index 0
-    /// (app icon + the pane pill / choose-providers hint on the final page) and renders the rest
-    /// straight from this list. Blurbs describe shipping behavior — keep them honest.
+    /// The tour: an intro page, then one page per headline feature. The view renders each page's
+    /// `art` as a small vector illustration above the copy, and adds the pane pill / choose-
+    /// providers hint on the final page. Blurbs describe shipping behavior — keep them honest.
     static let pages: [Page] = [
-        Page(systemImage: "hand.wave",
+        Page(art: .welcome,
              title: "Welcome to SyncCloud",
              blurb: "Compare two cloud folders side by side, then copy, move, or tidy the differences."),
-        Page(systemImage: "rectangle.split.2x1",
+        Page(art: .compare,
              title: "Compare side by side",
              blurb: "Point each pane at a folder in iCloud, OneDrive, Google Drive, or Dropbox. SyncCloud shows exactly what differs — files on only one side, and ones that changed."),
-        Page(systemImage: "arrow.left.arrow.right",
+        Page(art: .transfer,
              title: "Copy & move differences",
              blurb: "Send files either direction with a click. SyncCloud confirms before it writes, resolves name collisions, and every action can be undone with ⌘Z."),
-        Page(systemImage: "sparkles",
+        Page(art: .tidy,
              title: "Tidy up duplicates",
              blurb: "The Tidy tab finds duplicate files and picks which copies to remove — and never trashes the last copy of anything."),
-        Page(systemImage: "tray.full",
+        Page(art: .filing,
              title: "File loose files automatically",
              blurb: "Filing sorts stray files into the folders where they belong, using on-device content signals — or AI, when you turn it on in Settings."),
     ]
@@ -80,6 +82,7 @@ struct FirstRunOverlay: View {
     /// On by default: the tour is a once-per-install thing out of the box. Unchecking it tells the
     /// caller not to persist the seen flag, so the tour returns on the next launch.
     @State private var dontShowAgain = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var pages: [FirstRunWelcome.Page] { FirstRunWelcome.pages }
     private var isLastPage: Bool { pageIndex >= pages.count - 1 }
@@ -128,9 +131,9 @@ struct FirstRunOverlay: View {
     private var cardContent: some View {
         VStack(spacing: 16) {
             pageHeader
-                // Cross-fade the page contents as the user steps through the tour.
+                // Cross-fade (+ a gentle scale-in) the page contents as the user steps through.
                 .id(pageIndex)
-                .transition(.opacity)
+                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.97)))
 
             pageDots
 
@@ -146,20 +149,12 @@ struct FirstRunOverlay: View {
     @ViewBuilder
     private var pageHeader: some View {
         let page = pages[pageIndex]
-        VStack(spacing: 16) {
-            if pageIndex == 0 {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .frame(width: 64, height: 64)
-                    .accessibilityHidden(true)
-            } else {
-                Image(systemName: page.systemImage)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.tint)
-                    .frame(width: 64, height: 64)
-                    .background(Color.accentColor.opacity(0.12), in: Circle())
-                    .accessibilityHidden(true)
-            }
+        VStack(spacing: 18) {
+            TourArtwork(art: page.art)
+                .frame(height: 116)
+                .frame(maxWidth: .infinity)
+                // Decorative — the title and blurb carry the meaning.
+                .accessibilityHidden(true)
 
             VStack(spacing: 8) {
                 Text(page.title)
@@ -178,7 +173,7 @@ struct FirstRunOverlay: View {
                 lastPageContext
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 196, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: 250, alignment: .top)
     }
 
     @ViewBuilder
@@ -273,5 +268,156 @@ struct FirstRunOverlay: View {
         .padding(10)
         .help("Skip")
         .accessibilityLabel("Skip")
+    }
+}
+
+// MARK: - Tour artwork
+
+/// Small vector illustrations that head each tour page — built from SF Symbols + shapes so they
+/// stay crisp at any size, adapt to light/dark, and need no bundled assets. Decorative: the title
+/// and blurb carry the meaning, so `pageHeader` marks the artwork `.accessibilityHidden(true)`.
+private struct TourArtwork: View {
+    let art: FirstRunWelcome.Art
+
+    var body: some View {
+        switch art {
+        case .welcome:  WelcomeArt()
+        case .compare:  CompareArt()
+        case .transfer: TransferArt()
+        case .tidy:     TidyArt()
+        case .filing:   FilingArt()
+        }
+    }
+}
+
+/// The app icon over a soft tinted halo.
+private struct WelcomeArt: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(RadialGradient(
+                    colors: [Color.accentColor.opacity(0.30), Color.accentColor.opacity(0)],
+                    center: .center, startRadius: 4, endRadius: 60))
+                .frame(width: 116, height: 116)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 74, height: 74)
+        }
+    }
+}
+
+/// Two panes side by side, each with one row highlighted — the "what differs" metaphor.
+private struct CompareArt: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            pane(diffRow: 2)
+            pane(diffRow: 0)
+        }
+    }
+
+    private func pane(diffRow: Int) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 4) {
+                Circle().fill(Color.secondary.opacity(0.45)).frame(width: 6, height: 6)
+                Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 30, height: 4)
+            }
+            .padding(.bottom, 1)
+            ForEach(0..<3, id: \.self) { row in
+                let hot = row == diffRow
+                HStack(spacing: 5) {
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(hot ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.35)))
+                        .frame(width: 9, height: 9)
+                    Capsule()
+                        .fill(hot ? AnyShapeStyle(Color.accentColor.opacity(0.55)) : AnyShapeStyle(Color.secondary.opacity(0.28)))
+                        .frame(width: hot ? 58 : 44, height: 5)
+                }
+            }
+        }
+        .padding(11)
+        .frame(width: 108, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.primary.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Color.primary.opacity(0.09)))
+    }
+}
+
+/// A document travelling between two folders, arrows both ways — copy or move, either direction.
+private struct TransferArt: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            folder(tinted: false)
+            VStack(spacing: 7) {
+                Image(systemName: "doc.text.fill")
+                    .font(.system(size: 30))
+                    .foregroundStyle(.tint)
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.left").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 24, height: 1.5)
+                    Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+                }
+            }
+            folder(tinted: true)
+        }
+    }
+
+    private func folder(tinted: Bool) -> some View {
+        Image(systemName: "folder.fill")
+            .font(.system(size: 40))
+            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
+    }
+}
+
+/// A fanned stack of identical documents with the keeper checked — duplicate detection.
+private struct TidyArt: View {
+    var body: some View {
+        ZStack {
+            doc(tinted: false).rotationEffect(.degrees(-11)).offset(x: -22, y: 7).opacity(0.4)
+            doc(tinted: false).rotationEffect(.degrees(9)).offset(x: 20, y: 4).opacity(0.4)
+            doc(tinted: true)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.green)
+                        .background(Circle().fill(.white).padding(2))
+                        .offset(x: 7, y: 5)
+                }
+        }
+    }
+
+    private func doc(tinted: Bool) -> some View {
+        Image(systemName: "doc.fill")
+            .font(.system(size: 54))
+            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.55)))
+    }
+}
+
+/// Loose documents funnelling down into sorted folders — automatic filing.
+private struct FilingArt: View {
+    var body: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 18) {
+                loose(); loose(); loose()
+            }
+            HStack(spacing: 34) {
+                ForEach(0..<3, id: \.self) { _ in
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.secondary.opacity(0.7))
+                }
+            }
+            HStack(spacing: 12) {
+                folder(tinted: true); folder(tinted: false); folder(tinted: true)
+            }
+        }
+    }
+
+    private func loose() -> some View {
+        Image(systemName: "doc.fill").font(.system(size: 19)).foregroundStyle(Color.secondary.opacity(0.5))
+    }
+
+    private func folder(tinted: Bool) -> some View {
+        Image(systemName: "folder.fill")
+            .font(.system(size: 30))
+            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
     }
 }
