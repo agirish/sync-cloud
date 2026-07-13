@@ -351,7 +351,10 @@ public struct DetailsSidebar: View {
         let fm = FileManager.default
 
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .fileSizeKey]
-        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsPackageDescendants]) else {
+        // Descend into package bundles (.app, .rtfd, .photoslibrary…) so their contents count
+        // toward the folder total, matching Finder's Get Info. `.skipsPackageDescendants` would
+        // treat each bundle as 0 bytes and understate the size.
+        guard let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: keys, options: []) else {
             return nil
         }
 

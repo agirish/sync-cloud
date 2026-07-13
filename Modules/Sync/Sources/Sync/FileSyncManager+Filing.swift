@@ -190,7 +190,8 @@ extension FileSyncManager {
     /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
     public static let usesCloudDefaultsKey = "tidyFilingUseCloud"
     /// Which Claude model the cloud classifier uses (a model-ID string). Trades cost against quality;
-    /// defaults to the best model.
+    /// defaults to Haiku, the cheapest model (see `CloudFilingProtocol.defaultModel` and the
+    /// matching Settings picker default).
     public static let cloudModelDefaultsKey = "tidyFilingCloudModel"
 
     private static func modificationYear(_ date: Date?) -> String? {

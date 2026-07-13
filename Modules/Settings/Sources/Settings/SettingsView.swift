@@ -291,7 +291,7 @@ enum SettingsSearchIndex {
         .init(tab: .appearance, title: "Surface tint",
               keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
         .init(tab: .appearance, title: "Content surface style",
-              keywords: ["surface", "unified", "framed", "solid", "pane background", "content surface"]),
+              keywords: ["surface", "unified", "cards", "solid", "pane background", "content surface"]),
         .init(tab: .appearance, title: "List density",
               keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
 
@@ -1177,7 +1177,10 @@ struct TidySettingsTab: View {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
-                if filingUseCloud {
+                // Cloud filing rides on top of on-device AI (its toggle is disabled when AI is
+                // off). Gate the key/model sub-panel on both flags so turning AI off doesn't
+                // strand a live-looking cloud panel whose own toggle can no longer dismiss it.
+                if filingUseCloud && filingUseAI {
                     cloudKeyControls
                     Picker("Model", selection: $filingCloudModel) {
                         Text("Haiku — cheapest (default)").tag("claude-haiku-4-5")
@@ -1440,11 +1443,15 @@ struct AdvancedSettingsTab: View {
                 }
             }
 
-            Section {
-            } footer: {
-                if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            // The bottom version line. Rendered as a background-less row rather than an empty
+            // Section's footer, which drew a stray empty grouped card above it.
+            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                Section {
                     Text("SyncCloud \(version)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
+                        .listRowBackground(Color.clear)
                 }
             }
         }

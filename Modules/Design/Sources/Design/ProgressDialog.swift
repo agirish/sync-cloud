@@ -77,7 +77,11 @@ public struct ProgressDialog: View {
     }()
 
     private func formattedCount(completed: Int64, total: Int64) -> String {
-        let c = Self.countFormatter.string(from: NSNumber(value: completed)) ?? "\(completed)"
+        // Clamp the shown count to the total for the same reason the bar is clamped: `completed`
+        // can briefly drift past `total` during cancel, which would otherwise read like
+        // "7,400 of 7,363".
+        let shown = total > 0 ? min(completed, total) : completed
+        let c = Self.countFormatter.string(from: NSNumber(value: shown)) ?? "\(shown)"
         let t = Self.countFormatter.string(from: NSNumber(value: total)) ?? "\(total)"
         return "\(c) of \(t)"
     }

@@ -59,7 +59,13 @@ public struct LogEntry: Identifiable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.level = level
-        self.message = message
+        // Collapse control characters (newlines, tabs, C0/C1) to spaces so one entry is always
+        // one line. A log record often interpolates untrusted text — a file/folder name or a
+        // provider path straight off disk, which macOS permits to contain "\n" — and an embedded
+        // newline would otherwise split the record and let a crafted name forge a second
+        // "[timestamp] [ERROR] …" line in the file and the Activity Log. Enforcing the invariant
+        // here covers every call site at once, matching `SettingsManager.setCustomName`.
+        self.message = message.components(separatedBy: .controlCharacters).joined(separator: " ")
     }
     
     /// Shared timestamp formatter. Reused instead of reallocated per log line (DateFormatter is
