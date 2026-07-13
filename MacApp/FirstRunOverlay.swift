@@ -150,8 +150,8 @@ struct FirstRunOverlay: View {
     private var pageHeader: some View {
         let page = pages[pageIndex]
         VStack(spacing: 18) {
-            TourArtwork(art: page.art)
-                .frame(height: 116)
+            TourArtwork(art: page.art, leftName: leftProviderName, rightName: rightProviderName)
+                .frame(height: 120)
                 .frame(maxWidth: .infinity)
                 // Decorative — the title and blurb carry the meaning.
                 .accessibilityHidden(true)
@@ -273,106 +273,208 @@ struct FirstRunOverlay: View {
 
 // MARK: - Tour artwork
 
-/// Small vector illustrations that head each tour page — built from SF Symbols + shapes so they
-/// stay crisp at any size, adapt to light/dark, and need no bundled assets. Decorative: the title
-/// and blurb carry the meaning, so `pageHeader` marks the artwork `.accessibilityHidden(true)`.
+/// The provider asset-catalog image name for a display name, or nil for the neutral/box hues that
+/// have no bundled logo. Mirrors the classification the sidebar/pane headers use.
+private func providerAssetName(_ displayName: String) -> String? {
+    switch ProviderHue.classify(displayName) {
+    case .iCloud:      return "icloud"
+    case .dropbox:     return "dropbox"
+    case .oneDrive:    return "onedrive"
+    case .googleDrive: return "googledrive"
+    case .box, .neutral: return nil
+    }
+}
+
+/// A provider's real brand logo (the same asset the sidebar draws), or a hue-tinted cloud when the
+/// name doesn't map to one of the bundled logos.
+private struct ProviderGlyph: View {
+    let name: String
+    var size: CGFloat = 24
+
+    var body: some View {
+        if let asset = providerAssetName(name) {
+            Image(asset).resizable().scaledToFit().frame(width: size, height: size)
+        } else {
+            Image(systemName: "cloud.fill")
+                .font(.system(size: size * 0.82))
+                .foregroundStyle(ProviderHue.classify(name).tint)
+                .frame(width: size, height: size)
+        }
+    }
+}
+
+/// Small illustrations that head each tour page — built from the app's own provider logos, SF
+/// Symbols, and shapes (no new assets), tinted with each provider's brand hue and animated in on
+/// appear (motion gated on Reduce Motion). Decorative: the title and blurb carry the meaning, so
+/// `pageHeader` marks the artwork `.accessibilityHidden(true)`.
 private struct TourArtwork: View {
     let art: FirstRunWelcome.Art
+    let leftName: String
+    let rightName: String
 
     var body: some View {
         switch art {
         case .welcome:  WelcomeArt()
-        case .compare:  CompareArt()
-        case .transfer: TransferArt()
+        case .compare:  CompareArt(leftName: leftName, rightName: rightName)
+        case .transfer: TransferArt(leftName: leftName, rightName: rightName)
         case .tidy:     TidyArt()
         case .filing:   FilingArt()
         }
     }
 }
 
-/// The app icon over a soft tinted halo.
+/// The app icon over a softly breathing halo, above a row of the supported cloud logos.
 private struct WelcomeArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+    @State private var breathe = false
+
+    private let providers = ["icloud", "googledrive", "dropbox", "onedrive"]
+
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(RadialGradient(
-                    colors: [Color.accentColor.opacity(0.30), Color.accentColor.opacity(0)],
-                    center: .center, startRadius: 4, endRadius: 60))
-                .frame(width: 116, height: 116)
+        VStack(spacing: 14) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
-                .frame(width: 74, height: 74)
+                .frame(width: 66, height: 66)
+                // Halo drawn as a background so it never inflates the layout height.
+                .background(
+                    Circle()
+                        .fill(RadialGradient(
+                            colors: [Color.accentColor.opacity(breathe ? 0.38 : 0.22), Color.accentColor.opacity(0)],
+                            center: .center, startRadius: 4, endRadius: 62))
+                        .frame(width: 118, height: 118)
+                        .scaleEffect(breathe ? 1.06 : 0.98)
+                )
+                .scaleEffect(appeared ? 1 : 0.82)
+                .opacity(appeared ? 1 : 0)
+
+            HStack(spacing: 12) {
+                ForEach(Array(providers.enumerated()), id: \.offset) { index, asset in
+                    Image(asset)
+                        .resizable().scaledToFit()
+                        .frame(width: 26, height: 26)
+                        .opacity(appeared ? 1 : 0)
+                        .offset(y: appeared ? 0 : 10)
+                        .animation(reduceMotion ? nil
+                                   : .spring(response: 0.45, dampingFraction: 0.7).delay(0.12 + 0.06 * Double(index)),
+                                   value: appeared)
+                }
+            }
+        }
+        .onAppear {
+            if reduceMotion { appeared = true; return }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.72)) { appeared = true }
+            withAnimation(.easeInOut(duration: 1.9).repeatForever(autoreverses: true)) { breathe = true }
         }
     }
 }
 
-/// Two panes side by side, each with one row highlighted — the "what differs" metaphor.
+/// The two providers being compared, each a brand-tinted pane with one differing row lit up.
 private struct CompareArt: View {
+    let leftName: String
+    let rightName: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
     var body: some View {
         HStack(spacing: 12) {
-            pane(diffRow: 2)
-            pane(diffRow: 0)
+            pane(name: leftName, diffRow: 2)
+            pane(name: rightName, diffRow: 0)
+        }
+        .onAppear {
+            guard !reduceMotion else { appeared = true; return }
+            withAnimation(.easeOut(duration: 0.5).delay(0.15)) { appeared = true }
         }
     }
 
-    private func pane(diffRow: Int) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 4) {
-                Circle().fill(Color.secondary.opacity(0.45)).frame(width: 6, height: 6)
-                Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 30, height: 4)
+    private func pane(name: String, diffRow: Int) -> some View {
+        let hue = ProviderHue.classify(name).tint
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 5) {
+                ProviderGlyph(name: name, size: 15)
+                Capsule().fill(hue.opacity(0.5)).frame(width: 26, height: 4)
             }
             .padding(.bottom, 1)
             ForEach(0..<3, id: \.self) { row in
                 let hot = row == diffRow
                 HStack(spacing: 5) {
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(hot ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.35)))
+                        .fill(hot ? AnyShapeStyle(hue) : AnyShapeStyle(Color.secondary.opacity(0.3)))
                         .frame(width: 9, height: 9)
                     Capsule()
-                        .fill(hot ? AnyShapeStyle(Color.accentColor.opacity(0.55)) : AnyShapeStyle(Color.secondary.opacity(0.28)))
-                        .frame(width: hot ? 58 : 44, height: 5)
+                        .fill(hot ? AnyShapeStyle(hue.opacity(0.5)) : AnyShapeStyle(Color.secondary.opacity(0.25)))
+                        .frame(width: hot ? 56 : 44, height: 5)
                 }
+                // The differing row lights up last, drawing the eye to "what changed".
+                .opacity(hot ? (appeared ? 1 : 0.15) : 1)
+                .scaleEffect(hot && !appeared ? 0.92 : 1, anchor: .leading)
             }
         }
         .padding(11)
         .frame(width: 108, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.primary.opacity(0.05)))
-        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Color.primary.opacity(0.09)))
+        .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(ProviderHue.classify(name).soft))
+        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(hue.opacity(0.2)))
     }
 }
 
-/// A document travelling between two folders, arrows both ways — copy or move, either direction.
+/// A document drifting between two brand-tinted provider folders, arrows both ways.
 private struct TransferArt: View {
+    let leftName: String
+    let rightName: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drift = false
+
     var body: some View {
-        HStack(spacing: 12) {
-            folder(tinted: false)
+        HStack(spacing: 14) {
+            folder(name: leftName)
             VStack(spacing: 7) {
                 Image(systemName: "doc.text.fill")
                     .font(.system(size: 30))
                     .foregroundStyle(.tint)
+                    .offset(x: drift ? 7 : -7)
                 HStack(spacing: 3) {
                     Image(systemName: "arrow.left").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
-                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 24, height: 1.5)
+                    Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 26, height: 1.5)
                     Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
                 }
             }
-            folder(tinted: true)
+            folder(name: rightName)
+        }
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) { drift = true }
         }
     }
 
-    private func folder(tinted: Bool) -> some View {
+    private func folder(name: String) -> some View {
         Image(systemName: "folder.fill")
             .font(.system(size: 40))
-            .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
+            .foregroundStyle(ProviderHue.classify(name).tint)
+            .overlay(alignment: .bottomTrailing) {
+                ProviderGlyph(name: name, size: 17)
+                    .padding(2)
+                    .background(Circle().fill(.background))
+                    .offset(x: 5, y: 3)
+            }
     }
 }
 
-/// A fanned stack of identical documents with the keeper checked — duplicate detection.
+/// A fanned stack of identical documents with the keeper checked — duplicate detection. The
+/// duplicates fan out and the check pops in on appear.
 private struct TidyArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
     var body: some View {
         ZStack {
-            doc(tinted: false).rotationEffect(.degrees(-11)).offset(x: -22, y: 7).opacity(0.4)
-            doc(tinted: false).rotationEffect(.degrees(9)).offset(x: 20, y: 4).opacity(0.4)
+            doc(tinted: false)
+                .rotationEffect(.degrees(appeared ? -11 : 0))
+                .offset(x: appeared ? -22 : 0, y: appeared ? 7 : 0)
+                .opacity(0.4)
+            doc(tinted: false)
+                .rotationEffect(.degrees(appeared ? 9 : 0))
+                .offset(x: appeared ? 20 : 0, y: appeared ? 4 : 0)
+                .opacity(0.4)
             doc(tinted: true)
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "checkmark.circle.fill")
@@ -380,7 +482,13 @@ private struct TidyArt: View {
                         .foregroundStyle(.green)
                         .background(Circle().fill(.white).padding(2))
                         .offset(x: 7, y: 5)
+                        .scaleEffect(appeared ? 1 : 0.2)
+                        .opacity(appeared ? 1 : 0)
                 }
+        }
+        .onAppear {
+            guard !reduceMotion else { appeared = true; return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.62).delay(0.1)) { appeared = true }
         }
     }
 
@@ -391,28 +499,41 @@ private struct TidyArt: View {
     }
 }
 
-/// Loose documents funnelling down into sorted folders — automatic filing.
+/// Loose documents dropping down into sorted folders — automatic filing.
 private struct FilingArt: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var appeared = false
+
     var body: some View {
         VStack(spacing: 7) {
             HStack(spacing: 18) {
-                loose(); loose(); loose()
+                ForEach(0..<3, id: \.self) { index in
+                    Image(systemName: "doc.fill")
+                        .font(.system(size: 19))
+                        .foregroundStyle(Color.secondary.opacity(0.5))
+                        .offset(y: appeared ? 0 : -10)
+                        .opacity(appeared ? 1 : 0)
+                        .animation(reduceMotion ? nil
+                                   : .spring(response: 0.4, dampingFraction: 0.7).delay(0.08 * Double(index)),
+                                   value: appeared)
+                }
             }
             HStack(spacing: 34) {
                 ForEach(0..<3, id: \.self) { _ in
                     Image(systemName: "arrow.down")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color.secondary.opacity(0.7))
+                        .opacity(appeared ? 1 : 0)
                 }
             }
             HStack(spacing: 12) {
                 folder(tinted: true); folder(tinted: false); folder(tinted: true)
             }
         }
-    }
-
-    private func loose() -> some View {
-        Image(systemName: "doc.fill").font(.system(size: 19)).foregroundStyle(Color.secondary.opacity(0.5))
+        .onAppear {
+            guard !reduceMotion else { appeared = true; return }
+            withAnimation(.easeOut(duration: 0.5)) { appeared = true }
+        }
     }
 
     private func folder(tinted: Bool) -> some View {
