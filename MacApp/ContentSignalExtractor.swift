@@ -113,9 +113,12 @@ enum ContentSignalExtractor {
         var tokens = entities(in: snippet)
         // Category keywords that appear as whole words (insurers, brands, "invoice", "statement"…).
         tokens.formUnion(FilingEngine.nameTokens(snippet).intersection(FilingEngine.categoryKeywords))
-        // Tax form numbers are bare digits (stripped by the tokenizer) — match them raw.
-        let lower = snippet.lowercased()
-        for form in ["1099", "1040"] where lower.contains(form) { tokens.insert(form) }
+        // Tax form numbers are bare digits (stripped by the word tokenizer). Match them as a
+        // whole number, not a substring, so a longer figure — a phone number ending "…8101099",
+        // an amount like "10402" — doesn't inject a spurious 1099/1040 signal. Splitting on
+        // non-digits yields the maximal digit runs; a run must equal the form exactly.
+        let digitRuns = snippet.components(separatedBy: CharacterSet.decimalDigits.inverted)
+        for form in ["1099", "1040"] where digitRuns.contains(form) { tokens.insert(form) }
         return tokens
     }
 

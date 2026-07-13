@@ -53,19 +53,24 @@ public struct DiffStatusIndex: Equatable, Sendable {
                     right: difference.rightItemPath
                 )]
             }
-            // A pane can show both sides of a conflict (same provider in both panes); each
-            // indexed key badges its node and credits its own ancestors — but the contained
-            // count per difference stays 1 per branch, same as every other type.
+            // A pane can show both sides of a conflict (same provider in both panes): each key
+            // badges its own node. But the two sides of a name conflict are siblings in the same
+            // folder, so they share every ancestor — credit each ancestor only ONCE per
+            // difference, or the shared folders would count this single pair twice.
+            var ancestorsToCredit = Set<String>()
             for absolute in keys {
                 status[absolute] = difference.type
 
-                // Credit every ancestor directory strictly between the root and the item.
+                // Collect every ancestor directory strictly between the root and the item.
                 var directory = absolute
                 while let slash = directory.lastIndex(of: "/") {
                     directory = String(directory[..<slash])
                     guard directory.count > root.count else { break }
-                    counts[directory, default: 0] += 1
+                    ancestorsToCredit.insert(directory)
                 }
+            }
+            for directory in ancestorsToCredit {
+                counts[directory, default: 0] += 1
             }
         }
 

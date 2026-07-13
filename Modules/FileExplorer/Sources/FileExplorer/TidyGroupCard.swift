@@ -335,7 +335,9 @@ struct TidyGroupCard: View {
     }
 
     private func crumbs(_ path: String) -> [String] {
-        if let root = scanRoot, path.hasPrefix(root) {
+        // Boundary-safe on "/" (same rule as FilingSuggestionCard.isPath): a scan root of
+        // "/data/Docs" must not claim "/data/DocsBackup/…" and strip it to "Backup/…".
+        if let root = scanRoot, path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/") {
             let rel = String(path.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             var comps = rel.isEmpty ? [] : rel.components(separatedBy: "/")
             if let providerName { comps.insert(providerName, at: 0) }

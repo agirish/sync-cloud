@@ -174,12 +174,18 @@ struct ContentView: View {
         .overlay {
             if showSettings {
                 settingsOverlay
-            } else if FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
+            } else if !isBootstrappingProviders && FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
+                // Wait for provider discovery to finish before showing the welcome card.
+                // Its primary action is derived from enabledProviders.count, which is empty at
+                // first render (discovery runs async in onAppear); showing it early would flash
+                // the "Choose providers…" front door and then flip to "Scan now" once ≥2
+                // providers are found.
                 firstRunOverlay
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
         .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
+        .animation(.easeOut(duration: 0.15), value: isBootstrappingProviders)
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
         .alert(

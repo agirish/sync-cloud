@@ -771,7 +771,13 @@ public struct TidyView: View {
             confirmTitle: "Move to Trash"
         )
         guard ok else { return }
-        let reclaimable = group.reclaimableBytes
+        // Only identical (batch-eligible) groups feed `duplicateSummary.reclaimableBytes`, the
+        // figure the ReclaimPill counts *down*. Credit the "freed this session" count-up only for
+        // those, so the two numbers stay in lockstep — otherwise resolving a versions/overlap
+        // group (never part of the reclaimable total) would bump "freed" while "reclaimable" sat
+        // still. Those groups still go to the Trash and stay undoable; they just aren't headlined
+        // in this batch-oriented pill.
+        let reclaimable = group.isRecommendedForBatch ? group.reclaimableBytes : 0
         Task {
             if await syncManager.resolveDuplicateGroup(group) { creditReclaim(reclaimable) }
         }

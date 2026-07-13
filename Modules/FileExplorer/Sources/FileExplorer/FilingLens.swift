@@ -62,7 +62,10 @@ enum FilingConfidenceTier: String, CaseIterable, Identifiable {
     var gloss: String {
         switch self {
         case .high:   return "filename match or a rule you taught"
-        case .medium: return "read from the file’s contents"
+        // Medium mixes softer name/metadata matches with on-device content reads (content
+        // confidence is capped at medium), so the gloss can't claim one source — the engine
+        // files many filename-derived rows here too.
+        case .medium: return "a likely match by name or contents"
         case .low:    return "weak signal — pick a home"
         }
     }

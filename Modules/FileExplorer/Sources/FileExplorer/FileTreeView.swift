@@ -586,7 +586,7 @@ struct FileRowView: View {
                     .padding(.vertical, 1)
                     .background(Capsule().fill(.quaternary))
                     .help("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
-                    .accessibilityLabel("\(containedDiffCount) differences inside")
+                    .accessibilityLabel("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
             }
         }
         .padding(.vertical, 6)

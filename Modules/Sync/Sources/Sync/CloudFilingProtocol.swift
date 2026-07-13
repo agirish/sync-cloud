@@ -84,7 +84,11 @@ public enum CloudFilingProtocol {
 
         return [
             "model": model,
-            "max_tokens": min(8192, 512 + files.count * 80),
+            // Budget ~80 output tokens per placement (index + folder + confidence + one-sentence
+            // reason). The ceiling covers a full maxFiles=150 batch (512 + 150*80 ≈ 12.5k) so
+            // large scans don't hit stop_reason "max_tokens" and lose the tail; 16k stays well
+            // under every configured model's output cap (Haiku 4.5 64k, Sonnet 5 / Opus 4.8 128k).
+            "max_tokens": min(16384, 512 + files.count * 80),
             "system": [
                 ["type": "text", "text": instructions],
                 ["type": "text", "text": folderBlock, "cache_control": ["type": "ephemeral"]],

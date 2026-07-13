@@ -32,8 +32,10 @@ enum OperationNotifier {
         content.title = title(for: banner.severity)
         content.body = banner.message
         content.sound = .default
-        // The banner id keeps a rapid banner replacement from stacking two notifications
-        // for what the user perceives as one outcome.
+        // Each banner is one completed outcome (success/warning/error — see the `.banner =`
+        // call sites), so it should surface as its own notification. The per-publish UUID gives
+        // every request a distinct identifier, so the system never coalesces two genuinely
+        // different outcomes into one.
         let request = UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }

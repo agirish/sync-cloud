@@ -171,15 +171,14 @@ struct SyncOperationAlerts {
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
 
-        // This is the app's only unrecoverable action, so Return must NOT confirm it —
-        // the user reaches this alert mid-delete-flow, primed to hit Return. Cancel takes
-        // the Return default; Delete is click-only (Cancel keeps Escape automatically).
+        // This is the app's only unrecoverable action, so no keypress may confirm it — the user
+        // reaches this alert mid-delete-flow, primed to hit Return. Clearing Delete's key
+        // equivalent leaves Return unbound (it does nothing; the user must click Delete
+        // deliberately). Cancel is left untouched so it keeps the Escape key NSAlert assigns it
+        // automatically — do NOT set Cancel's keyEquivalent to Return, which would displace Escape.
         if let deleteButton = alert.buttons.first {
             deleteButton.hasDestructiveAction = true
             deleteButton.keyEquivalent = ""
-        }
-        if alert.buttons.count > 1 {
-            alert.buttons[1].keyEquivalent = "\r"
         }
 
         return alert.runModal() == .alertFirstButtonReturn
