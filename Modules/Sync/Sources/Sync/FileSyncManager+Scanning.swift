@@ -451,6 +451,10 @@ extension FileSyncManager {
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
             self.verifiedSameDifferenceIds.removeAll()
+            // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"
+            // offer built from the previous scan now references superseded differences — drop it
+            // (same reason swapPanes clears it), so confirming can't bulk-copy stale pairs.
+            self.verifiedIdenticalForCopy = nil
             await self.applyFilters()
             hasScanned = true
 
@@ -841,10 +845,16 @@ extension FileSyncManager {
             case .dateModified:
                 let dA = a.modificationDate ?? Date.distantPast
                 let dB = b.modificationDate ?? Date.distantPast
+                // Break ties by name (like .kind/.tags): equal dates are common after a bulk copy,
+                // and without a tiebreaker the non-stable sort would order such siblings by input
+                // listing order — which can differ between panes or shift between scans and trigger
+                // a spurious tree republish.
+                if dA == dB { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
                 return dA > dB
             case .size:
                 let sA = a.fileSize ?? 0
                 let sB = b.fileSize ?? 0
+                if sA == sB { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
                 return sA > sB
             case .tags:
                 let tA = a.tags?.joined() ?? ""

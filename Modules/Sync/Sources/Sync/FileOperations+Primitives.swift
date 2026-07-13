@@ -104,15 +104,25 @@ extension FileSyncManager {
     /// exists on disk OR is in `reserved` — the latter lets a bulk run that resolves every
     /// destination up front (before its parallel copy phase) avoid handing two items the same
     /// path when a keep-both suffix would otherwise collide with another item's real target.
-    public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default, reserved: Set<String> = []) -> URL {
+    public nonisolated static func generateUniqueURL(for url: URL, fileManager: FileManaging = FileManager.default, reserved: Set<String> = [], caseSensitiveVolume: Bool = true) -> URL {
         let directory = url.deletingLastPathComponent()
         let filename = url.deletingPathExtension().lastPathComponent
         let extensionStr = url.pathExtension
-        
+
+        // On a case-insensitive destination, two reserved targets differing only by case name the
+        // same file, so match the reserved set case-insensitively — `fileExists` already collapses
+        // case on disk, but the in-memory reserved set would otherwise hand two case-variant items
+        // the same path and let the second overwrite the first. (Default is exact, so a
+        // case-sensitive volume keeps distinct case variants distinct.)
+        let reservedForMatch = caseSensitiveVolume ? reserved : Set(reserved.map { $0.lowercased() })
+        func isReserved(_ path: String) -> Bool {
+            caseSensitiveVolume ? reserved.contains(path) : reservedForMatch.contains(path.lowercased())
+        }
+
         var counter = 2
         var newURL = url
-        
-        while fileManager.fileExists(atPath: newURL.path) || reserved.contains(newURL.path) {
+
+        while fileManager.fileExists(atPath: newURL.path) || isReserved(newURL.path) {
             let newFilename = "\(filename) \(counter)"
             if extensionStr.isEmpty {
                 newURL = directory.appendingPathComponent(newFilename)

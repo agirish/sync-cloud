@@ -152,7 +152,13 @@ public class FileSyncManager: ObservableObject {
     /// The most recent Filing scan's provider root + relative folder list, kept so a "Try another"
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
+    /// The capped folder list SENT to the classifier (bounded for token cost).
     public var filingLastTaxonomyFolders: [String] = []
+    /// The FULL set of existing relative folders (uncapped), used only to mark a "Try another"
+    /// verdict's segments new-vs-existing — the same basis the main scan uses. Kept separate from
+    /// the capped `filingLastTaxonomyFolders` so a real folder beyond the classifier cap isn't
+    /// mislabeled as a folder to be created.
+    public var filingLastExistingFolders: Set<String> = []
     /// Session-scoped "Try another" rejections keyed by file path. Persisted rejections are keyed
     /// by salient filename tokens, which token-less names ("IMG_0007", "Scan 12") don't have — this
     /// set is what stops those files from being re-offered the folder they just rejected.

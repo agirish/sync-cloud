@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 /// Tidy — the in-provider duplicate finder. Reuses the existing tree walk and content hasher to
@@ -132,6 +133,8 @@ extension FileSyncManager {
         // cancelled rescan of a different folder must not relabel the previous results.
         duplicateScanRoot = root.path
         hasFoundDuplicates = true
+        let summary = duplicateSummary
+        Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
     }
 
     // MARK: Keep separate (persistent ignore)
@@ -166,12 +169,29 @@ extension FileSyncManager {
 
     // MARK: Resolve
 
-    /// Whether a group's keeper is still where the scan saw it. Groups are point-in-time
-    /// snapshots: if the keeper was deleted, renamed, or moved externally between scan and click,
-    /// trashing the "redundant" copies would trash the *last* copies — the one invariant Tidy
-    /// promises never to break. Re-verified at resolve time, not just scan time.
+    /// Whether a group's keeper is still where — and what — the scan saw. Groups are point-in-time
+    /// snapshots: if the keeper was deleted, renamed, moved, or (for a byte-identical file group)
+    /// overwritten in place between scan and click, trashing the "redundant" copies would trash the
+    /// *last* copies of the keeper's original content — the one invariant Tidy promises never to
+    /// break. Re-verified at resolve time, not just scan time.
+    ///
+    /// For a file we also re-check the byte size against the scan snapshot: any in-place edit
+    /// changes the size (and mtime), so a size mismatch means the keeper's content drifted and its
+    /// copies are no longer provably identical to it. (Size is used rather than mtime because the
+    /// scan reads mtime via URL resource values, which need not compare equal to a re-stat through
+    /// the file-manager seam; size is exact and can never false-fail an unchanged file.) Folders
+    /// keep the existence-only check — a folder's stat size isn't its recursive content size.
     private func keeperStillExists(_ group: DuplicateGroup) -> Bool {
-        fileManager.fileExists(atPath: group.keeper.path)
+        let keeper = group.keeper
+        guard fileManager.fileExists(atPath: keeper.path) else { return false }
+        guard !keeper.isDirectory else { return true }
+        guard let attrs = try? fileManager.attributesOfItem(atPath: keeper.path) else { return false }
+        let currentSize = (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
+        // Refuse only on a KNOWN mismatch: a real file always reports its size, so a drifted
+        // keeper is caught; if size is unavailable (never happens on the real FS) fall back to the
+        // existence check rather than over-refuse.
+        if let currentSize, currentSize != keeper.size { return false }
+        return true
     }
 
     /// Drops every group whose recommended copies are all off the disk — trashed just now,
@@ -212,6 +232,7 @@ extension FileSyncManager {
         if currentError == nil {
             banner = .success("Reclaimed \(Self.formatBytes(bytes)) — press ⌘Z to undo")
         }
+        Logger.shared.info("Tidy: removed \(paths.count) redundant copy(ies) of “\(group.keeper.name)”, reclaimed \(Self.formatBytes(bytes))")
         return true
     }
 
@@ -231,6 +252,7 @@ extension FileSyncManager {
         guard removed > 0 else { return }
         let done = dropFullyRemovedGroups(from: batch)
         let bytes = done.reduce(0) { $0 + $1.reclaimableBytes }
+        Logger.shared.info("Tidy: applied recommended removal to \(done.count) of \(eligible.count) group(s), reclaimed \(Self.formatBytes(bytes))")
         if currentError == nil {
             if done.count == batch.count, batch.count == eligible.count {
                 banner = .success("Reclaimed \(Self.formatBytes(bytes)) from \(done.count) group\(done.count == 1 ? "" : "s") — press ⌘Z to undo")
@@ -282,8 +304,13 @@ extension FileSyncManager {
 
             let rURL = URL(fileURLWithPath: redundant.path)
             let plan = await Self.planMerge(from: rURL, into: keeperURL, fileManager: fm)
+            // Merge targets all land under the keeper — collapse reserved-key case on a
+            // case-insensitive keeper volume (same reason as the bulk sync path).
+            let keeperCaseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: keeperURL)
+            let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
 
             let outcome: (copied: [CopyItemState], failed: Bool) = await enqueueFileOperation {
+                func reservedKey(_ path: String) -> String { keeperCaseSensitive ? path : path.lowercased() }
                 var copied: [CopyItemState] = []
                 var failed = false
                 var reserved = Set<String>()
@@ -291,13 +318,16 @@ extension FileSyncManager {
                     do {
                         try FileSyncManager.ensureParentDirectoryExists(for: step.dst, fileManager: fm)
                         var dst = step.dst
-                        if fm.fileExists(atPath: dst.path) || reserved.contains(dst.path) {
-                            dst = FileSyncManager.generateUniqueURL(for: step.dst, fileManager: fm, reserved: reserved)
+                        if fm.fileExists(atPath: dst.path) || reserved.contains(reservedKey(dst.path)) {
+                            dst = FileSyncManager.generateUniqueURL(for: step.dst, fileManager: fm, reserved: reserved, caseSensitiveVolume: keeperCaseSensitive)
                         }
-                        reserved.insert(dst.path)
+                        reserved.insert(reservedKey(dst.path))
                         let overwritten = try FileSyncManager.safeCopyItem(at: step.src, to: dst, fileManager: fm)
                         copied.append((source: step.src, destination: dst, overwritten: overwritten))
                     } catch {
+                        // Record the underlying cause: the user-facing alert only says "some files
+                        // couldn't be merged", so without this the reason is unrecoverable.
+                        logger.warning("Tidy merge: copying “\(step.src.lastPathComponent)” into \(keeperURL.lastPathComponent) failed: \(error.localizedDescription)")
                         failed = true
                         break
                     }
@@ -333,6 +363,7 @@ extension FileSyncManager {
         }
         duplicateGroups.removeAll { $0.id == group.id }
         banner = .success("Merged “\(group.name)” — folded \(totalFolded) file\(totalFolded == 1 ? "" : "s") into \(group.keeper.name). Press ⌘Z to undo")
+        Logger.shared.info("Tidy: merged “\(group.name)” — folded \(totalFolded) file(s) into \(group.keeper.name)")
         return true
     }
 
@@ -348,16 +379,24 @@ extension FileSyncManager {
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, fileManager fm: FileManaging
     ) async -> [(src: URL, dst: URL)] {
-        let kFiles = flattenFiles(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
-        let keeperHashes = Set(await hashFiles(kFiles.map { $0.id }, fileManager: fm).values)
+        let kItems = flattenFilesWithRelativePaths(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
+        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
+        // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
+        // this exact content *at the same location*, not merely somewhere.
+        var keeperHashByRel: [String: String] = [:]
+        for k in kItems { if let h = kHashesByPath[k.id] { keeperHashByRel[k.rel] = h } }
 
         let rItems = flattenFilesWithRelativePaths(await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil))
         let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm)
 
         var plan: [(src: URL, dst: URL)] = []
         for item in rItems {
-            // Skip ONLY when we can prove the keeper already has this content.
-            if let h = rHashes[item.id], keeperHashes.contains(h) { continue }
+            // Skip ONLY when the keeper already has this exact content at the SAME relative path —
+            // a true same-location duplicate. A distinctly-named or -located file is folded in even
+            // when its bytes happen to also live elsewhere in the keeper, so the merge never
+            // silently drops a meaningfully-named file (a later Tidy scan can reconcile any
+            // resulting byte-duplicate — losing a filename is the worse surprise).
+            if let h = rHashes[item.id], keeperHashByRel[item.rel] == h { continue }
             plan.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
         return plan

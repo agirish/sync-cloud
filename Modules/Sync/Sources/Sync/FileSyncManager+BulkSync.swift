@@ -95,6 +95,12 @@ extension FileSyncManager {
         } else if !result.successes.isEmpty {
             banner = .success("\(result.successes.count) files copied — dates matched")
         }
+        // Summary breadcrumb for the bulk path: a single-file copy already logs its "Copied …"
+        // line, but a "Copy All" of hundreds of files otherwise leaves no successful-outcome
+        // record — only the per-failure ERROR lines above. Log the count so the batch is visible.
+        if !result.successes.isEmpty {
+            Logger.shared.info("Copied \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
+        }
     }
 
     /// Shared scaffolding for the parallel bulk-sync / verify workers: a work queue drained by
@@ -265,6 +271,12 @@ extension FileSyncManager {
         // a different item whose real target is "report 2.txt" (missing at the batch stat), and the
         // workers would overwrite one with the other: silent data loss.
         var reservedTargets = Set<String>()
+        // Case sensitivity of the copy destination. On a case-insensitive volume two targets that
+        // differ only by case name the same file, so the reserved-target set must collapse case —
+        // otherwise two case-variant items pass the in-memory uniqueness check and the parallel
+        // workers write to the same file (the disk `fileExists` check already collapses case).
+        let destCaseSensitive = candidates.first.map { FileSyncManager.volumeSupportsCaseSensitiveNames(for: $0.toURL) } ?? true
+        func reservedKey(_ path: String) -> String { destCaseSensitive ? path : path.lowercased() }
         // The batch stat above ran before the first prompt. A prompt holds this loop for an
         // unbounded time, during which a destination the batch saw as missing can be created
         // externally — and would then be replaced without its overwrite prompt. Once a prompt
@@ -318,8 +330,9 @@ extension FileSyncManager {
                 case .keepBoth:
                     let collidingURL = toURL
                     let claimed = reservedTargets
+                    let caseSensitive = destCaseSensitive
                     toURL = await Task.detached(priority: .userInitiated) {
-                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM, reserved: claimed)
+                        Self.generateUniqueURL(for: collidingURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
                     }.value
                 case .replace:
                     break
@@ -328,14 +341,15 @@ extension FileSyncManager {
             // Final guard for the non-collision paths (a "missing" target, or a Replace): its plain
             // name may still be one an earlier item's keep-both already claimed this batch. Uniquify
             // against disk + the reserved set so no two items ever share a destination.
-            if reservedTargets.contains(toURL.path) {
+            if reservedTargets.contains(reservedKey(toURL.path)) {
                 let claimedURL = toURL
                 let claimed = reservedTargets
+                let caseSensitive = destCaseSensitive
                 toURL = await Task.detached(priority: .userInitiated) {
-                    Self.generateUniqueURL(for: claimedURL, fileManager: activeFM, reserved: claimed)
+                    Self.generateUniqueURL(for: claimedURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
                 }.value
             }
-            reservedTargets.insert(toURL.path)
+            reservedTargets.insert(reservedKey(toURL.path))
             preparedList.append((candidate.difference, candidate.fromURL, toURL, isMove))
         }
 
@@ -397,6 +411,12 @@ extension FileSyncManager {
                 firstPath: firstDiff.sourceItemPath,
                 firstReason: firstError.localizedDescription
             ))
+        }
+        // Summary breadcrumb for the bulk path (parity with the single-file "Synced file:" line):
+        // a "Sync All" of hundreds of files otherwise leaves no successful-outcome record.
+        if !result.successes.isEmpty {
+            let verb = isMove ? "Moved" : "Synced"
+            Logger.shared.info("\(verb) \(result.successes.count) item(s) in bulk\(result.failures.isEmpty ? "" : ", \(result.failures.count) failed")")
         }
     }
 

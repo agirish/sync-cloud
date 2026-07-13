@@ -66,14 +66,17 @@ public enum FilingSpendStore {
         var list = entries(defaults: defaults)
         list.append(entry)
         if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
-        defaults.set(try? JSONEncoder().encode(list), forKey: historyKey)
-        defaults.set(try? JSONEncoder().encode(entry), forKey: lastKey)
+        // Only write when encoding succeeds. `set(nil, forKey:)` REMOVES the key, so an encode
+        // failure here would silently erase the whole capped history / totals rather than
+        // no-op — leave the prior value intact instead.
+        if let data = try? JSONEncoder().encode(list) { defaults.set(data, forKey: historyKey) }
+        if let data = try? JSONEncoder().encode(entry) { defaults.set(data, forKey: lastKey) }
 
         var t = totals(defaults: defaults)
         t.costUSD += entry.estimatedCostUSD
         t.tokens += entry.totalTokens
         t.scans += 1
-        defaults.set(try? JSONEncoder().encode(t), forKey: totalsKey)
+        if let data = try? JSONEncoder().encode(t) { defaults.set(data, forKey: totalsKey) }
     }
 
     public static func clear(defaults: UserDefaults = .standard) {

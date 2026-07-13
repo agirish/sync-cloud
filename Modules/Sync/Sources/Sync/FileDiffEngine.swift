@@ -109,11 +109,16 @@ public struct FileDiffEngine {
             return resolved.standardizedFileURL.path
         }
 
-        // Directories already being walked (by canonical identity): the scan root plus every
-        // symlinked directory we've descended into. Breaks A→B→A link cycles and self-links.
-        var visitedDirectories: Set<String> = [canonicalIdentity(url)]
+        // Symlinked-directory targets on the current branch (by canonical identity): the scan root
+        // plus every symlinked directory descended into on the path to here. PER-BRANCH (an
+        // immutable snapshot extended per descent, like the warm-cache tree walk's `branchVisited`)
+        // rather than global: two SIBLING symlinks to the same directory must each expand — a
+        // global set would descend the target only once, so a cold-cache (disk) scan would report
+        // the second link's contents missing while a warm-cache (tree) scan reports them present.
+        // The branch snapshot still breaks A→B→A cycles and self-links.
+        let symlinkDepthCap = 64   // mirrors TreeBuilder.hardDepthCap, bounding pathological symlink fan-out
 
-        func walk(_ rootURL: URL, prefix: String) throws {
+        func walk(_ rootURL: URL, prefix: String, branchVisited: Set<String>) throws {
             guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys, options: []) else {
                 return
             }
@@ -200,8 +205,11 @@ public struct FileDiffEngine {
                         // manually (cycle-guarded, via the resolved target) so both branches see
                         // the same files.
                         if isSymlinkedDir {
-                            if visitedDirectories.insert(canonicalIdentity(fileURL)).inserted {
-                                try walk(fileURL.resolvingSymlinksInPath(), prefix: keyPath)
+                            let targetID = canonicalIdentity(fileURL)
+                            let depth = keyPath.split(separator: "/").count
+                            if !branchVisited.contains(targetID) && depth < symlinkDepthCap {
+                                try walk(fileURL.resolvingSymlinksInPath(), prefix: keyPath,
+                                         branchVisited: branchVisited.union([targetID]))
                             }
                         }
                     }
@@ -216,7 +224,7 @@ public struct FileDiffEngine {
             }
         }
 
-        try walk(url, prefix: "")
+        try walk(url, prefix: "", branchVisited: [canonicalIdentity(url)])
 
         if unreadableCount > 0 {
             let count = unreadableCount

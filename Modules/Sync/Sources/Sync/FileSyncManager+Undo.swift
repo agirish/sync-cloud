@@ -13,6 +13,13 @@ extension FileSyncManager {
     /// backup was emptied or auto-purged between the operation and the undo — the destination is left
     /// EMPTY. The old best-effort `try?` gave the user no log line and no signal; this logs the
     /// affected paths at `.error` and raises a warning banner on the main actor so the loss is visible.
+    /// Error raised when an undo/restore would land on a location that a different item has taken
+    /// since the original operation — reported instead of silently overwriting the occupant.
+    nonisolated static var restoreTargetOccupiedError: Error {
+        NSError(domain: "SyncCloud.Undo", code: NSFileWriteFileExistsError,
+                userInfo: [NSLocalizedDescriptionKey: "the original location is already occupied by another item"])
+    }
+
     nonisolated static func reportUndoRestoreFailure(
         of destination: URL,
         from backup: URL,
@@ -242,12 +249,21 @@ extension FileSyncManager {
                         var restoreFailures = 0
                         for item in items {
                             try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            do {
-                                _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
-                                movedBack += 1
-                            } catch {
+                            if fm.fileExists(atPath: item.from.path) {
+                                // A different item now occupies the original location (created after
+                                // the move). Restoring here would silently replace-and-Trash it, and
+                                // that displaced file would be untracked by a later Redo. Refuse and
+                                // report rather than clobber; the moved item stays at its destination.
                                 restoreFailures += 1
-                                await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
+                                await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                            } else {
+                                do {
+                                    _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
+                                    movedBack += 1
+                                } catch {
+                                    restoreFailures += 1
+                                    await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
+                                }
                             }
 
                             if let trashed = item.overwritten {
@@ -398,12 +414,20 @@ extension FileSyncManager {
                     for (idx, targetURL) in urls.enumerated() {
                         if let trashedURL = trashedItems[idx] {
                             try? fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            do {
-                                _ = try FileSyncManager.safeMoveItem(at: trashedURL, to: targetURL, fileManager: fm)
-                                restored += 1
-                            } catch {
+                            if fm.fileExists(atPath: targetURL.path) {
+                                // A different item now occupies the deleted item's location. Restoring
+                                // from Trash here would silently replace-and-Trash it (untracked by
+                                // Redo). Refuse and report; the item stays in the Trash, recoverable.
                                 restoreFailures += 1
-                                await FileSyncManager.reportUndoRestoreFailure(of: targetURL, from: trashedURL, actionName: actionName, error: error, on: target)
+                                await FileSyncManager.reportUndoRestoreFailure(of: targetURL, from: trashedURL, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                            } else {
+                                do {
+                                    _ = try FileSyncManager.safeMoveItem(at: trashedURL, to: targetURL, fileManager: fm)
+                                    restored += 1
+                                } catch {
+                                    restoreFailures += 1
+                                    await FileSyncManager.reportUndoRestoreFailure(of: targetURL, from: trashedURL, actionName: actionName, error: error, on: target)
+                                }
                             }
                         }
                     }

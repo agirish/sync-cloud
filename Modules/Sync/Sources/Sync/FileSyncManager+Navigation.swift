@@ -189,9 +189,13 @@ extension FileSyncManager {
     /// swapped too.
     @MainActor @discardableResult public func swapPanes() -> Bool {
         guard activeFileOperationsCount == 0,
+              !isBulkSyncRunning,
               bulkSyncProgress == nil,
               !isVerifyAllRunning,
               syncingDifferenceIds.isEmpty else {
+            // `isBulkSyncRunning` is set at the very start of syncAll — before markSyncing and
+            // bulkSyncProgress — so it's the only flag up during the confirm-prompt window, where
+            // a swap would mirror the rows out from under a snapshot the running sync still holds.
             Logger.shared.warning("Ignored pane swap while file operations are in flight")
             banner = .warning("Can't swap panes while an operation is running")
             return false

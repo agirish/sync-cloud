@@ -29,6 +29,13 @@ extension FileSyncManager {
         let toVerify = candidates.filter { $0.type == .differentDates && $0.sizesMatch }
         guard !toVerify.isEmpty else { return }
 
+        // The differences being hashed belong to this scan generation. A rescan can complete
+        // during the long parallel hashing (a finished file op fires refreshSubject), replacing
+        // `differences` with regenerated rows; publishing the copy offer then would point it at a
+        // superseded set. Capture the generation now and re-check before publishing (same guard
+        // autoVerifySameSizePairs uses).
+        let startGeneration = scanRequestGeneration
+
         let progress = Progress(totalUnitCount: Int64(toVerify.count))
         progress.localizedDescription = "Verifying \(toVerify.count) files"
         progress.isCancellable = true
@@ -67,7 +74,8 @@ extension FileSyncManager {
         }
 
         let (verifiedIdentical, differed, skipped) = await collector.get()
-        if !verifiedIdentical.isEmpty {
+        // Only publish the copy offer if no rescan superseded these differences while we hashed.
+        if !verifiedIdentical.isEmpty, scanRequestGeneration == startGeneration {
             verifiedIdenticalForCopy = verifiedIdentical
         }
         var parts: [String] = []

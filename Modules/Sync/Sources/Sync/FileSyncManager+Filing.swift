@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 /// Filing — suggests where loose files belong within one provider and moves them there. Loose
@@ -114,6 +115,8 @@ extension FileSyncManager {
         let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
         filingLastProviderRoot = providerRoot.path
         filingLastTaxonomyFolders = taxonomyFolders
+        // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
+        filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path, limit: .max))
 
         // Phase 1 — filename + metadata + your taxonomy + remembered rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
@@ -177,6 +180,8 @@ extension FileSyncManager {
         // cancelled rescan of a different folder must not relabel the previous results.
         filingScanFolder = folder.path
         hasSuggestedFiling = true
+        let homed = suggestions.filter { $0.hasConfidentHome }.count
+        Logger.shared.info("Filing: scanned \(folder.lastPathComponent) — \(suggestions.count) loose file(s), \(homed) with a suggested home")
     }
 
     /// True when Filing may use its intelligent backend (on-device LLM / cloud). Default on; the app
@@ -367,9 +372,13 @@ extension FileSyncManager {
                                        year: Self.modificationYear(suggestion.modificationDate),
                                        contentSnippet: nil, excludedRelativePaths: excluded)
         let verdicts = await classifier(filingLastTaxonomyFolders, [file])
+        // Mark new-vs-existing against the FULL folder set (uncapped), so a real folder beyond the
+        // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
+        // to the classifier if the full set wasn't captured.
+        let existingFolders = filingLastExistingFolders.isEmpty ? Set(filingLastTaxonomyFolders) : filingLastExistingFolders
         if let verdict = verdicts[suggestion.filePath],
            let dest = FilingEngine.destination(from: verdict, providerRoot: root,
-                                               existingRelative: Set(filingLastTaxonomyFolders)),
+                                               existingRelative: existingFolders),
            !allRejected.contains(dest.path) {
             replaceFilingSuggestion(suggestion.id, candidates: [dest])
         } else {
@@ -415,6 +424,7 @@ extension FileSyncManager {
         hasSuggestedFiling = false
         filingLastProviderRoot = nil
         filingLastTaxonomyFolders = []
+        filingLastExistingFolders = []
         filingSessionRejections = [:]
     }
 
@@ -441,6 +451,7 @@ extension FileSyncManager {
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo")
+            Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remember ? " (remembered as a rule)" : "")")
             return true
         case .noMoveNeeded:
             return true   // the chosen folder is where the file already lives — nothing to do
@@ -477,6 +488,7 @@ extension FileSyncManager {
         // One undo action reverts the whole batch, so ⌘Z is honest.
         registerMoveUndo(items: moves, actionName: "File \(moves.count) Items", fileManager: fileManager)
         let n = moves.count
+        Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")")
         banner = failures > 0
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo")
             : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo")
@@ -499,6 +511,7 @@ extension FileSyncManager {
             return .noMoveNeeded
         }
 
+        let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
         let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool) = await enqueueFileOperation {
             do {
                 guard fm.fileExists(atPath: src.path) else { return (nil, nil, true) }
@@ -510,6 +523,8 @@ extension FileSyncManager {
                 let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
                 return (dst, overwritten, false)
             } catch {
+                // Record the cause — the user-facing alert only says "couldn't file this item".
+                logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
                 return (nil, nil, true)
             }
         }

@@ -352,16 +352,29 @@ extension FileSyncManager {
             return
         }
         
-        let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?) in
+        let result = await enqueueFileOperation { () -> (error: Error?, trashed: URL?, collision: Bool) in
+            // Re-check the collision at EXECUTION time, not just at enqueue. The check above runs on
+            // the MainActor before this op joins the serial queue; a queued copy/sync ahead of it
+            // could create `newName` in the interval, and safeMoveItem would then silently
+            // replace-with-backup. A rename onto a now-occupied name must fail, not overwrite.
+            if !isCaseOnly && fm.fileExists(atPath: newURL.path) {
+                return (nil, nil, true)
+            }
             do {
                 let trashed = try Self.safeMoveItem(at: url, to: newURL, fileManager: fm, caseSensitiveVolume: caseSensitiveVolume)
-                return (nil, trashed)
+                return (nil, trashed, false)
             } catch {
-                return (error, nil)
+                return (error, nil, false)
             }
         }
-        
-        if let err = result.error {
+
+        if result.collision {
+            present(SyncError(
+                title: "Rename Failed",
+                message: "An item named \"\(newName)\" already exists.",
+                path: newURL.path
+            ))
+        } else if let err = result.error {
             present(.renameFailed(reason: err.localizedDescription, path: url.path))
         } else {
             Logger.shared.info("Renamed item to \(newName)")

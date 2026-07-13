@@ -580,6 +580,12 @@ public enum FilingEngine {
                   let dest = destination(from: v, providerRoot: providerRoot, existingRelative: existingRelative)
             else { return s }
             if rejectedByFile[s.filePath]?.contains(dest.path) == true { return s }   // model re-picked a rejected folder
+            // A verdict only LEADS when it's at least as confident as the current best home.
+            // Otherwise a low-confidence model guess would demote a strong filename/rule match —
+            // and, because the promoted candidate is `fromAI`, drop the file out of the blind
+            // "File recommended" batch. When the model is less sure than the heuristic, keep the
+            // heuristic home untouched (its alternates already include what the model might pick).
+            guard dest.confidence >= (s.best?.confidence ?? .low) else { return s }
             let others = s.candidates.filter { $0.path != dest.path }
             return FilingSuggestion(filePath: s.filePath, fileName: s.fileName, size: s.size,
                                     modificationDate: s.modificationDate, candidates: [dest] + others,
