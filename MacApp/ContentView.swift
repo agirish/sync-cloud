@@ -27,6 +27,10 @@ struct ContentView: View {
     @AppStorage("selectedRightProviderId") var rightProviderId: String = "iCloud"
     @State var isScanning = false
 
+    /// One-shot first-run welcome gate (H1). Persisted, and set on every dismissal path of the
+    /// welcome overlay, so the card appears exactly once per install.
+    @AppStorage(FirstRunWelcome.hasSeenDefaultsKey) private var hasSeenFirstRunWelcome: Bool = false
+
     /// Number of provider-id `onChange` notifications still expected from an in-flight pane
     /// swap. A swap flips both @AppStorage ids at once, which would fire both id onChanges and
     /// drive two navigation resets that wipe the focus/selection the swap just moved to the
@@ -170,9 +174,12 @@ struct ContentView: View {
         .overlay {
             if showSettings {
                 settingsOverlay
+            } else if FirstRunWelcome.shouldShow(hasSeenWelcome: hasSeenFirstRunWelcome) {
+                firstRunOverlay
             }
         }
         .animation(.easeOut(duration: 0.15), value: showSettings)
+        .animation(.easeOut(duration: 0.15), value: hasSeenFirstRunWelcome)
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
         .alert(
@@ -552,6 +559,31 @@ struct ContentView: View {
         settings.resetAllSettings()
         Logger.shared.minimumLevel = .debug
         syncManager.clearAllIgnoredItems()
+    }
+
+    /// The one-time first-run welcome card (H1). FirstRunOverlay owns the layout and the
+    /// primary-action choice; this wires it to the toolbar's scan, the Providers-tab settings
+    /// path, and the seen flag (set on every dismissal so the card never reappears).
+    @ViewBuilder
+    private var firstRunOverlay: some View {
+        FirstRunOverlay(
+            leftProviderName: paneNames.left,
+            rightProviderName: paneNames.right,
+            providerCount: settings.enabledProviders.count,
+            surfaceStyle: surfaceStyle,
+            glassHue: glassHue,
+            glassIntensity: glassIntensity,
+            surfaceTint: surfaceTint,
+            onScan: {
+                hasSeenFirstRunWelcome = true
+                forceRefreshAction()
+            },
+            onChooseProviders: {
+                hasSeenFirstRunWelcome = true
+                openProviderSettings()
+            },
+            onDismiss: { hasSeenFirstRunWelcome = true }
+        )
     }
 
     /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered
