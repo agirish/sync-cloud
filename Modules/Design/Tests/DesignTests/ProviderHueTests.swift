@@ -73,4 +73,52 @@ import SwiftUI
             #expect(hue.soft == hue.tint.opacity(0.12))
         }
     }
+
+    // MARK: - Dark-mode contrast audit (H6)
+
+    /// WCAG contrast ratio between two relative luminances.
+    private func contrast(_ a: Double, _ b: Double) -> Double {
+        let (hi, lo) = (max(a, b), min(a, b))
+        return (hi + 0.05) / (lo + 0.05)
+    }
+
+    // Representative app grounds the tinted provider text sits on: a near-white light surface
+    // and the dark bottom-pane surface. WCAG AA for normal text is 4.5:1.
+    private let lightGround = ProviderHue.RGB(1.0, 1.0, 1.0)
+    private let darkGround = ProviderHue.RGB(0.110, 0.118, 0.133) // ~#1C1E22
+    private let aa = 4.5
+
+    @Test func testDarkBrandVariantsClearAAOnDarkGround() {
+        // The reason H6 exists: the static light-mode blues (Dropbox/OneDrive/Drive) failed as
+        // tinted text in dark mode; the lifted dark variants must clear AA on the dark surface.
+        let dg = darkGround.relativeLuminance
+        for hue in ProviderHue.allCases where hue.brand != nil {
+            let ratio = contrast(hue.brand!.dark.relativeLuminance, dg)
+            #expect(ratio >= aa, "\(hue) dark tint only \(ratio) on the dark surface")
+        }
+    }
+
+    @Test func testLightBrandVariantsUnchanged() {
+        // H6 is a dark-mode audit — the shipped H2 light hexes must NOT be re-tuned. Pin them so
+        // a future dark-mode tweak that also touches the light column trips here.
+        #expect(ProviderHue.iCloud.brand!.light == .init(0.231, 0.612, 1.0))
+        #expect(ProviderHue.dropbox.brand!.light == .init(0.0, 0.380, 1.0))
+        #expect(ProviderHue.googleDrive.brand!.light == .init(0.118, 0.639, 0.384))
+        #expect(ProviderHue.oneDrive.brand!.light == .init(0.012, 0.392, 0.722))
+        #expect(ProviderHue.box.brand!.light == .init(0.141, 0.525, 0.988))
+    }
+
+    @Test func testDarkVariantsAreLiftedFromLight() {
+        // Each dark variant is a lighter (higher-luminance) lift of its light hue — the fix is
+        // "brighten for dark ground", never a hue swap.
+        for hue in ProviderHue.allCases where hue.brand != nil {
+            let b = hue.brand!
+            #expect(b.dark.relativeLuminance > b.light.relativeLuminance, "\(hue) dark is not lifted")
+        }
+    }
+
+    @Test func testDarkBluesStayDistinct() {
+        // iCloud vs Dropbox must not collapse into one blue in dark mode either.
+        #expect(ProviderHue.iCloud.brand!.dark != ProviderHue.dropbox.brand!.dark)
+    }
 }
