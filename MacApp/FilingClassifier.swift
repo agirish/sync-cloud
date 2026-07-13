@@ -122,7 +122,9 @@ enum OnDeviceFilingClassifier {
             let response = try await session.respond(to: prompt, generating: FolderPick.self)
             return response.content.asVerdict()
         } catch {
-            Logger.shared.info("On-device Filing skipped “\(file.fileName)”: \(error.localizedDescription)")
+            // Per-file, benign, and routine (the model declines some files) — a diagnostic detail,
+            // not an operational event. Debug keeps it out of the default log during every scan.
+            Logger.shared.debug("On-device Filing skipped “\(file.fileName)”: \(error.localizedDescription)")
             return nil
         }
     }

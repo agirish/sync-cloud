@@ -1,16 +1,22 @@
 import SwiftUI
+import AppKit
 import Design
 import Events
 
 /// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
 /// case-insensitive search, and newest-first ordering are unit-testable without `@State`.
 enum LogEntryFilter {
-    /// - Parameter level: `nil` shows all levels.
-    static func apply(_ entries: [LogEntry], level: LogLevel?, search: String) -> [LogEntry] {
+    /// Filters to entries at or above `minimumLevel` (a severity *threshold*, not exact-match), then
+    /// by case-insensitive message search, newest first.
+    ///
+    /// Threshold rather than equality is the whole point: someone opening the log after a failure
+    /// wants "warnings and errors", which exact-match could never express — picking WARN used to
+    /// hide the ERROR they came to see. `nil` shows every level.
+    static func apply(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String) -> [LogEntry] {
         var result = entries
 
-        if let level {
-            result = result.filter { $0.level == level }
+        if let minimumLevel {
+            result = result.filter { $0.level.severity >= minimumLevel.severity }
         }
 
         if !search.isEmpty {
@@ -45,16 +51,43 @@ public struct LogViewer: View {
     
     public init() {}
     
-    // Defaults to All Levels (nil): the filter is equality-based, so any single level would
-    // hide WARN/ERROR entries from a user opening the log right after a failure.
+    // The minimum severity to show (a threshold, not exact-match). Defaults to All Levels (nil)
+    // so a user opening the log sees everything recorded; picking "Warnings & above" keeps errors
+    // in view, which the old exact-match filter couldn't do.
     @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
-    
+
+    /// Menu options for the severity threshold. Debug is omitted as its own row because
+    /// "Debug & above" is identical to "All Levels".
+    private static let levelOptions: [(label: String, level: LogLevel?)] = [
+        ("All Levels", nil),
+        ("Info & above", .info),
+        ("Warnings & above", .warning),
+        ("Errors", .error),
+    ]
+
+    /// Count of recorded entries at or above `level` (all entries when `nil`), shown next to each
+    /// menu option so the severity mix is visible before you filter.
+    private func count(atOrAbove level: LogLevel?) -> Int {
+        guard let level else { return logger.entries.count }
+        return logger.entries.reduce(0) { $0 + ($1.level.severity >= level.severity ? 1 : 0) }
+    }
+
+    /// Copies exactly what's on screen (current level + search filter, newest first) to the
+    /// clipboard as canonical log lines — the fast path for pasting a slice into a bug report
+    /// without opening the whole on-disk file.
+    private func copyVisibleEntries(_ entries: [LogEntry]) {
+        let text = entries.map(\.formattedString).joined(separator: "\n")
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
     public var body: some View {
         // Computed once per body evaluation; the isEmpty check and the ForEach below would
         // otherwise each run the full filter pass.
-        let filtered = LogEntryFilter.apply(logger.entries, level: selectedLevel, search: searchText)
+        let filtered = LogEntryFilter.apply(logger.entries, minimumLevel: selectedLevel, search: searchText)
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
@@ -63,21 +96,28 @@ public struct LogViewer: View {
                 Spacer()
                 
                 Picker("Level", selection: $selectedLevel) {
-                    Text("All Levels").tag(LogLevel?.none)
-                    Divider()
-                    ForEach(LogLevel.allCases) { level in
-                        Text(level.rawValue).tag(LogLevel?.some(level))
+                    ForEach(Self.levelOptions, id: \.label) { option in
+                        Text("\(option.label) (\(count(atOrAbove: option.level)))")
+                            .tag(option.level)
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 140)
-                
+                .frame(width: 180)
+
+                Button(action: { copyVisibleEntries(filtered) }) {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .disabled(filtered.isEmpty)
+                .help("Copy the \(filtered.count) shown \(filtered.count == 1 ? "entry" : "entries") to the clipboard")
+
                 Button(action: { logger.clearLogs() }) {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
+                .disabled(logger.entries.isEmpty)
                 .help("Clear Logs")
-                
+
                 Button(action: { logger.openLogFile() }) {
                     Image(systemName: "doc.text")
                 }
@@ -184,9 +224,20 @@ private struct LogEntryRow: View {
                         .foregroundStyle(.secondary)
                 }
                 
-                Text(entry.message)
+                Text(entry.messageBody)
                     .font(.system(.subheadline, design: .monospaced))
                     .textSelection(.enabled)
+
+                // The `Location: file:line / function` tail that warnings/errors carry is a
+                // developer breadcrumb, not the event — show it dimmed and smaller so the row
+                // reads as its message. Still selectable; the full line remains in the log file
+                // and in Copy.
+                if let location = entry.messageLocation {
+                    Text(location)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
+                }
             }
             Spacer(minLength: 0)
         }

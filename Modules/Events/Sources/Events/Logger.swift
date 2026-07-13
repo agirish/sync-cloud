@@ -76,8 +76,20 @@ public struct LogEntry: Identifiable, Sendable {
         return formatter
     }()
 
-    var formattedString: String {
+    /// The canonical single-line rendering (`[timestamp] [LEVEL] message`) used both for the disk
+    /// log and for the Activity Log's Copy action, so the clipboard matches the file byte-for-byte.
+    public var formattedString: String {
         return "[\(Self.timestampFormatter.string(from: timestamp))] [\(level.rawValue)] \(message)"
+    }
+
+    /// The developer-oriented `" | Location: file:line / function"` tail that `warning`/`error`
+    /// append, split from the human-readable message. The Activity Log shows `body` prominently and
+    /// `location` as a dimmed caption, so a warning row reads as its message, not as a file path.
+    public var messageBody: String { messageSplit.body }
+    public var messageLocation: String? { messageSplit.location }
+    private var messageSplit: (body: String, location: String?) {
+        guard let range = message.range(of: " | Location: ") else { return (message, nil) }
+        return (String(message[..<range.lowerBound]), String(message[range.upperBound...]))
     }
 }
 

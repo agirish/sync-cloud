@@ -166,6 +166,19 @@ import Foundation
         #expect(logger.entries[2].level == .debug)
     }
 
+    /// `messageBody`/`messageLocation` split the developer "| Location:" tail from the human
+    /// message so the Activity Log can show the message prominently and the location dimmed.
+    /// An entry without the tail (info/debug) reports the whole message as the body and nil location.
+    @Test func testMessageBodyAndLocationSplit() {
+        let withLocation = LogEntry(level: .warning, message: "careful | Location: Foo.swift:42 / bar()")
+        #expect(withLocation.messageBody == "careful")
+        #expect(withLocation.messageLocation == "Foo.swift:42 / bar()")
+
+        let plain = LogEntry(level: .info, message: "Synced 3 items")
+        #expect(plain.messageBody == "Synced 3 items")
+        #expect(plain.messageLocation == nil)
+    }
+
     /// The public `flushToDisk()` barrier must make a just-logged line durable on disk. This is
     /// what `applicationShouldTerminate` relies on to preserve the quit-decision breadcrumb (and
     /// any in-flight operation's own lines) past a `.background`-qos writer that has no implicit

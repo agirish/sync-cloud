@@ -36,6 +36,14 @@ struct SyncCloudApp: App {
         // updates both the default and the live gate from then on.
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
 
+        // Launch breadcrumb: the first line of every session names the build, so a log the user
+        // sends for support (or the on-disk file spanning several launches) is unambiguous about
+        // which version produced the lines that follow.
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
+
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
         // permanent deletes). Wire the real NSAlert-backed prompts here, at the app boundary.
@@ -252,6 +260,10 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
         switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit) {
         case .allowNoActiveOperations:
+            // Even a clean quit must flush: the writer runs at background qos with no implicit
+            // flush, so the launch breadcrumb and any late lines from this session could be lost
+            // between the last append and process exit if we terminated without draining.
+            Logger.shared.flushToDisk()
             return .terminateNow
 
         case .allowWithoutWarning(let count):

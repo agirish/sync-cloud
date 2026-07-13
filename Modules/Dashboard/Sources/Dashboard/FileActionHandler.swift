@@ -70,7 +70,9 @@ public class FileActionHandler {
             var error: NSDictionary?
             appleScript.executeAndReturnError(&error)
             if let err = error {
-                Logger.shared.error("Failed to open Get Info: \(err)")
+                // A failed Finder "Get Info" is a cosmetic dead-end (nothing is left in a bad
+                // state), so it's a warning, not an app-level error.
+                Logger.shared.warning("Failed to open Get Info: \(err)")
             }
         }
     }
