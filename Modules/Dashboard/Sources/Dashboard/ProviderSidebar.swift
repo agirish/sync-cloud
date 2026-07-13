@@ -93,6 +93,10 @@ public struct ProviderSidebar: View {
                 .frame(width: 22, height: 22)
             Text(provider.displayName)
                 .font(.body.weight(.medium))
+                // UX H2: the name wears the provider's brand hue so Left/Right choices scan by
+                // color, matching the pane headers. The selection checkmark below deliberately
+                // keeps the user's accent — hues mark identity, never selection state.
+                .foregroundStyle(ProviderHue.classify(provider.displayName).tint)
             Spacer()
             if isSelected {
                 Image(systemName: "checkmark.circle.fill")

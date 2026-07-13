@@ -11,6 +11,10 @@ import Design
 /// toolbar bar did.
 struct PaneBreadcrumb: View {
     let rootPath: String
+    /// The pane's provider display name, used only to tint the root crumb with the provider's
+    /// brand hue (UX H2) — the root crumb *is* the provider-identity element of the trail.
+    /// `nil` (no provider) keeps the plain primary/secondary crumb styling.
+    let providerName: String?
     let relativePath: String
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
@@ -27,7 +31,8 @@ struct PaneBreadcrumb: View {
                 name: BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
                 relativePath: "",
                 isCurrent: crumbs.isEmpty,
-                helpPath: rootPath
+                helpPath: rootPath,
+                tint: providerName.map { ProviderHue.classify($0).tint }
             )
 
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -81,12 +86,15 @@ struct PaneBreadcrumb: View {
         .accessibilityAddTraits(linkBothPanes ? .isSelected : [])
     }
 
+    /// `tint` carries the provider hue for the root crumb only (UX H2); path crumbs pass nil
+    /// and keep the primary/secondary treatment. A tinted ancestor crumb fades slightly so the
+    /// current-folder emphasis still reads.
     @ViewBuilder
-    private func crumbButton(name: String, relativePath: String, isCurrent: Bool, helpPath: String) -> some View {
+    private func crumbButton(name: String, relativePath: String, isCurrent: Bool, helpPath: String, tint: Color? = nil) -> some View {
         Button(name) { navigate(to: relativePath, isCurrent: isCurrent) }
             .buttonStyle(.plain)
             .fontWeight(isCurrent ? .medium : .regular)
-            .foregroundColor(isCurrent ? .primary : .secondary)
+            .foregroundColor(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
             .lineLimit(1)
             .truncationMode(.middle)
             .help(crumbHelp(isCurrent: isCurrent, helpPath: helpPath))

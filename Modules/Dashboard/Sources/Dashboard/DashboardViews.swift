@@ -63,12 +63,23 @@ public struct PaneHeader: View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 if let provider = provider {
-                    Image(provider.imageName)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 28, height: 28)
-                    Text(provider.displayName)
-                        .font(.headline.weight(.semibold))
+                    // UX H2: the provider's brand hue tints its name and washes softly behind
+                    // the logo, so the two panes are distinguishable at a glance (and visibly
+                    // *matching* when both panes show the same provider). Buttons and
+                    // selection states keep the user's accent color.
+                    let hue = ProviderHue.classify(provider.displayName)
+                    HStack(spacing: 10) {
+                        Image(provider.imageName)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 28, height: 28)
+                        Text(provider.displayName)
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(hue.tint)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(hue.soft, in: Capsule())
                 } else {
                     Image(systemName: "folder")
                         .font(.title2)
@@ -108,6 +119,7 @@ public struct PaneHeader: View {
             }
             PaneBreadcrumb(
                 rootPath: rootPath,
+                providerName: provider?.displayName,
                 relativePath: relativePath,
                 onNavigate: onNavigate,
                 onNavigateBoth: onNavigateBoth
