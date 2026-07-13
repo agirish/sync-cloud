@@ -308,7 +308,9 @@ public struct DifferencesView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .buttonStyle(.borderedProminent)
+            // The dominant direction reads as THE primary action; the smaller one drops to
+            // bordered so a 559-vs-17 split shows in visual weight (ties keep both prominent).
+            .bulkActionProminence(targets.dominantCopyDirection != .copyToLeft)
             .disabled(isSyncActionBlocked)
         }
         if targets.copyToLeftCount > 0 {
@@ -322,7 +324,7 @@ public struct DifferencesView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .buttonStyle(.borderedProminent)
+            .bulkActionProminence(targets.dominantCopyDirection != .copyToRight)
             .disabled(isSyncActionBlocked)
         }
         if targets.verifiableCount > 0 {
@@ -470,12 +472,15 @@ public struct DifferencesView: View {
         if let progress = syncManager.bulkSyncProgress {
             syncProgressRow(verb: "Syncing", completed: progress.completed, total: progress.total)
         }
+        // Rows going the same way as the bulk of the list quiet their direction chip; the
+        // majority is read over the whole visible list, not the selection.
+        let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         Table(sorted, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
             TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
             TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
                 .width(min: 70, ideal: 90)
-            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames) }
+            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
                 .width(min: 96, ideal: 140)
         }
         // Let the surface fill below show through: hide the scroll background AND the
@@ -914,12 +919,14 @@ private struct DifferenceNameCell: View {
     }
 }
 
-/// Change column: the description with the folder roll-up ("… — includes N items").
+/// Change column: the bare description. The folder roll-up count lives in the Size column
+/// (`enclosedItemsText`) where it lines up instead of truncating mid-number; the full
+/// rolled-up sentence survives as the hover help.
 private struct DifferenceChangeCell: View {
     let difference: FileDifference
 
     var body: some View {
-        Text(difference.rolledUpDescription)
+        Text(difference.description)
             .foregroundStyle(DifferenceGlyph.color(for: difference.type))
             .lineLimit(1)
             .truncationMode(.tail)
@@ -927,12 +934,15 @@ private struct DifferenceChangeCell: View {
     }
 }
 
-/// Size column: the source side's byte size (right-aligned, monospaced), or "—" for folders/unknown.
+/// Size column: the source side's byte size (right-aligned, monospaced), a folder's enclosed
+/// item count ("5,301 items"), or "—" when neither is known.
 private struct DifferenceSizeCell: View {
     let difference: FileDifference
 
     var body: some View {
-        Text(difference.displaySize.map { FileSizeFormat.byteCount.string(fromByteCount: Int64($0)) } ?? "—")
+        Text(difference.displaySize.map { FileSizeFormat.byteCount.string(fromByteCount: Int64($0)) }
+             ?? difference.enclosedItemsText
+             ?? "—")
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -968,14 +978,21 @@ private struct ReviewStatusCell: View {
     }
 }
 
-/// Copy-to column: a small tinted direction chip (blue → right, purple → left) naming the destination pane.
+/// Copy-to column: a small tinted direction chip (blue → right, purple → left) naming the
+/// destination pane. Rows going the same way as the bulk of the list quiet the chip to dim
+/// text — 559 identical capsules repeat what the header already says — and re-ink it on
+/// hover; counter-direction rows keep the full chip, so the exceptions pop.
 private struct DifferenceDirectionCell: View {
     let difference: FileDifference
     let paneNames: PaneProviderNames
+    let bulkDirection: FileDifference.SyncAction?
+
+    @State private var isHovered = false
 
     var body: some View {
         let toRight = difference.action == .copyToRight
         let tint = DifferenceGlyph.color(toRight: toRight)
+        let isQuiet = difference.action == bulkDirection && !isHovered
         HStack(spacing: 4) {
             Image(systemName: toRight ? "arrow.right" : "arrow.left")
                 .font(.caption2.weight(.bold))
@@ -984,9 +1001,24 @@ private struct DifferenceDirectionCell: View {
                 .truncationMode(.tail)
         }
         .font(.caption.weight(.medium))
-        .foregroundStyle(tint)
+        .foregroundStyle(isQuiet ? AnyShapeStyle(.tertiary) : AnyShapeStyle(tint))
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
-        .background(Capsule(style: .continuous).fill(tint.opacity(0.15)))
+        .background(Capsule(style: .continuous).fill(tint.opacity(isQuiet ? 0 : 0.15)))
+        .onHover { isHovered = $0 }
+    }
+}
+
+/// The two directional bulk buttons no longer compete at equal weight: `prominent` follows
+/// `DifferenceActionTargets.dominantCopyDirection`. A plain ternary can't switch between the
+/// two `PrimitiveButtonStyle` types, hence the builder.
+private extension View {
+    @ViewBuilder
+    func bulkActionProminence(_ prominent: Bool) -> some View {
+        if prominent {
+            buttonStyle(.borderedProminent)
+        } else {
+            buttonStyle(.bordered)
+        }
     }
 }

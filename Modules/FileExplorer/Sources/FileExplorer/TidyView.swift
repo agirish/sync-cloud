@@ -729,22 +729,9 @@ public struct TidyView: View {
         symbol: String, tint: Color, title: String, message: String,
         @ViewBuilder accessory: () -> Accessory
     ) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 40))
-                .foregroundStyle(tint)
-                .symbolRenderingMode(.hierarchical)
-            Text(title).font(.system(size: 15, weight: .semibold))
-            Text(message)
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
-            accessory()
-                .padding(.top, 4)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
+        // The shared Design template — grown from this file's duplicates intro state, now
+        // promoted so other surfaces (the Activity Log's empty states) render identically.
+        CenteredStateView(symbol: symbol, tint: tint, title: title, message: message, accessory: accessory)
     }
 
     // MARK: Actions

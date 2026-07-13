@@ -53,4 +53,15 @@ import Events
         let result = LogEntryFilter.apply([], level: .error, search: "anything")
         #expect(result.isEmpty)
     }
+
+    // MARK: Empty-state classification
+
+    @Test func testEmptyStateDistinguishesNeverLoggedFromFilteredOut() {
+        // Rows visible → no empty state, regardless of how they got there.
+        #expect(LogEmptyState.classify(hasEntries: true, hasVisibleRows: true) == .none)
+        // Entries exist but the filters hide them all → the "Clear Filters" dead end.
+        #expect(LogEmptyState.classify(hasEntries: true, hasVisibleRows: false) == .noMatches)
+        // Nothing logged this session → the explain-the-surface state.
+        #expect(LogEmptyState.classify(hasEntries: false, hasVisibleRows: false) == .noActivity)
+    }
 }

@@ -202,6 +202,45 @@ import Sync
         #expect(diff("f", enclosedItemCount: 0, description: "Missing on right").rolledUpDescription == "Missing on right")
     }
 
+    @Test func testEnclosedItemsTextOnlyForFolderRollups() {
+        // Folder roll-ups render their count in the Size column ("N items").
+        #expect(diff("folder", enclosedItemCount: 3).enclosedItemsText == "3 items")
+        #expect(diff("folder", enclosedItemCount: 1).enclosedItemsText == "1 item")
+        // Grouped digits match Int.formatted() (locale-dependent, so compare against it).
+        #expect(diff("folder", enclosedItemCount: 5301).enclosedItemsText == "\(5301.formatted()) items")
+        // A real byte size always wins; files and unknown folders stay nil (the cell's "—").
+        #expect(diff("file", leftSize: 2048, enclosedItemCount: 3).enclosedItemsText == nil)
+        #expect(diff("file", leftSize: 2048).enclosedItemsText == nil)
+        #expect(diff("folder").enclosedItemsText == nil)
+        #expect(diff("folder", enclosedItemCount: 0).enclosedItemsText == nil)
+    }
+
+    // MARK: Bulk chip direction (row chips quiet when they match the list majority)
+
+    @Test func testBulkCopyDirectionIsTheStrictMajority() {
+        let rightHeavy = [
+            diff("a", action: .copyToRight),
+            diff("b", action: .copyToRight),
+            diff("c", type: .missingOnLeft, action: .copyToLeft),
+        ]
+        #expect(DifferencesQuery.bulkCopyDirection(rightHeavy) == .copyToRight)
+        let leftHeavy = [
+            diff("a", type: .missingOnLeft, action: .copyToLeft),
+            diff("b", type: .missingOnLeft, action: .copyToLeft),
+            diff("c", action: .copyToRight),
+        ]
+        #expect(DifferencesQuery.bulkCopyDirection(leftHeavy) == .copyToLeft)
+        // A single-direction list is trivially its own bulk.
+        #expect(DifferencesQuery.bulkCopyDirection([diff("a", action: .copyToRight)]) == .copyToRight)
+    }
+
+    @Test func testBulkCopyDirectionIsNilOnTieOrEmpty() {
+        // No majority → nil, every chip renders at full weight.
+        let tie = [diff("a", action: .copyToRight), diff("b", type: .missingOnLeft, action: .copyToLeft)]
+        #expect(DifferencesQuery.bulkCopyDirection(tie) == nil)
+        #expect(DifferencesQuery.bulkCopyDirection([]) == nil)
+    }
+
     // MARK: Selection-driven action targets
 
     @Test func testEmptySelectionTargetsTheWholeFilteredSet() {
@@ -261,6 +300,37 @@ import Sync
         ]
         let targets = DifferenceActionTargets(filtered: filtered, selection: [])
         #expect(targets.verifiableCount == 1)
+    }
+
+    @Test func testDominantCopyDirectionFollowsTheLargerCount() {
+        // The header renders the dominant direction's button prominent, the other bordered.
+        let rightHeavy = [
+            diff("a", action: .copyToRight),
+            diff("b", action: .copyToRight),
+            diff("c", type: .missingOnLeft, action: .copyToLeft),
+        ]
+        #expect(DifferenceActionTargets(filtered: rightHeavy, selection: []).dominantCopyDirection == .copyToRight)
+        let leftHeavy = [
+            diff("a", type: .missingOnLeft, action: .copyToLeft),
+            diff("b", type: .missingOnLeft, action: .copyToLeft),
+            diff("c", action: .copyToRight),
+        ]
+        #expect(DifferenceActionTargets(filtered: leftHeavy, selection: []).dominantCopyDirection == .copyToLeft)
+    }
+
+    @Test func testDominantCopyDirectionIsNilOnTieAndFollowsTheSelectionScope() {
+        // Tie → nil: neither direction dominates, both buttons stay prominent.
+        let tie = [diff("a", action: .copyToRight), diff("b", type: .missingOnLeft, action: .copyToLeft)]
+        #expect(DifferenceActionTargets(filtered: tie, selection: []).dominantCopyDirection == nil)
+        #expect(DifferenceActionTargets(filtered: [], selection: []).dominantCopyDirection == nil)
+        // Selection-scoped like the counts it derives from: selecting the two left rows of a
+        // right-heavy list flips the dominant direction along with the button labels.
+        let a = diff("a", action: .copyToRight)
+        let b = diff("b", action: .copyToRight)
+        let c = diff("c", type: .missingOnLeft, action: .copyToLeft)
+        let d = diff("d", type: .missingOnLeft, action: .copyToLeft)
+        let scoped = DifferenceActionTargets(filtered: [a, b, c, d], selection: [c.id, d.id])
+        #expect(scoped.dominantCopyDirection == .copyToLeft)
     }
 
     // MARK: Bulk ignore

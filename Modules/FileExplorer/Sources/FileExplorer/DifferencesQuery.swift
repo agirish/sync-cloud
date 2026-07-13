@@ -35,6 +35,19 @@ enum DifferencesQuery {
         return tally
     }
 
+    /// The direction most of the visible list goes — rows matching it quiet their "Copy to"
+    /// chip so the counter-direction rows pop. Strict majority over the whole filtered list
+    /// (never selection-scoped, unlike the header's targets); nil on a tie or an empty list,
+    /// which keeps every chip at full weight.
+    static func bulkCopyDirection(_ differences: [FileDifference]) -> FileDifference.SyncAction? {
+        var right = 0
+        for difference in differences where difference.action == .copyToRight { right += 1 }
+        let left = differences.count - right // SyncAction is binary: not-right is left.
+        if right > left { return .copyToRight }
+        if left > right { return .copyToLeft }
+        return nil
+    }
+
     /// Inserts every difference's `relativePath` into the ignore set (the bulk "Ignore all"
     /// menu action), using the exact target `DifferenceRowMenu` toggles a single row against.
     static func ignoringAll(_ differences: [FileDifference], in ignoredPaths: Set<String>) -> Set<String> {
@@ -89,6 +102,16 @@ struct DifferenceActionTargets: Equatable {
         self.copyToLeftCount = left
         self.verifiableCount = verifiable
     }
+
+    /// The direction carrying strictly more of the targets: the header renders that copy
+    /// button prominent and the other bordered, so a 559-vs-17 split shows in visual weight
+    /// instead of two equal solid primaries. Nil on a tie — neither dominates, both stay
+    /// prominent.
+    var dominantCopyDirection: FileDifference.SyncAction? {
+        if copyToRightCount > copyToLeftCount { return .copyToRight }
+        if copyToLeftCount > copyToRightCount { return .copyToLeft }
+        return nil
+    }
 }
 
 /// Display strings and sort keys for the Differences table's four columns. Exposed as
@@ -109,11 +132,21 @@ extension FileDifference {
         return String(relativePath[..<slash])
     }
 
-    /// Description with the folder roll-up ("… — includes N items") appended, shown in the
-    /// Change column. Mirrors the former `DifferenceRow.descriptionText`.
+    /// Description with the folder roll-up ("… — includes N items") appended. The Change cell
+    /// shows the bare `description` and keeps this full sentence as its hover help — the count
+    /// itself renders in the Size column (`enclosedItemsText`), where it can't truncate away.
     var rolledUpDescription: String {
         guard let count = enclosedItemCount, count > 0 else { return description }
         return "\(description) — includes \(count) item\(count == 1 ? "" : "s")"
+    }
+
+    /// The folder roll-up count as Size-column text ("5,301 items") — the one number that says
+    /// how big a folder copy is, moved out of the flexing Change column (where it truncated
+    /// mid-number) into the fixed Size column that used to show "—" for folders. Nil whenever
+    /// a real byte size exists or no roll-up count is known, so files are untouched.
+    var enclosedItemsText: String? {
+        guard displaySize == nil, let count = enclosedItemCount, count > 0 else { return nil }
+        return "\(count.formatted()) item\(count == 1 ? "" : "s")"
     }
 
     /// The size to show and sort by: the source side that actually exists. Folders and unknown
