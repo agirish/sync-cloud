@@ -125,42 +125,31 @@ public struct LogViewer: View {
                 .padding(16)
             }
             .background(.regularMaterial.opacity(0.5))
-            // The Tidy pre-scan template (CenteredStateView), centered over the list area —
+            // The app's unified empty-state template (H3), centered over the list area —
             // symbol, what this surface does, then the one action that helps from here.
             .overlay {
                 switch LogEmptyState.classify(hasEntries: !logger.entries.isEmpty, hasVisibleRows: !filtered.isEmpty) {
                 case .none:
                     EmptyView()
                 case .noActivity:
-                    CenteredStateView(
-                        symbol: "list.bullet.rectangle",
-                        tint: .secondary,
+                    EmptyStateView(
+                        icon: "list.bullet.rectangle",
                         title: "No activity yet",
-                        message: "Every scan, copy, move and delete is recorded here as it happens, with a timestamp you can filter and search. Earlier sessions live in the log file."
-                    ) {
+                        message: "Every scan, copy, move and delete is recorded here as it happens, with a timestamp you can filter and search. Earlier sessions live in the log file.",
                         // The one action that helps from an empty session log: the on-disk
                         // file still holds earlier sessions. Scans start in the main window.
-                        Button(action: { logger.openLogFile() }) {
-                            Label("Open Log File", systemImage: "doc.text")
-                        }
-                        .controlSize(.regular)
-                    }
+                        secondary: .init("Open Log File", systemImage: "doc.text") { logger.openLogFile() }
+                    )
                 case .noMatches:
-                    CenteredStateView(
-                        symbol: "line.3.horizontal.decrease.circle",
-                        tint: .secondary,
+                    EmptyStateView(
+                        icon: "line.3.horizontal.decrease.circle",
                         title: "No matching entries",
-                        message: "The current level filter and search hide all \(logger.entries.count) \(logger.entries.count == 1 ? "entry" : "entries") from this session."
-                    ) {
-                        Button {
+                        message: "The current level filter and search hide all \(logger.entries.count) \(logger.entries.count == 1 ? "entry" : "entries") from this session.",
+                        primary: .init("Clear Filters", systemImage: "xmark.circle") {
                             selectedLevel = nil
                             searchText = ""
-                        } label: {
-                            Label("Clear Filters", systemImage: "xmark.circle")
                         }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                    }
+                    )
                 }
             }
         }

@@ -38,6 +38,15 @@ import Testing
         #expect(results.contains { $0.title == "Glass intensity" })
     }
 
+    @Test func listDensityIsFindableByValueName() {
+        // H7: the new density control must be findable like its Appearance neighbors —
+        // both by title and by the value words people would type.
+        let byTitle = filterSettings(SettingsSearchIndex.all, query: "list density")
+        #expect(byTitle.contains { $0.title == "List density" && $0.tab == .appearance })
+        let byValue = filterSettings(SettingsSearchIndex.all, query: "compact")
+        #expect(byValue.contains { $0.title == "List density" })
+    }
+
     @Test func partialSubstringMatches() {
         // Typing part of a word still surfaces the setting.
         let results = filterSettings(SettingsSearchIndex.all, query: "trash")

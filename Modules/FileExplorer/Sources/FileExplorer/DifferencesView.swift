@@ -16,6 +16,7 @@ public struct DifferencesView: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     @State private var selectedFilter: DifferenceFilter = .all
     /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
     /// clicking again collapses. Off by default so the header stays uncluttered until asked.
@@ -72,6 +73,11 @@ public struct DifferencesView: View {
     }
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
+    /// The appearance density (H7): comfortable leaves the table untouched; compact
+    /// tightens the minimum row height via `.listDensity(_:)`.
+    private var listDensity: ListDensity {
+        ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
 
     public var body: some View {
@@ -451,6 +457,7 @@ public struct DifferencesView: View {
         }
         .scrollContentBackground(.hidden)
         .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .listDensity(listDensity)
         // The status cell's "Reviewing" marker and the selection highlight follow the app hue.
         .tint(glassHue.accentColor)
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
@@ -487,6 +494,7 @@ public struct DifferencesView: View {
         // alternating row fills, or the Table paints opaque (white) rows over the surface.
         .scrollContentBackground(.hidden)
         .tableStyle(.inset(alternatesRowBackgrounds: false))
+        .listDensity(listDensity)
         .contextMenu(forSelectionType: FileDifference.ID.self) { ids in
             differenceContextMenu(for: ids, in: sorted)
         }
@@ -757,28 +765,28 @@ public struct DifferencesView: View {
 
     // MARK: Empty state
 
+    /// The table's blank overlay, on the app's unified empty-state template (H3). Passive —
+    /// the fix (clear the search, widen the filter) is right above in the header.
     @ViewBuilder
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: searchText.isEmpty ? "line.3.horizontal.decrease.circle" : "magnifyingglass")
-                .font(.system(size: 28))
-                .foregroundStyle(.secondary)
-            Text(emptyStateMessage)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(24)
-    }
-
-    private var emptyStateMessage: String {
         if !searchText.isEmpty {
-            return "No differences match “\(searchText)”."
+            EmptyStateView(
+                icon: "magnifyingglass",
+                title: "No matches",
+                message: "No differences match “\(searchText)”."
+            )
+        } else if selectedFilter != .all {
+            EmptyStateView(
+                icon: "line.3.horizontal.decrease.circle",
+                title: "No matches",
+                message: "No items match the current filter."
+            )
+        } else {
+            EmptyStateView(
+                icon: "line.3.horizontal.decrease.circle",
+                title: "No differences"
+            )
         }
-        if selectedFilter != .all {
-            return "No items match the current filter."
-        }
-        return "No differences."
     }
 
     // MARK: Context menu

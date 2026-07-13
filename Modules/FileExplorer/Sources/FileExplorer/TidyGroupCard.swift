@@ -18,9 +18,14 @@ struct TidyGroupCard: View {
     let onMerge: () -> Void
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private var accent: Color { TidyMatchStyle.color(group.matchType) }
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
+    /// Row measurements per the appearance density setting (H7); comfortable is the pre-H7 look.
+    private var densityMetrics: ListDensityMetrics {
+        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -61,7 +66,7 @@ struct TidyGroupCard: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+            .padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -144,14 +149,18 @@ struct TidyGroupCard: View {
             radio(copy)
             VStack(alignment: .leading, spacing: 4) {
                 breadcrumb(for: copy.path)
-                Text(metaLine(copy))
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                // The size/date detail line is the secondary text compact hides (H7); the
+                // fate chip and breadcrumb still carry what happens to the copy and where it is.
+                if densityMetrics.showsSecondaryDetail {
+                    Text(metaLine(copy))
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer(minLength: 8)
             fateChip(copy)
         }
-        .padding(.vertical, 11)
+        .padding(.vertical, densityMetrics.cardRowVerticalPadding)
     }
 
     /// The keeper marker. The keeper's green filled radio everywhere (it reads "this one is

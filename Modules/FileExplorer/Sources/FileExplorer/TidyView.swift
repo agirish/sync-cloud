@@ -88,6 +88,7 @@ public struct TidyView: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     @State private var lens: TidyLens = .duplicates
     @State private var filter: TidyFilter = .all
@@ -134,6 +135,9 @@ public struct TidyView: View {
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var surfaceStyle: SurfaceStyle { SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified }
+    private var densityMetrics: ListDensityMetrics {
+        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    }
 
     private var filteredGroups: [DuplicateGroup] {
         syncManager.duplicateGroups.filter { filter.matches($0) }
@@ -409,7 +413,7 @@ public struct TidyView: View {
 
     private var groupList: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
+            LazyVStack(spacing: densityMetrics.cardListSpacing) {
                 ForEach(filteredGroups) { group in
                     TidyGroupCard(
                         group: group,
@@ -425,7 +429,7 @@ public struct TidyView: View {
                     )
                 }
             }
-            .padding(12)
+            .padding(densityMetrics.cardListPadding)
         }
         .scrollContentBackground(.hidden)
     }
@@ -433,18 +437,16 @@ public struct TidyView: View {
     // MARK: Empty / scanning states
 
     private var introState: some View {
-        centeredState(
-            symbol: "wand.and.stars",
+        // The L4 gold-standard template (EmptyStateView): provider named in the title, the job
+        // in the message, the safety contract in the caption, one primary button.
+        EmptyStateView(
+            icon: "wand.and.stars",
             tint: glassHue.accentColor,
             title: "Find duplicates in \(providerName ?? "this provider")",
-            message: "Scan this provider for folders and files that repeat across the tree — then collapse them into one. Nothing is removed without your confirmation, and everything is undoable."
-        ) {
-            Button(action: onFindDuplicates) {
-                Label("Find Duplicates", systemImage: "wand.and.stars")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        }
+            message: "Scan this provider for folders and files that repeat across the tree — then collapse them into one.",
+            caption: "Nothing is removed without your confirmation, and everything is undoable.",
+            primary: .init("Find Duplicates", systemImage: "wand.and.stars", handler: onFindDuplicates)
+        )
     }
 
     private var scanningState: some View {
@@ -474,17 +476,13 @@ public struct TidyView: View {
     }
 
     private var cleanState: some View {
-        centeredState(
-            symbol: "checkmark.seal.fill",
+        EmptyStateView(
+            icon: "checkmark.seal.fill",
             tint: .green,
             title: "No duplicates found",
-            message: "Nothing repeats across \(providerName ?? "this provider"). Scan again after adding files."
-        ) {
-            Button(action: onFindDuplicates) {
-                Label("Scan again", systemImage: "arrow.clockwise")
-            }
-            .controlSize(.regular)
-        }
+            message: "Nothing repeats across \(providerName ?? "this provider"). Scan again after adding files.",
+            secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
+        )
     }
 
     // MARK: Filing content
@@ -560,7 +558,7 @@ public struct TidyView: View {
 
     private var filingList: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
+            LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
                 // Grouped by confidence (High / Medium / Low) so the list reads as "these are sure,
                 // these are maybes, these need you" rather than one undifferentiated wall of cards.
                 ForEach(FilingSuggestionGrouping.sections(syncManager.filingSuggestions)) { section in
@@ -570,7 +568,7 @@ public struct TidyView: View {
                     }
                 }
             }
-            .padding(12)
+            .padding(densityMetrics.cardListPadding)
         }
         .scrollContentBackground(.hidden)
     }
@@ -616,18 +614,16 @@ public struct TidyView: View {
     }
 
     private var filingIntroState: some View {
-        centeredState(
-            symbol: FilingGlyph.lens,
+        // Brought up to the L4 template like the Duplicates intro: name the target, explain
+        // the job, put the safety contract in the caption, one primary button.
+        EmptyStateView(
+            icon: FilingGlyph.lens,
             tint: glassHue.accentColor,
             title: "File loose files in \(scanTargetName)",
-            message: "Suggest a home for the files sitting in this folder — reusing the folders you already keep, and proposing new ones only when it's sure. Nothing moves without your say-so, and every move is undoable."
-        ) {
-            Button(action: onFindFilingSuggestions) {
-                Label("Suggest homes", systemImage: FilingGlyph.lens)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        }
+            message: "Suggest where the files sitting loose in this folder belong — reusing the folders you already keep, and proposing new ones only when it's sure.",
+            caption: "Nothing moves without your say-so, and every move is undoable.",
+            primary: .init("Suggest homes", systemImage: FilingGlyph.lens, handler: onFindFilingSuggestions)
+        )
     }
 
     private var filingScanningState: some View {
@@ -650,30 +646,22 @@ public struct TidyView: View {
         if filedThisSession {
             // Earned: the user just filed everything loose this session — a positive terminal state,
             // not a neutral empty one. Its own glyph (a full tray), never the duplicate finder's seal.
-            centeredState(
-                symbol: FilingGlyph.allFiled,
+            EmptyStateView(
+                icon: FilingGlyph.allFiled,
                 tint: .green,
                 title: "All filed",
-                message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more."
-            ) {
-                Button(action: onFindFilingSuggestions) {
-                    Label("Scan again", systemImage: "arrow.clockwise")
-                }
-                .controlSize(.regular)
-            }
+                message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more.",
+                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+            )
         } else {
             // Neutral: the scan found nothing loose to begin with.
-            centeredState(
-                symbol: FilingGlyph.nothingLoose,
+            EmptyStateView(
+                icon: FilingGlyph.nothingLoose,
                 tint: .secondary,
                 title: "Nothing loose to file",
-                message: "No files in \(filingFolderName) need a home right now."
-            ) {
-                Button(action: onFindFilingSuggestions) {
-                    Label("Scan again", systemImage: "arrow.clockwise")
-                }
-                .controlSize(.regular)
-            }
+                message: "No files in \(filingFolderName) need a home right now.",
+                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+            )
         }
     }
 
@@ -723,15 +711,6 @@ public struct TidyView: View {
         guard ok else { return }
         filedThisSession = true
         Task { await syncManager.applyRecommendedFiling() }
-    }
-
-    private func centeredState<Accessory: View>(
-        symbol: String, tint: Color, title: String, message: String,
-        @ViewBuilder accessory: () -> Accessory
-    ) -> some View {
-        // The shared Design template — grown from this file's duplicates intro state, now
-        // promoted so other surfaces (the Activity Log's empty states) render identically.
-        CenteredStateView(symbol: symbol, tint: tint, title: title, message: message, accessory: accessory)
     }
 
     // MARK: Actions

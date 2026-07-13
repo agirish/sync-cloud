@@ -292,6 +292,8 @@ enum SettingsSearchIndex {
               keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
         .init(tab: .appearance, title: "Content surface style",
               keywords: ["surface", "unified", "framed", "solid", "pane background", "content surface"]),
+        .init(tab: .appearance, title: "List density",
+              keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
 
         // Providers
         .init(tab: .providers, title: "Discovered providers",
@@ -578,6 +580,7 @@ struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
@@ -671,6 +674,20 @@ struct AppearanceSettingsTab: View {
                 Text("Content surface")
             } footer: {
                 Text(selectedSurfaceStyle.detail)
+            }
+
+            Section {
+                Picker("List density", selection: $listDensityRaw) {
+                    ForEach(ListDensity.allCases) { density in
+                        Text(density.displayName).tag(density.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("List density")
+            } footer: {
+                Text("Comfortable keeps the standard spacing. Compact tightens the rows in the Differences, Tidy, and Filing lists so more fits on screen.")
             }
         }
         .formStyle(.grouped)
