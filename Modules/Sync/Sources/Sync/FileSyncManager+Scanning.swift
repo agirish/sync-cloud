@@ -795,7 +795,6 @@ extension FileSyncManager {
             // (Removed per-node logging)
 
             let rootChildURLs = builder.childURLs(of: url)
-            await Logger.shared.debug("buildTree contents count: \(rootChildURLs.count)")
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
