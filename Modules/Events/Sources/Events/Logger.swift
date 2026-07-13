@@ -59,14 +59,30 @@ public struct LogEntry: Identifiable, Sendable {
         self.id = id
         self.timestamp = timestamp
         self.level = level
-        // Collapse control characters (newlines, tabs, C0/C1) to spaces so one entry is always
+        // Collapse line breaks and other C0/C1 control characters to spaces so one entry is always
         // one line. A log record often interpolates untrusted text — a file/folder name or a
         // provider path straight off disk, which macOS permits to contain "\n" — and an embedded
         // newline would otherwise split the record and let a crafted name forge a second
         // "[timestamp] [ERROR] …" line in the file and the Activity Log. Enforcing the invariant
         // here covers every call site at once, matching `SettingsManager.setCustomName`.
-        self.message = message.components(separatedBy: .controlCharacters).joined(separator: " ")
+        //
+        // Uses an explicit control + line-separator set rather than `.controlCharacters`, which is
+        // Unicode categories Cc AND Cf: Cf (format chars — ZWJ, directional marks, soft hyphen) are
+        // legitimate parts of emoji/RTL filenames and don't break the one-line invariant, so
+        // collapsing them would needlessly mangle those names in the log.
+        self.message = message.components(separatedBy: Self.lineBreakingChars).joined(separator: " ")
     }
+
+    /// Characters that must not survive into a log message: C0/C1 controls (incl. tab and ESC —
+    /// the latter blocks terminal-escape injection when the file is `cat`-ed) plus every Unicode
+    /// line separator (U+0085 NEL, U+2028, U+2029). Deliberately excludes Cf format characters.
+    private static let lineBreakingChars: CharacterSet = {
+        var set = CharacterSet(charactersIn: "\u{0000}"..."\u{001F}")       // C0 controls (\n \r \t ESC …)
+        set.insert("\u{007F}")                                             // DEL
+        set.formUnion(CharacterSet(charactersIn: "\u{0080}"..."\u{009F}"))  // C1 controls
+        set.formUnion(.newlines)                                           // + U+0085 / U+2028 / U+2029
+        return set
+    }()
     
     /// Shared timestamp formatter. Reused instead of reallocated per log line (DateFormatter is
     /// expensive to create and is thread-safe for formatting).

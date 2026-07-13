@@ -8,11 +8,6 @@ extension FileSyncManager {
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
 
-    /// Surfaces a failed undo/redo restore instead of swallowing it. When an undo trashes or removes
-    /// the current file and the restore of the original then fails — typically because the Trash
-    /// backup was emptied or auto-purged between the operation and the undo — the destination is left
-    /// EMPTY. The old best-effort `try?` gave the user no log line and no signal; this logs the
-    /// affected paths at `.error` and raises a warning banner on the main actor so the loss is visible.
     /// Error raised when an undo/restore would land on a location that a different item has taken
     /// since the original operation — reported instead of silently overwriting the occupant.
     nonisolated static var restoreTargetOccupiedError: Error {
@@ -20,6 +15,11 @@ extension FileSyncManager {
                 userInfo: [NSLocalizedDescriptionKey: "the original location is already occupied by another item"])
     }
 
+    /// Surfaces a failed undo/redo restore instead of swallowing it. When an undo trashes or removes
+    /// the current file and the restore of the original then fails — typically because the Trash
+    /// backup was emptied or auto-purged between the operation and the undo — the destination is left
+    /// EMPTY. The old best-effort `try?` gave the user no log line and no signal; this logs the
+    /// affected paths at `.error` and raises a warning banner on the main actor so the loss is visible.
     nonisolated static func reportUndoRestoreFailure(
         of destination: URL,
         from backup: URL,
@@ -249,24 +249,34 @@ extension FileSyncManager {
                         var restoreFailures = 0
                         for item in items {
                             try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            if fm.fileExists(atPath: item.from.path) {
-                                // A different item now occupies the original location (created after
-                                // the move). Restoring here would silently replace-and-Trash it, and
-                                // that displaced file would be untracked by a later Redo. Refuse and
-                                // report rather than clobber; the moved item stays at its destination.
+                            var movedBackOK = false
+                            // A case-only rename ("foo"→"Foo") is NOT a clobber: on a case-insensitive
+                            // volume item.from resolves to the very item.to being moved back, so
+                            // `fileExists(item.from)` is true even though nothing else took the spot.
+                            // Exclude that case (mirrors renameItem's isCaseOnly guard) and let
+                            // safeMoveItem perform the case-only rename; otherwise, if a DIFFERENT item
+                            // now occupies the original location, refuse rather than silently
+                            // replace-and-Trash it (a displacement Redo couldn't track).
+                            let sameItemAsMoved = item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
+                            if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
                             } else {
                                 do {
                                     _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
                                     movedBack += 1
+                                    movedBackOK = true
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
                                 }
                             }
 
-                            if let trashed = item.overwritten {
+                            // Restore the original move's overwritten backup to item.to ONLY if the
+                            // item actually left it (move-back succeeded). If we refused, or the
+                            // move-back failed, item.to still holds the item and this would just
+                            // collide and mis-report a second failure.
+                            if movedBackOK, let trashed = item.overwritten {
                                 do {
                                     try fm.moveItem(at: trashed, to: item.to)
                                 } catch {
