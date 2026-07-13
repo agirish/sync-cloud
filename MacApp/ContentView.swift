@@ -976,43 +976,34 @@ struct ContentView: View {
 
                 Group {
                     if selectedBottomTab == .differences {
-                        if syncManager.hasScanned {
-                            VStack(spacing: 12) {
-                                Image(systemName: "checkmark.seal.fill")
-                                    .font(.system(size: 44))
-                                    .foregroundStyle(.green)
-                                Text("Everything is in sync")
-                                    .font(.title3.weight(.semibold))
-                                Text("No differences found between focused directories.")
-                                    .font(.subheadline)
+                        if isScanning {
+                            // While the first scan runs the whole placeholder becomes a busy
+                            // state (the Tidy pattern) — livelier than a spinning button glyph.
+                            VStack(spacing: 14) {
+                                ProgressView()
+                                    .controlSize(.large)
+                                Text("Scanning \(paneNames.left) and \(paneNames.right)…")
+                                    .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
+                        } else if syncManager.hasScanned {
+                            EmptyStateView(
+                                icon: "checkmark.seal.fill",
+                                tint: .green,
+                                title: "Everything is in sync",
+                                message: "No differences found between focused directories.",
+                                secondary: .init("Scan again", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                            )
                         } else {
-                            VStack(spacing: 12) {
-                                // Same symbol as the toolbar's Compare button — one glyph for
-                                // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
-                                Image(systemName: PaneGlyph.compare)
-                                    .font(.system(size: 44))
-                                    .foregroundStyle(glassHue.accentColor)
-                                Text("Compare \(paneNames.left) ↔ \(paneNames.right)")
-                                    .font(.title3.weight(.semibold))
-                                    .multilineTextAlignment(.center)
-                                Text("Nothing scanned yet. Scan the two focused folders to see what differs.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                Button {
-                                    forceRefreshAction()
-                                } label: {
-                                    // Spin the refresh arrow while scanning rather than swapping
-                                    // to a static hourglass — matches the toolbar's Scan button.
-                                    Label("Scan", systemImage: "arrow.clockwise")
-                                        .symbolEffect(.rotate, options: .repeating, isActive: isScanning)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(isScanning)
-                                .padding(.top, 4)
-                            }
+                            // Same symbol as the toolbar's Compare button — one glyph for
+                            // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
+                            EmptyStateView(
+                                icon: PaneGlyph.compare,
+                                tint: glassHue.accentColor,
+                                title: "Compare \(paneNames.left) ↔ \(paneNames.right)",
+                                message: "Nothing scanned yet. Scan the two focused folders to see what differs.",
+                                primary: .init("Scan", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                            )
                         }
                     } else {
                         DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
