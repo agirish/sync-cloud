@@ -61,6 +61,17 @@ public class FileSyncManager: ObservableObject {
     public var permanentDeleteConfirmer: @MainActor ([String]) -> Bool = { _ in
         return false
     }
+
+    /// Confirms a cloud (Claude) Filing classify before it commits, given a pre-flight cost estimate
+    /// and this month's spend-vs-cap. Consulted once per scan, only when cloud Filing is actually on
+    /// (`filingUsesAI && filingUsesCloud`), just before the classifier runs — the real cost is only
+    /// known after the call, so this is the only chance to show the user a figure first. Returning
+    /// false skips the cloud call and the scan degrades gracefully to its on-device suggestions.
+    /// Defaults to `true` (proceed) so an unwired manager keeps its prior behavior; the app wires an
+    /// NSAlert-backed estimate/budget prompt at construction.
+    public var filingCloudSpendConfirmer: @MainActor (FilingSpendPreflight) -> Bool = { _ in
+        return true
+    }
     
     /// Initializes a new FileSyncManager with a specific file manager.
     /// - Parameter fileManager: The file manager to use. Defaults to `FileManager.default`.

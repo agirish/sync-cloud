@@ -163,7 +163,7 @@ public enum CloudFilingProtocol {
 
     /// Approximate list price ($/million tokens) as of 2026 — for a rough cost estimate only; the
     /// Anthropic Console is the source of truth. nil for a model we don't have a rate for.
-    static func pricing(for model: String) -> (input: Double, output: Double)? {
+    public static func pricing(for model: String) -> (input: Double, output: Double)? {
         if model.hasPrefix("claude-opus") { return (5, 25) }
         if model.hasPrefix("claude-fable") || model.hasPrefix("claude-mythos") { return (10, 50) }
         if model.hasPrefix("claude-sonnet") { return (3, 15) }
@@ -179,5 +179,49 @@ public enum CloudFilingProtocol {
             + Double(usage.cacheReadTokens) * inPerToken * 0.1
             + Double(usage.cacheCreationTokens) * inPerToken * 1.25
             + Double(usage.outputTokens) * outPerToken
+    }
+
+    // MARK: Pre-call estimate (for the spend guardrails / confirmation dialog)
+
+    /// Rough fixed overhead (chars) for the parts of the request that don't vary with the input: the
+    /// instruction block plus the tool schema JSON. The taxonomy and per-file lines are added on top.
+    private static let requestOverheadChars = 1500
+
+    /// A BEFORE-the-call token estimate for a batch, so the user can see a cost up front (the real
+    /// usage is only known after the API responds). Approximates the same billable text `requestBody`
+    /// assembles — the folder taxonomy plus one line per file (name/type/year, and a content excerpt
+    /// only for the nameless files, exactly as the body decides) — at the usual ~4 chars/token. The
+    /// output estimate reuses the body's own `512 + files*80` budget (capped at 16384). Heuristic and
+    /// deliberately a slight over-estimate (it ignores prompt-cache read discounts on the taxonomy),
+    /// so the pre-flight figure never undersells the cost.
+    public static func estimateTokens(taxonomyFolders: [String], files: [FilingCandidateFile]) -> (input: Int, output: Int) {
+        var chars = requestOverheadChars
+        chars += "The user's existing folders (relative paths):\n".count
+        for folder in taxonomyFolders { chars += folder.count + 1 }
+        for f in files {
+            // "[i] name: <name> | type: <ext>\n" scaffolding.
+            chars += f.fileName.count + max(f.ext.count, "unknown".count) + 24
+            if let year = f.year { chars += year.count + 14 }               // " | modified: <year>"
+            if let snippet = f.contentSnippet, !snippet.isEmpty,
+               !FilingEngine.canRemember(fileName: f.fileName) {
+                chars += min(snippet.count, maxSnippetChars) + 14           // "    excerpt: …"
+            }
+            if !f.excludedRelativePaths.isEmpty {
+                chars += f.excludedRelativePaths.joined(separator: ", ").count + 12   // "    avoid: …"
+            }
+        }
+        let input = max(1, chars / 4)
+        let output = min(16384, 512 + files.count * 80)
+        return (input, output)
+    }
+
+    /// Estimated USD cost of a batch BEFORE it runs, from the pre-call token estimate at list prices.
+    /// nil when the model has no known rate (so the caller shows "estimate unavailable" rather than a
+    /// wrong number). No cache-rate adjustment — the estimate can't know what will be cache-hit.
+    public static func estimatedCostUSD(model: String, taxonomyFolders: [String], files: [FilingCandidateFile]) -> Double? {
+        guard let price = pricing(for: model) else { return nil }
+        let est = estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
+        return Double(est.input) * price.input / 1_000_000
+            + Double(est.output) * price.output / 1_000_000
     }
 }

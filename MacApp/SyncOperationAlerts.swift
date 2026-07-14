@@ -151,6 +151,54 @@ struct SyncOperationAlerts {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// Message line of the cloud-spend pre-flight: what's about to be classified and by which model,
+    /// e.g. `Classify 12 files with Haiku?`. Over budget it leads with the block so the headline
+    /// itself says the call won't run. Pure so the wording is unit-testable.
+    nonisolated static func filingSpendMessage(_ p: FilingSpendPreflight) -> String {
+        let noun = p.fileCount == 1 ? "file" : "files"
+        if p.wouldExceedCap {
+            return "This would exceed your monthly cloud budget"
+        }
+        return "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
+    }
+
+    /// Body of the cloud-spend pre-flight: the estimated cost of this call, plus — when a monthly cap
+    /// is set — this month's spend against the cap and whether this call would push past it. Pure (no
+    /// AppKit) so it's unit-testable and the estimate wording can't drift.
+    nonisolated static func filingSpendInformativeText(_ p: FilingSpendPreflight) -> String {
+        var text = "Estimated cost: \(FilingSpendFormat.cost(p.estCostUSD)) "
+            + "(\(FilingSpendFormat.tokens(p.estInputTokens)) in / \(FilingSpendFormat.tokens(p.estOutputTokens)) out). "
+            + "The exact cost is billed to your Anthropic API key and known only after the call."
+        if p.monthlyCapUSD > 0 {
+            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of \(FilingSpendFormat.cost(p.monthlyCapUSD)) cap."
+            if p.wouldExceedCap {
+                text += " Running this would exceed the cap, so it's blocked — Filing will use its "
+                    + "free on-device suggestions instead. Raise or turn off the cap in Settings → Tidy."
+            }
+        }
+        return text
+    }
+
+    /// Asks the user to confirm a cloud (Claude) Filing classify, showing the pre-flight cost
+    /// estimate and (if set) the monthly budget. When the call would exceed the cap the proceed
+    /// button is withheld — the only choice is to fall back on-device — so the cap is honored from the
+    /// dialog too. Otherwise "Classify" proceeds and "Cancel" (Escape) falls back on-device.
+    /// - Returns: True only when the user chose to proceed with the cloud call.
+    static func promptForFilingSpend(_ p: FilingSpendPreflight) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = filingSpendMessage(p)
+        alert.informativeText = filingSpendInformativeText(p)
+        if p.wouldExceedCap {
+            // Over budget: no proceed path. Inform the user, then fall back on-device regardless.
+            alert.addButton(withTitle: "Use On-Device Instead")
+            _ = alert.runModal()
+            return false
+        }
+        alert.addButton(withTitle: "Classify")   // Return key default
+        alert.addButton(withTitle: "Cancel")      // Escape
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
     /// - Parameter itemNames: The names of the files/folders
     /// - Returns: True if confirmed for immediate permanent deletion.

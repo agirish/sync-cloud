@@ -167,10 +167,21 @@ extension FileSyncManager {
                                                year: Self.modificationYear(f.modificationDate),
                                                contentSnippet: snippets[f.id], excludedRelativePaths: excluded)
                 }
-                let verdicts = await classifier(taxonomyFolders, files)
-                if Task.isCancelled { return }
-                suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
-                                                         providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
+
+                // Cloud spend guardrail (X6): the true cost of a cloud (Claude) call is only known
+                // AFTER it runs, so when cloud is the active backend, estimate it up front and let the
+                // user — or the monthly budget cap — decline before it commits. Only gates the cloud
+                // path; the on-device backend is free and never asked. A decline (user cancelled, or
+                // this month's spend would exceed the cap) skips the classifier entirely, leaving the
+                // scan's on-device suggestions untouched — a graceful, non-empty fallback that still
+                // publishes below. No-op when cloud is off (the common case), and with the default
+                // confirmer that returns true.
+                if cloudSpendAllows(files: files, taxonomyFolders: taxonomyFolders) {
+                    let verdicts = await classifier(taxonomyFolders, files)
+                    if Task.isCancelled { return }
+                    suggestions = FilingEngine.applyVerdicts(verdicts, to: suggestions, taxonomy: taxonomy,
+                                                             providerRoot: providerRoot.path, rejectedByFile: rejectedByFile)
+                }
             }
         }
 
@@ -194,10 +205,46 @@ extension FileSyncManager {
     /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
     /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
     public static let usesCloudDefaultsKey = "tidyFilingUseCloud"
+    /// Whether Filing may use the opt-in cloud (Claude) backend. Off by default; mirrors `filingUsesAI`
+    /// (both must be on, plus a stored key, for a cloud call to run). Read through the injectable
+    /// defaults store so tests can flip it without touching `.standard`.
+    var filingUsesCloud: Bool {
+        (filingContentDefaults.object(forKey: Self.usesCloudDefaultsKey) as? Bool) ?? false
+    }
     /// Which Claude model the cloud classifier uses (a model-ID string). Trades cost against quality;
     /// defaults to Haiku, the cheapest model (see `CloudFilingProtocol.defaultModel` and the
     /// matching Settings picker default).
     public static let cloudModelDefaultsKey = "tidyFilingCloudModel"
+
+    /// Monthly budget cap for cloud (Claude) Filing spend, in USD. 0 (the default) = no cap /
+    /// unlimited — the user is never surprise-blocked. When > 0 and this calendar month's spend
+    /// would exceed it, cloud calls pause and Filing falls back to its on-device suggestions.
+    public static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
+
+    /// Decides whether the cloud (Claude) classifier may run for this batch. Returns true immediately
+    /// when cloud is off (the on-device path is free — never gated). When cloud is on, it builds a
+    /// pre-flight cost estimate (`FilingSpendPreflight`) from this month's spend and the batch's
+    /// estimated tokens, consults `filingCloudSpendConfirmer`, and returns its answer — logging when a
+    /// call is skipped so a paused/declined scan is auditable. Returning false here leaves the scan's
+    /// on-device suggestions in place (graceful fallback).
+    private func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
+        guard filingUsesCloud else { return true }
+        let model = filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey)
+            ?? CloudFilingProtocol.defaultModel
+        let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
+        let estCost = CloudFilingProtocol.estimatedCostUSD(
+            model: model, taxonomyFolders: taxonomyFolders, files: files) ?? 0
+        let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
+        let cap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
+        let preflight = FilingSpendPreflight(
+            fileCount: files.count, model: model,
+            estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
+            estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: cap)
+        if filingCloudSpendConfirmer(preflight) { return true }
+        let capNote = cap > 0 ? " / cap \(FilingSpendFormat.cost(cap))" : ""
+        Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(estCost)), this month \(FilingSpendFormat.cost(monthlySpent))\(capNote))")
+        return false
+    }
 
     private static func modificationYear(_ date: Date?) -> String? {
         guard let date else { return nil }

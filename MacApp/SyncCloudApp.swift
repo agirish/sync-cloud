@@ -73,6 +73,13 @@ struct SyncCloudApp: App {
         manager.permanentDeleteConfirmer = { itemNames in
             SyncOperationAlerts.confirmPermanentDelete(itemNames: itemNames)
         }
+        // Cloud (Claude) Filing spend guardrail: before a cloud classify commits, show the pre-flight
+        // cost estimate and this month's budget, and let the user (or the monthly cap) decline. A
+        // decline falls back to the free on-device suggestions. Only consulted when cloud Filing is
+        // actually on, so it's a no-op for the common on-device path.
+        manager.filingCloudSpendConfirmer = { preflight in
+            SyncOperationAlerts.promptForFilingSpend(preflight)
+        }
         // Destination names the target provider forbids (trailing space/dot on Dropbox,
         // reserved names on OneDrive, …) prompt before any I/O, offering the sanitized name.
         // No standing-policy shortcut here: each violation names a specific item and the

@@ -26,6 +26,18 @@ enum CloudFilingClassifier {
     static func classify(taxonomyFolders: [String], files allFiles: [FilingCandidateFile]) async -> [String: FilingVerdict]? {
         guard let key = AnthropicKeychain.read() else { return nil }
         guard !allFiles.isEmpty else { return [:] }
+
+        // Hard budget cap (X6, belt-and-suspenders): even if the pre-flight UI gate was somehow
+        // bypassed, never make a cloud call once this calendar month's spend has reached the cap.
+        // Returning nil reuses the existing graceful on-device fallback. Cap of 0 = unlimited, so
+        // this never fires by default and cloud behavior is unchanged when no cap is set.
+        let cap = UserDefaults.standard.double(forKey: FileSyncManager.monthlyBudgetCapKey)
+        let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
+        if FilingSpendBudget.isOverCap(monthlySpent: monthlySpent, capUSD: cap) {
+            Logger.shared.info("Cloud Filing paused — monthly budget cap \(FilingSpendFormat.cost(cap)) reached (\(FilingSpendFormat.cost(monthlySpent)) spent this month) — using on-device suggestions")
+            return nil
+        }
+
         let files = Array(allFiles.prefix(maxFiles))   // same array feeds requestBody + parse (indices)
 
         let body = CloudFilingProtocol.requestBody(model: model, taxonomyFolders: taxonomyFolders, files: files)

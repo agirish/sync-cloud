@@ -106,4 +106,46 @@ import Testing
         // Unknown model → no estimate rather than a wrong one.
         #expect(CloudFilingProtocol.estimatedCostUSD(model: "gpt-9", usage: usage) == nil)
     }
+
+    // MARK: Pre-call estimate (spend guardrails)
+
+    @Test func estimateTokensArePositiveAndGrowWithFileCount() {
+        let taxonomy = ["Documents", "Documents/Vehicles", "Finance/Insurance"]
+        let small = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomy, files: [file("/r/a.pdf")])
+        let large = CloudFilingProtocol.estimateTokens(
+            taxonomyFolders: taxonomy,
+            files: (0..<25).map { file("/r/file\($0).pdf") })
+
+        #expect(small.input > 0)
+        #expect(small.output > 0)
+        // More files → more input text and more output budget.
+        #expect(large.input > small.input)
+        #expect(large.output > small.output)
+        // Output mirrors the request body's own 512 + files*80 budget.
+        #expect(small.output == 512 + 1 * 80)
+        #expect(large.output == 512 + 25 * 80)
+    }
+
+    @Test func estimateOutputIsCappedAt16384() {
+        // A batch far beyond the cap still tops out at the body's 16384 output ceiling.
+        let files = (0..<1000).map { file("/r/file\($0).pdf") }
+        let est = CloudFilingProtocol.estimateTokens(taxonomyFolders: ["Documents"], files: files)
+        #expect(est.output == 16384)
+    }
+
+    @Test func preCallEstimatedCostIsPositiveForKnownModelAndNilForUnknown() throws {
+        let taxonomy = ["Documents", "Finance/Insurance"]
+        let files = [file("/r/a.pdf", snippet: "GEICO auto insurance policy"),
+                     file("/r/IMG_0007.pdf", snippet: "Pediatric visit summary")]
+        let haiku = try #require(CloudFilingProtocol.estimatedCostUSD(
+            model: "claude-haiku-4-5", taxonomyFolders: taxonomy, files: files))
+        #expect(haiku > 0)
+        // Opus is pricier than Haiku for the same batch.
+        let opus = try #require(CloudFilingProtocol.estimatedCostUSD(
+            model: "claude-opus-4-8", taxonomyFolders: taxonomy, files: files))
+        #expect(opus > haiku)
+        // Unknown model → nil, so the UI shows "estimate unavailable" instead of a wrong number.
+        #expect(CloudFilingProtocol.estimatedCostUSD(
+            model: "gpt-9", taxonomyFolders: taxonomy, files: files) == nil)
+    }
 }
