@@ -72,7 +72,37 @@ public class FileSyncManager: ObservableObject {
     public var filingCloudSpendConfirmer: @MainActor (FilingSpendPreflight) -> Bool = { _ in
         return true
     }
-    
+
+    /// The durable, structured Sync History (X2) every copy/move/delete is recorded into —
+    /// separate from the in-memory Activity Log so it survives quit and can be filtered,
+    /// exported, and reversed by run. Injected (defaults to the shared singleton) so tests get
+    /// an isolated store. Recording is a best-effort side effect: `SyncHistoryStore.appendBatch`
+    /// never throws and hands its disk write to a background queue, so a store failure can never
+    /// block or fail the file operation that produced the record.
+    public var syncHistoryStore: SyncHistoryStore = .shared
+
+    /// Records a run's history entries, if any. A thin funnel so every op site records the same
+    /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
+    func recordSyncHistory(_ records: [SyncHistoryRecord]) {
+        guard !records.isEmpty else { return }
+        syncHistoryStore.appendBatch(records)
+    }
+
+    /// Reverses the most recent undoable operation — a "sync run" — by reusing the app's existing,
+    /// tested `UndoManager` reversal stack (safeMove-back, Trash-restore); no new file-mutating
+    /// path. Bulk runs are registered as ONE grouped undo step, so this reverses a whole run. The
+    /// app wires an NSAlert confirmation in front of this (it touches data); here we only guard
+    /// that something is undoable and log the reversal.
+    public func undoLastSyncRun() {
+        guard let undoManager, undoManager.canUndo else {
+            banner = .warning("There's no recent sync run to undo")
+            return
+        }
+        let name = undoManager.undoActionName
+        Logger.shared.info("Undoing last sync run" + (name.isEmpty ? "" : ": \(name)"))
+        undoManager.undo()
+    }
+
     /// Initializes a new FileSyncManager with a specific file manager.
     /// - Parameter fileManager: The file manager to use. Defaults to `FileManager.default`.
     public init(fileManager: FileManaging = FileManager.default) {
@@ -1193,6 +1223,19 @@ public class FileSyncManager: ObservableObject {
                 } else {
                     self.registerCopyUndo(items: [(source: from, destination: to, overwritten: result.trashed)], actionName: actionName, fileManager: activeFM)
                 }
+                // Durable Sync History (X2). Size is free from the difference (source side);
+                // checksum is left nil at op time (see the bulk path's checksum note).
+                let size = difference.action == .copyToRight ? difference.leftFileSize : difference.rightFileSize
+                self.recordSyncHistory([SyncHistoryRecord(
+                    runId: UUID(),
+                    action: isMove ? .move : .copy,
+                    sourcePath: from.path,
+                    destPath: to.path,
+                    sizeBytes: size,
+                    checksum: nil,
+                    backupPath: result.trashed?.path,
+                    direction: difference.action == .copyToRight ? "→ Right" : "← Left"
+                )])
             }
             removeResolvedDifferences(matching: [difference])
             return true

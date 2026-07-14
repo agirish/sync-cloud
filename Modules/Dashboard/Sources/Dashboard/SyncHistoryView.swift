@@ -1,0 +1,320 @@
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+import Design
+import Events
+
+/// The Sync History window (X2): the durable, exportable, reversible counterpart to the Activity
+/// Log. Where `LogViewer` shows the in-memory event stream that forgets on quit, this shows the
+/// persisted `SyncHistoryStore` — every copy/move/delete with time, action, direction, paths, and
+/// size — filterable by action, date range, and path, exportable to CSV/JSON, with a one-click
+/// "Undo last sync run" that reverses the most recent run through the app's existing undo stack.
+///
+/// Built deliberately in the same shape as `LogViewer` (pure `SyncHistoryFilter`, a toolbar of
+/// controls, a lazy list, an empty state) so the two read as one system.
+public struct SyncHistoryView: View {
+    @ObservedObject public var store = SyncHistoryStore.shared
+
+    /// Reverses the most recent sync run. Injected so the (data-touching) NSAlert confirmation
+    /// lives at the app boundary, keeping this view free of the manager and of Sync's types.
+    private let onUndoLastSyncRun: () -> Void
+
+    public init(store: SyncHistoryStore = .shared, onUndoLastSyncRun: @escaping () -> Void = {}) {
+        self.store = store
+        self.onUndoLastSyncRun = onUndoLastSyncRun
+    }
+
+    /// The action gate — nil is "All actions".
+    @State private var selectedAction: SyncAction? = nil
+    /// The date-range gate, as a preset the picker offers.
+    @State private var dateRange: DateRange = .all
+    @State private var searchText: String = ""
+    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+
+    /// A coarse relative date window — enough for "what did I do recently" without a full date
+    /// picker. Resolves to a lower bound at render time (upper bound is always "now").
+    private enum DateRange: String, CaseIterable, Identifiable {
+        case all = "All time"
+        case lastHour = "Last hour"
+        case today = "Today"
+        case last7 = "Last 7 days"
+        case last30 = "Last 30 days"
+
+        var id: String { rawValue }
+
+        /// The inclusive lower bound this range imposes, or nil for "no lower bound".
+        func start(now: Date = Date(), calendar: Calendar = .current) -> Date? {
+            switch self {
+            case .all: return nil
+            case .lastHour: return now.addingTimeInterval(-3600)
+            case .today: return calendar.startOfDay(for: now)
+            case .last7: return now.addingTimeInterval(-7 * 86_400)
+            case .last30: return now.addingTimeInterval(-30 * 86_400)
+            }
+        }
+    }
+
+    private static let actionOptions: [(label: String, action: SyncAction?)] = [
+        ("All Actions", nil),
+        ("Copies", .copy),
+        ("Moves", .move),
+        ("Deletes", .delete),
+    ]
+
+    public var body: some View {
+        // One filter pass per body render, shared by the count badges, the list, and Export.
+        let filtered = SyncHistoryFilter.apply(
+            store.records,
+            action: selectedAction,
+            search: searchText,
+            start: dateRange.start()
+        )
+        VStack(spacing: 0) {
+            toolbar(filtered: filtered)
+            Divider().opacity(0.6)
+            searchBar
+            Divider().opacity(0.6)
+            list(filtered: filtered)
+        }
+        .frame(minWidth: 460, minHeight: 320)
+    }
+
+    // MARK: Toolbar
+
+    @ViewBuilder
+    private func toolbar(filtered: [SyncHistoryRecord]) -> some View {
+        HStack(spacing: 10) {
+            Text("Sync History")
+                .font(.headline.weight(.semibold))
+            Spacer()
+
+            Picker("Action", selection: $selectedAction) {
+                ForEach(Self.actionOptions, id: \.label) { option in
+                    Text(option.label).tag(option.action)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 130)
+
+            Picker("Range", selection: $dateRange) {
+                ForEach(DateRange.allCases) { range in
+                    Text(range.rawValue).tag(range)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 130)
+
+            Button {
+                onUndoLastSyncRun()
+            } label: {
+                Label("Undo Last Run", systemImage: "arrow.uturn.backward")
+            }
+            .buttonStyle(.bordered)
+            .disabled(store.records.isEmpty)
+            .help("Reverse the most recent sync run")
+
+            Menu {
+                Button("Export as CSV…") { export(.csv, records: filtered) }
+                Button("Export as JSON…") { export(.json, records: filtered) }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .frame(width: 34)
+            .disabled(filtered.isEmpty)
+            .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
+
+            Button(action: { store.clear() }) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.bordered)
+            .disabled(store.records.isEmpty)
+            .help("Clear all history")
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .glassBarStyle(intensity: glassIntensity)
+    }
+
+    // MARK: Search
+
+    private var searchBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Filter by path…", text: $searchText)
+                .textFieldStyle(.plain)
+            if !searchText.isEmpty {
+                Button(action: { searchText = "" }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(12)
+        .glassBarStyle(intensity: glassIntensity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    // MARK: List
+
+    @ViewBuilder
+    private func list(filtered: [SyncHistoryRecord]) -> some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6) {
+                ForEach(filtered) { record in
+                    SyncHistoryRow(record: record)
+                }
+            }
+            .padding(16)
+        }
+        .background(.regularMaterial.opacity(0.5))
+        .overlay {
+            if filtered.isEmpty {
+                if store.records.isEmpty {
+                    EmptyStateView(
+                        icon: "clock.arrow.circlepath",
+                        title: "No sync history yet",
+                        message: "Every copy, move, and delete is recorded here as it happens — with a timestamp, direction, and size you can filter, search, and export. History survives quitting the app.",
+                        secondary: .init("Reveal History File", systemImage: "doc.text") {
+                            NSWorkspace.shared.activateFileViewerSelecting([store.fileURL])
+                        }
+                    )
+                } else {
+                    EmptyStateView(
+                        icon: "line.3.horizontal.decrease.circle",
+                        title: "No matching records",
+                        message: "The current action, date range, and search hide all \(store.records.count) \(store.records.count == 1 ? "record" : "records").",
+                        primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                            selectedAction = nil
+                            dateRange = .all
+                            searchText = ""
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: Export
+
+    private enum ExportFormat { case csv, json }
+
+    /// Writes the given records to a user-chosen file via NSSavePanel. Failures are logged (never
+    /// thrown): an export is a read-only convenience, so a bad path can't cost data.
+    private func export(_ format: ExportFormat, records: [SyncHistoryRecord]) {
+        let panel = NSSavePanel()
+        switch format {
+        case .csv:
+            panel.nameFieldStringValue = "sync-history.csv"
+            panel.allowedContentTypes = [.commaSeparatedText]
+        case .json:
+            panel.nameFieldStringValue = "sync-history.json"
+            panel.allowedContentTypes = [.json]
+        }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let text = format == .csv ? SyncHistoryExporter.csv(records) : SyncHistoryExporter.json(records)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            Logger.shared.info("Exported \(records.count) Sync History record(s) to \(url.lastPathComponent)")
+        } catch {
+            Logger.shared.error("Sync History export failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+/// One row rendering a single `SyncHistoryRecord`: an action glyph, the action + direction +
+/// time, the source→destination paths, and the size — kept honest and readable.
+private struct SyncHistoryRow: View {
+    let record: SyncHistoryRecord
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: record.action.systemImage)
+                .font(.caption)
+                .foregroundStyle(actionColor)
+                .frame(width: 18)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(record.action.label)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(actionColor)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(actionColor.opacity(0.15))
+                        .clipShape(Capsule())
+
+                    if let direction = record.direction {
+                        Text(direction)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text(Self.timeString(record.timestamp))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+
+                    if let size = record.sizeBytes {
+                        Text(Self.sizeString(size))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                // Source → destination. A delete has no destination, so it shows the origin alone.
+                if let dest = record.destPath {
+                    HStack(spacing: 6) {
+                        Text(Self.displayPath(record.sourcePath))
+                        Image(systemName: "arrow.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(Self.displayPath(dest))
+                    }
+                    .font(.system(.subheadline, design: .monospaced))
+                    .textSelection(.enabled)
+                } else {
+                    Text(Self.displayPath(record.sourcePath))
+                        .font(.system(.subheadline, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 6)
+    }
+
+    private var actionColor: Color {
+        switch record.action {
+        case .copy: return .accentColor
+        case .move: return .orange
+        case .delete: return .red
+        }
+    }
+
+    private static func displayPath(_ path: String) -> String {
+        (path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private static func sizeString(_ bytes: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter
+    }()
+
+    private static func timeString(_ date: Date) -> String {
+        timeFormatter.string(from: date)
+    }
+}

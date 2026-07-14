@@ -174,7 +174,7 @@ enum HelpBook {
                     ]),
                     .tip("Undo won't overwrite a file that changed in the meantime — it refuses rather than clobber your newer copy."),
                 ],
-                related: ["staying-safe", "activity-log"]
+                related: ["staying-safe", "activity-log", "sync-history"]
             )),
         ]),
         Section(title: "Cleanup tools", topics: [
@@ -273,7 +273,21 @@ enum HelpBook {
                     ]),
                     .tip("Attaching the log file to a bug report is the fastest way to get a problem understood."),
                 ],
-                related: ["staying-safe", "about"]
+                related: ["sync-history", "staying-safe", "about"]
+            )),
+            Topic(id: "sync-history", title: "Sync History", systemImage: "clock.arrow.circlepath", article: Article(
+                intro: "Every copy, move, and delete is recorded in a durable history that survives quitting — filterable, exportable, and reversible a whole run at a time.",
+                blocks: [
+                    .paragraph("Unlike the live Activity Log, which forgets when you quit, Sync History is written to disk as a structured record of each operation — its time, action, direction, the paths involved, and the size."),
+                    .bullets([
+                        "Open it from Help ▸ Open Sync History.",
+                        "Filter by action, date range, or path, and search across everything recorded.",
+                        "Export the current view to CSV or JSON for a spreadsheet or your own tooling.",
+                        "Undo Last Run reverses the most recent sync in one step, moving files back where they were.",
+                    ]),
+                    .tip("Undoing a run reuses the same safe reversal as ⌘Z — files come back from where they went, and you can redo afterward."),
+                ],
+                related: ["undo-redo", "activity-log", "staying-safe"]
             )),
             Topic(id: "about", title: "About SyncCloud", systemImage: "info.circle", article: Article(
                 intro: "SyncCloud compares and syncs two folders — a macOS app, plus a matching synccloud command-line tool for scripted workflows.",
@@ -347,6 +361,17 @@ struct ActivityLogWindowCommand: View {
 
     var body: some View {
         Button("Open Activity Log") { openWindow(id: "activity-log") }
+    }
+}
+
+/// The Help ▸ Open Sync History item — the durable, exportable, reversible history window (X2).
+/// A separate View for the same reason as `ActivityLogWindowCommand`: `openWindow` is an
+/// Environment value the App struct doesn't carry.
+struct SyncHistoryWindowCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Open Sync History") { openWindow(id: "sync-history") }
     }
 }
 

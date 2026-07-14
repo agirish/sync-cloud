@@ -14,6 +14,7 @@ extension FileSyncManager {
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
     }
@@ -28,6 +29,7 @@ extension FileSyncManager {
             destinationDescription: "between panes",
             destinationRoot: fromLeft ? rightRoot : leftRoot,
             targetURL: Self.paneTargetURL(fromLeft: fromLeft, leftRoot: leftRoot, rightRoot: rightRoot),
+            direction: fromLeft ? "→ Right" : "← Left",
             fileManager: fm
         )
     }
@@ -111,6 +113,7 @@ extension FileSyncManager {
         destinationDescription: String,
         destinationRoot: String,
         targetURL deriveTargetURL: @escaping @Sendable (FileNode) throws -> URL,
+        direction: String? = nil,
         fileManager fm: FileManaging
     ) async -> [FileNode] {
         let resolveCollision = collisionResolver
@@ -312,6 +315,31 @@ extension FileSyncManager {
             } else {
                 Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) items \(destinationDescription)")
             }
+        }
+
+        // Durable Sync History (X2): one record per transferred item, all sharing this batch's
+        // run id. The result tuples don't carry size, so best-effort stat the landed file — a
+        // local metadata read of a file that was just written, so it's cheap. Built SYNCHRONOUSLY
+        // (no await): an awaited suspension here, after the op already decremented
+        // `activeFileOperationsCount`, would let a caller waiting on completion observe "done"
+        // before this method returns. Checksum is left nil at op time (see the bulk path's note).
+        if !transferred.isEmpty {
+            let runId = UUID()
+            let recordAction: SyncAction = isMove ? .move : .copy
+            let records = transferred.map { item in
+                let size = ((try? fm.attributesOfItem(atPath: item.to.path))?[.size] as? NSNumber)?.intValue
+                return SyncHistoryRecord(
+                    runId: runId,
+                    action: recordAction,
+                    sourcePath: item.from.path,
+                    destPath: item.to.path,
+                    sizeBytes: size,
+                    checksum: nil,
+                    backupPath: item.overwritten?.path,
+                    direction: direction
+                )
+            }
+            recordSyncHistory(records)
         }
 
         return transferredNodes
@@ -538,6 +566,31 @@ extension FileSyncManager {
             self.banner = .success(items.count == 1
                 ? "Deleted \"\(name)\""
                 : "Deleted \(items.count) items")
+        }
+
+        // Durable Sync History (X2): one `.delete` record per removed item, sharing this run id.
+        // Size is best-effort from the Trash backup (the original is gone); a permanent delete
+        // has no backup, so its size stays nil. Built SYNCHRONOUSLY (no await) so this method's
+        // return timing — after `activeFileOperationsCount` was decremented — is unchanged; a
+        // stat of the local Trash backup is a cheap metadata read.
+        if !items.isEmpty {
+            let runId = UUID()
+            let records = items.map { item in
+                let size = item.trashed.flatMap {
+                    ((try? fm.attributesOfItem(atPath: $0.path))?[.size] as? NSNumber)?.intValue
+                }
+                return SyncHistoryRecord(
+                    runId: runId,
+                    action: .delete,
+                    sourcePath: item.original.path,
+                    destPath: nil,
+                    sizeBytes: size,
+                    checksum: nil,
+                    backupPath: item.trashed?.path,
+                    direction: nil
+                )
+            }
+            recordSyncHistory(records)
         }
 
         if let progress, self.activeProgress === progress {

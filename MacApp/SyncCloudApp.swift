@@ -212,6 +212,7 @@ struct SyncCloudApp: App {
                 // the on-disk log — the two things a user reaches for when troubleshooting or
                 // filing a report.
                 ActivityLogWindowCommand()
+                SyncHistoryWindowCommand()
                 Button("Reveal Log File in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([Logger.shared.logFileURL])
                 }
@@ -235,6 +236,25 @@ struct SyncCloudApp: App {
             } else {
                 LogViewer()
                     .environmentObject(Logger.shared)
+            }
+        }
+        .windowResizability(.contentMinSize)
+
+        // Durable Sync History (X2): its own window (not a bottom tab) so it doesn't collide with
+        // the main content. Reads the shared `SyncHistoryStore` the manager records into, and
+        // reverses the last run through the manager's undo stack behind an NSAlert confirmation.
+        Window("Sync History", id: "sync-history") {
+            if isRunningTests {
+                Color.clear
+            } else {
+                SyncHistoryView(
+                    store: .shared,
+                    onUndoLastSyncRun: {
+                        guard SyncOperationAlerts.confirmUndoLastSyncRun() else { return }
+                        syncManager.undoLastSyncRun()
+                    }
+                )
+                .environmentObject(Logger.shared)
             }
         }
         .windowResizability(.contentMinSize)

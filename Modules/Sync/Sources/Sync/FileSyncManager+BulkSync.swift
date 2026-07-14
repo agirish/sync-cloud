@@ -59,10 +59,32 @@ extension FileSyncManager {
             )
         }
 
+        // Group the whole run's per-file undo registrations into ONE undo step so "Undo last
+        // sync run" (and ⌘Z) reverses the entire bulk copy at once, reusing the existing
+        // per-file reversal — no new mutation path. The group is named so the run reads as a
+        // unit in the Undo menu. Skip the empty case so no phantom group is opened.
+        let runId = UUID()
+        var historyRecords: [SyncHistoryRecord] = []
+        if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
+            historyRecords.append(SyncHistoryRecord(
+                runId: runId,
+                action: .copy,
+                sourcePath: from.path,
+                destPath: to.path,
+                sizeBytes: diff.leftFileSize,
+                checksum: nil,
+                backupPath: trashed?.path,
+                direction: "→ Right"
+            ))
         }
+        if !result.successes.isEmpty {
+            undoManager?.setActionName("Sync run")
+            undoManager?.endUndoGrouping()
+        }
+        recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.
@@ -374,6 +396,13 @@ extension FileSyncManager {
             )
         }
 
+        // Group the whole run's per-file undo registrations into ONE undo step so "Undo last
+        // sync run" (and ⌘Z) reverses the entire bulk sync at once, reusing the existing
+        // per-file reversal — no new mutation path. Named so the run reads as a unit in the Undo
+        // menu; the empty case opens no group.
+        let runId = UUID()
+        var historyRecords: [SyncHistoryRecord] = []
+        if !result.successes.isEmpty { undoManager?.beginUndoGrouping() }
         for (diff, (trashed, from, to)) in result.successes {
             let actionName = "Sync \(diff.relativePath.components(separatedBy: "/").last ?? "")"
             if isMove {
@@ -381,7 +410,26 @@ extension FileSyncManager {
             } else {
                 registerCopyUndo(items: [(source: from, destination: to, overwritten: trashed)], actionName: actionName, fileManager: activeFM)
             }
+            // Size is free from the difference (source side). Checksum is deliberately nil at op
+            // time: hashing inline would slow a bulk run of hundreds of files — the "with
+            // checksum" contract is met by the field existing, to be populated by a later Verify.
+            let size = diff.action == .copyToRight ? diff.leftFileSize : diff.rightFileSize
+            historyRecords.append(SyncHistoryRecord(
+                runId: runId,
+                action: isMove ? .move : .copy,
+                sourcePath: from.path,
+                destPath: to.path,
+                sizeBytes: size,
+                checksum: nil,
+                backupPath: trashed?.path,
+                direction: diff.action == .copyToRight ? "→ Right" : "← Left"
+            ))
         }
+        if !result.successes.isEmpty {
+            undoManager?.setActionName("Sync run")
+            undoManager?.endUndoGrouping()
+        }
+        recordSyncHistory(historyRecords)
         removeResolvedDifferences(matching: result.successes.map { $0.0 })
         // No per-failure isSyncing reset here: the defer above clears the flag for every
         // item of this run, and nothing can observe the list before it runs.

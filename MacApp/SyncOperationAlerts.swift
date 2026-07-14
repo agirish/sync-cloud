@@ -199,6 +199,19 @@ struct SyncOperationAlerts {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    /// Confirms reversing the most recent sync run before it touches any files. Reversal reuses
+    /// the app's existing undo stack (safeMove-back, Trash-restore) — recoverable, and itself
+    /// redoable — so Return proceeds and Escape cancels.
+    /// - Returns: True to reverse the last run.
+    static func confirmUndoLastSyncRun() -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Undo the last sync run?"
+        alert.informativeText = "This reverses the most recent copy, move, or delete run — moving files back to where they were. You can redo it afterward."
+        alert.addButton(withTitle: "Undo Last Run") // Return key default
+        alert.addButton(withTitle: "Cancel")         // Escape
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
     /// - Parameter itemNames: The names of the files/folders
     /// - Returns: True if confirmed for immediate permanent deletion.
