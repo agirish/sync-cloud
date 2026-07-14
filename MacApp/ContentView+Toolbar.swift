@@ -167,6 +167,24 @@ extension ContentView {
             .disabled(isScanning)
             .help("Scan for changes")
 
+            Button(action: { withAnimation { toggleTopPanesForCurrentTab() } }) {
+                let topVisible = !topPanesHiddenForCurrentTab
+                Label(TopPaneVisibility.title(topVisible: topVisible),
+                      systemImage: TopPaneVisibility.symbol)
+                    // Mirrors the bottom-pane toggle's tint-for-state so the two read as a pair:
+                    // accent while the panes are up, dimmed when they're collapsed.
+                    .foregroundStyle(topVisible
+                        ? AnyShapeStyle(Color.accentColor)
+                        : AnyShapeStyle(.secondary))
+            }
+            // Only the single-provider workspaces (Tidy, Storage Lens) can hide the comparison
+            // panes; on Differences/Details the panes are essential, so the toggle is inert.
+            .disabled(!canHideTopPanesForCurrentTab)
+            .help(canHideTopPanesForCurrentTab
+                  ? TopPaneVisibility.helpText(topVisible: !topPanesHiddenForCurrentTab)
+                  : TopPaneVisibility.disabledHelpText)
+            .accessibilityLabel(TopPaneVisibility.title(topVisible: !topPanesHiddenForCurrentTab))
+
             Button(action: { withAnimation { showingBottomPane.toggle() } }) {
                 Label(BottomPaneToggle.title(paneVisible: showingBottomPane),
                       systemImage: BottomPaneToggle.symbol)
@@ -176,7 +194,12 @@ extension ContentView {
                         ? AnyShapeStyle(Color.accentColor)
                         : AnyShapeStyle(.secondary))
             }
-            .help(BottomPaneToggle.helpText(paneVisible: showingBottomPane))
+            // When the top panes are hidden the workspace is the only content; hiding the
+            // bottom too would empty the window, so the toggle is disabled there.
+            .disabled(topPanesHiddenForCurrentTab)
+            .help(topPanesHiddenForCurrentTab
+                  ? "Show the top panes first to hide the bottom pane"
+                  : BottomPaneToggle.helpText(paneVisible: showingBottomPane))
             .accessibilityLabel(BottomPaneToggle.title(paneVisible: showingBottomPane))
 
             Button(action: { openWindow(id: "activity-log") }) {

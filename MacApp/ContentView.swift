@@ -104,6 +104,11 @@ struct ContentView: View {
     /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
     @AppStorage("selectedBottomTab") private var selectedBottomTab: BottomTab = .differences
 
+    /// Per-tab override of the top-pane visibility, a JSON map (tab raw value → hidden).
+    /// Empty means "no overrides — every tab uses its default". Persisted, so deliberately
+    /// showing or hiding the Left/Right panes on Tidy or Storage Lens sticks across launches.
+    @AppStorage("topPaneOverridesByTab") private var topPaneOverridesRaw: String = ""
+
     /// True once the user manually picks the Differences tab via the segmented Picker;
     /// suppresses the selection-driven auto-switch to Details until they manually pick
     /// Details again. Per-launch only — deliberately not persisted.
@@ -473,6 +478,50 @@ struct ContentView: View {
                 selectedBottomTab = tab
             }
         )
+    }
+
+    // MARK: - Top-pane (Left/Right) visibility
+
+    /// The three mutually-exclusive vertical layouts. Hiding the top panes wins over hiding
+    /// the bottom pane so the window can never end up empty: on a top-hidden tab the workspace
+    /// always fills, regardless of `showingBottomPane`.
+    enum VerticalLayout { case split, panesOnly, workspaceOnly }
+
+    /// Whether the current tab can hide its top panes at all — only the single-provider
+    /// workspaces (Tidy, Storage Lens) can; the comparison tabs always keep them.
+    var canHideTopPanesForCurrentTab: Bool {
+        TopPaneVisibility.canHideTopPanes(for: selectedBottomTab)
+    }
+
+    /// Whether the top Left/Right panes are hidden for the current tab, honoring any stored
+    /// per-tab override on top of the tab's default. Computed (not stored) so switching tabs
+    /// auto-applies each tab's remembered state with no onChange plumbing.
+    var topPanesHiddenForCurrentTab: Bool {
+        TopPaneVisibility.topHidden(
+            for: selectedBottomTab,
+            override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[selectedBottomTab.rawValue]
+        )
+    }
+
+    /// Resolves the vertical layout from the top-pane and bottom-pane visibility.
+    var verticalLayout: VerticalLayout {
+        if topPanesHiddenForCurrentTab { return .workspaceOnly }
+        return showingBottomPane ? .split : .panesOnly
+    }
+
+    /// Toggles the top panes for the current tab and remembers the choice for it. When
+    /// re-showing the panes, the bottom workspace is forced visible too, so the user lands on
+    /// the split rather than a panes-only view with the workspace they were using gone.
+    func toggleTopPanesForCurrentTab() {
+        guard canHideTopPanesForCurrentTab else { return }
+        let wasHidden = topPanesHiddenForCurrentTab
+        let overrides = TopPaneVisibility.settingOverride(
+            TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
+            tab: selectedBottomTab,
+            hidden: !wasHidden
+        )
+        topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
+        if wasHidden { showingBottomPane = true }
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -891,6 +940,9 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContentView: some View {
         verticalSplit
+        // Animate the panes collapsing/expanding when the tab's top-pane state flips — both on
+        // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
+        .animation(.easeInOut(duration: 0.2), value: topPanesHiddenForCurrentTab)
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {

@@ -93,7 +93,17 @@ extension ContentView {
     var verticalSplit: some View {
         GeometryReader { geo in
             let totalHeight = geo.size.height
-            if showingBottomPane {
+            switch verticalLayout {
+            case .workspaceOnly:
+                // The top Left/Right panes are hidden for this tab (Tidy / Storage Lens): the
+                // bottom workspace takes the whole content area. It always wins over a hidden
+                // bottom pane, so this branch can never leave the window empty.
+                bottomPaneView
+                    .frame(width: geo.size.width, height: totalHeight)
+            case .panesOnly:
+                panesSplit
+                    .panesRegionFrame(surfaceStyle)
+            case .split:
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
                 let dividerHeight: CGFloat = 1
@@ -115,9 +125,6 @@ extension ContentView {
                 }
                 .frame(width: geo.size.width, height: totalHeight)
                 .coordinateSpace(.named(Self.verticalStackSpace))
-            } else {
-                panesSplit
-                    .panesRegionFrame(surfaceStyle)
             }
         }
     }
