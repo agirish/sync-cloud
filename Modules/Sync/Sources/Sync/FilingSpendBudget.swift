@@ -19,9 +19,14 @@ public struct FilingSpendPreflight: Sendable, Equatable {
     public let monthlySpentUSD: Double
     /// The monthly budget cap. 0 = no cap (unlimited/off).
     public let monthlyCapUSD: Double
+    /// What cloud Filing has spent in total (lifetime), across every month.
+    public let totalSpentUSD: Double
+    /// The total (lifetime) budget cap. 0 = no cap (unlimited/off).
+    public let totalCapUSD: Double
 
     public init(fileCount: Int, model: String, estInputTokens: Int, estOutputTokens: Int,
-                estCostUSD: Double, monthlySpentUSD: Double, monthlyCapUSD: Double) {
+                estCostUSD: Double, monthlySpentUSD: Double, monthlyCapUSD: Double,
+                totalSpentUSD: Double, totalCapUSD: Double) {
         self.fileCount = fileCount
         self.model = model
         self.estInputTokens = estInputTokens
@@ -29,12 +34,25 @@ public struct FilingSpendPreflight: Sendable, Equatable {
         self.estCostUSD = estCostUSD
         self.monthlySpentUSD = monthlySpentUSD
         self.monthlyCapUSD = monthlyCapUSD
+        self.totalSpentUSD = totalSpentUSD
+        self.totalCapUSD = totalCapUSD
     }
 
-    /// True when a cap is set (> 0) and running this call would push the month's spend past it.
-    /// A cap of 0 means unlimited, so this is always false there — the user is never surprise-blocked.
-    public var wouldExceedCap: Bool {
+    /// True when the monthly cap is set (> 0) and running this call would push the month's spend past it.
+    public var wouldExceedMonthlyCap: Bool {
         monthlyCapUSD > 0 && (monthlySpentUSD + estCostUSD) > monthlyCapUSD
+    }
+
+    /// True when the total (lifetime) cap is set (> 0) and running this call would push lifetime spend past it.
+    public var wouldExceedTotalCap: Bool {
+        totalCapUSD > 0 && (totalSpentUSD + estCostUSD) > totalCapUSD
+    }
+
+    /// True when running this call would breach EITHER the monthly or the total cap. A cap of 0 on a
+    /// dimension means unlimited there, so an all-zero-cap preflight is never blocked — the user is
+    /// never surprise-blocked by a dimension they left off.
+    public var wouldExceedCap: Bool {
+        wouldExceedMonthlyCap || wouldExceedTotalCap
     }
 }
 
@@ -55,10 +73,11 @@ public enum FilingSpendBudget {
         }
     }
 
-    /// True when a cap is set (> 0) and the month's spend has already reached or passed it. Used as a
-    /// hard gate before a cloud call: at or over the cap, no further cloud calls run this month. A cap
-    /// of 0 means unlimited, so this is always false.
-    public static func isOverCap(monthlySpent: Double, capUSD: Double) -> Bool {
-        capUSD > 0 && monthlySpent >= capUSD
+    /// True when a cap is set (> 0) and `spent` has already reached or passed it. Used as a hard gate
+    /// before a cloud call — at or over the cap, no further cloud calls run. Dimension-agnostic: pass
+    /// this month's spend against the monthly cap, or lifetime spend against the total cap. A cap of 0
+    /// means unlimited, so this is always false there.
+    public static func isOverCap(spent: Double, capUSD: Double) -> Bool {
+        capUSD > 0 && spent >= capUSD
     }
 }

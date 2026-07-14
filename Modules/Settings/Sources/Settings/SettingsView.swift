@@ -346,6 +346,8 @@ enum SettingsSearchIndex {
               keywords: ["spend", "cost", "tokens", "billing", "usage", "money", "price"]),
         .init(tab: .tidy, title: "Monthly budget cap",
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
+        .init(tab: .tidy, title: "Total budget cap",
+              keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
 
         // Advanced
         .init(tab: .advanced, title: "Log level",
@@ -1144,6 +1146,7 @@ struct TidySettingsTab: View {
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-haiku-4-5"
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
+    @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
 
     @State private var apiKeyField: String = ""
     @State private var hasStoredKey = false
@@ -1219,6 +1222,14 @@ struct TidySettingsTab: View {
                     Text("$25").tag(25.0)
                     Text("$50").tag(50.0)
                 }
+                Picker("Total budget cap", selection: $totalBudgetUSD) {
+                    Text("Off (no limit)").tag(0.0)
+                    Text("$5").tag(5.0)
+                    Text("$10").tag(10.0)
+                    Text("$25").tag(25.0)
+                    Text("$50").tag(50.0)
+                    Text("$100").tag(100.0)
+                }
                 LabeledContent("Total spent", value: FilingSpendFormat.cost(spendTotals.costUSD))
                 LabeledContent("Tokens", value: FilingSpendFormat.tokens(spendTotals.tokens))
                 LabeledContent("Cloud scans", value: "\(spendTotals.scans)")
@@ -1236,7 +1247,7 @@ struct TidySettingsTab: View {
             } header: {
                 Text("Cloud spend")
             } footer: {
-                Text("Before each cloud (Claude) scan you’ll see a cost estimate to confirm. Set a monthly budget cap to pause cloud classification when this month’s spend would exceed it — Off means no limit. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); on-device and keyword suggestions are free.")
+                Text("Before each cloud (Claude) scan you’ll see a cost estimate to confirm. Two caps pause cloud classification when a scan would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached falls back to the free on-device suggestions until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); on-device and keyword suggestions are free.")
             }
         }
         .formStyle(.grouped)

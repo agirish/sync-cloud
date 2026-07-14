@@ -221,10 +221,30 @@ extension FileSyncManager {
     /// would exceed it, cloud calls pause and Filing falls back to its on-device suggestions.
     public static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
 
+    /// Total (lifetime) budget cap for cloud (Claude) Filing spend, in USD. Unlike the monthly cap,
+    /// this ships ON by default (`defaultTotalBudgetCapUSD`) as a safety backstop — a runaway or
+    /// forgotten cloud setup can't quietly rack up unbounded lifetime spend. 0 = off/unlimited.
+    public nonisolated static let totalBudgetCapKey = "tidyFilingTotalBudgetUSD"
+
+    /// Default total (lifetime) cap applied when the user has never set one. Kept in sync with the
+    /// Settings picker's default; read through `totalBudgetCap(in:)` so an absent key means "$5 cap",
+    /// not `UserDefaults.double`'s 0 (which would read as "off"). `nonisolated` (like `totalBudgetCapKey`)
+    /// so the belt-and-suspenders cap check in `CloudFilingClassifier` can read it off the main actor.
+    public nonisolated static let defaultTotalBudgetCapUSD = 5.0
+
+    /// The effective total (lifetime) cap for a defaults store. An ABSENT key means the user hasn't
+    /// chosen — apply the shipped `$5` default; a present value (including an explicit `0` = "Off")
+    /// is honored as-is. This is why the total cap can't just use `defaults.double(forKey:)`.
+    public nonisolated static func totalBudgetCap(in defaults: UserDefaults) -> Double {
+        defaults.object(forKey: totalBudgetCapKey) == nil ? defaultTotalBudgetCapUSD
+                                                          : defaults.double(forKey: totalBudgetCapKey)
+    }
+
     /// Decides whether the cloud (Claude) classifier may run for this batch. Returns true immediately
     /// when cloud is off (the on-device path is free — never gated). When cloud is on, it builds a
-    /// pre-flight cost estimate (`FilingSpendPreflight`) from this month's spend and the batch's
-    /// estimated tokens, consults `filingCloudSpendConfirmer`, and returns its answer — logging when a
+    /// pre-flight cost estimate (`FilingSpendPreflight`) from this month's and lifetime spend, the
+    /// monthly + total caps, and the batch's estimated tokens, consults `filingCloudSpendConfirmer`,
+    /// and returns its answer — logging when a
     /// call is skipped so a paused/declined scan is auditable. Returning false here leaves the scan's
     /// on-device suggestions in place (graceful fallback).
     private func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
@@ -235,14 +255,18 @@ extension FileSyncManager {
         let estCost = CloudFilingProtocol.estimatedCostUSD(
             model: model, taxonomyFolders: taxonomyFolders, files: files) ?? 0
         let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
-        let cap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
+        let totalSpent = FilingSpendStore.totals().costUSD
+        let monthlyCap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
+        let totalCap = Self.totalBudgetCap(in: filingContentDefaults)
         let preflight = FilingSpendPreflight(
             fileCount: files.count, model: model,
             estInputTokens: estTokens.input, estOutputTokens: estTokens.output,
-            estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: cap)
+            estCostUSD: estCost, monthlySpentUSD: monthlySpent, monthlyCapUSD: monthlyCap,
+            totalSpentUSD: totalSpent, totalCapUSD: totalCap)
         if filingCloudSpendConfirmer(preflight) { return true }
-        let capNote = cap > 0 ? " / cap \(FilingSpendFormat.cost(cap))" : ""
-        Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(estCost)), this month \(FilingSpendFormat.cost(monthlySpent))\(capNote))")
+        let monthNote = monthlyCap > 0 ? " / month cap \(FilingSpendFormat.cost(monthlyCap))" : ""
+        let totalNote = totalCap > 0 ? " / total cap \(FilingSpendFormat.cost(totalCap))" : ""
+        Logger.shared.info("Filing: cloud classify skipped for \(files.count) file(s) — spend guardrail declined (est \(FilingSpendFormat.cost(estCost)), this month \(FilingSpendFormat.cost(monthlySpent))\(monthNote), lifetime \(FilingSpendFormat.cost(totalSpent))\(totalNote))")
         return false
     }
 

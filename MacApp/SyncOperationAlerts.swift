@@ -157,7 +157,8 @@ struct SyncOperationAlerts {
     nonisolated static func filingSpendMessage(_ p: FilingSpendPreflight) -> String {
         let noun = p.fileCount == 1 ? "file" : "files"
         if p.wouldExceedCap {
-            return "This would exceed your monthly cloud budget"
+            let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
+            return "This would exceed your \(which) cloud budget"
         }
         return "Classify \(p.fileCount) \(noun) with \(FilingSpendFormat.model(p.model))?"
     }
@@ -170,11 +171,15 @@ struct SyncOperationAlerts {
             + "(\(FilingSpendFormat.tokens(p.estInputTokens)) in / \(FilingSpendFormat.tokens(p.estOutputTokens)) out). "
             + "The exact cost is billed to your Anthropic API key and known only after the call."
         if p.monthlyCapUSD > 0 {
-            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of \(FilingSpendFormat.cost(p.monthlyCapUSD)) cap."
-            if p.wouldExceedCap {
-                text += " Running this would exceed the cap, so it's blocked — Filing will use its "
-                    + "free on-device suggestions instead. Raise or turn off the cap in Settings → Tidy."
-            }
+            text += "\n\nThis month: \(FilingSpendFormat.cost(p.monthlySpentUSD)) of \(FilingSpendFormat.cost(p.monthlyCapUSD)) monthly cap."
+        }
+        if p.totalCapUSD > 0 {
+            text += "\(p.monthlyCapUSD > 0 ? "\n" : "\n\n")Lifetime: \(FilingSpendFormat.cost(p.totalSpentUSD)) of \(FilingSpendFormat.cost(p.totalCapUSD)) total cap."
+        }
+        if p.wouldExceedCap {
+            let which = p.wouldExceedTotalCap && !p.wouldExceedMonthlyCap ? "total" : "monthly"
+            text += " Running this would exceed the \(which) cap, so it's blocked — Filing will use its "
+                + "free on-device suggestions instead. Raise or turn off the cap in Settings → Tidy."
         }
         return text
     }

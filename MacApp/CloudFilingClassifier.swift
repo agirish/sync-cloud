@@ -28,13 +28,19 @@ enum CloudFilingClassifier {
         guard !allFiles.isEmpty else { return [:] }
 
         // Hard budget cap (X6, belt-and-suspenders): even if the pre-flight UI gate was somehow
-        // bypassed, never make a cloud call once this calendar month's spend has reached the cap.
-        // Returning nil reuses the existing graceful on-device fallback. Cap of 0 = unlimited, so
-        // this never fires by default and cloud behavior is unchanged when no cap is set.
-        let cap = UserDefaults.standard.double(forKey: FileSyncManager.monthlyBudgetCapKey)
+        // bypassed, never make a cloud call once EITHER the monthly or the total (lifetime) cap has
+        // been reached. Returning nil reuses the existing graceful on-device fallback. A monthly cap
+        // of 0 = unlimited; the total cap defaults to $5 (see `totalBudgetCap(in:)`).
+        let monthlyCap = UserDefaults.standard.double(forKey: FileSyncManager.monthlyBudgetCapKey)
+        let totalCap = FileSyncManager.totalBudgetCap(in: .standard)
         let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
-        if FilingSpendBudget.isOverCap(monthlySpent: monthlySpent, capUSD: cap) {
-            Logger.shared.info("Cloud Filing paused — monthly budget cap \(FilingSpendFormat.cost(cap)) reached (\(FilingSpendFormat.cost(monthlySpent)) spent this month) — using on-device suggestions")
+        let totalSpent = FilingSpendStore.totals().costUSD
+        if FilingSpendBudget.isOverCap(spent: monthlySpent, capUSD: monthlyCap) {
+            Logger.shared.info("Cloud Filing paused — monthly budget cap \(FilingSpendFormat.cost(monthlyCap)) reached (\(FilingSpendFormat.cost(monthlySpent)) spent this month) — using on-device suggestions")
+            return nil
+        }
+        if FilingSpendBudget.isOverCap(spent: totalSpent, capUSD: totalCap) {
+            Logger.shared.info("Cloud Filing paused — total budget cap \(FilingSpendFormat.cost(totalCap)) reached (\(FilingSpendFormat.cost(totalSpent)) spent lifetime) — using on-device suggestions")
             return nil
         }
 
