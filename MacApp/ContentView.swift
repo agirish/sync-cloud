@@ -864,6 +864,15 @@ struct ContentView: View {
         syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
     }
 
+    /// Toggles the shared Quick Look panel for `url`: opens a preview of that file, or — when the
+    /// panel is already previewing that same file — closes it, so one button both opens and dismisses
+    /// (Space and Esc close it too). Clicking a *different* file re-targets the open panel rather than
+    /// closing it. `.quickLookPreview($quickLookURL)` resets the binding to nil on manual dismissal,
+    /// keeping this toggle in step with the panel's real state.
+    func toggleQuickLook(_ url: URL) {
+        quickLookURL = (quickLookURL == url) ? nil : url
+    }
+
     /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
     func findFilingSuggestionsAction() {
         let folder = tidyScanRootExpanded
@@ -1095,7 +1104,7 @@ struct ContentView: View {
                 onFindFilingSuggestions: findFilingSuggestionsAction,
                 onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
-                onQuickLook: { quickLookURL = $0 }
+                onQuickLook: { toggleQuickLook($0) }
             )
         } else if selectedBottomTab == .storageLens {
             // Storage Lens owns its own cards (toolbar + content) with the tabs inline, like Tidy.
@@ -1108,11 +1117,11 @@ struct ContentView: View {
                 onReveal: { path in
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
                 },
-                onQuickLook: { path in quickLookURL = URL(fileURLWithPath: path) }
+                onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path)) }
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { quickLookURL = $0 }, leadingHeader: AnyView(bottomTabPicker))
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, leadingHeader: AnyView(bottomTabPicker))
         } else {
             // Details / empty / no-scan: a slim tabs card, then the content as its own card.
             VStack(spacing: 8) {

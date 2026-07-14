@@ -179,7 +179,8 @@ public struct NameNormalizeLens: View {
 // MARK: - Risky name row
 
 /// One risky name rendered as a card: the item's location, its current name → safe replacement (with
-/// invisible characters made visible), the reason it's risky, and per-row Fix / Skip actions.
+/// invisible characters made visible), the reason it's risky, and a footer of actions — Preview /
+/// Reveal to look before deciding, then Skip / Fix.
 private struct RiskyNameCard: View {
     let risky: RiskyName
     let accent: Color
@@ -191,7 +192,7 @@ private struct RiskyNameCard: View {
     var onPreview: (() -> Void)? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 Image(nsImage: FileIconCache.icon(name: risky.currentName, isDirectory: risky.isDirectory))
                     .resizable().frame(width: 26, height: 26)
@@ -202,10 +203,10 @@ private struct RiskyNameCard: View {
                     reasonRow
                 }
                 Spacer(minLength: 8)
-                actions
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            actionsFooter
         }
+        .padding(.horizontal, 14).padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -242,36 +243,25 @@ private struct RiskyNameCard: View {
             .lineLimit(2)
     }
 
-    private var actions: some View {
-        VStack(spacing: 6) {
-            Button(action: onFix) {
-                Label("Fix", systemImage: "checkmark")
-                    .frame(maxWidth: .infinity)
+    /// One footer row of labeled, comfortably-sized buttons. Read-only "look before you act"
+    /// utilities (Preview / Reveal) sit on the left; the decision (Skip / Fix, Fix prominent) sits on
+    /// the right. A single labeled action zone reads far cleaner — and each target is far easier to
+    /// hit — than a corner cluster of tiny icon glyphs, and it mirrors the sibling Filing card's
+    /// footer. Preview and Reveal touch nothing, so they stay usable while a batch fix runs.
+    private var actionsFooter: some View {
+        HStack(spacing: 9) {
+            if let onPreview {
+                Button(action: onPreview) { Label("Preview", systemImage: "eye") }
+                    .help("Quick Look this \(itemKind) — click again, or press Space/Esc, to close")
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            Button(action: onSkip) {
-                Text("Skip").frame(maxWidth: .infinity)
-            }
-            .controlSize(.small)
-            // Read-only utilities — look at the file (or find it in Finder) before deciding whether
-            // to fix or skip. A compact icon pair so Fix/Skip stay the visual priority; both are safe
-            // to use any time (they touch nothing), including while a batch fix is running.
-            HStack(spacing: 4) {
-                if let onPreview {
-                    Button(action: onPreview) { Image(systemName: "eye") }
-                        .help("Quick Look this \(itemKind)")
-                        .accessibilityLabel("Quick Look")
-                }
-                Button(action: onReveal) { Image(systemName: RevealGlyph.inFinder) }
-                    .help("Show this \(itemKind) in Finder")
-                    .accessibilityLabel("Show in Finder")
-            }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .frame(maxWidth: .infinity)
+            Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
+                .help("Show this \(itemKind) in Finder")
+            Spacer(minLength: 12)
+            Button("Skip", action: onSkip)
+            Button(action: onFix) { Label("Fix", systemImage: "checkmark") }
+                .buttonStyle(.borderedProminent)
         }
-        .fixedSize(horizontal: true, vertical: false)
+        .controlSize(.small)
     }
 
     private var itemKind: String { risky.isDirectory ? "folder" : "file" }
