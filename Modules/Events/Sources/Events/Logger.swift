@@ -98,6 +98,31 @@ public struct LogEntry: Identifiable, Sendable {
         return "[\(Self.timestampFormatter.string(from: timestamp))] [\(level.rawValue)] \(message)"
     }
 
+    /// The inverse of ``formattedString``: reconstructs an entry from one canonical log line so the
+    /// Activity Log can display history from `~/sync-cloud.log` that predates the current session.
+    /// Returns nil for any line that doesn't match the exact `[timestamp] [LEVEL] ` shape (a blank
+    /// line, or a partial line left by a mid-write trim), so a malformed line is skipped, not shown.
+    ///
+    /// Anchored on the leading `] [` / `] ` markers rather than a fixed offset, and it only ever
+    /// consumes the FIRST such markers — the timestamp and level tokens contain neither, so a
+    /// message that itself embeds `] [` (a crafted filename) lands wholly in `message` and cannot
+    /// forge a second entry. Writes already strip newlines, so one file line is always one entry.
+    public nonisolated static func parse(_ line: String) -> LogEntry? {
+        guard line.hasPrefix("["),
+              let tsClose = line.range(of: "] ["),
+              let levelClose = line.range(of: "] ", range: tsClose.upperBound..<line.endIndex) else {
+            return nil
+        }
+        let timestampText = String(line[line.index(after: line.startIndex)..<tsClose.lowerBound])
+        let levelText = String(line[tsClose.upperBound..<levelClose.lowerBound])
+        let message = String(line[levelClose.upperBound...])
+        guard let level = LogLevel(rawValue: levelText),
+              let timestamp = timestampFormatter.date(from: timestampText) else {
+            return nil
+        }
+        return LogEntry(timestamp: timestamp, level: level, message: message)
+    }
+
     /// The developer-oriented `" | Location: file:line / function"` tail that `warning`/`error`
     /// append, split from the human-readable message. The Activity Log shows `body` prominently and
     /// `location` as a dimmed caption, so a warning row reads as its message, not as a file path.

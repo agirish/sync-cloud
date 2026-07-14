@@ -72,12 +72,64 @@ import Events
 
     // MARK: Empty-state classification
 
-    @Test func testEmptyStateDistinguishesNeverLoggedFromFilteredOut() {
-        // Rows visible → no empty state, regardless of how they got there.
-        #expect(LogEmptyState.classify(hasEntries: true, hasVisibleRows: true) == .none)
-        // Entries exist but the filters hide them all → the "Clear Filters" dead end.
-        #expect(LogEmptyState.classify(hasEntries: true, hasVisibleRows: false) == .noMatches)
-        // Nothing logged this session → the explain-the-surface state.
-        #expect(LogEmptyState.classify(hasEntries: false, hasVisibleRows: false) == .noActivity)
+    @Test func testEmptyStateVisibleRowsWinRegardlessOfSource() {
+        // Any visible rows (session or history) → no empty state.
+        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false) == .none)
+        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: false, historyLoaded: true) == .none)
+    }
+
+    @Test func testEmptyStateFilteredOutIsNoMatches() {
+        // Raw entries exist (this session and/or loaded history) but the filters hide them all.
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false) == .noMatches)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: true) == .noMatches)
+    }
+
+    @Test func testEmptyStateQuietSessionOffersHistory() {
+        // Nothing this session and history not loaded yet → the explain-and-offer-history state.
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false) == .noActivity)
+    }
+
+    @Test func testEmptyStateHistoryLoadedButEmptyIsNoEarlierActivity() {
+        // History was loaded and the log holds nothing older → the honest end state, not "load it".
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true) == .noEarlierActivity)
+    }
+
+    // MARK: History loading (parse + boundary + order)
+
+    /// Builds a canonical log-file text (oldest-first, as on disk) from (secondsAgo, level, message)
+    /// tuples relative to a fixed base instant, so the boundary math is deterministic.
+    private func logText(_ lines: [(offset: TimeInterval, level: LogLevel, message: String)], base: Date) -> String {
+        lines.map { LogEntry(timestamp: base.addingTimeInterval($0.offset), level: $0.level, message: $0.message).formattedString }
+            .joined(separator: "\n")
+    }
+
+    @Test func testHistoryLoaderReturnsOnlyOlderThanBoundaryNewestFirst() {
+        let base = Date(timeIntervalSince1970: 1_000_000)
+        let sessionStart = base.addingTimeInterval(100)
+        let text = logText([
+            (0,   .info,    "old one"),      // older than session
+            (50,  .warning, "old two"),      // older than session
+            (100, .info,    "session start"),// == boundary → excluded (strictly older only)
+            (150, .info,    "this session"), // newer → excluded
+        ], base: base)
+        let history = LogHistoryLoader.parseOlderThan(sessionStart, text: text)
+        // Only the two pre-session entries, newest-first.
+        #expect(history.map(\.message) == ["old two", "old one"])
+    }
+
+    @Test func testHistoryLoaderSkipsMalformedLinesAndBlanks() {
+        let base = Date(timeIntervalSince1970: 2_000_000)
+        let sessionStart = base.addingTimeInterval(1000)
+        let good = LogEntry(timestamp: base, level: .info, message: "real entry").formattedString
+        let text = "\n\(good)\nnot a log line\n[garbage without level] hi\n"
+        let history = LogHistoryLoader.parseOlderThan(sessionStart, text: text)
+        #expect(history.map(\.message) == ["real entry"])
+    }
+
+    @Test func testHistoryLoaderEmptyWhenNothingOlder() {
+        let base = Date(timeIntervalSince1970: 3_000_000)
+        // Boundary before every line → no history.
+        let text = logText([(10, .info, "a"), (20, .info, "b")], base: base)
+        #expect(LogHistoryLoader.parseOlderThan(base, text: text).isEmpty)
     }
 }
