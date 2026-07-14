@@ -60,14 +60,18 @@ extension FileSyncManager {
     // MARK: Dry run
 
     /// Starts a cancellable dry-run preview of the enabled rules over `root`, replacing any in-flight
-    /// one. `providerName` labels the surface and resolves the `{provider}` token.
+    /// one. `root` is the folder whose loose files are scanned; `destinationRoot` is the anchor a
+    /// rule's (provider-relative) destination template resolves against — the **provider root**, not
+    /// the scanned folder, so previewing while focused into a subfolder still files into the same
+    /// place. `providerName` labels the surface and resolves the `{provider}` token.
     /// `only` scopes the preview to a single rule (its id); nil previews all enabled, runnable rules.
-    public func startAutomationDryRun(root: URL, providerName: String?, only: UUID? = nil) {
+    public func startAutomationDryRun(root: URL, destinationRoot: URL, providerName: String?, only: UUID? = nil) {
         let previous = automationDryRunTask
         previous?.cancel()
         automationDryRunTask = Task { [weak self] in
             _ = await previous?.value   // let a cancelled run unwind before the guard below
-            await self?.runAutomationDryRun(root: root, providerName: providerName, only: only)
+            await self?.runAutomationDryRun(root: root, destinationRoot: destinationRoot,
+                                            providerName: providerName, only: only)
         }
     }
 
@@ -89,6 +93,7 @@ extension FileSyncManager {
     /// the expensive text extraction.
     func runAutomationDryRun(
         root: URL,
+        destinationRoot: URL? = nil,
         providerName: String?,
         only: UUID? = nil,
         fileManager fm: FileManaging? = nil,
@@ -97,6 +102,9 @@ extension FileSyncManager {
         guard !isRunningAutomationDryRun else { return }
         ensureAutomationRulesLoaded()
         let fileManager = fm ?? self.fileManager
+        // Destinations resolve against the provider root; callers that don't distinguish (tests
+        // scanning a self-contained temp dir) anchor at the scanned folder itself.
+        let destinationAnchor = destinationRoot ?? root
         // A single-rule preview (only != nil) runs even if that rule is toggled off, so a rule can be
         // tested before enabling it; "preview all" (only == nil) uses just the enabled rules.
         let rules = automationRules.filter { rule in
@@ -145,7 +153,7 @@ extension FileSyncManager {
 
             guard let rule = AutomationEvaluator.firstMatch(in: rules, for: facts, now: now) else { continue }
             let resolution = Self.dryRunVerdict(
-                for: rule, facts: facts, root: root,
+                for: rule, facts: facts, destinationRoot: destinationAnchor,
                 providerName: providerName, now: now, fileManager: fileManager
             )
             rows.append(AutomationDryRunRow(
@@ -172,7 +180,7 @@ extension FileSyncManager {
     nonisolated static func dryRunVerdict(
         for rule: AutomationRule,
         facts: AutomationFileFacts,
-        root: URL,
+        destinationRoot: URL,
         providerName: String?,
         now: Date,
         fileManager: FileManaging
@@ -182,7 +190,7 @@ extension FileSyncManager {
         case .unresolved(let token):
             return (.needsAttention("needs \(token), which this file doesn't have"), nil, nil)
         case .resolved(let relativeDestination):
-            let destinationDir = root.appendingPathComponent(relativeDestination).standardizedFileURL
+            let destinationDir = destinationRoot.appendingPathComponent(relativeDestination).standardizedFileURL
             let currentParent = URL(fileURLWithPath: facts.parentPath).standardizedFileURL
             let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
                                                     : relativeDestination

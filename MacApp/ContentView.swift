@@ -880,11 +880,17 @@ struct ContentView: View {
     /// the Automations lens's own button, so the pane is already on that lens when this runs.
     func startAutomationPreviewAction(only: UUID? = nil) {
         let root = tidyScanRootExpanded
-        guard !root.isEmpty else { return }
+        // Destinations anchor at the provider root, not the focused subfolder — so a rule's
+        // "Home/Utilities/…" template files into the provider root even when previewing inside a
+        // subfolder, instead of nesting the tree under whatever folder happened to be focused.
+        let providerRoot = tidyProviderRootExpanded
+        guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
         selectedBottomTab = .tidy
         showingBottomPane = true
-        syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root), providerName: tidyProviderName, only: only)
+        syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
+                                          destinationRoot: URL(fileURLWithPath: providerRoot),
+                                          providerName: tidyProviderName, only: only)
     }
 
     /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.

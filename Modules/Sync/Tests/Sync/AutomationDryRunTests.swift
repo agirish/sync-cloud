@@ -88,6 +88,35 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("Docs").path))
     }
 
+    @Test func destinationAnchorsAtProviderRootNotScannedSubfolder() async throws {
+        // Regression: previewing while focused into a subfolder used to anchor the destination at
+        // that subfolder, nesting the whole rule tree under it (e.g. TODO/Home/…). Destinations must
+        // anchor at the provider root regardless of which subfolder is scanned.
+        let providerRoot = try tempDir(); defer { try? FileManager.default.removeItem(at: providerRoot) }
+        let scanned = providerRoot.appendingPathComponent("TODO")
+        try FileManager.default.createDirectory(at: scanned, withIntermediateDirectories: true)
+        try write("bill.pdf", in: scanned)
+        let m = makeManager(rules: [
+            AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "Home/Utilities")
+        ])
+        m.undoManager = UndoManager()
+        await m.runAutomationDryRun(root: scanned, destinationRoot: providerRoot, providerName: nil, now: now)
+
+        let report = try #require(m.automationDryRun)
+        let row = try #require(report.rows.first)
+        // The baked destination is under the provider root, not the scanned subfolder.
+        #expect(row.destinationDir?.standardizedFileURL.path
+                == providerRoot.appendingPathComponent("Home/Utilities").standardizedFileURL.path)
+        #expect(row.destinationDir?.path.contains("/TODO/") == false)
+
+        let outcome = await m.applyAutomationFiling(rows: report.rows)
+        #expect(outcome.filed == 1)
+        // Filed into the provider-root tree; nothing created under the scanned subfolder.
+        #expect(FileManager.default.fileExists(
+            atPath: providerRoot.appendingPathComponent("Home/Utilities/bill.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: scanned.appendingPathComponent("Home").path))
+    }
+
     // MARK: Filing (phase B)
 
     @Test func applyFilingMovesApprovedFilesAndClearsAllFiledReport() async throws {
