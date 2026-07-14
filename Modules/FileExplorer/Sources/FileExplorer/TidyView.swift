@@ -589,6 +589,7 @@ public struct TidyView: View {
         AutomationsLens(
             syncManager: syncManager,
             providerName: providerName,
+            scanRoot: scanTargetFolder.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
             onPreview: onPreviewAutomations
         )
     }

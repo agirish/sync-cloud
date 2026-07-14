@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import Sync
 
@@ -57,6 +58,9 @@ private struct DraftCondition: Identifiable {
 /// Cancel discards. No file access here — this only shapes the rule; the preview does the evaluation.
 struct AutomationRuleEditor: View {
     let accent: Color
+    /// The folder destinations resolve against (the folder being previewed). When non-nil, a Browse…
+    /// button appears and relativizes the picked folder against this root; nil hides Browse.
+    let browseRoot: URL?
     let onSave: (AutomationRule) -> Void
     let onCancel: () -> Void
 
@@ -69,9 +73,10 @@ struct AutomationRuleEditor: View {
     @State private var rows: [DraftCondition]
     @State private var destination: String
 
-    init(rule: AutomationRule, accent: Color,
+    init(rule: AutomationRule, accent: Color, browseRoot: URL? = nil,
          onSave: @escaping (AutomationRule) -> Void, onCancel: @escaping () -> Void) {
         self.accent = accent
+        self.browseRoot = browseRoot
         self.onSave = onSave
         self.onCancel = onCancel
         self.ruleID = rule.id
@@ -227,6 +232,13 @@ struct AutomationRuleEditor: View {
             HStack {
                 sectionLabel("File it into")
                 Spacer()
+                if browseRoot != nil {
+                    Button(action: browseForDestination) {
+                        Label("Browse…", systemImage: "folder")
+                    }
+                    .buttonStyle(.borderless)
+                    .controlSize(.small)
+                }
                 Menu {
                     ForEach(AutomationEvaluator.supportedTokens, id: \.self) { token in
                         Button(token) { destination += token }
@@ -241,10 +253,44 @@ struct AutomationRuleEditor: View {
             TextField("Documents/Invoices/{year}", text: $destination)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12, design: .monospaced))
-            Text("Relative to \(name.isEmpty ? "the provider" : "the provider root"). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
+            Text("Relative to \(browseRoot?.lastPathComponent ?? "the folder you preview"). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
                 .font(.system(size: 11)).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Opens a folder picker rooted at `browseRoot` and sets the destination to the picked folder's
+    /// path relative to that root — so Browse yields the same relative path the preview resolves
+    /// against. Tokens like {year} can be appended afterwards.
+    private func browseForDestination() {
+        guard let browseRoot else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose the folder to file matching files into."
+        panel.directoryURL = browseRoot
+        guard panel.runModal() == .OK, let picked = panel.url else { return }
+        if let relative = Self.relativePath(of: picked, under: browseRoot) {
+            destination = relative
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Pick a folder inside \(browseRoot.lastPathComponent)"
+            alert.informativeText = "Automations file into the folder you’re previewing, so the destination has to be inside it. You can append tokens like {year} after choosing."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+    }
+
+    /// The path of `target` relative to `base`, or nil when `target` is not inside `base` (an empty
+    /// string when they’re the same folder). Symlinks are resolved so /var and /private/var match.
+    static func relativePath(of target: URL, under base: URL) -> String? {
+        let baseComponents = base.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let targetComponents = target.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard targetComponents.count >= baseComponents.count,
+              Array(targetComponents.prefix(baseComponents.count)) == baseComponents else { return nil }
+        return targetComponents.dropFirst(baseComponents.count).joined(separator: "/")
     }
 
     private var footer: some View {

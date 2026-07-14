@@ -30,6 +30,9 @@ public struct AutomationsLens: View {
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private let providerName: String?
+    /// The folder the preview scans and destinations resolve against (the focused pane's directory).
+    /// Passed to the rule editor so its Browse… button opens here and yields a matching relative path.
+    private let scanRoot: URL?
     /// Kicks off a dry-run preview of the focused folder (host owns the root/provider derivation).
     private let onPreview: () -> Void
 
@@ -41,10 +44,12 @@ public struct AutomationsLens: View {
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
+        scanRoot: URL? = nil,
         onPreview: @escaping () -> Void
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
+        self.scanRoot = scanRoot
         self.onPreview = onPreview
     }
 
@@ -72,6 +77,7 @@ public struct AutomationsLens: View {
             AutomationRuleEditor(
                 rule: rule,
                 accent: accent,
+                browseRoot: scanRoot,
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
                     editingRule = nil
