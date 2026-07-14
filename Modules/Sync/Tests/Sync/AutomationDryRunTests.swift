@@ -87,4 +87,70 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("a.pdf").path))
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("Docs").path))
     }
+
+    // MARK: Filing (phase B)
+
+    @Test func applyFilingMovesApprovedFilesAndClearsAllFiledReport() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("a.pdf", in: dir)
+        try write("b.pdf", in: dir)
+        let m = makeManager(rules: [
+            AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)], destinationTemplate: "Filed")
+        ])
+        m.undoManager = UndoManager()
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+        let report = try #require(m.automationDryRun)
+        let actionable = report.rows.filter { $0.destinationDir != nil }
+        #expect(actionable.count == 2)
+
+        let outcome = await m.applyAutomationFiling(rows: actionable)
+        #expect(outcome.filed == 2)
+        #expect(outcome.failed == 0)
+        // Files moved into Filed/, sources gone.
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Filed/a.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("Filed/b.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("a.pdf").path))
+        // Everything filed → the preview is cleared.
+        #expect(m.automationDryRun == nil)
+    }
+
+    @Test func filingKeepsBothOnNameCollision() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("report.pdf", in: dir)
+        let filed = dir.appendingPathComponent("Filed")
+        try FileManager.default.createDirectory(at: filed, withIntermediateDirectories: true)
+        try write("report.pdf", in: filed)   // an existing file with the same name at the destination
+        let m = makeManager(rules: [
+            AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "Filed")
+        ])
+        m.undoManager = UndoManager()
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+        let report = try #require(m.automationDryRun)
+        // The row is a collision (needsAttention) but still actionable (destinationDir set).
+        let actionable = report.rows.filter { $0.destinationDir != nil }
+        #expect(actionable.count == 1)
+
+        let outcome = await m.applyAutomationFiling(rows: actionable)
+        #expect(outcome.filed == 1)
+        // Never overwrites: the original stays, the moved one is kept as "report 2.pdf".
+        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("report.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("report 2.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("report.pdf").path))
+    }
+
+    @Test func filingIgnoresNonActionableRows() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("scan.pdf", in: dir, modified: now)
+        // {year} resolves from the file date, so use a token the file can't supply → unresolved.
+        let m = makeManager(rules: [
+            AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "{provider}/x")
+        ])
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)   // no provider → unresolved
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.count == 1)
+        #expect(report.rows.allSatisfy { $0.destinationDir == nil })
+        let outcome = await m.applyAutomationFiling(rows: report.rows)
+        #expect(outcome.filed == 0)
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("scan.pdf").path))
+    }
 }

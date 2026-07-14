@@ -76,6 +76,14 @@ public struct AutomationsLens: View {
     /// True once the user has asked to see results — keeps the results view up until they go back.
     @State private var viewingResults = false
 
+    /// Per-file "ask each time" filing: the actionable rows to step through, the current index, and
+    /// the ones approved so far. `isFiling` drives the review card; the approved set is applied as one
+    /// reversible run when the last file is decided (Cancel before then files nothing).
+    @State private var filingQueue: [AutomationDryRunRow] = []
+    @State private var filingIndex = 0
+    @State private var filingApproved: [AutomationDryRunRow] = []
+    @State private var isFiling = false
+
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
@@ -100,6 +108,8 @@ public struct AutomationsLens: View {
         Group {
             if syncManager.isRunningAutomationDryRun {
                 previewingState
+            } else if isFiling, filingIndex < filingQueue.count {
+                filingReviewState
             } else if viewingResults, let report = syncManager.automationDryRun {
                 resultsState(report)
             } else {
@@ -260,6 +270,15 @@ public struct AutomationsLens: View {
             Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+            let fileable = report.rows.filter { $0.destinationDir != nil }
+            if !fileable.isEmpty {
+                Button(action: { startFiling(fileable) }) {
+                    Label("File \(fileable.count)…", systemImage: "tray.and.arrow.down")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .help("File these \(fileable.count) file\(fileable.count == 1 ? "" : "s") one at a time, confirming each. Moves real files; undoes with ⌘Z.")
+            }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
@@ -313,6 +332,96 @@ public struct AutomationsLens: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
         .background(accent.opacity(0.06))
+    }
+
+    // MARK: Filing (per-file "ask each time")
+
+    private func startFiling(_ actionable: [AutomationDryRunRow]) {
+        filingQueue = actionable
+        filingIndex = 0
+        filingApproved = []
+        isFiling = true
+    }
+
+    private func advanceFiling(approved: Bool) {
+        if approved, filingIndex < filingQueue.count { filingApproved.append(filingQueue[filingIndex]) }
+        filingIndex += 1
+        if filingIndex >= filingQueue.count { finishFiling() }
+    }
+
+    /// End of the review: apply the approved files as one reversible run (nothing moved until now).
+    private func finishFiling() {
+        isFiling = false
+        let approved = filingApproved
+        filingApproved = []
+        filingQueue = []
+        guard !approved.isEmpty else { return }
+        Task { await syncManager.applyAutomationFiling(rows: approved) }
+    }
+
+    private func cancelFiling() {
+        isFiling = false
+        filingQueue = []
+        filingApproved = []
+        filingIndex = 0
+    }
+
+    @ViewBuilder
+    private var filingReviewState: some View {
+        let row = filingQueue[filingIndex]
+        let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()
+        VStack(spacing: 16) {
+            Text("File \(filingIndex + 1) of \(filingQueue.count)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+            VStack(spacing: 10) {
+                Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
+                    .resizable().frame(width: 44, height: 44)
+                Text(row.fileName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.forward").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
+                    Image(systemName: "folder.fill").font(.system(size: 11)).foregroundStyle(accent)
+                    Text(row.destinationLabel ?? "its destination")
+                        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(accent)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                if isCollision {
+                    Text("A file with this name is already there — it’ll be kept as a copy.")
+                        .font(.system(size: 11)).foregroundStyle(.orange)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(.horizontal, 22).padding(.vertical, 18)
+            .frame(maxWidth: 380)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6)))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+            HStack(spacing: 10) {
+                Button(action: { advanceFiling(approved: false) }) {
+                    Label("Skip", systemImage: "arrow.uturn.forward").frame(minWidth: 66)
+                }
+                .controlSize(.large)
+                .keyboardShortcut(.rightArrow, modifiers: [])
+                Button(action: { advanceFiling(approved: true) }) {
+                    Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.return, modifiers: [])
+            }
+            Button("Cancel", action: cancelFiling)
+                .controlSize(.small)
+                .padding(.top, 2)
+            Text("Filing moves real files into \(provider). The whole run undoes with ⌘Z.")
+                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(30)
     }
 
     // MARK: Grouping

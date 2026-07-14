@@ -144,13 +144,14 @@ extension FileSyncManager {
             }
 
             guard let rule = AutomationEvaluator.firstMatch(in: rules, for: facts, now: now) else { continue }
-            let verdict = Self.dryRunVerdict(
+            let resolution = Self.dryRunVerdict(
                 for: rule, facts: facts, root: root,
                 providerName: providerName, now: now, fileManager: fileManager
             )
             rows.append(AutomationDryRunRow(
                 id: file.id, fileName: file.name,
-                ruleID: rule.id, ruleName: rule.name, verdict: verdict
+                ruleID: rule.id, ruleName: rule.name, verdict: resolution.verdict,
+                destinationDir: resolution.destinationDir, destinationLabel: resolution.label
             ))
         }
 
@@ -175,24 +176,112 @@ extension FileSyncManager {
         providerName: String?,
         now: Date,
         fileManager: FileManaging
-    ) -> AutomationVerdict {
+    ) -> (verdict: AutomationVerdict, destinationDir: URL?, label: String?) {
         switch AutomationEvaluator.resolveDestination(rule.destinationTemplate, for: facts,
                                                       providerName: providerName, now: now) {
         case .unresolved(let token):
-            return .needsAttention("needs \(token), which this file doesn't have")
+            return (.needsAttention("needs \(token), which this file doesn't have"), nil, nil)
         case .resolved(let relativeDestination):
             let destinationDir = root.appendingPathComponent(relativeDestination).standardizedFileURL
             let currentParent = URL(fileURLWithPath: facts.parentPath).standardizedFileURL
+            let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
+                                                    : relativeDestination
             if destinationDir.path == currentParent.path {
-                return .alreadyThere
+                return (.alreadyThere, nil, nil)
             }
             let target = destinationDir.appendingPathComponent(facts.name)
             if fileManager.fileExists(atPath: target.path) {
-                return .needsAttention("a file named “\(facts.name)” is already there")
+                // Filable — the move keeps both (never overwrites); flagged so the review card can say so.
+                return (.needsAttention("a file named “\(facts.name)” is already there"), destinationDir, label)
             }
-            let shown = relativeDestination.isEmpty ? providerName.map { "\($0) root" } ?? "the folder root"
-                                                    : relativeDestination
-            return .wouldFile(destination: shown)
+            return (.wouldFile(destination: label), destinationDir, label)
         }
+    }
+
+    // MARK: Filing (phase B — moves real files, one reversible run)
+
+    /// Files the given previewed rows for real: each actionable row (its `destinationDir` set) is
+    /// moved into that folder through the same safe primitives the rest of the app uses — creating
+    /// intermediate folders, **never overwriting** (a name clash is kept as a copy), registering one
+    /// undo action for the whole run, and logging every move to Sync History. The per-file
+    /// confirmation happens in the UI *before* this is called; here we just execute the approved set.
+    /// Returns the number filed and the number that failed.
+    @discardableResult
+    public func applyAutomationFiling(rows: [AutomationDryRunRow]) async -> (filed: Int, failed: Int) {
+        // Don't move files Verify All may be checksumming (same guard Filing uses).
+        guard !isVerifyAllRunning else {
+            banner = .warning("Wait for Verify All to finish before filing")
+            return (0, 0)
+        }
+        let fm = fileManager
+        let logger = Logger.shared
+        let actionable = rows.filter { $0.destinationDir != nil }
+        guard !actionable.isEmpty else { return (0, 0) }
+
+        var moves: [MoveItemState] = []
+        var records: [SyncHistoryRecord] = []
+        var filedPaths: Set<String> = []
+        var failures = 0
+        let runId = UUID()
+
+        for row in actionable {
+            guard let destFolder = row.destinationDir else { continue }
+            let src = URL(fileURLWithPath: row.id)
+            let name = row.fileName
+            let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool) = await enqueueFileOperation {
+                do {
+                    guard fm.fileExists(atPath: src.path) else { return (nil, nil, true) }
+                    try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
+                    var dst = destFolder.appendingPathComponent(name)
+                    if fm.fileExists(atPath: dst.path) {
+                        dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)   // keep both
+                    }
+                    let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
+                    return (dst, overwritten, false)
+                } catch {
+                    logger.warning("Automation filing: moving “\(name)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
+                    return (nil, nil, true)
+                }
+            }
+            if let moved = outcome.movedTo, !outcome.failed {
+                moves.append((from: src, to: moved, overwritten: outcome.overwritten))
+                let size = ((try? fm.attributesOfItem(atPath: moved.path))?[.size] as? NSNumber)?.intValue
+                records.append(SyncHistoryRecord(
+                    runId: runId, action: .move, sourcePath: src.path, destPath: moved.path,
+                    sizeBytes: size, checksum: nil, backupPath: outcome.overwritten?.path, direction: nil
+                ))
+                filedPaths.insert(row.id)
+            } else {
+                failures += 1
+            }
+        }
+
+        guard !moves.isEmpty else {
+            if failures > 0 { banner = .warning("Couldn't file \(failures) file\(failures == 1 ? "" : "s").") }
+            return (0, failures)
+        }
+        // One undo action reverts the whole run, so ⌘Z is honest.
+        registerMoveUndo(items: moves, actionName: "File \(moves.count) file\(moves.count == 1 ? "" : "s") by automation",
+                         fileManager: fm)
+        recordSyncHistory(records)
+
+        // Reflect what's left: drop the filed rows from the current preview (their files have moved).
+        if let report = automationDryRun {
+            let remaining = report.rows.filter { !filedPaths.contains($0.id) }
+            if remaining.isEmpty {
+                automationDryRun = nil
+                hasRunAutomationDryRun = false
+            } else {
+                automationDryRun = AutomationDryRunReport(root: report.root, providerName: report.providerName,
+                                                          filesScanned: report.filesScanned, rows: remaining)
+            }
+        }
+
+        let n = moves.count
+        logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")")
+        banner = failures > 0
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo")
+            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo")
+        return (n, failures)
     }
 }

@@ -72,13 +72,22 @@ public struct AutomationDryRunRow: Sendable, Equatable, Identifiable {
     public let ruleID: UUID
     public let ruleName: String
     public let verdict: AutomationVerdict
+    /// The absolute folder the file would move into when filed — set for actionable rows (would-file
+    /// and name-collision), nil for the no-op cases (already-there, unresolved token). A nil here is
+    /// the single source of truth for "this row can be filed."
+    public let destinationDir: URL?
+    /// The provider-relative destination shown to the user (e.g. "Invoices/2026").
+    public let destinationLabel: String?
 
-    public init(id: String, fileName: String, ruleID: UUID, ruleName: String, verdict: AutomationVerdict) {
+    public init(id: String, fileName: String, ruleID: UUID, ruleName: String,
+                verdict: AutomationVerdict, destinationDir: URL? = nil, destinationLabel: String? = nil) {
         self.id = id
         self.fileName = fileName
         self.ruleID = ruleID
         self.ruleName = ruleName
         self.verdict = verdict
+        self.destinationDir = destinationDir
+        self.destinationLabel = destinationLabel
     }
 }
 
