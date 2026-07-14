@@ -310,6 +310,7 @@ struct ContentView: View {
             endReviewForComparisonChange()
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
+            syncManager.clearAutomationDryRun()   // and the stale dry-run preview
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(newId, rightProviderId))
             // resetNavigation() fires refreshSubject, which onReceive above turns into a refresh.
@@ -325,6 +326,7 @@ struct ContentView: View {
             endReviewForComparisonChange()
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
+            syncManager.clearAutomationDryRun()   // and the stale dry-run preview
             syncManager.ignoredItemsStore?.activate(
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
@@ -873,6 +875,18 @@ struct ContentView: View {
         quickLookURL = (quickLookURL == url) ? nil : url
     }
 
+    /// N2 — dry-runs the enabled automation rules over the focused folder. Preview only: the manager
+    /// walks + evaluates on-device and publishes what *would* happen; no file is moved. Triggered from
+    /// the Automations lens's own button, so the pane is already on that lens when this runs.
+    func startAutomationPreviewAction() {
+        let root = tidyScanRootExpanded
+        guard !root.isEmpty else { return }
+        Logger.shared.info("User requested Automations preview for \(root)")
+        selectedBottomTab = .tidy
+        showingBottomPane = true
+        syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root), providerName: tidyProviderName)
+    }
+
     /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
     func findFilingSuggestionsAction() {
         let folder = tidyScanRootExpanded
@@ -1104,6 +1118,7 @@ struct ContentView: View {
                 onFindFilingSuggestions: findFilingSuggestionsAction,
                 onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
+                onPreviewAutomations: { startAutomationPreviewAction() },
                 onQuickLook: { toggleQuickLook($0) }
             )
         } else if selectedBottomTab == .storageLens {

@@ -10,6 +10,7 @@ enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     case filing = "Filing"
     case names = "Names"
+    case automations = "Automations"
     var id: String { rawValue }
 }
 
@@ -132,6 +133,8 @@ public struct TidyView: View {
     private let onScanNames: () -> Void
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
+    /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
+    private let onPreviewAutomations: () -> Void
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -145,6 +148,7 @@ public struct TidyView: View {
         onFindFilingSuggestions: @escaping () -> Void = {},
         onScanNames: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
+        onPreviewAutomations: @escaping () -> Void = {},
         onQuickLook: ((URL) -> Void)? = nil
     ) {
         self.syncManager = syncManager
@@ -155,6 +159,7 @@ public struct TidyView: View {
         self.onFindFilingSuggestions = onFindFilingSuggestions
         self.onScanNames = onScanNames
         self.onNormalizeNames = onNormalizeNames
+        self.onPreviewAutomations = onPreviewAutomations
         self.onQuickLook = onQuickLook
     }
 
@@ -436,6 +441,7 @@ public struct TidyView: View {
             case .duplicates: duplicatesContent
             case .filing: filingContent
             case .names: namesContent
+            case .automations: automationsContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -573,6 +579,17 @@ public struct TidyView: View {
             onNormalize: onNormalizeNames,
             onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
             onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
+        )
+    }
+
+    /// N2 — the Automations lens (preview-only). Self-contained (its own rule-list / previewing /
+    /// results states and rule editor live in ``AutomationsLens``), so the host only threads the
+    /// dry-run trigger through — it owns the focused-folder root the preview scans.
+    private var automationsContent: some View {
+        AutomationsLens(
+            syncManager: syncManager,
+            providerName: providerName,
+            onPreview: onPreviewAutomations
         )
     }
 

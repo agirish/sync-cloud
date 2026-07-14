@@ -272,6 +272,26 @@ public class FileSyncManager: ObservableObject {
     /// The most recent Filing scan's provider root + relative folder list, kept so a "Try another"
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
+
+    // MARK: Automations (N2) — preview-only
+
+    /// The user's authored automation rules. Loaded lazily from `filingRuleDefaults` on first use
+    /// (`ensureAutomationRulesLoaded`) and persisted on every mutation. `@Published` so the
+    /// Automations lens re-renders as rules are added, edited, toggled, or removed.
+    @Published public var automationRules: [AutomationRule] = []
+    /// Guards the one-time load so the empty default array can't overwrite persisted rules.
+    var didLoadAutomationRules = false
+    /// The most recent dry-run preview — what the enabled rules *would* do — or nil before any run.
+    /// This surface never moves a file; the report is illustration only.
+    @Published public var automationDryRun: AutomationDryRunReport?
+    /// True while a dry-run preview is walking the folder and evaluating rules.
+    @Published public var isRunningAutomationDryRun = false
+    /// Human-readable progress for the running dry run.
+    @Published public var automationDryRunStatus = ""
+    /// True once a dry-run preview has completed at least once (drives the empty-vs-results state).
+    @Published public var hasRunAutomationDryRun = false
+    /// The in-flight preview task, so the UI can cancel it and a restart supersedes it.
+    var automationDryRunTask: Task<Void, Never>?
     /// The capped folder list SENT to the classifier (bounded for token cost).
     public var filingLastTaxonomyFolders: [String] = []
     /// The FULL set of existing relative folders (uncapped), used only to mark a "Try another"
