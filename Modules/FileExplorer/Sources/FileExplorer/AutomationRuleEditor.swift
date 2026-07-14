@@ -262,7 +262,7 @@ struct AutomationRuleEditor: View {
             TextField("Documents/Invoices/{year}", text: $destination)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12, design: .monospaced))
-            Text("Relative to \(browseRoot?.lastPathComponent ?? "the folder you preview"). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
+            Text("Relative to the provider root\(browseRoot.map { " (\($0.lastPathComponent))" } ?? ""). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
                 .font(.system(size: 11)).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -282,9 +282,9 @@ struct AutomationRuleEditor: View {
         return url.lastPathComponent
     }
 
-    /// Opens a folder picker rooted at `browseRoot` and sets the destination to the picked folder's
-    /// path relative to that root — so Browse yields the same relative path the preview resolves
-    /// against. Tokens like {year} can be appended afterwards.
+    /// Opens a folder picker rooted at the provider root (`browseRoot`) and sets the destination to
+    /// the picked folder's path relative to it — so Browse yields the same relative path the preview
+    /// resolves against (both anchor at the provider root). Tokens like {year} can be appended after.
     private func browseForDestination() {
         guard let browseRoot else { return }
         let panel = NSOpenPanel()

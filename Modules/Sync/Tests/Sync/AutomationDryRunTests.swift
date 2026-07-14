@@ -71,6 +71,40 @@ import Testing
         if case .needsAttention = report.rows.first?.verdict {} else {
             Issue.record("expected a needsAttention verdict for the collision")
         }
+        // Load-bearing: a collision is still *actionable* (keep-both on file), so destinationDir is set.
+        #expect(report.rows.first?.destinationDir != nil)
+    }
+
+    @Test func singleRulePreviewRunsEvenWhenTheRuleIsDisabled() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("a.pdf", in: dir)
+        let rule = AutomationRule(name: "off", enabled: false,
+                                  conditions: [.kindIs(.pdf)], destinationTemplate: "Docs")
+        let m = makeManager(rules: [rule])
+        // only: the rule's id previews it even though it's toggled off — the "test before enabling" flow.
+        await m.runAutomationDryRun(root: dir, providerName: nil, only: rule.id, now: now)
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.count == 1)
+        #expect(report.rows.first?.ruleID == rule.id)
+        // But a full preview (only == nil) still skips the disabled rule.
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+        #expect(m.automationDryRun?.rows.isEmpty == true)
+    }
+
+    @Test func singleRulePreviewScopesToOneRuleAndFullPreviewHonorsPriority() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("a.pdf", in: dir)
+        let ruleA = AutomationRule(name: "A", conditions: [.kindIs(.pdf)], destinationTemplate: "A")
+        let ruleB = AutomationRule(name: "B", conditions: [.kindIs(.pdf)], destinationTemplate: "B")
+        let m = makeManager(rules: [ruleA, ruleB])
+        // only: B scopes the preview to B, even though A also matches.
+        await m.runAutomationDryRun(root: dir, providerName: nil, only: ruleB.id, now: now)
+        let scoped = try #require(m.automationDryRun)
+        #expect(scoped.rows.count == 1)
+        #expect(scoped.rows.allSatisfy { $0.ruleID == ruleB.id })
+        // A full preview: the first rule in order (A) claims the file.
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+        #expect(m.automationDryRun?.rows.first?.ruleID == ruleA.id)
     }
 
     @Test func disabledRulesIgnoredAndNothingIsCreatedOrMoved() async throws {

@@ -36,7 +36,9 @@ public enum FileKind: String, Codable, Sendable, CaseIterable, Hashable, Identif
         switch self {
         case .image: return [.image]
         case .pdf: return [.pdf]
-        case .video: return [.movie, .video, .audiovisualContent]
+        // `.movie` only — deliberately NOT `.audiovisualContent`, which `public.audio` also conforms
+        // to, so an mp3/m4a would otherwise classify as video (and `.of` checks video before audio).
+        case .video: return [.movie]
         case .audio: return [.audio]
         case .archive: return [.archive, .gzip, .zip]
         // "Document" is the common office/text family, minus PDF (which has its own kind).

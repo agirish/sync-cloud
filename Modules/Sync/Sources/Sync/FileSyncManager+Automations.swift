@@ -151,7 +151,11 @@ extension FileSyncManager {
                 if Task.isCancelled { return }
             }
 
-            guard let rule = AutomationEvaluator.firstMatch(in: rules, for: facts, now: now) else { continue }
+            // First rule, in user order, whose conditions match. `rules` is already scoped correctly
+            // (enabled rules for a full preview, or exactly the one rule for a single-rule preview),
+            // so this must NOT re-filter on `enabled` — doing so would make a single-rule preview of a
+            // disabled rule (the "test it before enabling" flow) silently match nothing.
+            guard let rule = rules.first(where: { AutomationEvaluator.matches($0, facts, now: now) }) else { continue }
             let resolution = Self.dryRunVerdict(
                 for: rule, facts: facts, destinationRoot: destinationAnchor,
                 providerName: providerName, now: now, fileManager: fileManager

@@ -39,10 +39,19 @@ import Testing
         #expect(AutomationEvaluator.matches(.kindIs(.pdf), facts("a.pdf"), now: now))
         #expect(AutomationEvaluator.matches(.kindIs(.image), facts("a.jpg"), now: now))
         #expect(AutomationEvaluator.matches(.kindIs(.archive), facts("a.zip"), now: now))
+        #expect(AutomationEvaluator.matches(.kindIs(.video), facts("clip.mp4"), now: now))
+        #expect(AutomationEvaluator.matches(.kindIs(.audio), facts("song.mp3"), now: now))
         #expect(!AutomationEvaluator.matches(.kindIs(.image), facts("a.pdf"), now: now))
-        // A PDF resolves to .pdf, never the broad .document kind.
+        // Regression guard: `.video` once included `.audiovisualContent`, which `public.audio`
+        // conforms to, so mp3/m4a wrongly classified as video. Audio must never match the video kind.
+        #expect(!AutomationEvaluator.matches(.kindIs(.video), facts("song.mp3"), now: now))
+        #expect(!AutomationEvaluator.matches(.kindIs(.video), facts("track.m4a"), now: now))
+        // `.of` disambiguation: a PDF is never the broad .document; audio resolves to .audio, not .video.
         #expect(FileKind.of(fileName: "a.pdf") == .pdf)
         #expect(FileKind.of(fileName: "notes.txt") == .document)
+        #expect(FileKind.of(fileName: "song.mp3") == .audio)
+        #expect(FileKind.of(fileName: "track.m4a") == .audio)
+        #expect(FileKind.of(fileName: "clip.mp4") == .video)
         #expect(FileKind.of(fileName: "noext") == nil)
     }
 
@@ -108,15 +117,6 @@ import Testing
         #expect(AutomationEvaluator.couldMatchPendingContent(rule, facts("a.pdf", snippet: nil), now: now))
         // But a non-PDF fails a cheap condition, so its text is never worth reading.
         #expect(!AutomationEvaluator.couldMatchPendingContent(rule, facts("a.jpg", snippet: nil), now: now))
-    }
-
-    @Test func firstMatchSkipsDisabledAndIncompleteRules() {
-        let disabled = AutomationRule(name: "d", enabled: false,
-                                      conditions: [.kindIs(.pdf)], destinationTemplate: "A")
-        let incomplete = AutomationRule(name: "i", conditions: [.nameMatches("")], destinationTemplate: "")
-        let good = AutomationRule(name: "g", conditions: [.kindIs(.pdf)], destinationTemplate: "B")
-        let match = AutomationEvaluator.firstMatch(in: [disabled, incomplete, good], for: facts("x.pdf"), now: now)
-        #expect(match?.name == "g")
     }
 
     // MARK: Destination token resolution

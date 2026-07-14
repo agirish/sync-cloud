@@ -136,6 +136,9 @@ public struct TidyView: View {
     /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
     /// nil = all enabled rules; a rule id = just that rule.
     private let onPreviewAutomations: (UUID?) -> Void
+    /// The provider root automation destinations resolve against — passed to the lens so its Browse…
+    /// button anchors at the provider root (matching the preview), not the scanned subfolder.
+    private let automationDestinationRoot: String?
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -150,6 +153,7 @@ public struct TidyView: View {
         onScanNames: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
+        automationDestinationRoot: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil
     ) {
         self.syncManager = syncManager
@@ -161,6 +165,7 @@ public struct TidyView: View {
         self.onScanNames = onScanNames
         self.onNormalizeNames = onNormalizeNames
         self.onPreviewAutomations = onPreviewAutomations
+        self.automationDestinationRoot = automationDestinationRoot
         self.onQuickLook = onQuickLook
     }
 
@@ -590,7 +595,7 @@ public struct TidyView: View {
         AutomationsLens(
             syncManager: syncManager,
             providerName: providerName,
-            scanRoot: scanTargetFolder.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+            destinationRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
             onPreview: onPreviewAutomations
         )
     }

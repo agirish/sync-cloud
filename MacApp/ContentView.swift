@@ -1125,6 +1125,7 @@ struct ContentView: View {
                 onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
+                automationDestinationRoot: tidyProviderRootExpanded,
                 onQuickLook: { toggleQuickLook($0) }
             )
         } else if selectedBottomTab == .storageLens {

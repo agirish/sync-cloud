@@ -64,9 +64,10 @@ public struct AutomationsLens: View {
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private let providerName: String?
-    /// The folder the preview scans and destinations resolve against (the focused pane's directory).
-    /// Passed to the rule editor so its Browse… button opens here and yields a matching relative path.
-    private let scanRoot: URL?
+    /// The provider root that rule destinations resolve against — the same anchor the preview uses
+    /// (NOT the focused subfolder). Passed to the rule editor so its Browse… button relativizes a
+    /// picked folder against the provider root, yielding the exact path the preview will resolve.
+    private let destinationRoot: URL?
     /// Kicks off a dry-run preview (host owns the root/provider derivation). nil = all enabled rules,
     /// a rule id = just that rule.
     private let onPreview: (UUID?) -> Void
@@ -87,12 +88,12 @@ public struct AutomationsLens: View {
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
-        scanRoot: URL? = nil,
+        destinationRoot: URL? = nil,
         onPreview: @escaping (UUID?) -> Void
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
-        self.scanRoot = scanRoot
+        self.destinationRoot = destinationRoot
         self.onPreview = onPreview
     }
 
@@ -122,7 +123,7 @@ public struct AutomationsLens: View {
             AutomationRuleEditor(
                 rule: rule,
                 accent: accent,
-                browseRoot: scanRoot,
+                browseRoot: destinationRoot,
                 onSave: { saved in
                     syncManager.upsertAutomationRule(saved)
                     editingRule = nil
@@ -162,7 +163,7 @@ public struct AutomationsLens: View {
                             AutomationRuleCard(
                                 rule: rule,
                                 accent: accent,
-                                canPreview: rule.isRunnable && scanRoot != nil,
+                                canPreview: rule.isRunnable && destinationRoot != nil,
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
                                 onPreview: { runPreview(only: rule.id) },
                                 onEdit: { editingRule = rule },
@@ -197,7 +198,7 @@ public struct AutomationsLens: View {
             Button(action: { runPreview(only: nil) }) { Label("Preview all", systemImage: AutomationsGlyph.preview) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(runnableRuleCount == 0 || scanRoot == nil)
+                .disabled(runnableRuleCount == 0 || destinationRoot == nil)
                 .help(runnableRuleCount == 0
                       ? "Add a rule with a condition and a destination to preview it."
                       : "Dry-run the enabled rules over the focused folder in \(provider). Nothing is moved.")

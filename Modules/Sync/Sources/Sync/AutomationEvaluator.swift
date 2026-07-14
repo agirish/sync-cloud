@@ -181,12 +181,6 @@ public enum AutomationEvaluator {
         }
     }
 
-    /// The first enabled, runnable rule (in the given order) that matches — the rule that "claims"
-    /// the file. Rules should be passed in the user's priority order.
-    public static func firstMatch(in rules: [AutomationRule], for facts: AutomationFileFacts, now: Date) -> AutomationRule? {
-        rules.first { $0.enabled && $0.isRunnable && matches($0, facts, now: now) }
-    }
-
     // MARK: Destination templates
 
     /// The tokens a destination template understands, for the editor's insert menu.
