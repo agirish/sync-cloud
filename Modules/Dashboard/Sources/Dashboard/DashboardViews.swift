@@ -34,6 +34,10 @@ public struct PaneHeader: View {
     /// collapse itself back to the spine directly (not only via the titlebar pane toggle). nil on the
     /// comparison panes, which don't collapse individually.
     public let onCollapse: (() -> Void)?
+    /// Triggers a scan/refresh — moved off the titlebar into each pane's nav cluster. nil hides it.
+    public let onRefresh: (() -> Void)?
+    /// Spins the refresh glyph while a scan is running.
+    public let isRefreshing: Bool
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -63,6 +67,8 @@ public struct PaneHeader: View {
         onManageProviders: @escaping () -> Void = {},
         sortOption: Binding<SortOption>,
         onCollapse: (() -> Void)? = nil,
+        onRefresh: (() -> Void)? = nil,
+        isRefreshing: Bool = false,
         showHiddenFiles: Binding<Bool>
     ) {
         self.title = title
@@ -80,6 +86,8 @@ public struct PaneHeader: View {
         self.onManageProviders = onManageProviders
         self._sortOption = sortOption
         self.onCollapse = onCollapse
+        self.onRefresh = onRefresh
+        self.isRefreshing = isRefreshing
         self._showHiddenFiles = showHiddenFiles
     }
 
@@ -146,6 +154,17 @@ public struct PaneHeader: View {
                     }
                     .disabled(!canGoForward)
                     .help("Go forward to this pane's next folder")
+
+                    if let onRefresh {
+                        // Scan/refresh moved off the titlebar to here, next to the nav controls; the
+                        // arrow spins while a scan runs (reduced-motion is honored automatically).
+                        Button(action: onRefresh) {
+                            Image(systemName: "arrow.clockwise")
+                                .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
+                        }
+                        .disabled(isRefreshing)
+                        .help("Scan for changes")
+                    }
 
                     // Sort moved out of the titlebar (its file-action neighbors are now the pane's
                     // contextual action bar); it lives per-pane, driving the shared sort order.

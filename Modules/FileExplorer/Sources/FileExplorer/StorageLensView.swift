@@ -54,7 +54,10 @@ public struct StorageLensView: View {
 
     public var body: some View {
         VStack(spacing: 8) {
-            toolbarCard
+            // Only show the toolbar card once there's a report to summarize; in the intro / building
+            // states it would otherwise render as an empty bar (the tab picker that used to fill it
+            // moved to the top strip).
+            if hasReport { toolbarCard }
             contentCard
         }
         .padding(LiquidGlass.cardGutter)

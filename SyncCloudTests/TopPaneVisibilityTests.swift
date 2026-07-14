@@ -4,29 +4,6 @@ import AppKit
 
 @Suite struct TopPaneVisibilityTests {
 
-    // MARK: Presentation
-
-    @Test func testSymbolNameExistsInSFSymbols() {
-        // A typo'd symbol name renders as a blank icon at runtime; pin that it resolves.
-        #expect(NSImage(systemSymbolName: TopPaneVisibility.symbol, accessibilityDescription: nil) != nil,
-                "missing SF Symbol \(TopPaneVisibility.symbol)")
-    }
-
-    @Test func testTitleReflectsModeAndVisibility() {
-        // Comparison tabs speak of "File Panes"; the single-source tab of the "Source Pane" (its rail).
-        #expect(TopPaneVisibility.title(panesVisible: true, mode: .compare) == "Hide File Panes")
-        #expect(TopPaneVisibility.title(panesVisible: false, mode: .compare) == "Show File Panes")
-        #expect(TopPaneVisibility.title(panesVisible: true, mode: .singleSource) == "Hide Source Pane")
-        #expect(TopPaneVisibility.title(panesVisible: false, mode: .singleSource) == "Show Source Pane")
-    }
-
-    @Test func testHelpTextReflectsModeAndVisibility() {
-        #expect(TopPaneVisibility.helpText(panesVisible: true, mode: .compare) == "Hide the Left/Right file panes")
-        #expect(TopPaneVisibility.helpText(panesVisible: false, mode: .compare) == "Show the Left/Right file panes")
-        #expect(TopPaneVisibility.helpText(panesVisible: true, mode: .singleSource) == "Collapse the source rail")
-        #expect(TopPaneVisibility.helpText(panesVisible: false, mode: .singleSource) == "Show the source rail to browse or re-scope")
-    }
-
     // MARK: Mode & pane count
 
     @Test func testModePerTab() {

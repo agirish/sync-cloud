@@ -542,10 +542,6 @@ struct ContentView: View {
         }
     }
 
-    /// Whether the bottom-pane (workspace) toggle applies on this tab. On single-source tabs the
-    /// workspace is the only region, so hiding it is meaningless — the toggle is inert there.
-    var canHideWorkspaceForCurrentTab: Bool { layoutMode == .compare }
-
     /// Toggles the panes (both comparison panes, or the single-source rail) for the current tab and
     /// remembers the choice for it. The persistent tab strip keeps the window non-empty, so — unlike
     /// before — no region is forced back on to compensate.
@@ -1008,6 +1004,8 @@ struct ContentView: View {
                 onCollapse: layoutMode == .singleSource
                     ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
                     : nil,
+                onRefresh: { forceRefreshAction() },
+                isRefreshing: isScanning,
                 showHiddenFiles: $syncManager.showHiddenFiles
             )
             treeView(pane)

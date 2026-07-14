@@ -20,8 +20,6 @@ import Foundation
 /// two-mode rework, so a user's remembered show/hide survives the upgrade unchanged.
 enum TopPaneVisibility {
 
-    static let symbol = "rectangle.topthird.inset.filled"
-
     /// How a tab arranges its panes relative to the workspace.
     enum Mode {
         /// Two provider panes stacked over the workspace (Differences, Details).
@@ -42,22 +40,6 @@ enum TopPaneVisibility {
     /// workspace.
     static func paneCount(for tab: ContentView.BottomTab) -> Int {
         mode(for: tab) == .compare ? 2 : 1
-    }
-
-    static func title(panesVisible: Bool, mode: Mode) -> String {
-        switch mode {
-        case .compare: return panesVisible ? "Hide File Panes" : "Show File Panes"
-        case .singleSource: return panesVisible ? "Hide Source Pane" : "Show Source Pane"
-        }
-    }
-
-    static func helpText(panesVisible: Bool, mode: Mode) -> String {
-        switch mode {
-        case .compare:
-            return panesVisible ? "Hide the Left/Right file panes" : "Show the Left/Right file panes"
-        case .singleSource:
-            return panesVisible ? "Collapse the source rail" : "Show the source rail to browse or re-scope"
-        }
     }
 
     /// The default *hidden* state for a tab, before any user override: the single-source workspace
