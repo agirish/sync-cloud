@@ -161,6 +161,7 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(ContentView.BottomTab.differences.rawValue == "Differences")
         #expect(ContentView.BottomTab.details.rawValue == "Details")
         #expect(ContentView.BottomTab.tidy.rawValue == "Tidy")
+        #expect(ContentView.BottomTab.storageLens.rawValue == "Storage Lens")
     }
 
     @Test func testBottomTabRestoresFromStoredRawValue() {

@@ -97,6 +97,8 @@ struct ContentView: View {
         case details = "Details"
         /// Finds and resolves duplicate folders & files within one provider (Tidy).
         case tidy = "Tidy"
+        /// Read-only "where does my space go?" — treemap + largest/stale/reclaim lists (Storage Lens).
+        case storageLens = "Storage Lens"
     }
     /// Persisted so a user who was on Details stays there across launches. Stored by
     /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
@@ -448,8 +450,9 @@ struct ContentView: View {
         // must not yank the review UI away (the session survives, but invisibly).
         guard !reviewStore.isReviewing else { return }
         // The Tidy workspace owns the bottom pane like a review: clicking a pane file to eyeball a
-        // duplicate must not eject you to Details.
-        guard selectedBottomTab != .tidy else { return }
+        // duplicate must not eject you to Details. Storage Lens is the same — an insight surface you
+        // read while clicking around the panes, so a selection must not yank it away either.
+        guard selectedBottomTab != .tidy, selectedBottomTab != .storageLens else { return }
         guard PaneLogic.shouldAutoSwitchToDetails(
             hasSelection: !paths.isEmpty,
             bottomPaneVisible: showingBottomPane,
@@ -775,6 +778,17 @@ struct ContentView: View {
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
+    /// Switches to the Storage Lens tab and builds a read-only storage picture of the focused
+    /// folder (same target-root helper as Find Duplicates). Walk + analyze only — nothing moves.
+    func buildStorageLensAction() {
+        let root = tidyScanRootExpanded
+        guard !root.isEmpty else { return }
+        Logger.shared.info("User requested Storage Lens for \(root)")
+        selectedBottomTab = .storageLens
+        showingBottomPane = true
+        syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
+    }
+
     /// The provider root of the pane a Tidy/Filing action targets (the focused pane, else left).
     var tidyProviderRootExpanded: String {
         let id = (activePane == .right) ? rightProviderId : leftProviderId
@@ -985,7 +999,7 @@ struct ContentView: View {
         }
         .pickerStyle(.segmented)
         .tint(glassHue.accentColor)
-        .frame(width: 270)
+        .frame(width: 360)
         .labelsHidden()
     }
 
@@ -1008,6 +1022,19 @@ struct ContentView: View {
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: findFilingSuggestionsAction,
                 onQuickLook: { quickLookURL = $0 }
+            )
+        } else if selectedBottomTab == .storageLens {
+            // Storage Lens owns its own cards (toolbar + content) with the tabs inline, like Tidy.
+            // Read-only: onReveal just surfaces the file in Finder — no eviction, no mutation.
+            StorageLensView(
+                syncManager: syncManager,
+                providerName: tidyProviderName,
+                leadingHeader: AnyView(bottomTabPicker),
+                onBuild: buildStorageLensAction,
+                onReveal: { path in
+                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                },
+                onQuickLook: { path in quickLookURL = URL(fileURLWithPath: path) }
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.

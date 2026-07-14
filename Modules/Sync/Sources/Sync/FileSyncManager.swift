@@ -117,6 +117,25 @@ public class FileSyncManager: ObservableObject {
     /// The in-flight Find Duplicates task, so the UI can cancel a long scan.
     public var duplicateScanTask: Task<Void, Never>?
 
+    // MARK: Storage Lens — read-only "where does my space go?" (see FileSyncManager+StorageLens.swift)
+
+    /// The most recent Storage Lens report (treemap + ranked lists) for one provider subtree.
+    @Published public var storageLensReport: StorageLensReport?
+    /// True while a Storage Lens build (walk + analyze) is running.
+    @Published public var isBuildingStorageLens = false
+    /// The absolute root the current `storageLensReport` was built from — captured at build time so
+    /// breadcrumbs stay correct even if the user navigates elsewhere afterward.
+    @Published public var storageLensRoot: URL?
+    /// True once a Storage Lens build has completed at least once (drives the intro-vs-report state).
+    @Published public var hasBuiltStorageLens = false
+    /// Human-readable progress for the running build (e.g. "Analyzing iCloud…").
+    @Published public var storageLensStatus = ""
+    /// Numeric progress for the build; the walk phase has no granular count, so it stays 0 (the UI
+    /// shows an indeterminate spinner). Reserved for a future determinate pass.
+    @Published public var storageLensProgress: Double = 0
+    /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
+    var storageLensTask: Task<Void, Never>?
+
     // MARK: Filing — suggest where loose files go (see FileSyncManager+Filing.swift)
 
     /// Filing suggestions from the most recent scan of a picked folder.
