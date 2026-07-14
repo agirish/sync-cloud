@@ -401,6 +401,24 @@ import Testing
         #expect(out.first?.best?.path == "/root/Health/Insurance")
     }
 
+    @Test func rejectionIsAppliedBeforeCappingSoAValidCandidateSurvives() throws {
+        // R-T2: with the cap pressed to 1, the top-ranked folder is the ONLY candidate that
+        // survives ranking. If the user has rejected it, filtering after the cap would strip that
+        // sole survivor and leave the file with no home at all — even though a valid deeper folder
+        // exists. Filtering the pool BEFORE the cap keeps the deeper folder as the suggestion.
+        let taxonomy = [dir("/root/Insurance", []),
+                        dir("/root/Health", [dir("/root/Health/Insurance", [])])]
+        let loose = [file("/root/Downloads/insurance renewal.pdf", modified: y2024)]
+        // /root/Insurance ranks first (shallower); reject it, and cap the suggestions to one.
+        let rejected = ["/root/Downloads/insurance renewal.pdf": Set(["/root/Insurance"])]
+        let out = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root",
+                                       rejectedByFile: rejected,
+                                       options: FilingOptions(maxCandidates: 1))
+        // Pre-fix (filter after cap) this would be empty; the deeper valid folder must survive.
+        #expect(out.first?.candidates.count == 1)
+        #expect(out.first?.best?.path == "/root/Health/Insurance")
+    }
+
     @Test func aVerdictToARejectedFolderIsIgnored() throws {
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Family", [])])]
         let loose = [file("/root/Downloads/report.pdf", modified: y2024)]

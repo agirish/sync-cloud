@@ -127,6 +127,19 @@ import Foundation
         #expect(ProviderNameRules.sanitized(name: "a:b.txt", for: .oneDrive) == "a-b.txt")
     }
 
+    @Test func testSanitizedSuffixesReservedNameInsideItsBaseNotAfterTheExtension() {
+        // A reserved name WITH an extension must gain a non-reserved base while keeping the
+        // extension: "CON.txt" → "CON-1.txt". Appending to the whole string ("CON.txt-1") would
+        // leave the base "CON" reserved, so OneDrive still couldn't store it.
+        #expect(ProviderNameRules.sanitized(name: "CON.txt", for: .oneDrive) == "CON-1.txt")
+        #expect(ProviderNameRules.sanitized(name: "nul.log", for: .oneDrive) == "nul-1.log")   // base case preserved
+        // Multi-dot: only the leading base is reserved; everything after the first dot is the extension.
+        #expect(ProviderNameRules.sanitized(name: "PRN.tar.gz", for: .oneDrive) == "PRN-1.tar.gz")
+        // Round-trip: the sanitized name must no longer be flagged as a violation.
+        #expect(ProviderNameRules.violation(name: ProviderNameRules.sanitized(name: "CON.txt", for: .oneDrive),
+                                            provider: .oneDrive) == nil)
+    }
+
     @Test func testSanitizedRelativePathTouchesOnlyInvalidComponents() {
         #expect(
             ProviderNameRules.sanitizedRelativePath("Fitness/Swimming /log.txt", for: .dropBox)
