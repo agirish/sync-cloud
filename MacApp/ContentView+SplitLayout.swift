@@ -89,21 +89,26 @@ extension ContentView {
     /// divider between them. Replaces `VSplitView` so the divider line can be hidden (VSplitView's
     /// divider isn't customizable) while keeping resize. Because the split ratio is driven by
     /// `bottomPaneFraction`, it never resets when the Differences/Details tab changes.
+    static let railRowSpace = "railRow"
+
     @ViewBuilder
     var verticalSplit: some View {
         GeometryReader { geo in
             let totalHeight = geo.size.height
-            switch verticalLayout {
-            case .workspaceOnly:
-                // The top Left/Right panes are hidden for this tab (Tidy / Storage Lens): the
-                // bottom workspace takes the whole content area. It always wins over a hidden
-                // bottom pane, so this branch can never leave the window empty.
+            switch contentLayout {
+            case .compareWorkspaceOnly:
+                // Comparison tab with its panes hidden: the workspace fills the content area.
                 bottomPaneView
                     .frame(width: geo.size.width, height: totalHeight)
-            case .panesOnly:
+            case .comparePanesOnly:
                 panesSplit
                     .panesRegionFrame(surfaceStyle)
-            case .split:
+            case .compareEmpty:
+                // Both regions hidden — the persistent tab strip keeps the window from being truly
+                // empty, so this is an honest, recoverable placeholder rather than an impossible state.
+                bothHiddenPlaceholder
+                    .frame(width: geo.size.width, height: totalHeight)
+            case .compareSplit:
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
                 let dividerHeight: CGFloat = 1
@@ -125,8 +130,129 @@ extension ContentView {
                 }
                 .frame(width: geo.size.width, height: totalHeight)
                 .coordinateSpace(.named(Self.verticalStackSpace))
+            case .singleExpanded, .singleCollapsed:
+                // Single-source (Tidy): the source rail docked left of a full-height workspace,
+                // laid out horizontally — collapsed to a spine, or expanded to a resizable pane.
+                singleSourceLayout(collapsed: contentLayout == .singleCollapsed, geo: geo)
             }
         }
+    }
+
+    /// The single-source horizontal layout: a collapsed spine or an expanded, resizable source pane
+    /// on the left, and the workspace filling the rest.
+    @ViewBuilder
+    func singleSourceLayout(collapsed: Bool, geo: GeometryProxy) -> some View {
+        let totalWidth = geo.size.width
+        if collapsed {
+            HStack(spacing: 0) {
+                railSpine
+                bottomPaneView
+                    .frame(maxWidth: .infinity)
+            }
+            .frame(width: totalWidth, height: geo.size.height)
+        } else {
+            let minRail: CGFloat = 220
+            let minWorkspace: CGFloat = 340
+            let lower = minRail / max(totalWidth, 1)
+            let upper = 1 - minWorkspace / max(totalWidth, 1)
+            // In a very narrow window the two minimums can't both be honored; pin to the rail min.
+            let fraction = (lower <= upper)
+                ? PaneLogic.clampedFraction(railDragFraction ?? railFraction, lower: lower, upper: upper)
+                : lower
+            let railWidth = totalWidth * fraction
+            HStack(spacing: 0) {
+                paneColumn(isLeft: true)
+                    .panesRegionFrame(surfaceStyle)
+                    .frame(width: railWidth)
+                bottomPaneView
+                    .frame(width: totalWidth - railWidth)
+            }
+            .frame(width: totalWidth, height: geo.size.height)
+            .overlay(alignment: .leading) {
+                railResizeHandle(totalWidth: totalWidth, lower: lower, upper: upper)
+                    .offset(x: railWidth - 6)
+            }
+            .coordinateSpace(.named(Self.railRowSpace))
+        }
+    }
+
+    /// The collapsed source rail: a thin, clickable spine that names the source provider and expands
+    /// the pane when clicked (the same action the toolbar's pane toggle performs).
+    @ViewBuilder
+    var railSpine: some View {
+        let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
+        let name = provider?.displayName ?? "Source"
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() }
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "cloud")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                Text(name)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 20, height: 110)
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 12)
+            .frame(width: 34)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(.bar)
+        .overlay(alignment: .trailing) { Divider() }
+        .help("Show the \(name) pane to browse or re-scope")
+        .accessibilityLabel("Show the \(name) source pane")
+    }
+
+    /// The both-regions-hidden placeholder (compare tabs only): a recoverable empty state under the
+    /// always-present tab strip.
+    @ViewBuilder
+    var bothHiddenPlaceholder: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "rectangle.dashed")
+                .font(.system(size: 34, weight: .light))
+                .foregroundStyle(.secondary)
+            Text("Nothing shown")
+                .font(.system(size: 15, weight: .semibold))
+            Text("Turn the panes or the workspace back on from the toolbar to see content.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
+    }
+
+    /// Invisible drag handle on the rail/workspace boundary — mirrors `paneResizeHandle` but writes
+    /// the rail fraction and reads the rail-row coordinate space.
+    @ViewBuilder
+    private func railResizeHandle(totalWidth: CGFloat, lower: Double, upper: Double) -> some View {
+        Color.clear
+            .frame(width: 12)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .pointerStyle(.columnResize)
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.railRowSpace))
+                    .onChanged { value in
+                        guard totalWidth > 0, lower <= upper else { return }
+                        let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
+                        railDragFraction = PaneLogic.clampedFraction(f, lower: lower, upper: upper)
+                    }
+                    .onEnded { _ in
+                        if let f = railDragFraction { railFraction = f }
+                        railDragFraction = nil
+                    }
+            )
     }
 
     /// The invisible, draggable horizontal divider between the panes and the bottom workspace.

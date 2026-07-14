@@ -82,6 +82,12 @@ struct ContentView: View {
     /// Live vertical-split fraction while dragging; nil when idle (persisted once on release).
     @State var verticalDragFraction: Double? = nil
 
+    /// The single-source source rail's share of the content width when expanded (Tidy). Persisted
+    /// like the other split fractions; the workspace fills the rest.
+    @AppStorage("tidyRailFraction") var railFraction: Double = 0.28
+    /// Live rail-split fraction while dragging; nil when idle (persisted once on release).
+    @State var railDragFraction: Double? = nil
+
     var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
@@ -89,20 +95,24 @@ struct ContentView: View {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
-    /// Represents the available tabs in the integrated bottom workspace.
+    /// Represents the available tabs in the integrated bottom workspace. Two are comparison tabs
+    /// (two provider panes); Tidy is the single-source hub whose lenses include the folded-in
+    /// Storage Lens.
     enum BottomTab: String, CaseIterable {
         /// Displays differential scanning results and sync actions.
         case differences = "Differences"
         /// Displays rich file metadata (size, dates, permissions).
         case details = "Details"
-        /// Finds and resolves duplicate folders & files within one provider (Tidy).
+        /// Single-provider hub: Duplicates, Filing, Names, Automations, and the read-only Storage lens.
         case tidy = "Tidy"
-        /// Read-only "where does my space go?" — treemap + largest/stale/reclaim lists (Storage Lens).
-        case storageLens = "Storage Lens"
     }
     /// Persisted so a user who was on Details stays there across launches. Stored by
     /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
     @AppStorage("selectedBottomTab") private var selectedBottomTab: BottomTab = .differences
+
+    /// The active Tidy lens, lifted here (from TidyView) so its picker lives in the persistent tab
+    /// strip and its selection survives tab switches and relaunches. Storage Lens is one of these now.
+    @AppStorage("selectedTidyLens") private var selectedTidyLens: TidyLens = .duplicates
 
     /// Per-tab override of the top-pane visibility, a JSON map (tab raw value → hidden).
     /// Empty means "no overrides — every tab uses its default". Persisted, so deliberately
@@ -457,9 +467,8 @@ struct ContentView: View {
         // must not yank the review UI away (the session survives, but invisibly).
         guard !reviewStore.isReviewing else { return }
         // The Tidy workspace owns the bottom pane like a review: clicking a pane file to eyeball a
-        // duplicate must not eject you to Details. Storage Lens is the same — an insight surface you
-        // read while clicking around the panes, so a selection must not yank it away either.
-        guard selectedBottomTab != .tidy, selectedBottomTab != .storageLens else { return }
+        // duplicate (or read the Storage lens) must not eject you to Details.
+        guard selectedBottomTab != .tidy else { return }
         guard PaneLogic.shouldAutoSwitchToDetails(
             hasSelection: !paths.isEmpty,
             bottomPaneVisible: showingBottomPane,
@@ -482,48 +491,70 @@ struct ContentView: View {
         )
     }
 
-    // MARK: - Top-pane (Left/Right) visibility
+    // MARK: - Pane visibility & content layout
 
-    /// The three mutually-exclusive vertical layouts. Hiding the top panes wins over hiding
-    /// the bottom pane so the window can never end up empty: on a top-hidden tab the workspace
-    /// always fills, regardless of `showingBottomPane`.
-    enum VerticalLayout { case split, panesOnly, workspaceOnly }
-
-    /// Whether the current tab can hide its top panes at all — only the single-provider
-    /// workspaces (Tidy, Storage Lens) can; the comparison tabs always keep them.
-    var canHideTopPanesForCurrentTab: Bool {
-        TopPaneVisibility.canHideTopPanes(for: selectedBottomTab)
+    /// The resolved arrangement of the panes and workspace beneath the persistent tab strip.
+    /// Comparison tabs stack two panes over the workspace (both regions independently hideable);
+    /// the single-source Tidy tab docks one collapsible rail beside a workspace that's always shown.
+    enum ContentLayout {
+        /// Compare: panes over workspace.
+        case compareSplit
+        /// Compare: only the two panes (workspace hidden).
+        case comparePanesOnly
+        /// Compare: only the workspace (panes hidden).
+        case compareWorkspaceOnly
+        /// Compare: both regions hidden — an honest empty state under the strip.
+        case compareEmpty
+        /// Single source: the source rail expanded beside the workspace.
+        case singleExpanded
+        /// Single source: the source rail collapsed to a spine beside the workspace.
+        case singleCollapsed
     }
 
-    /// Whether the top Left/Right panes are hidden for the current tab, honoring any stored
-    /// per-tab override on top of the tab's default. Computed (not stored) so switching tabs
-    /// auto-applies each tab's remembered state with no onChange plumbing.
-    var topPanesHiddenForCurrentTab: Bool {
-        TopPaneVisibility.topHidden(
+    /// The current tab's layout mode (compare vs single-source).
+    var layoutMode: TopPaneVisibility.Mode { TopPaneVisibility.mode(for: selectedBottomTab) }
+
+    /// Whether the current tab's panes are hidden, honoring any stored per-tab override on top of
+    /// the tab's default. Computed (not stored) so switching tabs auto-applies each tab's
+    /// remembered state with no onChange plumbing.
+    var panesHiddenForCurrentTab: Bool {
+        TopPaneVisibility.panesHidden(
             for: selectedBottomTab,
             override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[selectedBottomTab.rawValue]
         )
     }
 
-    /// Resolves the vertical layout from the top-pane and bottom-pane visibility.
-    var verticalLayout: VerticalLayout {
-        if topPanesHiddenForCurrentTab { return .workspaceOnly }
-        return showingBottomPane ? .split : .panesOnly
+    /// Resolves the content layout from the tab's mode and its pane/workspace visibility.
+    var contentLayout: ContentLayout {
+        switch layoutMode {
+        case .compare:
+            let panes = !panesHiddenForCurrentTab
+            switch (panes, showingBottomPane) {
+            case (true, true): return .compareSplit
+            case (true, false): return .comparePanesOnly
+            case (false, true): return .compareWorkspaceOnly
+            case (false, false): return .compareEmpty
+            }
+        case .singleSource:
+            // The single-source workspace is always shown; only the rail collapses.
+            return panesHiddenForCurrentTab ? .singleCollapsed : .singleExpanded
+        }
     }
 
-    /// Toggles the top panes for the current tab and remembers the choice for it. When
-    /// re-showing the panes, the bottom workspace is forced visible too, so the user lands on
-    /// the split rather than a panes-only view with the workspace they were using gone.
-    func toggleTopPanesForCurrentTab() {
-        guard canHideTopPanesForCurrentTab else { return }
-        let wasHidden = topPanesHiddenForCurrentTab
+    /// Whether the bottom-pane (workspace) toggle applies on this tab. On single-source tabs the
+    /// workspace is the only region, so hiding it is meaningless — the toggle is inert there.
+    var canHideWorkspaceForCurrentTab: Bool { layoutMode == .compare }
+
+    /// Toggles the panes (both comparison panes, or the single-source rail) for the current tab and
+    /// remembers the choice for it. The persistent tab strip keeps the window non-empty, so — unlike
+    /// before — no region is forced back on to compensate.
+    func togglePanesForCurrentTab() {
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
             tab: selectedBottomTab,
-            hidden: !wasHidden
+            hidden: !panesHiddenForCurrentTab
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
-        if wasHidden { showingBottomPane = true }
     }
 
     private func applyProviderSelection(preferDistinctPair: Bool) {
@@ -824,18 +855,20 @@ struct ContentView: View {
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Find Duplicates in \(root)")
         selectedBottomTab = .tidy
+        selectedTidyLens = .duplicates
         showingBottomPane = true
         let options = DuplicateFinderOptions.fromDefaults()
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
 
-    /// Switches to the Storage Lens tab and builds a read-only storage picture of the focused
+    /// Switches to the Tidy tab's Storage lens and builds a read-only storage picture of the focused
     /// folder (same target-root helper as Find Duplicates). Walk + analyze only — nothing moves.
     func buildStorageLensAction() {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Storage Lens for \(root)")
-        selectedBottomTab = .storageLens
+        selectedBottomTab = .tidy
+        selectedTidyLens = .storage
         showingBottomPane = true
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
@@ -862,6 +895,7 @@ struct ContentView: View {
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Name Normalizer scan for \(root)")
         selectedBottomTab = .tidy
+        selectedTidyLens = .names
         showingBottomPane = true
         syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
     }
@@ -887,6 +921,7 @@ struct ContentView: View {
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
         selectedBottomTab = .tidy
+        selectedTidyLens = .automations
         showingBottomPane = true
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),
@@ -899,6 +934,8 @@ struct ContentView: View {
         let root = tidyProviderRootExpanded
         guard !folder.isEmpty, !root.isEmpty else { return }
         Logger.shared.info("User requested Filing suggestions for \(folder)")
+        selectedBottomTab = .tidy
+        selectedTidyLens = .filing
         showingBottomPane = true
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root))
@@ -968,10 +1005,14 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContentView: some View {
-        verticalSplit
-        // Animate the panes collapsing/expanding when the tab's top-pane state flips — both on
+        VStack(spacing: 0) {
+            topContentBar
+            verticalSplit
+        }
+        // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
-        .animation(.easeInOut(duration: 0.2), value: topPanesHiddenForCurrentTab)
+        .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
+        .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {
@@ -1090,9 +1131,32 @@ struct ContentView: View {
         )
     }
 
-    /// The Differences/Details segmented tabs. Shown standalone above the Details/empty states,
-    /// and passed into DifferencesView so the tabs merge into its single toolbar (Option C).
-    private var bottomTabPicker: some View {
+    /// The persistent tab strip above the panes: the primary Differences/Details/Tidy picker plus —
+    /// when Tidy is active — the underline lens sub-tabs. Hoisted out of the workspace cards so the
+    /// tabs stay visible at a fixed spot and never collapse with the panes or workspace, and so the
+    /// two levels read as a clear hierarchy rather than one flat run of peers.
+    private var topContentBar: some View {
+        HStack(spacing: 12) {
+            primaryTabPicker
+            if selectedBottomTab == .tidy {
+                // A down-right elbow signals the lens tabs are a level *under* Tidy.
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+                lensTabs
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    /// The primary tabs — a boxed segmented control, the parent level of the underline lens tabs.
+    private var primaryTabPicker: some View {
         Picker("", selection: manualBottomTabSelection) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
                 Text(tab.rawValue).tag(tab)
@@ -1100,8 +1164,36 @@ struct ContentView: View {
         }
         .pickerStyle(.segmented)
         .tint(glassHue.accentColor)
-        .frame(width: 360)
+        .fixedSize()
         .labelsHidden()
+    }
+
+    /// The Tidy lens sub-tabs, styled as borderless underline tabs so they read as a clearly
+    /// subordinate second level beneath the boxed primary tabs — not another row of segmented peers
+    /// (the confusion the shipped app had, where the two pickers looked identical).
+    private var lensTabs: some View {
+        HStack(spacing: 2) {
+            ForEach(TidyLens.allCases) { lens in
+                let isActive = (selectedTidyLens == lens)
+                Button {
+                    selectedTidyLens = lens
+                } label: {
+                    Text(lens.rawValue)
+                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(isActive ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(isActive ? glassHue.accentColor : Color.clear)
+                                .frame(height: 2)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+            }
+        }
     }
 
     /// The tabbed workspace at the bottom of the file explorer.
@@ -1114,47 +1206,27 @@ struct ContentView: View {
         // An active review keeps the view mounted through an empty live list: an external
         // change resolving the last live difference mid-review must not vanish the session.
         if selectedBottomTab == .tidy {
-            // Tidy owns its own cards (toolbar + content) with the tabs inline, like Differences.
+            // The single-source hub. Tidy owns its own cards; the Storage lens (folded in) renders
+            // its own read-only surface. The lens picker lives in the top strip, not here.
             TidyView(
                 syncManager: syncManager,
+                lens: $selectedTidyLens,
                 providerName: tidyProviderName,
                 scanTargetFolder: tidyScanRootExpanded,
-                leadingHeader: AnyView(bottomTabPicker),
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: findFilingSuggestionsAction,
                 onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,
-                onQuickLook: { toggleQuickLook($0) }
-            )
-        } else if selectedBottomTab == .storageLens {
-            // Storage Lens owns its own cards (toolbar + content) with the tabs inline, like Tidy.
-            // Read-only: onReveal just surfaces the file in Finder — no eviction, no mutation.
-            StorageLensView(
-                syncManager: syncManager,
-                providerName: tidyProviderName,
-                leadingHeader: AnyView(bottomTabPicker),
-                onBuild: buildStorageLensAction,
-                onReveal: { path in
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
-                },
-                onQuickLook: { path in toggleQuickLook(URL(fileURLWithPath: path)) }
+                onQuickLook: { toggleQuickLook($0) },
+                onBuildStorage: buildStorageLensAction
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
-            // DifferencesView renders its own two cards (toolbar + table) with the tabs inline.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, leadingHeader: AnyView(bottomTabPicker))
+            // DifferencesView renders its own two cards (toolbar + table); tabs live in the top strip.
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) })
         } else {
-            // Details / empty / no-scan: a slim tabs card, then the content as its own card.
-            VStack(spacing: 8) {
-                HStack {
-                    bottomTabPicker
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
-
+            // Details / empty / no-scan: just the content card — the tabs live in the top strip now.
                 Group {
                     if selectedBottomTab == .differences {
                         if isScanning {
@@ -1192,9 +1264,8 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
-            }
-            // Match the pane cards' gutter so the bottom cards line up with the panes above.
-            .padding(LiquidGlass.cardGutter)
+                // Match the pane cards' gutter so the bottom card lines up with the panes above.
+                .padding(LiquidGlass.cardGutter)
         }
         }
     }

@@ -5,13 +5,17 @@ import Design
 
 // MARK: - Lens / filter / match styling
 
-/// The lenses of the Tidy workspace.
-enum TidyLens: String, CaseIterable, Identifiable {
+/// The lenses of the Tidy workspace. Public so the host can hoist the lens picker into the
+/// persistent tab strip and drive `TidyView.lens` as a binding.
+public enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     case filing = "Filing"
     case names = "Names"
     case automations = "Automations"
-    var id: String { rawValue }
+    /// The former standalone Storage Lens tab, folded in as a read-only lens (treemap + largest /
+    /// stale / reclaim lists). Sits last, after the action lenses.
+    case storage = "Storage"
+    public var id: String { rawValue }
 }
 
 /// Filter over the match type of duplicate groups.
@@ -80,9 +84,9 @@ enum TidyMatchStyle {
 
 // MARK: - TidyView
 
-/// The Tidy workspace: finds and resolves duplicate folders & files within one provider.
-/// Mirrors `DifferencesView`'s inline-tabs card layout — the host injects the bottom-tab picker
-/// as `leadingHeader` so the tabs merge into this view's single toolbar.
+/// The Tidy workspace: a single-source hub of lenses (Duplicates, Filing, Names, Automations, and
+/// the folded-in read-only Storage). The host owns the active `lens` (its picker lives in the
+/// persistent tab strip) and docks the source rail beside this workspace.
 public struct TidyView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -97,7 +101,9 @@ public struct TidyView: View {
     /// acceptable motion under Reduce motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    @State private var lens: TidyLens = .duplicates
+    /// The active lens, owned by the host so it lives in the persistent tab strip and survives
+    /// tab switches (and relaunches, via the host's `@AppStorage`).
+    @Binding private var lens: TidyLens
     @State private var filter: TidyFilter = .all
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
@@ -126,7 +132,6 @@ public struct TidyView: View {
     /// name the folder up front and offer to rescan when the user has navigated away from the
     /// folder the current results were scanned from.
     private let scanTargetFolder: String?
-    private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
@@ -142,24 +147,28 @@ public struct TidyView: View {
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
+    /// Builds (or rebuilds) the read-only storage picture for the focused folder — the Storage lens's
+    /// analyze/re-analyze action. Host owns the root deriving.
+    private let onBuildStorage: () -> Void
 
     public init(
         syncManager: FileSyncManager,
+        lens: Binding<TidyLens>,
         providerName: String? = nil,
         scanTargetFolder: String? = nil,
-        leadingHeader: AnyView? = nil,
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
         onScanNames: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
-        onQuickLook: ((URL) -> Void)? = nil
+        onQuickLook: ((URL) -> Void)? = nil,
+        onBuildStorage: @escaping () -> Void = {}
     ) {
         self.syncManager = syncManager
+        self._lens = lens
         self.providerName = providerName
         self.scanTargetFolder = scanTargetFolder
-        self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
         self.onScanNames = onScanNames
@@ -167,6 +176,7 @@ public struct TidyView: View {
         self.onPreviewAutomations = onPreviewAutomations
         self.automationDestinationRoot = automationDestinationRoot
         self.onQuickLook = onQuickLook
+        self.onBuildStorage = onBuildStorage
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -184,11 +194,28 @@ public struct TidyView: View {
     }
 
     public var body: some View {
-        VStack(spacing: 8) {
-            toolbarCard
-            contentCard
+        Group {
+            if lens == .storage {
+                // Storage, folded in as a read-only lens: it brings its own toolbar + content cards
+                // (and card gutter), so it renders in place of Tidy's own two cards. The lens picker
+                // lives in the host's persistent tab strip, so switching away from Storage still works.
+                StorageLensView(
+                    syncManager: syncManager,
+                    providerName: providerName,
+                    onBuild: onBuildStorage,
+                    onReveal: { path in
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+                    },
+                    onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
+                )
+            } else {
+                VStack(spacing: 8) {
+                    toolbarCard
+                    contentCard
+                }
+                .padding(LiquidGlass.cardGutter)
+            }
         }
-        .padding(LiquidGlass.cardGutter)
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
         // A fresh scan starts a fresh session: forget any files filed against the previous results,
         // so the "All filed" terminal state is only earned by this scan's work.
@@ -227,8 +254,6 @@ public struct TidyView: View {
     private var toolbarCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if let leadingHeader { leadingHeader }
-                lensPicker
                 Spacer(minLength: 0)
                 if lens == .duplicates, hasResults, !syncManager.isFindingDuplicates {
                     rescanDuplicatesButton
@@ -373,15 +398,6 @@ public struct TidyView: View {
         }
     }
 
-    private var lensPicker: some View {
-        Picker("", selection: $lens) {
-            ForEach(TidyLens.allCases) { l in Text(l.rawValue).tag(l) }
-        }
-        .pickerStyle(.segmented)
-        .fixedSize()
-        .labelsHidden()
-    }
-
     private var summaryRow: some View {
         let s = syncManager.duplicateSummary
         return HStack(spacing: 8) {
@@ -448,6 +464,7 @@ public struct TidyView: View {
             case .filing: filingContent
             case .names: namesContent
             case .automations: automationsContent
+            case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

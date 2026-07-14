@@ -7,8 +7,8 @@ import Design
 
 /// Storage Lens — the read-only "where does my space go?" surface. A treemap of the top areas over
 /// three ranked lists (largest files, long-untouched files, and reclaim candidates). The only
-/// action it offers is a Finder reveal: it never moves, deletes, or evicts a file. Mirrors
-/// `TidyView`'s inline-tabs card layout — the host injects the bottom-tab picker as `leadingHeader`.
+/// action it offers is a Finder reveal: it never moves, deletes, or evicts a file. Rendered as the
+/// Tidy workspace's read-only Storage lens.
 public struct StorageLensView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -23,7 +23,6 @@ public struct StorageLensView: View {
     @State private var collapsed: Set<StorageSection> = []
 
     private let providerName: String?
-    private let leadingHeader: AnyView?
     private let onBuild: () -> Void
     /// Reveals a path in Finder (NSWorkspace). The honest extent of "offload" in this landing.
     private let onReveal: (String) -> Void
@@ -33,14 +32,12 @@ public struct StorageLensView: View {
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
-        leadingHeader: AnyView? = nil,
         onBuild: @escaping () -> Void,
         onReveal: @escaping (String) -> Void,
         onQuickLook: ((String) -> Void)? = nil
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
-        self.leadingHeader = leadingHeader
         self.onBuild = onBuild
         self.onReveal = onReveal
         self.onQuickLook = onQuickLook
@@ -68,7 +65,6 @@ public struct StorageLensView: View {
     private var toolbarCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                if let leadingHeader { leadingHeader }
                 Spacer(minLength: 0)
                 if hasReport, !syncManager.isBuildingStorageLens {
                     Button(action: onBuild) {

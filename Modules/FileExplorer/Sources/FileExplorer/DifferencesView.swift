@@ -36,21 +36,17 @@ public struct DifferencesView: View {
     @State private var reviewFocusNudge = 0
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
-    /// Leading accessory rendered at the start of the header row — the host passes the
-    /// Differences/Details tab picker here so the tabs merge into this single toolbar.
-    private let leadingHeader: AnyView?
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
     ///     created inline here — a per-render store would reset the session every render).
     ///   - onQuickLook: Presents a Quick Look preview for the given file. The app routes this
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, leadingHeader: AnyView? = nil) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
         self.onQuickLook = onQuickLook
-        self.leadingHeader = leadingHeader
     }
 
     private var isBulkSyncing: Bool {
@@ -95,9 +91,6 @@ public struct DifferencesView: View {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    if let leadingHeader {
-                        leadingHeader
-                    }
                     if let session = reviewStore.session {
                         reviewHeaderControls(session)
                     } else {

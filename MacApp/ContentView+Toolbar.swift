@@ -167,23 +167,20 @@ extension ContentView {
             .disabled(isScanning)
             .help("Scan for changes")
 
-            Button(action: { withAnimation { toggleTopPanesForCurrentTab() } }) {
-                let topVisible = !topPanesHiddenForCurrentTab
-                Label(TopPaneVisibility.title(topVisible: topVisible),
+            Button(action: { withAnimation { togglePanesForCurrentTab() } }) {
+                let panesVisible = !panesHiddenForCurrentTab
+                Label(TopPaneVisibility.title(panesVisible: panesVisible, mode: layoutMode),
                       systemImage: TopPaneVisibility.symbol)
                     // Mirrors the bottom-pane toggle's tint-for-state so the two read as a pair:
                     // accent while the panes are up, dimmed when they're collapsed.
-                    .foregroundStyle(topVisible
+                    .foregroundStyle(panesVisible
                         ? AnyShapeStyle(Color.accentColor)
                         : AnyShapeStyle(.secondary))
             }
-            // Only the single-provider workspaces (Tidy, Storage Lens) can hide the comparison
-            // panes; on Differences/Details the panes are essential, so the toggle is inert.
-            .disabled(!canHideTopPanesForCurrentTab)
-            .help(canHideTopPanesForCurrentTab
-                  ? TopPaneVisibility.helpText(topVisible: !topPanesHiddenForCurrentTab)
-                  : TopPaneVisibility.disabledHelpText)
-            .accessibilityLabel(TopPaneVisibility.title(topVisible: !topPanesHiddenForCurrentTab))
+            // Every tab's panes are freely hideable now (compare: both panes; single-source: the
+            // rail) — the persistent tab strip keeps the window from ever emptying.
+            .help(TopPaneVisibility.helpText(panesVisible: !panesHiddenForCurrentTab, mode: layoutMode))
+            .accessibilityLabel(TopPaneVisibility.title(panesVisible: !panesHiddenForCurrentTab, mode: layoutMode))
 
             Button(action: { withAnimation { showingBottomPane.toggle() } }) {
                 Label(BottomPaneToggle.title(paneVisible: showingBottomPane),
@@ -194,12 +191,12 @@ extension ContentView {
                         ? AnyShapeStyle(Color.accentColor)
                         : AnyShapeStyle(.secondary))
             }
-            // When the top panes are hidden the workspace is the only content; hiding the
-            // bottom too would empty the window, so the toggle is disabled there.
-            .disabled(topPanesHiddenForCurrentTab)
-            .help(topPanesHiddenForCurrentTab
-                  ? "Show the top panes first to hide the bottom pane"
-                  : BottomPaneToggle.helpText(paneVisible: showingBottomPane))
+            // On a single-source tab the workspace is the only region, so hiding it is meaningless —
+            // the toggle is inert there. On comparison tabs it independently collapses the workspace.
+            .disabled(!canHideWorkspaceForCurrentTab)
+            .help(canHideWorkspaceForCurrentTab
+                  ? BottomPaneToggle.helpText(paneVisible: showingBottomPane)
+                  : "The workspace is the only pane on this tab")
             .accessibilityLabel(BottomPaneToggle.title(paneVisible: showingBottomPane))
 
             Button(action: { openWindow(id: "activity-log") }) {

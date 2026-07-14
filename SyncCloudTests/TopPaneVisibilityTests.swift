@@ -12,62 +12,66 @@ import AppKit
                 "missing SF Symbol \(TopPaneVisibility.symbol)")
     }
 
-    @Test func testTitleReflectsPaneVisibility() {
-        #expect(TopPaneVisibility.title(topVisible: true) == "Hide Top Panes")
-        #expect(TopPaneVisibility.title(topVisible: false) == "Show Top Panes")
+    @Test func testTitleReflectsModeAndVisibility() {
+        // Comparison tabs speak of "File Panes"; the single-source tab of the "Source Pane" (its rail).
+        #expect(TopPaneVisibility.title(panesVisible: true, mode: .compare) == "Hide File Panes")
+        #expect(TopPaneVisibility.title(panesVisible: false, mode: .compare) == "Show File Panes")
+        #expect(TopPaneVisibility.title(panesVisible: true, mode: .singleSource) == "Hide Source Pane")
+        #expect(TopPaneVisibility.title(panesVisible: false, mode: .singleSource) == "Show Source Pane")
     }
 
-    @Test func testHelpTextReflectsPaneVisibility() {
-        #expect(TopPaneVisibility.helpText(topVisible: true) == "Hide the Left/Right file panes")
-        #expect(TopPaneVisibility.helpText(topVisible: false) == "Show the Left/Right file panes")
+    @Test func testHelpTextReflectsModeAndVisibility() {
+        #expect(TopPaneVisibility.helpText(panesVisible: true, mode: .compare) == "Hide the Left/Right file panes")
+        #expect(TopPaneVisibility.helpText(panesVisible: false, mode: .compare) == "Show the Left/Right file panes")
+        #expect(TopPaneVisibility.helpText(panesVisible: true, mode: .singleSource) == "Collapse the source rail")
+        #expect(TopPaneVisibility.helpText(panesVisible: false, mode: .singleSource) == "Show the source rail to browse or re-scope")
     }
 
-    // MARK: Per-tab capability & defaults
+    // MARK: Mode & pane count
 
-    @Test func testOnlySingleProviderWorkspacesCanHideTopPanes() {
-        // Tidy and Storage Lens scan one provider — the second pane is dead space there.
-        #expect(TopPaneVisibility.canHideTopPanes(for: .tidy))
-        #expect(TopPaneVisibility.canHideTopPanes(for: .storageLens))
-        // The comparison tabs need both panes and must never lose them.
-        #expect(!TopPaneVisibility.canHideTopPanes(for: .differences))
-        #expect(!TopPaneVisibility.canHideTopPanes(for: .details))
+    @Test func testModePerTab() {
+        // Differences and Details compare two locations; Tidy scans one.
+        #expect(TopPaneVisibility.mode(for: .differences) == .compare)
+        #expect(TopPaneVisibility.mode(for: .details) == .compare)
+        #expect(TopPaneVisibility.mode(for: .tidy) == .singleSource)
     }
 
-    @Test func testDefaultsCollapsePanesOnlyForSingleProviderTabs() {
-        #expect(TopPaneVisibility.defaultTopHidden(for: .tidy))
-        #expect(TopPaneVisibility.defaultTopHidden(for: .storageLens))
-        #expect(!TopPaneVisibility.defaultTopHidden(for: .differences))
-        #expect(!TopPaneVisibility.defaultTopHidden(for: .details))
+    @Test func testPaneCountPerTab() {
+        #expect(TopPaneVisibility.paneCount(for: .differences) == 2)
+        #expect(TopPaneVisibility.paneCount(for: .details) == 2)
+        #expect(TopPaneVisibility.paneCount(for: .tidy) == 1)
+    }
+
+    // MARK: Defaults
+
+    @Test func testDefaultsHideOnlyTheSingleSourceRail() {
+        // The single-source rail starts collapsed (workspace fills); comparison panes start shown.
+        #expect(TopPaneVisibility.defaultPanesHidden(for: .tidy))
+        #expect(!TopPaneVisibility.defaultPanesHidden(for: .differences))
+        #expect(!TopPaneVisibility.defaultPanesHidden(for: .details))
     }
 
     // MARK: Resolution
 
     @Test func testResolvesToTabDefaultWhenNoOverride() {
-        #expect(TopPaneVisibility.topHidden(for: .tidy, override: nil))
-        #expect(TopPaneVisibility.topHidden(for: .storageLens, override: nil))
-        #expect(!TopPaneVisibility.topHidden(for: .differences, override: nil))
-        #expect(!TopPaneVisibility.topHidden(for: .details, override: nil))
+        #expect(TopPaneVisibility.panesHidden(for: .tidy, override: nil))
+        #expect(!TopPaneVisibility.panesHidden(for: .differences, override: nil))
+        #expect(!TopPaneVisibility.panesHidden(for: .details, override: nil))
     }
 
-    @Test func testOverrideWinsOnHideCapableTabs() {
-        // Override the auto-collapse: keep the panes up on Tidy.
-        #expect(!TopPaneVisibility.topHidden(for: .tidy, override: false))
-        // Or force-hide them on Storage Lens (already the default, but the override still holds).
-        #expect(TopPaneVisibility.topHidden(for: .storageLens, override: true))
+    @Test func testOverrideWinsOnEveryTab() {
+        // Every tab is freely hideable now — an override flips the default in both directions.
+        #expect(!TopPaneVisibility.panesHidden(for: .tidy, override: false))     // keep the rail up
+        #expect(TopPaneVisibility.panesHidden(for: .differences, override: true)) // hide compare panes
+        #expect(!TopPaneVisibility.panesHidden(for: .details, override: false))
     }
 
-    @Test func testNonHideableTabsIgnoreEvenAStaleHiddenOverride() {
-        // A bad/stale override must never empty the comparison view.
-        #expect(!TopPaneVisibility.topHidden(for: .differences, override: true))
-        #expect(!TopPaneVisibility.topHidden(for: .details, override: true))
-    }
-
-    // MARK: Override encoding
+    // MARK: Override encoding (persistence format is stable — stores `hidden`, keyed by tab raw value)
 
     @Test func testOverrideEncodeDecodeRoundTrips() {
         let map: [String: Bool] = [
             ContentView.BottomTab.tidy.rawValue: false,
-            ContentView.BottomTab.storageLens.rawValue: true,
+            ContentView.BottomTab.differences.rawValue: true,
         ]
         let decoded = TopPaneVisibility.decodeOverrides(TopPaneVisibility.encodeOverrides(map))
         #expect(decoded == map)
@@ -76,8 +80,17 @@ import AppKit
     @Test func testEncodingIsStableAcrossCalls() {
         // Sorted keys keep the persisted string identical for identical contents, so an
         // unchanged map doesn't churn @AppStorage.
-        let map: [String: Bool] = ["Tidy": true, "Storage Lens": false]
+        let map: [String: Bool] = ["Tidy": true, "Differences": false]
         #expect(TopPaneVisibility.encodeOverrides(map) == TopPaneVisibility.encodeOverrides(map))
+    }
+
+    @Test func testUnknownKeysAreIgnoredNotFatal() {
+        // A retired tab's leftover entry (e.g. the old "Storage Lens") stays in the map but is
+        // never looked up, so it can't affect any current tab.
+        let raw = TopPaneVisibility.encodeOverrides(["Storage Lens": true, "Tidy": false])
+        let decoded = TopPaneVisibility.decodeOverrides(raw)
+        #expect(decoded["Storage Lens"] == true)
+        #expect(!TopPaneVisibility.panesHidden(for: .tidy, override: decoded["Tidy"]))
     }
 
     @Test func testMalformedAndEmptyOverridesDecodeToEmptyMap() {
