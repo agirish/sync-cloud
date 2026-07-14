@@ -570,7 +570,9 @@ public struct TidyView: View {
             syncManager: syncManager,
             providerName: providerName,
             onScanNames: onScanNames,
-            onNormalize: onNormalizeNames
+            onNormalize: onNormalizeNames,
+            onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
+            onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
         )
     }
 

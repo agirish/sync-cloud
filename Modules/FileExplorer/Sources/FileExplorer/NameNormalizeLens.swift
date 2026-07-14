@@ -36,17 +36,26 @@ public struct NameNormalizeLens: View {
     /// Applies the safe rename to the given rows as one undoable batch (host wires it to
     /// `syncManager.normalizeNames`).
     private let onNormalize: ([RiskyName]) -> Void
+    /// Reveals the given absolute path in Finder (host owns the `NSWorkspace` call).
+    private let onReveal: (String) -> Void
+    /// Quick Looks the file at the given absolute path (routed to the same `quickLookPreview`
+    /// binding the spacebar shortcut uses). nil hides the per-row Preview button.
+    private let onQuickLook: ((String) -> Void)?
 
     public init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
         onScanNames: @escaping () -> Void,
-        onNormalize: @escaping ([RiskyName]) -> Void
+        onNormalize: @escaping ([RiskyName]) -> Void,
+        onReveal: @escaping (String) -> Void = { _ in },
+        onQuickLook: ((String) -> Void)? = nil
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
         self.onScanNames = onScanNames
         self.onNormalize = onNormalize
+        self.onReveal = onReveal
+        self.onQuickLook = onQuickLook
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -121,7 +130,9 @@ public struct NameNormalizeLens: View {
                             risky: risky,
                             accent: glassHue.accentColor,
                             onFix: { onNormalize([risky]) },
-                            onSkip: { syncManager.dismissRiskyName(risky) }
+                            onSkip: { syncManager.dismissRiskyName(risky) },
+                            onReveal: { onReveal(risky.id) },
+                            onPreview: onQuickLook.map { ql in { ql(risky.id) } }
                         )
                         .transition(.asymmetric(insertion: .identity,
                                                 removal: .opacity.combined(with: .move(edge: .leading))))
@@ -174,6 +185,10 @@ private struct RiskyNameCard: View {
     let accent: Color
     let onFix: () -> Void
     let onSkip: () -> Void
+    /// Reveal this item in Finder.
+    let onReveal: () -> Void
+    /// Quick Look the file. nil hides the Preview button (e.g. no presenter wired).
+    var onPreview: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -239,9 +254,27 @@ private struct RiskyNameCard: View {
                 Text("Skip").frame(maxWidth: .infinity)
             }
             .controlSize(.small)
+            // Read-only utilities — look at the file (or find it in Finder) before deciding whether
+            // to fix or skip. A compact icon pair so Fix/Skip stay the visual priority; both are safe
+            // to use any time (they touch nothing), including while a batch fix is running.
+            HStack(spacing: 4) {
+                if let onPreview {
+                    Button(action: onPreview) { Image(systemName: "eye") }
+                        .help("Quick Look this \(itemKind)")
+                        .accessibilityLabel("Quick Look")
+                }
+                Button(action: onReveal) { Image(systemName: RevealGlyph.inFinder) }
+                    .help("Show this \(itemKind) in Finder")
+                    .accessibilityLabel("Show in Finder")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
         }
         .fixedSize(horizontal: true, vertical: false)
     }
+
+    private var itemKind: String { risky.isDirectory ? "folder" : "file" }
 }
 
 // MARK: - Invisible-marked name
