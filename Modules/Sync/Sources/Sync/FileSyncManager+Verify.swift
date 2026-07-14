@@ -62,7 +62,8 @@ extension FileSyncManager {
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
                 rightPath: diff.rightItemPath,
-                fileManager: activeFM
+                fileManager: activeFM,
+                cache: ContentHashCache.shared
             )
             if same == true {
                 await collector.addIdentical(diff)
@@ -162,7 +163,8 @@ extension FileSyncManager {
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
                 rightPath: diff.rightItemPath,
-                fileManager: activeFM
+                fileManager: activeFM,
+                cache: ContentHashCache.shared
             )
             if same == true {
                 await collector.addIdentical(diff)

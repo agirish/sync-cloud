@@ -17,8 +17,16 @@ public enum FileContentVerifier {
     /// - Parameters:
     ///   - path: Absolute file path.
     ///   - fileManager: File manager (for testability).
+    ///   - cache: Optional session cache keyed by `(resolved path, mtime, size)`. On a hit the
+    ///     stored digest is returned without touching the file; on a miss the freshly computed
+    ///     digest is stored before returning. Passing `nil` reproduces the pre-cache behavior
+    ///     exactly (always reads and hashes).
     /// - Returns: Hex string of the hash, or `nil` if the path is a directory, missing, over size limit, or read fails.
-    public static func sha256Hex(filePath path: String, fileManager: FileManaging = FileManager.default) async -> String? {
+    public static func sha256Hex(
+        filePath path: String,
+        fileManager: FileManaging = FileManager.default,
+        cache: ContentHashCache? = nil
+    ) async -> String? {
         await Task.detached(priority: .utility) {
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
@@ -33,9 +41,19 @@ public enum FileContentVerifier {
             if (try? fileManager.attributesOfItem(atPath: path)[.type]) as? FileAttributeType == .typeSymbolicLink {
                 statPath = (path as NSString).resolvingSymlinksInPath
             }
-            guard let size = (try? fileManager.attributesOfItem(atPath: statPath)[.size] as? NSNumber)?.intValue,
+            guard let attributes = try? fileManager.attributesOfItem(atPath: statPath),
+                  let size = (attributes[.size] as? NSNumber)?.intValue,
                   size <= maxBytesToHash else {
                 return nil
+            }
+            // Build the cache key from the same resolved stat. mtime comes from the attributes we
+            // already read, so this adds a dictionary lookup, not a syscall. When mtime is
+            // unavailable the file is hashed normally but never cached (no stable key).
+            let cacheKey = (attributes[.modificationDate] as? Date).map {
+                ContentHashKey(path: statPath, mtime: $0.timeIntervalSince1970, size: size)
+            }
+            if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
+                return hit
             }
             guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
             defer { try? handle.close() }
@@ -64,19 +82,25 @@ public enum FileContentVerifier {
             }
             guard totalBytes == size else { return nil }
             let digest = hasher.finalize()
-            return digest.map { String(format: "%02x", $0) }.joined()
+            let hex = digest.map { String(format: "%02x", $0) }.joined()
+            if let cache, let cacheKey {
+                await cache.store(hex, for: cacheKey)
+            }
+            return hex
         }.value
     }
 
     /// Returns whether the two files have identical content (same SHA-256).
     /// Returns `nil` if either file cannot be hashed (e.g. directory, too large, missing).
+    /// `cache`, when supplied, lets unchanged files skip the re-hash on a repeat verify.
     public static func filesHaveSameContent(
         leftPath: String,
         rightPath: String,
-        fileManager: FileManaging = FileManager.default
+        fileManager: FileManaging = FileManager.default,
+        cache: ContentHashCache? = nil
     ) async -> Bool? {
-        async let leftHash = sha256Hex(filePath: leftPath, fileManager: fileManager)
-        async let rightHash = sha256Hex(filePath: rightPath, fileManager: fileManager)
+        async let leftHash = sha256Hex(filePath: leftPath, fileManager: fileManager, cache: cache)
+        async let rightHash = sha256Hex(filePath: rightPath, fileManager: fileManager, cache: cache)
         let (l, r) = await (leftHash, rightHash)
         guard let l = l, let r = r else { return nil }
         return l == r
