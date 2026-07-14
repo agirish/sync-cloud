@@ -45,16 +45,10 @@ struct SyncCloudApp: App {
     
     init() {
         // Apply the persisted log-level gate before anything logs; Settings → Advanced
-        // updates both the default and the live gate from then on.
+        // updates both the default and the live gate from then on. (The launch breadcrumb lives in
+        // the delegate's applicationDidFinishLaunching, which fires exactly once — App.init can be
+        // re-run by SwiftUI, which would otherwise emit a duplicate "launched" line each time.)
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
-
-        // Launch breadcrumb: the first line of every session names the build, so a log the user
-        // sends for support (or the on-disk file spanning several launches) is unambiguous about
-        // which version produced the lines that follow.
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
 
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
@@ -261,6 +255,15 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
         guard syncManager == nil, Self.sharedSyncManager == nil else { return }
         syncManager = manager
         Self.sharedSyncManager = manager
+    }
+
+    /// Launch breadcrumb — fires exactly once per process (unlike App.init, which SwiftUI may
+    /// re-run), so the log's first line unambiguously names the build that produced the session.
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info?["CFBundleVersion"] as? String ?? "?"
+        Logger.shared.info("SyncCloud \(version) (build \(build)) launched")
     }
 
     /// The pure branch outcome of the quit guard, split out from the NSAlert plumbing so the

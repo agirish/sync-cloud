@@ -189,9 +189,13 @@ public enum ProviderNameRules {
             result = "untitled"
         }
         if provider == .oneDrive {
-            let baseName = result.split(separator: ".", maxSplits: 1).first.map(String.init) ?? result
+            let parts = result.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false)
+            let baseName = String(parts.first ?? "")
             if oneDriveReservedNames.contains(baseName.uppercased()) {
-                result += "-1"
+                // Suffix the BASE component, not the whole string: "CON.txt" must become
+                // "CON-1.txt" — appending to the end ("CON.txt-1") leaves the base "CON" reserved,
+                // so the sanitized name is still one OneDrive can't store.
+                result = parts.count > 1 ? "\(baseName)-1.\(parts[1])" : "\(baseName)-1"
             }
         }
         return result

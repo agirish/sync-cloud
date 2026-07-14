@@ -333,7 +333,7 @@ import Testing
             dir("/root/Documents/Family", [dir("/root/Documents/Family/Divit", [])]),
             dir("/root/Documents/Health", []),
         ])]
-        let rels = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: "/root")
+        let rels = FilingEngine.relativeFolderPaths(of: taxonomy)
         #expect(rels.contains("Documents"))
         #expect(rels.contains("Documents/Family/Divit"))
         #expect(!rels.contains { $0.hasPrefix("/") })              // relative, no leading slash

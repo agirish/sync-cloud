@@ -257,7 +257,13 @@ extension FileSyncManager {
                             // safeMoveItem perform the case-only rename; otherwise, if a DIFFERENT item
                             // now occupies the original location, refuse rather than silently
                             // replace-and-Trash it (a displacement Redo couldn't track).
-                            let sameItemAsMoved = item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
+                            // Only treat item.from as "the moved item itself" on a case-INsensitive
+                            // volume, where the two case-variant paths are one file. On a
+                            // case-sensitive volume they're distinct, so a genuine occupant at
+                            // item.from must still trip the guard (matches renameItem's isCaseOnly,
+                            // which is likewise volume-gated).
+                            let sameItemAsMoved = !FileSyncManager.volumeSupportsCaseSensitiveNames(for: item.from)
+                                && item.from.path.caseInsensitiveCompare(item.to.path) == .orderedSame
                             if !sameItemAsMoved && fm.fileExists(atPath: item.from.path) {
                                 restoreFailures += 1
                                 await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)

@@ -135,20 +135,28 @@ public struct DifferencesView: View {
         .padding(LiquidGlass.cardGutter)
         // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
         // only — decided rows snap the highlight back), and a session advance re-highlights.
-        .onChange(of: reviewSelection) { _, newSelection in
+        .onChange(of: reviewSelection) { oldSelection, newSelection in
             guard let session = reviewStore.session else { return }
             // Any click hands key focus to the Table; send it back to the card.
             reviewFocusNudge += 1
+            // The Table binds a Set selection, so ⌘/⇧-click can leave more than one row selected
+            // and `.first` would be non-deterministic. Drive the cursor from the row the user just
+            // ADDED (falling back to whatever remains), and collapse any stray multi-selection back
+            // to one row — otherwise a second highlight can disagree with what Return/Skip acts on.
+            let target = newSelection.subtracting(oldSelection).first ?? newSelection.first
             // Deselection (⌘-click on the selected row) must snap back too — the highlight IS
             // the cursor and may not go dark until the next advance.
-            guard let id = newSelection.first else {
+            guard let id = target else {
                 reviewSelection = session.current.map { [$0.id] } ?? []
                 return
             }
-            guard id != session.current?.id else { return }
+            guard id != session.current?.id else {
+                if newSelection != [id] { reviewSelection = [id] }   // collapse a stray extra row
+                return
+            }
             var updated = session
             if updated.jump(to: id) {
-                reviewStore.session = updated
+                reviewStore.session = updated   // the currentIndex onChange re-seeds selection to [id]
             } else {
                 reviewSelection = session.current.map { [$0.id] } ?? []
             }
@@ -600,7 +608,9 @@ public struct DifferencesView: View {
     private func exitReview() {
         guard let session = reviewStore.session else { return }
         Logger.shared.debug("Review exited at \(session.position) of \(session.total)")
-        if session.copiedCount > 0 {
+        // Summarize whenever the user made ANY decision — a skip-only pass (nothing copied) still
+        // resolved rows, so it shouldn't exit silently the way a copy-containing pass summarizes.
+        if session.copiedCount > 0 || session.skippedCount > 0 {
             let verb = session.isMove ? "moved" : "copied"
             syncManager.banner = .success("Review ended — \(session.copiedCount) \(verb), \(session.skippedCount) skipped, \(session.pending.count) not reviewed")
         }

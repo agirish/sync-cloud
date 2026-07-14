@@ -104,7 +104,13 @@ public struct LogEntry: Identifiable, Sendable {
     public var messageBody: String { messageSplit.body }
     public var messageLocation: String? { messageSplit.location }
     private var messageSplit: (body: String, location: String?) {
-        guard let range = message.range(of: " | Location: ") else { return (message, nil) }
+        // Only `warning`/`error` append a " | Location: …" tail; `info`/`debug` never do, so their
+        // message is shown whole — a user string that happens to contain " | Location: " (e.g. a
+        // file literally named that) must not be mistaken for a location caption. For warning/error
+        // split on the LAST occurrence, since the real tail is always last, keeping any user-authored
+        // " | Location: " in the body.
+        guard level == .warning || level == .error,
+              let range = message.range(of: " | Location: ", options: .backwards) else { return (message, nil) }
         return (String(message[..<range.lowerBound]), String(message[range.upperBound...]))
     }
 }

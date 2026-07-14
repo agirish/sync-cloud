@@ -862,12 +862,15 @@ struct ProviderSettingsSection: View {
                 draftName = provider.displayName
             }
             .onChange(of: provider.path) { _, updated in
-                if draftPath != updated {
+                // Adopt an external (discovery) change to the published value only when the user
+                // isn't actively editing this field — otherwise a concurrent discoverProviders()
+                // pass would silently discard their uncommitted draft.
+                if !pathFieldFocused && draftPath != updated {
                     draftPath = updated
                 }
             }
             .onChange(of: provider.displayName) { _, updated in
-                if draftName != updated {
+                if !nameFieldFocused && draftName != updated {
                     draftName = updated
                 }
             }

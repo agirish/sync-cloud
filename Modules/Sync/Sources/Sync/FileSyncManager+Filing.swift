@@ -112,11 +112,11 @@ extension FileSyncManager {
             if !paths.isEmpty { rejectedByFile[f.id] = paths }
         }
         // Cache the taxonomy for single-file re-asks (Try another).
-        let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path)
+        let taxonomyFolders = FilingEngine.relativeFolderPaths(of: taxonomy)
         filingLastProviderRoot = providerRoot.path
         filingLastTaxonomyFolders = taxonomyFolders
         // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
-        filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, providerRoot: providerRoot.path, limit: .max))
+        filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, limit: .max))
 
         // Phase 1 — filename + metadata + your taxonomy + remembered rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,

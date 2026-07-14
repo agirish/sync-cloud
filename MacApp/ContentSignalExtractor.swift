@@ -99,9 +99,13 @@ enum ContentSignalExtractor {
         request.usesLanguageCorrection = false
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do { try handler.perform([request]) } catch { return "" }
-        return (request.results ?? [])
+        let joined = (request.results ?? [])
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: " ")
+        // Bound like the pdf/plain-text branches (whose doc promises "a bounded amount of text"):
+        // a dense full-page scan can yield a very large OCR string, and every consumer re-caps it
+        // anyway, so cap here for consistency.
+        return String(joined.prefix(maxTextChars))
     }
 
     // MARK: Tokenization (pure, testable)

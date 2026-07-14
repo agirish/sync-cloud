@@ -167,10 +167,14 @@ public enum FilingEngine {
             let selfParent = (file.id as NSString).deletingLastPathComponent
             candidates.removeAll { $0.path == selfParent }
 
-            var ranked = rank(candidates, limit: options.maxCandidates)
+            // Drop rejected folders from the full pool BEFORE ranking+capping, so a valid deeper
+            // candidate isn't lost: removing after the cap could strip the top pick and leave the
+            // file with fewer (or no) homes even though a good one existed just past the cap.
+            var pool = candidates
             if let rejected = rejectedByFile[file.id], !rejected.isEmpty {
-                ranked.removeAll { rejected.contains($0.path) }
+                pool.removeAll { rejected.contains($0.path) }
             }
+            let ranked = rank(pool, limit: options.maxCandidates)
             return FilingSuggestion(filePath: file.id, fileName: file.name,
                                     size: file.fileSize ?? 0, modificationDate: file.modificationDate,
                                     candidates: ranked, providerRoot: providerRoot)
@@ -548,7 +552,7 @@ public enum FilingEngine {
     /// structurally from node names (not by string-stripping the root) so it's immune to symlink
     /// prefix differences like /var vs /private/var. Shallowest first, capped so a huge tree can't
     /// blow the model's context (deep leaves drop first).
-    public static func relativeFolderPaths(of taxonomy: [FileNode], providerRoot: String = "", limit: Int = 250) -> [String] {
+    public static func relativeFolderPaths(of taxonomy: [FileNode], limit: Int = 250) -> [String] {
         var out: [String] = []
         func walk(_ node: FileNode, prefix: String) {
             guard node.isDirectory else { return }

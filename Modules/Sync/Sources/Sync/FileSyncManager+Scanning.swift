@@ -162,7 +162,12 @@ extension FileSyncManager {
         //    this cache and bumped the epoch; writing this pre-operation tree back would
         //    resurrect it, and the cache fast path would then serve pre-op state as current
         //    until the next invalidation).
-        if sortOption == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
+        //  - `liveSort == sortOp` guarantees NO re-sort happened above: if one did, `tree` carries
+        //    liveSort's ORDER but only sortOp's metadata (e.g. a Name-built tree re-sorted to Tags
+        //    has no tag xattrs), and `sortOption == sortOp` alone would still cache it whenever the
+        //    option later returns to sortOp — poisoning the fast path with a mis-ordered / metadata-
+        //    poor tree. Cache only the genuine, unmodified build.
+        if sortOption == sortOp, liveSort == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
         }
     }

@@ -67,18 +67,25 @@ public struct LogViewer: View {
         ("Errors", .error),
     ]
 
-    /// Count of recorded entries at or above `level` (all entries when `nil`), shown next to each
-    /// menu option so the severity mix is visible before you filter.
-    private func count(atOrAbove level: LogLevel?) -> Int {
-        guard let level else { return logger.entries.count }
-        return logger.entries.reduce(0) { $0 + ($1.level.severity >= level.severity ? 1 : 0) }
+    /// One O(N) pass tallying how many entries sit at or above each menu threshold (plus the total
+    /// under the `nil`/"All Levels" key). Computed once per body render and read by the picker
+    /// labels, instead of a full `entries` reduce per option on every render.
+    private static func thresholdCounts(_ entries: [LogEntry]) -> [LogLevel?: Int] {
+        var perLevel: [LogLevel: Int] = [:]
+        for e in entries { perLevel[e.level, default: 0] += 1 }
+        var out: [LogLevel?: Int] = [nil: entries.count]
+        for option in levelOptions {
+            guard let lvl = option.level else { continue }
+            out[lvl] = perLevel.reduce(0) { $0 + ($1.key.severity >= lvl.severity ? $1.value : 0) }
+        }
+        return out
     }
 
-    /// Copies exactly what's on screen (current level + search filter, newest first) to the
-    /// clipboard as canonical log lines — the fast path for pasting a slice into a bug report
-    /// without opening the whole on-disk file.
+    /// Copies the on-screen slice (current level + search filter) to the clipboard as canonical log
+    /// lines — the fast path for pasting into a bug report. Emitted oldest-first so the paste reads
+    /// chronologically and matches the on-disk file's order (the list itself shows newest-first).
     private func copyVisibleEntries(_ entries: [LogEntry]) {
-        let text = entries.map(\.formattedString).joined(separator: "\n")
+        let text = entries.reversed().map(\.formattedString).joined(separator: "\n")
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -88,6 +95,7 @@ public struct LogViewer: View {
         // Computed once per body evaluation; the isEmpty check and the ForEach below would
         // otherwise each run the full filter pass.
         let filtered = LogEntryFilter.apply(logger.entries, minimumLevel: selectedLevel, search: searchText)
+        let levelCounts = Self.thresholdCounts(logger.entries)
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
@@ -97,7 +105,7 @@ public struct LogViewer: View {
                 
                 Picker("Level", selection: $selectedLevel) {
                     ForEach(Self.levelOptions, id: \.label) { option in
-                        Text("\(option.label) (\(count(atOrAbove: option.level)))")
+                        Text("\(option.label) (\(levelCounts[option.level] ?? 0))")
                             .tag(option.level)
                     }
                 }

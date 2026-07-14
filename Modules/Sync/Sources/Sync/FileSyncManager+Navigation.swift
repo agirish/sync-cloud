@@ -50,6 +50,9 @@ extension FileSyncManager {
     ///   - relativePath: Subfolder path relative to the pane root (e.g. `"Documents/Projects"`).
     ///   - isLeft: `true` if the user drilled into this folder from the left pane; `false` for the right pane.
     public func focusOn(relativePath: String, isLeft: Bool) {
+        // Already showing this folder in this pane → no-op (mirrors focusBoth), so re-focusing the
+        // current folder doesn't stack a duplicate history entry that makes Back appear to stall.
+        guard (isLeft ? leftRelativePath : rightRelativePath) != relativePath else { return }
         clearSessionIgnoredPaths()
         if isLeft {
             leftHistory.push(relativePath)
@@ -129,6 +132,10 @@ extension FileSyncManager {
     /// never a false "Everything is in sync").
     @MainActor public func invalidateComparisonState() {
         supersedeInFlightPaneWork()
+        // Drop the prefetch cache too (keyed by absolute path): after a provider/root change the
+        // old root's fully-walked tree is dead weight, and this method documents clearing "both
+        // pane trees" — the fast-path cache is part of that state and its rescan repopulates it.
+        prefetchedTrees.removeAll()
         rawLeftTree = []
         rawRightTree = []
         if !leftTree.isEmpty { leftTree = [] }

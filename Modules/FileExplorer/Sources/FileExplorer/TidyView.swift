@@ -109,6 +109,11 @@ public struct TidyView: View {
     /// Lets the empty-list state distinguish an earned "All filed" from "nothing was ever loose."
     /// Reset when a new scan starts (see `.onChange(of: isSuggestingFiles)`).
     @State private var filedThisSession = false
+    /// True once the user has dismissed ("Not here") at least one suggestion this session without
+    /// filing any. Lets the empty state say the scan's suggestions were cleared, rather than the
+    /// misleading "Nothing loose to file" — which claims the scan found nothing when it actually did.
+    /// Reset when a new scan starts.
+    @State private var dismissedThisSession = false
     /// A just-made override the user can teach as a rule (G2): they filed a loose file into a folder
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
@@ -170,6 +175,7 @@ public struct TidyView: View {
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
+                dismissedThisSession = false
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
             }
         }
@@ -644,7 +650,10 @@ public struct TidyView: View {
             },
             onChooseFolder: { chooseFolder(for: suggestion) },
             onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
-            onNotHere: { syncManager.dismissFilingSuggestion(suggestion) },
+            onNotHere: {
+                dismissedThisSession = true
+                syncManager.dismissFilingSuggestion(suggestion)
+            },
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } }
         )
@@ -688,6 +697,16 @@ public struct TidyView: View {
                 tint: .green,
                 title: "All filed",
                 message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more.",
+                secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
+            )
+        } else if dismissedThisSession {
+            // Handled, but not by filing: the user cleared every suggestion with "Not here". Don't
+            // claim the scan found nothing — it found these and the user set them aside.
+            EmptyStateView(
+                icon: FilingGlyph.nothingLoose,
+                tint: .secondary,
+                title: "Suggestions cleared",
+                message: "You set aside every suggestion in \(filingFolderName). Scan again to look afresh, or add more files first.",
                 secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
             )
         } else {
