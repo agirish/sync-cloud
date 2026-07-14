@@ -878,13 +878,13 @@ struct ContentView: View {
     /// N2 — dry-runs the enabled automation rules over the focused folder. Preview only: the manager
     /// walks + evaluates on-device and publishes what *would* happen; no file is moved. Triggered from
     /// the Automations lens's own button, so the pane is already on that lens when this runs.
-    func startAutomationPreviewAction() {
+    func startAutomationPreviewAction(only: UUID? = nil) {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
-        Logger.shared.info("User requested Automations preview for \(root)")
+        Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
         selectedBottomTab = .tidy
         showingBottomPane = true
-        syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root), providerName: tidyProviderName)
+        syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root), providerName: tidyProviderName, only: only)
     }
 
     /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
@@ -1118,7 +1118,7 @@ struct ContentView: View {
                 onFindFilingSuggestions: findFilingSuggestionsAction,
                 onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
-                onPreviewAutomations: { startAutomationPreviewAction() },
+                onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 onQuickLook: { toggleQuickLook($0) }
             )
         } else if selectedBottomTab == .storageLens {

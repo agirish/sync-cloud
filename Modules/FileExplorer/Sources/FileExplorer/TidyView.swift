@@ -134,7 +134,8 @@ public struct TidyView: View {
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
     /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
-    private let onPreviewAutomations: () -> Void
+    /// nil = all enabled rules; a rule id = just that rule.
+    private let onPreviewAutomations: (UUID?) -> Void
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -148,7 +149,7 @@ public struct TidyView: View {
         onFindFilingSuggestions: @escaping () -> Void = {},
         onScanNames: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
-        onPreviewAutomations: @escaping () -> Void = {},
+        onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         onQuickLook: ((URL) -> Void)? = nil
     ) {
         self.syncManager = syncManager

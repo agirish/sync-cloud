@@ -198,8 +198,17 @@ struct AutomationRuleEditor: View {
     private func valueEditor(_ condition: Binding<AutomationCondition>) -> some View {
         switch condition.wrappedValue {
         case .folderNamed:
-            TextField("Downloads", text: stringBinding(condition))
-                .textFieldStyle(.roundedBorder).controlSize(.small)
+            HStack(spacing: 5) {
+                TextField("Downloads", text: stringBinding(condition))
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                Button {
+                    if let name = pickFolderName() { stringBinding(condition).wrappedValue = name }
+                } label: {
+                    Image(systemName: "folder")
+                }
+                .buttonStyle(.borderless).controlSize(.small)
+                .help("Pick a folder — its name fills in")
+            }
         case .nameMatches:
             TextField("*.pdf", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
@@ -257,6 +266,20 @@ struct AutomationRuleEditor: View {
                 .font(.system(size: 11)).foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// Opens a folder picker and returns the picked folder's name (its last path component) — for the
+    /// "in a folder named …" condition, which matches on a file's parent-folder name, not a path.
+    private func pickFolderName() -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder Name"
+        panel.message = "Pick a folder — the rule matches files whose parent folder has this name."
+        if let browseRoot { panel.directoryURL = browseRoot }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.lastPathComponent
     }
 
     /// Opens a folder picker rooted at `browseRoot` and sets the destination to the picked folder's

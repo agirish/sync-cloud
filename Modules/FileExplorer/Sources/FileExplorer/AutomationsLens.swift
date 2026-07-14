@@ -15,7 +15,41 @@ enum AutomationsGlyph {
     static let wouldFile = "arrow.forward.circle.fill"
     static let needsAttention = "exclamationmark.triangle.fill"
     static let alreadyThere = "checkmark.circle"
-    static let disabledRule = "pause.circle"
+}
+
+/// SF Symbol for a condition, so each building block reads at a glance in a rule's chip row.
+func automationConditionIcon(_ condition: AutomationCondition) -> String {
+    switch condition {
+    case .folderNamed: return "folder"
+    case .nameMatches: return "textformat"
+    case .kindIs(let kind): return automationKindIcon(kind)
+    case .largerThanMB: return "scalemass"
+    case .untouchedForDays: return "clock"
+    case .contentContains: return "text.magnifyingglass"
+    }
+}
+
+func automationKindIcon(_ kind: FileKind) -> String {
+    switch kind {
+    case .image: return "photo"
+    case .pdf: return "doc.richtext"
+    case .video: return "film"
+    case .audio: return "music.note"
+    case .archive: return "archivebox"
+    case .document: return "doc.text"
+    }
+}
+
+/// A compact label for a condition chip (shorter than ``AutomationCondition/summary``).
+func automationConditionChipText(_ condition: AutomationCondition) -> String {
+    switch condition {
+    case .folderNamed(let name): return "in \(name.isEmpty ? "…" : name)"
+    case .nameMatches(let glob): return glob.isEmpty ? "name …" : glob
+    case .kindIs(let kind): return kind.label
+    case .largerThanMB(let mb): return "> \(mb) MB"
+    case .untouchedForDays(let days): return "\(days)d untouched"
+    case .contentContains(let term): return "“\(term.isEmpty ? "…" : term)”"
+    }
 }
 
 // MARK: - Automations lens
@@ -33,8 +67,9 @@ public struct AutomationsLens: View {
     /// The folder the preview scans and destinations resolve against (the focused pane's directory).
     /// Passed to the rule editor so its Browse… button opens here and yields a matching relative path.
     private let scanRoot: URL?
-    /// Kicks off a dry-run preview of the focused folder (host owns the root/provider derivation).
-    private let onPreview: () -> Void
+    /// Kicks off a dry-run preview (host owns the root/provider derivation). nil = all enabled rules,
+    /// a rule id = just that rule.
+    private let onPreview: (UUID?) -> Void
 
     /// The rule being created or edited in the sheet, if any.
     @State private var editingRule: AutomationRule?
@@ -45,7 +80,7 @@ public struct AutomationsLens: View {
         syncManager: FileSyncManager,
         providerName: String? = nil,
         scanRoot: URL? = nil,
-        onPreview: @escaping () -> Void
+        onPreview: @escaping (UUID?) -> Void
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
@@ -87,13 +122,11 @@ public struct AutomationsLens: View {
         }
     }
 
-    private func newRule() {
-        editingRule = AutomationRule(name: "")
-    }
+    private func newRule() { editingRule = AutomationRule(name: "") }
 
-    private func runPreview() {
+    private func runPreview(only: UUID? = nil) {
         viewingResults = true
-        onPreview()
+        onPreview(only)
     }
 
     // MARK: Rules management
@@ -119,7 +152,9 @@ public struct AutomationsLens: View {
                             AutomationRuleCard(
                                 rule: rule,
                                 accent: accent,
+                                canPreview: rule.isRunnable && scanRoot != nil,
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
+                                onPreview: { runPreview(only: rule.id) },
                                 onEdit: { editingRule = rule },
                                 onDelete: { syncManager.removeAutomationRule(id: rule.id) }
                             )
@@ -149,10 +184,10 @@ public struct AutomationsLens: View {
             Button(action: newRule) { Label("New rule", systemImage: AutomationsGlyph.newRule) }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-            Button(action: runPreview) { Label("Preview all", systemImage: AutomationsGlyph.preview) }
+            Button(action: { runPreview(only: nil) }) { Label("Preview all", systemImage: AutomationsGlyph.preview) }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(runnableRuleCount == 0)
+                .disabled(runnableRuleCount == 0 || scanRoot == nil)
                 .help(runnableRuleCount == 0
                       ? "Add a rule with a condition and a destination to preview it."
                       : "Dry-run the enabled rules over the focused folder in \(provider). Nothing is moved.")
@@ -184,6 +219,7 @@ public struct AutomationsLens: View {
             resultsHeader(report)
             Divider().opacity(0.5)
             previewBanner
+            summaryStrip(report)
             Divider().opacity(0.5)
             if report.rows.isEmpty {
                 EmptyStateView(
@@ -195,9 +231,14 @@ public struct AutomationsLens: View {
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                        ForEach(report.rows) { row in
-                            AutomationDryRunRowView(row: row, accent: accent)
+                    LazyVStack(alignment: .leading, spacing: 16) {
+                        ForEach(groupedRows(report)) { group in
+                            VStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
+                                ruleGroupHeader(group)
+                                ForEach(group.rows) { row in
+                                    AutomationDryRunRowView(row: row, accent: accent)
+                                }
+                            }
                         }
                     }
                     .padding(densityMetrics.cardListPadding)
@@ -216,23 +257,50 @@ public struct AutomationsLens: View {
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
-            countChip("\(report.wouldFileCount)", "would file", .green)
-            if report.needsAttentionCount > 0 { countChip("\(report.needsAttentionCount)", "need a look", .orange) }
-            Button(action: runPreview) { Label("Preview again", systemImage: "arrow.clockwise") }
+            Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
-    private func countChip(_ number: String, _ label: String, _ color: Color) -> some View {
-        HStack(spacing: 4) {
-            Text(number).font(.system(size: 12, weight: .bold)).monospacedDigit()
+    /// The counts at a glance — scanned / would-file / needs-a-look / already-there.
+    private func summaryStrip(_ report: AutomationDryRunReport) -> some View {
+        HStack(spacing: 8) {
+            statPill("\(report.filesScanned)", "scanned", .secondary)
+            statPill("\(report.wouldFileCount)", "would file", .green)
+            if report.needsAttentionCount > 0 { statPill("\(report.needsAttentionCount)", "need a look", .orange) }
+            if report.alreadyThereCount > 0 { statPill("\(report.alreadyThereCount)", "already there", .secondary) }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+    }
+
+    private func statPill(_ number: String, _ label: String, _ color: Color) -> some View {
+        HStack(spacing: 5) {
+            Text(number).font(.system(size: 12.5, weight: .bold)).monospacedDigit()
             Text(label).font(.system(size: 11))
         }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(color.opacity(0.14)))
+        .foregroundStyle(color == .secondary ? Color.secondary : color)
+        .padding(.horizontal, 9).padding(.vertical, 3)
+        .background(Capsule().fill((color == .secondary ? Color.primary : color).opacity(0.10)))
+    }
+
+    private func ruleGroupHeader(_ group: RuleGroup) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: AutomationsGlyph.lens)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(accent)
+            Text(group.name.isEmpty ? "Untitled rule" : group.name)
+                .font(.system(size: 11.5, weight: .semibold))
+            Text("\(group.rows.count)")
+                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5).padding(.vertical, 1)
+                .background(Capsule().fill(Color.primary.opacity(0.07)))
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 2)
     }
 
     private var previewBanner: some View {
@@ -246,15 +314,40 @@ public struct AutomationsLens: View {
         .padding(.horizontal, 14).padding(.vertical, 7)
         .background(accent.opacity(0.06))
     }
+
+    // MARK: Grouping
+
+    /// The result rows grouped by their rule, preserving first-appearance order.
+    private func groupedRows(_ report: AutomationDryRunReport) -> [RuleGroup] {
+        var order: [UUID] = []
+        var byRule: [UUID: RuleGroup] = [:]
+        for row in report.rows {
+            if byRule[row.ruleID] == nil {
+                order.append(row.ruleID)
+                byRule[row.ruleID] = RuleGroup(id: row.ruleID, name: row.ruleName, rows: [])
+            }
+            byRule[row.ruleID]?.rows.append(row)
+        }
+        return order.compactMap { byRule[$0] }
+    }
+
+    private struct RuleGroup: Identifiable {
+        let id: UUID
+        let name: String
+        var rows: [AutomationDryRunRow]
+    }
 }
 
 // MARK: - Rule card
 
-/// One automation rendered as a card: enable toggle, name + plain-words summary, and Edit / Delete.
+/// One automation as a card: enable toggle, name, its conditions as chips, its destination as a pill,
+/// and Preview-this-rule / Edit / Delete.
 private struct AutomationRuleCard: View {
     let rule: AutomationRule
     let accent: Color
+    let canPreview: Bool
     let onToggle: (Bool) -> Void
+    let onPreview: () -> Void
     let onEdit: () -> Void
     let onDelete: () -> Void
 
@@ -262,15 +355,20 @@ private struct AutomationRuleCard: View {
     /// captured closure — the latter trips Swift 6's `@Sendable`-setter check on `Binding(set:)`.
     @State private var isEnabled: Bool
 
-    init(rule: AutomationRule, accent: Color,
-         onToggle: @escaping (Bool) -> Void, onEdit: @escaping () -> Void, onDelete: @escaping () -> Void) {
+    init(rule: AutomationRule, accent: Color, canPreview: Bool,
+         onToggle: @escaping (Bool) -> Void, onPreview: @escaping () -> Void,
+         onEdit: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.rule = rule
         self.accent = accent
+        self.canPreview = canPreview
         self.onToggle = onToggle
+        self.onPreview = onPreview
         self.onEdit = onEdit
         self.onDelete = onDelete
         _isEnabled = State(initialValue: rule.enabled)
     }
+
+    private var completeConditions: [AutomationCondition] { rule.conditions.filter { $0.isComplete } }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -283,41 +381,109 @@ private struct AutomationRuleCard: View {
                 .onChange(of: rule.enabled) { _, newValue in
                     if newValue != isEnabled { isEnabled = newValue }
                 }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(rule.name.isEmpty ? "Untitled rule" : rule.name)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(rule.enabled ? .primary : .secondary)
-                    if !rule.isRunnable {
-                        Text("incomplete")
-                            .font(.system(size: 9.5, weight: .semibold))
-                            .foregroundStyle(.orange)
-                            .padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.orange.opacity(0.15)))
-                    }
-                }
-                Text(rule.summary)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 7) {
+                nameRow
+                conditionRow
+                DestinationPill(template: rule.destinationTemplate, accent: accent)
             }
-            Spacer(minLength: 8)
-            HStack(spacing: 4) {
-                Button(action: onEdit) { Image(systemName: "pencil") }
-                    .buttonStyle(.borderless).help("Edit this rule")
-                Button(action: onDelete) { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).help("Delete this rule")
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.top, 1)
+            actions
         }
         .padding(.horizontal, 14).padding(.vertical, 11)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(rule.enabled ? 0.5 : 0.25)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
-        .opacity(rule.enabled ? 1 : 0.72)
+        .opacity(rule.enabled ? 1 : 0.7)
+    }
+
+    private var nameRow: some View {
+        HStack(spacing: 6) {
+            Text(rule.name.isEmpty ? "Untitled rule" : rule.name)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(rule.enabled ? .primary : .secondary)
+            if !rule.isRunnable {
+                Text("incomplete")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var conditionRow: some View {
+        if completeConditions.isEmpty {
+            Text("No conditions yet — this rule won’t match anything.")
+                .font(.system(size: 11)).foregroundStyle(.tertiary)
+        } else {
+            FlowLayout(spacing: 5, lineSpacing: 5) {
+                if completeConditions.count > 1 {
+                    Text(rule.matchMode == .all ? "ALL" : "ANY")
+                        .font(.system(size: 9, weight: .bold)).kerning(0.4)
+                        .foregroundStyle(accent)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Capsule().fill(accent.opacity(0.12)))
+                }
+                ForEach(Array(completeConditions.enumerated()), id: \.offset) { _, condition in
+                    ConditionChip(icon: automationConditionIcon(condition),
+                                  text: automationConditionChipText(condition))
+                }
+            }
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 2) {
+            Button(action: onPreview) { Image(systemName: AutomationsGlyph.preview) }
+                .disabled(!canPreview)
+                .help(canPreview ? "Preview just this rule over the focused folder"
+                                 : "Give the rule a condition and destination to preview it")
+            Button(action: onEdit) { Image(systemName: "pencil") }
+                .help("Edit this rule")
+            Button(action: onDelete) { Image(systemName: "trash") }
+                .help("Delete this rule")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.borderless)
+        .padding(.top, 1)
+    }
+}
+
+// MARK: - Condition chip & destination pill
+
+/// A single condition rendered as an icon + compact label chip.
+private struct ConditionChip: View {
+    let icon: String
+    let text: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 9.5, weight: .semibold))
+            Text(text).font(.system(size: 10.5, weight: .medium))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5))
+    }
+}
+
+/// The rule's destination template as an accent-tinted pill, e.g. "→ 📁 Documents/Invoices/{year}".
+private struct DestinationPill: View {
+    let template: String
+    let accent: Color
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "arrow.forward").font(.system(size: 8.5, weight: .bold))
+            Image(systemName: "folder.fill").font(.system(size: 9))
+            Text(template.isEmpty ? "set a destination" : template)
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .lineLimit(1).truncationMode(.middle)
+        }
+        .foregroundStyle(template.isEmpty ? Color.secondary : accent)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(Capsule().fill((template.isEmpty ? Color.primary : accent).opacity(0.10)))
     }
 }
 
@@ -329,23 +495,19 @@ private struct AutomationDryRunRowView: View {
     let accent: Color
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
                 .resizable().frame(width: 24, height: 24)
-                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.fileName)
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 detail
-                Text("rule · \(row.ruleName)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 8)
             verdictChip
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.horizontal, 14).padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -391,5 +553,48 @@ private struct AutomationDryRunRowView: View {
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().fill(color.opacity(0.14)))
         .fixedSize()
+    }
+}
+
+// MARK: - Flow layout
+
+/// A minimal wrapping layout: places children left-to-right, breaking to a new line when the next
+/// child won't fit. Used for a rule's condition chips so they wrap inside the card.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                y += lineHeight + lineSpacing
+                x = 0
+                lineHeight = 0
+            }
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            widest = max(widest, x - spacing)
+        }
+        return CGSize(width: min(widest, maxWidth), height: y + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let maxWidth = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                y += lineHeight + lineSpacing
+                x = 0
+                lineHeight = 0
+            }
+            subview.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
+                          anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }

@@ -61,12 +61,13 @@ extension FileSyncManager {
 
     /// Starts a cancellable dry-run preview of the enabled rules over `root`, replacing any in-flight
     /// one. `providerName` labels the surface and resolves the `{provider}` token.
-    public func startAutomationDryRun(root: URL, providerName: String?) {
+    /// `only` scopes the preview to a single rule (its id); nil previews all enabled, runnable rules.
+    public func startAutomationDryRun(root: URL, providerName: String?, only: UUID? = nil) {
         let previous = automationDryRunTask
         previous?.cancel()
         automationDryRunTask = Task { [weak self] in
             _ = await previous?.value   // let a cancelled run unwind before the guard below
-            await self?.runAutomationDryRun(root: root, providerName: providerName)
+            await self?.runAutomationDryRun(root: root, providerName: providerName, only: only)
         }
     }
 
@@ -89,13 +90,19 @@ extension FileSyncManager {
     func runAutomationDryRun(
         root: URL,
         providerName: String?,
+        only: UUID? = nil,
         fileManager fm: FileManaging? = nil,
         now: Date = Date()
     ) async {
         guard !isRunningAutomationDryRun else { return }
         ensureAutomationRulesLoaded()
         let fileManager = fm ?? self.fileManager
-        let rules = automationRules.filter { $0.enabled && $0.isRunnable }
+        // A single-rule preview (only != nil) runs even if that rule is toggled off, so a rule can be
+        // tested before enabling it; "preview all" (only == nil) uses just the enabled rules.
+        let rules = automationRules.filter { rule in
+            guard rule.isRunnable else { return false }
+            return only == nil ? rule.enabled : rule.id == only
+        }
 
         isRunningAutomationDryRun = true
         automationDryRunStatus = "Previewing \(root.lastPathComponent)…"
