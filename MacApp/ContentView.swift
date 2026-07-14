@@ -795,6 +795,26 @@ struct ContentView: View {
         return (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
+    /// The provider ruleset a Name Normalizer scan targets — the focused pane's provider (else left).
+    /// Falls back to OneDrive, the strictest ruleset, when the type can't be resolved, so nothing
+    /// risky slips past.
+    var tidyProviderType: CloudProvider.ProviderType {
+        let id = (activePane == .right) ? rightProviderId : leftProviderId
+        return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
+    }
+
+    /// Switches to the Tidy tab and scans the focused folder for cloud-hostile file & folder names.
+    /// The scan is kicked off from the Names lens's own intro button, so the pane is already on that
+    /// lens when this runs.
+    func startNameScanAction() {
+        let root = tidyScanRootExpanded
+        guard !root.isEmpty else { return }
+        Logger.shared.info("User requested Name Normalizer scan for \(root)")
+        selectedBottomTab = .tidy
+        showingBottomPane = true
+        syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
+    }
+
     /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
     func findFilingSuggestionsAction() {
         let folder = tidyScanRootExpanded
@@ -1021,6 +1041,8 @@ struct ContentView: View {
                 leadingHeader: AnyView(bottomTabPicker),
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: findFilingSuggestionsAction,
+                onScanNames: { startNameScanAction() },
+                onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onQuickLook: { quickLookURL = $0 }
             )
         } else if selectedBottomTab == .storageLens {

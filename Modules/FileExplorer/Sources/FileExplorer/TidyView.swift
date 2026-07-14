@@ -5,10 +5,11 @@ import Design
 
 // MARK: - Lens / filter / match styling
 
-/// The two lenses of the Tidy workspace.
+/// The lenses of the Tidy workspace.
 enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     case filing = "Filing"
+    case names = "Names"
     var id: String { rawValue }
 }
 
@@ -127,6 +128,10 @@ public struct TidyView: View {
     private let leadingHeader: AnyView?
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
+    /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
+    private let onScanNames: () -> Void
+    /// Applies the safe rename to the given risky names as one undoable batch.
+    private let onNormalizeNames: ([RiskyName]) -> Void
     /// Presents a Quick Look preview for a file (routed to the same `quickLookPreview` binding the
     /// spacebar shortcut uses). nil disables the per-card Preview button.
     private let onQuickLook: ((URL) -> Void)?
@@ -138,6 +143,8 @@ public struct TidyView: View {
         leadingHeader: AnyView? = nil,
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
+        onScanNames: @escaping () -> Void = {},
+        onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onQuickLook: ((URL) -> Void)? = nil
     ) {
         self.syncManager = syncManager
@@ -146,6 +153,8 @@ public struct TidyView: View {
         self.leadingHeader = leadingHeader
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
+        self.onScanNames = onScanNames
+        self.onNormalizeNames = onNormalizeNames
         self.onQuickLook = onQuickLook
     }
 
@@ -426,6 +435,7 @@ public struct TidyView: View {
             switch lens {
             case .duplicates: duplicatesContent
             case .filing: filingContent
+            case .names: namesContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -548,6 +558,20 @@ public struct TidyView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
+    }
+
+    // MARK: Names content
+
+    /// X8 — the Name Normalizer lens. Self-contained (its own intro / scanning / results / all-clean
+    /// states and Fix-all header live in ``NameNormalizeLens``), so the host only threads the scan
+    /// and normalize closures through.
+    private var namesContent: some View {
+        NameNormalizeLens(
+            syncManager: syncManager,
+            providerName: providerName,
+            onScanNames: onScanNames,
+            onNormalize: onNormalizeNames
+        )
     }
 
     /// G2 — "Remember this for files like it?" The correction the user just made (filing into a

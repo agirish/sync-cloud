@@ -147,6 +147,28 @@ public class FileSyncManager: ObservableObject {
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
 
+    // MARK: Name Normalizer — bulk-fix cloud-hostile names (see FileSyncManager+NameNormalize.swift)
+
+    /// The risky names (files AND folders) found by the most recent scan, each with its safe
+    /// replacement. Empty until a scan runs; rows drop as they're fixed or skipped.
+    @Published public var riskyNames: [RiskyName] = []
+    /// True while a Name Normalizer scan (walk + detect) is running.
+    @Published public var isScanningNames = false
+    /// The absolute root the current `riskyNames` were scanned from — captured at scan time so the
+    /// results stay labeled correctly even if the user navigates elsewhere.
+    @Published public var nameScanRoot: URL?
+    /// True once a Name Normalizer scan has completed at least once (drives intro-vs-results state).
+    @Published public var hasScannedNames = false
+    /// Human-readable progress for the running scan (e.g. "Scanning iCloud…").
+    @Published public var nameScanStatus = ""
+    /// True while a "Fix all" / per-row normalize pass is applying renames.
+    @Published public var isNormalizingNames = false
+    /// The in-flight Name Normalizer scan task, so the UI can cancel a long walk.
+    var nameScanTask: Task<Void, Never>?
+    /// The provider ruleset the current results were scanned against — remembered so an apply pass
+    /// (and any rescan) honors the same rules the scan used. Not `@Published`: no view reads it.
+    var nameScanProvider: CloudProvider.ProviderType?
+
     // MARK: Filing — suggest where loose files go (see FileSyncManager+Filing.swift)
 
     /// Filing suggestions from the most recent scan of a picked folder.
