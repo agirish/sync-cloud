@@ -250,7 +250,14 @@ struct SyncCloudApp: App {
                 SyncHistoryView(
                     store: .shared,
                     onUndoLastSyncRun: {
-                        guard SyncOperationAlerts.confirmUndoLastSyncRun() else { return }
+                        // Only prompt when the last recorded run is genuinely still on top of the
+                        // undo stack; otherwise let the manager surface the honest reason (a
+                        // non-sync action is on top, or the stack reset on relaunch).
+                        guard let preview = syncManager.lastSyncRunUndoPreview else {
+                            syncManager.undoLastSyncRun()
+                            return
+                        }
+                        guard SyncOperationAlerts.confirmUndoLastSyncRun(preview) else { return }
                         syncManager.undoLastSyncRun()
                     }
                 )

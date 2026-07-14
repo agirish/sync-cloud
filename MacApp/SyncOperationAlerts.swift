@@ -204,14 +204,15 @@ struct SyncOperationAlerts {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// Confirms reversing the most recent sync run before it touches any files. Reversal reuses
-    /// the app's existing undo stack (safeMove-back, Trash-restore) — recoverable, and itself
-    /// redoable — so Return proceeds and Escape cancels.
+    /// Confirms reversing the most recent sync run before it touches any files, itemizing exactly
+    /// what will be undone (from `preview`, which the manager only produces when that run is still
+    /// the top of the undo stack). Reversal reuses the app's existing undo stack (safeMove-back,
+    /// Trash-restore) — recoverable, and itself redoable — so Return proceeds and Escape cancels.
     /// - Returns: True to reverse the last run.
-    static func confirmUndoLastSyncRun() -> Bool {
+    static func confirmUndoLastSyncRun(_ preview: SyncRunUndoPreview) -> Bool {
         let alert = NSAlert()
         alert.messageText = "Undo the last sync run?"
-        alert.informativeText = "This reverses the most recent copy, move, or delete run — moving files back to where they were. You can redo it afterward."
+        alert.informativeText = preview.confirmationDetail()
         alert.addButton(withTitle: "Undo Last Run") // Return key default
         alert.addButton(withTitle: "Cancel")         // Escape
         return alert.runModal() == .alertFirstButtonReturn

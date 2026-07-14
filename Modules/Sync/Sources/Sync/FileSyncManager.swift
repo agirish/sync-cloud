@@ -81,26 +81,64 @@ public class FileSyncManager: ObservableObject {
     /// block or fail the file operation that produced the record.
     public var syncHistoryStore: SyncHistoryStore = .shared
 
+    /// The `UndoManager` action name captured the moment the last history-recorded run finished
+    /// registering its undo group, plus that run's records. Together they let `undoLastSyncRun`
+    /// verify the stack's top is STILL that run before reversing it — the shared `UndoManager` also
+    /// carries Filing/rename/"New Folder" actions that are not sync runs and are not in the history.
+    private(set) var lastRecordedRunUndoName: String?
+    private(set) var lastRecordedRunRecords: [SyncHistoryRecord] = []
+
     /// Records a run's history entries, if any. A thin funnel so every op site records the same
     /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
+    /// Also snapshots the run's undo-group name (each op site registers its undo BEFORE calling
+    /// this) so "Undo Last Run" can later confirm it's still the top of the stack.
     func recordSyncHistory(_ records: [SyncHistoryRecord]) {
         guard !records.isEmpty else { return }
         syncHistoryStore.appendBatch(records)
+        lastRecordedRunUndoName = undoManager?.undoActionName
+        lastRecordedRunRecords = records
     }
 
-    /// Reverses the most recent undoable operation — a "sync run" — by reusing the app's existing,
-    /// tested `UndoManager` reversal stack (safeMove-back, Trash-restore); no new file-mutating
-    /// path. Bulk runs are registered as ONE grouped undo step, so this reverses a whole run. The
-    /// app wires an NSAlert confirmation in front of this (it touches data); here we only guard
-    /// that something is undoable and log the reversal.
+    /// A preview of what "Undo Last Run" would reverse, or nil when it must not act: nil unless the
+    /// `UndoManager` can undo AND its next-undo action name still equals the last recorded run's
+    /// (i.e. nothing — a Filing move, a rename, a New Folder, or a manual ⌘Z — has changed the top
+    /// since). This is the gate that makes the reversal describe-what-it-does and never touch the
+    /// wrong action.
+    public var lastSyncRunUndoPreview: SyncRunUndoPreview? {
+        guard let undoManager, undoManager.canUndo,
+              let expected = lastRecordedRunUndoName,
+              undoManager.undoActionName == expected,
+              !lastRecordedRunRecords.isEmpty
+        else { return nil }
+        return SyncRunUndoPreview(actionName: expected, records: lastRecordedRunRecords)
+    }
+
+    /// Reverses the most recent sync run by reusing the app's existing, tested `UndoManager`
+    /// reversal stack (safeMove-back, Trash-restore) — no new file-mutating path; bulk runs are one
+    /// grouped step, so a whole run reverses at once. Guarded by `lastSyncRunUndoPreview`: it acts
+    /// ONLY when the recorded run is still the top of the undo stack. If some other action is on top
+    /// (Filing, rename, New Folder…) it refuses and names it, pointing the user at ⌘Z, rather than
+    /// silently reversing something the Sync History window never showed. The app wires an NSAlert
+    /// confirmation (built from the same preview) in front of this.
     public func undoLastSyncRun() {
-        guard let undoManager, undoManager.canUndo else {
-            banner = .warning("There's no recent sync run to undo")
+        guard let undoManager else { return }
+        guard let preview = lastSyncRunUndoPreview else {
+            if undoManager.canUndo {
+                let top = undoManager.undoActionName
+                banner = .warning(top.isEmpty
+                    ? "The most recent action isn't a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
+                    : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
+            } else {
+                banner = .warning("There's no recent sync run to undo — the undo history resets when SyncCloud restarts.")
+            }
             return
         }
-        let name = undoManager.undoActionName
-        Logger.shared.info("Undoing last sync run" + (name.isEmpty ? "" : ": \(name)"))
+        Logger.shared.info("Undoing last sync run: \(preview.actionName) — reversing \(preview.operationCount) operation(s)")
         undoManager.undo()
+        // The run is consumed — clear the snapshot so a second press can't reverse it again (a redo
+        // re-registers its own group with a fresh action name).
+        lastRecordedRunUndoName = nil
+        lastRecordedRunRecords = []
     }
 
     /// Initializes a new FileSyncManager with a specific file manager.
