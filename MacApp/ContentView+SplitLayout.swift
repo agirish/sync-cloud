@@ -42,6 +42,21 @@ extension ContentView {
                 paneResizeHandle(totalWidth: totalWidth, minFraction: minFraction)
                     .offset(x: leftWidth - 6)
             }
+            // ⇄ swap now lives on the seam between the two panes (it moved off the removed sidebar).
+            // Small and pinned to the top so it doesn't eat the seam's drag-to-resize area below it.
+            .overlay(alignment: .topLeading) {
+                Button(action: swapPanesAction) {
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 26, height: 26)
+                        .background(.regularMaterial, in: Circle())
+                        .overlay(Circle().strokeBorder(.quaternary, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .help("Swap the left and right panes")
+                .offset(x: leftWidth - 13, y: 8)
+            }
             .coordinateSpace(.named(Self.paneRowSpace))
         }
         // Quick Look on plain Space, scoped to the pane trees — NOT a window-level
@@ -176,8 +191,9 @@ extension ContentView {
         }
     }
 
-    /// The collapsed source rail: a thin, clickable spine that names the source provider and expands
-    /// the pane when clicked (the same action the toolbar's pane toggle performs).
+    /// The collapsed source rail: a thin, clickable spine that expands the pane when clicked (the
+    /// same action the toolbar's pane toggle performs). Icon-only by design — the provider name
+    /// lives once in the workspace's source bar while collapsed, so the spine doesn't repeat it.
     @ViewBuilder
     var railSpine: some View {
         let provider = settings.availableProviders.first(where: { $0.id == leftProviderId })
@@ -192,13 +208,6 @@ extension ContentView {
                 Image(systemName: "cloud")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.accentColor)
-                Text(name)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 20, height: 110)
                 Spacer(minLength: 0)
             }
             .padding(.top, 12)

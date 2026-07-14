@@ -16,6 +16,15 @@ public enum TidyLens: String, CaseIterable, Identifiable {
     /// stale / reclaim lists). Sits last, after the action lenses.
     case storage = "Storage"
     public var id: String { rawValue }
+
+    /// The label shown in the lens picker. Kept separate from `rawValue` so the display name can
+    /// change without breaking the persisted `selectedTidyLens` id (Filing shows as "Organize").
+    public var title: String {
+        switch self {
+        case .filing: return "Organize"
+        default: return rawValue
+        }
+    }
 }
 
 /// Filter over the match type of duplicate groups.
@@ -150,6 +159,16 @@ public struct TidyView: View {
     /// Builds (or rebuilds) the read-only storage picture for the focused folder — the Storage lens's
     /// analyze/re-analyze action. Host owns the root deriving.
     private let onBuildStorage: () -> Void
+    /// Whether to show the source bar (provider dropdown + folder) above the lens. True only when the
+    /// source rail is collapsed; when it's expanded, the rail header owns the provider dropdown, so
+    /// showing it here too would name the provider twice.
+    private let showSourcePicker: Bool
+    /// The enabled providers the source can switch between, and the current one — the single
+    /// provider choice Tidy needs (no Left/Right).
+    private let providers: [CloudProvider]
+    private let currentProviderId: String
+    private let onSelectProvider: (String) -> Void
+    private let onManageProviders: () -> Void
 
     public init(
         syncManager: FileSyncManager,
@@ -163,7 +182,12 @@ public struct TidyView: View {
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
         onQuickLook: ((URL) -> Void)? = nil,
-        onBuildStorage: @escaping () -> Void = {}
+        onBuildStorage: @escaping () -> Void = {},
+        showSourcePicker: Bool = false,
+        providers: [CloudProvider] = [],
+        currentProviderId: String = "",
+        onSelectProvider: @escaping (String) -> Void = { _ in },
+        onManageProviders: @escaping () -> Void = {}
     ) {
         self.syncManager = syncManager
         self._lens = lens
@@ -177,6 +201,11 @@ public struct TidyView: View {
         self.automationDestinationRoot = automationDestinationRoot
         self.onQuickLook = onQuickLook
         self.onBuildStorage = onBuildStorage
+        self.showSourcePicker = showSourcePicker
+        self.providers = providers
+        self.currentProviderId = currentProviderId
+        self.onSelectProvider = onSelectProvider
+        self.onManageProviders = onManageProviders
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -193,7 +222,76 @@ public struct TidyView: View {
         syncManager.duplicateGroups.filter { $0.isRecommendedForBatch }.count
     }
 
+    /// Whether the toolbar card has anything to render for the current lens (a results summary,
+    /// batch action, or the Filing spend row). Duplicates/Organize only earn it once they have
+    /// results; Names/Automations render their own chrome, so their toolbar card is always empty.
+    private var toolbarHasContent: Bool {
+        switch lens {
+        case .duplicates: return hasResults
+        case .filing: return hasFilingResults || spendTotals.scans > 0
+        case .names, .automations, .storage: return false
+        }
+    }
+
     public var body: some View {
+        VStack(spacing: 0) {
+            if showSourcePicker { sourceBar }
+            lensBody
+        }
+        .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
+        // A fresh scan starts a fresh session: forget any files filed against the previous results,
+        // so the "All filed" terminal state is only earned by this scan's work.
+        .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
+            if isScanning {
+                filedThisSession = false
+                dismissedThisSession = false
+                pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
+            }
+        }
+        // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
+        // counts the current results' work (H5).
+        .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
+            if isScanning { reclaim.reset() }
+        }
+    }
+
+    /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
+    /// one provider choice Tidy needs) and the folder being tidied.
+    private var sourceBar: some View {
+        let provider = providers.first(where: { $0.id == currentProviderId })
+        return HStack(spacing: 8) {
+            Text("Source")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                // Logo outside the Menu label (a resizable image inside one balloons under fixedSize).
+                if let provider {
+                    Image(provider.imageName).resizable().scaledToFit().frame(width: 16, height: 16)
+                }
+                ProviderMenu(providers: providers, currentId: currentProviderId,
+                             onSelect: onSelectProvider, onManage: onManageProviders) {
+                    Text(provider?.displayName ?? "Provider")
+                        .font(.system(size: 12, weight: .semibold))
+                        .contentShape(Rectangle())
+                }
+                .help("Switch which cloud you're tidying")
+            }
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+            if let folder = scanTargetFolder, !folder.isEmpty {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                Text((folder as NSString).lastPathComponent)
+                    .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, LiquidGlass.cardGutter + 12)
+        .padding(.top, LiquidGlass.cardGutter)
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private var lensBody: some View {
         Group {
             if lens == .storage {
                 // Storage, folded in as a read-only lens: it brings its own toolbar + content cards
@@ -210,26 +308,14 @@ public struct TidyView: View {
                 )
             } else {
                 VStack(spacing: 8) {
-                    toolbarCard
+                    // Only show the toolbar card when it actually has something (a results summary or
+                    // batch action). In the intro / scanning / clean states it would otherwise render
+                    // as an empty bar — the lens picker that used to fill it now lives in the top strip.
+                    if toolbarHasContent { toolbarCard }
                     contentCard
                 }
                 .padding(LiquidGlass.cardGutter)
             }
-        }
-        .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
-        // A fresh scan starts a fresh session: forget any files filed against the previous results,
-        // so the "All filed" terminal state is only earned by this scan's work.
-        .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
-            if isScanning {
-                filedThisSession = false
-                dismissedThisSession = false
-                pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
-            }
-        }
-        // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
-        // counts the current results' work (H5).
-        .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
-            if isScanning { reclaim.reset() }
         }
     }
 

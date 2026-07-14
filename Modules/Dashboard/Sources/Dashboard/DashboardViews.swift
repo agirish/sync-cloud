@@ -20,6 +20,20 @@ public struct PaneHeader: View {
     public let onForward: () -> Void
     public let onNavigate: (String) -> Void
     public let onNavigateBoth: (String) -> Void
+    /// The enabled providers this pane can switch between — the provider name is now a dropdown
+    /// (replacing the old Left/Right sidebar). Empty hides the dropdown affordance.
+    public let providers: [CloudProvider]
+    /// Switches this pane to the chosen provider id.
+    public let onSelectProvider: (String) -> Void
+    /// Opens Settings ▸ Providers (the "Manage providers…" menu item).
+    public let onManageProviders: () -> Void
+    /// The (global) sort order, surfaced per-pane now that the titlebar's file actions have moved
+    /// onto the panes.
+    @Binding public var sortOption: SortOption
+    /// When set, shows a collapse button in the nav cluster — used by the single-source Tidy rail to
+    /// collapse itself back to the spine directly (not only via the titlebar pane toggle). nil on the
+    /// comparison panes, which don't collapse individually.
+    public let onCollapse: (() -> Void)?
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -44,6 +58,11 @@ public struct PaneHeader: View {
         onForward: @escaping () -> Void,
         onNavigate: @escaping (String) -> Void,
         onNavigateBoth: @escaping (String) -> Void,
+        providers: [CloudProvider] = [],
+        onSelectProvider: @escaping (String) -> Void = { _ in },
+        onManageProviders: @escaping () -> Void = {},
+        sortOption: Binding<SortOption>,
+        onCollapse: (() -> Void)? = nil,
         showHiddenFiles: Binding<Bool>
     ) {
         self.title = title
@@ -56,6 +75,11 @@ public struct PaneHeader: View {
         self.onForward = onForward
         self.onNavigate = onNavigate
         self.onNavigateBoth = onNavigateBoth
+        self.providers = providers
+        self.onSelectProvider = onSelectProvider
+        self.onManageProviders = onManageProviders
+        self._sortOption = sortOption
+        self.onCollapse = onCollapse
         self._showHiddenFiles = showHiddenFiles
     }
 
@@ -68,14 +92,27 @@ public struct PaneHeader: View {
                     // *matching* when both panes show the same provider). Buttons and
                     // selection states keep the user's accent color.
                     let hue = ProviderHue.classify(provider.displayName)
+                    // The provider name is now a dropdown (the Left/Right sidebar is gone). The logo
+                    // stays a plain image OUTSIDE the menu — a resizable image inside a Menu label
+                    // balloons to its native size under the menu's fixedSize — and only the tinted
+                    // name + chevron is the menu trigger.
                     HStack(spacing: 10) {
                         Image(provider.imageName)
                             .resizable()
                             .scaledToFit()
                             .frame(width: 28, height: 28)
-                        Text(provider.displayName)
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(hue.tint)
+                        ProviderMenu(
+                            providers: providers,
+                            currentId: provider.id,
+                            onSelect: onSelectProvider,
+                            onManage: onManageProviders
+                        ) {
+                            Text(provider.displayName)
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(hue.tint)
+                                .contentShape(Rectangle())
+                        }
+                        .help("Switch this pane's cloud provider")
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -91,6 +128,13 @@ public struct PaneHeader: View {
                 Spacer(minLength: 0)
 
                 HStack(spacing: 6) {
+                    if let onCollapse {
+                        Button(action: onCollapse) {
+                            Image(systemName: "sidebar.left")
+                        }
+                        .help("Collapse the source pane")
+                    }
+
                     Button(action: onBack) {
                         Image(systemName: "chevron.left")
                     }
@@ -102,6 +146,23 @@ public struct PaneHeader: View {
                     }
                     .disabled(!canGoForward)
                     .help("Go forward to this pane's next folder")
+
+                    // Sort moved out of the titlebar (its file-action neighbors are now the pane's
+                    // contextual action bar); it lives per-pane, driving the shared sort order.
+                    Menu {
+                        Picker("Sort By", selection: $sortOption) {
+                            ForEach(SortOption.allCases, id: \.self) { option in
+                                Text(option.rawValue).tag(option)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Choose how items are sorted")
 
                     // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
                     // mirrors the state: open when hidden files are shown, slashed when filtered.

@@ -55,93 +55,83 @@ extension ContentView {
         }
     }
 
-    /// The window toolbar: file actions in a leading group (right after the sidebar toggle),
-    /// utility actions trailing. Lives in the native toolbar so it fills the titlebar band.
+    // MARK: - Contextual pane action bar
+
+    /// Whether the selection-driven action bar shows on this pane: it's the active (selected) pane
+    /// and there's at least one selected item. Only the comparison panes have an "other pane" to
+    /// copy/move to, so it never shows on the single-source Tidy rail.
+    func paneActionBarVisible(isLeft: Bool) -> Bool {
+        guard layoutMode == .compare else { return false }
+        let side: PaneLogic.ActivePane = isLeft ? .left : .right
+        return activePane == side && !activeSelectionNodes.isEmpty
+    }
+
+    /// The selection-driven file-action bar, docked at the bottom of the active pane. These are the
+    /// actions that used to sit in the titlebar (Compare / Copy / Move / New Folder / Delete), now
+    /// scoped to — and naming — the pane whose selection they act on.
+    @ViewBuilder
+    func paneActionBar(isLeft: Bool) -> some View {
+        let selectionNodes = activeSelectionNodes
+        let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
+        let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
+        HStack(spacing: 8) {
+            Text("\(selectionNodes.count) selected")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .fixedSize()
+
+            if selectionNodes.count == 1, selectionNodes[0].isDirectory {
+                actionBarButton("Compare", systemImage: PaneGlyph.compare) {
+                    actionHandler?.focusFolder(selectionNodes[0], isLeft: isLeft,
+                                               leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+                }
+            }
+            actionBarButton(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy) {
+                actionHandler?.copyItems(selectionNodes, fromLeft: isLeft,
+                                         leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+            }
+            actionBarButton(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move) {
+                Task {
+                    _ = await actionHandler?.moveItems(selectionNodes, fromLeft: isLeft,
+                                                       leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+                }
+            }
+            actionBarButton("New Folder", systemImage: "folder.badge.plus") {
+                if let path = activePanePath { actionHandler?.beginCreateFolder(in: path) }
+            }
+            Spacer(minLength: 4)
+            actionBarButton("Delete", systemImage: "trash", role: .destructive) {
+                actionHandler?.confirmDelete(selectionNodes)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.14), radius: 8, y: 2)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    @ViewBuilder
+    private func actionBarButton(_ title: String, systemImage: String, role: ButtonRole? = nil,
+                                 action: @escaping () -> Void) -> some View {
+        Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 11, weight: .medium))
+        }
+        .buttonStyle(.borderless)
+        .controlSize(.small)
+    }
+
+    /// The window toolbar — only window-level actions now: Find Duplicates, Scan, the pane
+    /// visibility toggles, Logs, and Settings. The file actions moved onto the panes as a
+    /// contextual action bar (`paneActionBar`), Sort moved into each pane header, and there's no
+    /// sidebar toggle because there's no sidebar.
     @ToolbarContentBuilder
     var mainToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            // Resolve the active selection once; @Published changes refresh these.
-            let selectionNodes = activeSelectionNodes
-            let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
-            let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
-
-            Button(action: {
-                guard let node = selectionNodes.first, node.isDirectory else { return }
-                let isLeft = (activePane == .left)
-                actionHandler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }) {
-                Label("Compare", systemImage: PaneGlyph.compare)
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.count != 1 || !selectionNodes[0].isDirectory)
-            .help("Open the selected folder in both panes to compare them")
-
-            Button(action: {
-                guard !selectionNodes.isEmpty, let activePane else { return }
-                let fromLeft = (activePane == .left)
-                actionHandler?.copyItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }) {
-                Label(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy)
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help(copyTarget.map { "Copy the selected items to \($0)" } ?? "Copy the selected items to the other pane")
-
-            Button(action: {
-                guard !selectionNodes.isEmpty, let activePane else { return }
-                let fromLeft = (activePane == .left)
-                Task {
-                    _ = await actionHandler?.moveItems(selectionNodes, fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-                }
-            }) {
-                Label(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move)
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help(copyTarget.map { "Move the selected items to \($0)" } ?? "Move the selected items to the other pane")
-
-            Button(action: {
-                guard let path = activePanePath else { return }
-                actionHandler?.beginCreateFolder(in: path)
-            }) {
-                Label("New Folder", systemImage: "folder.badge.plus")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(activePane == nil)
-            .help("Create a new folder in the active pane")
-
-            Button(role: .destructive, action: {
-                guard !selectionNodes.isEmpty else { return }
-                actionHandler?.confirmDelete(selectionNodes)
-            }) {
-                Label("Delete", systemImage: "trash")
-            }
-            .labelStyle(.titleAndIcon)
-            .disabled(selectionNodes.isEmpty)
-            .help("Delete the selected items")
-
-            Menu {
-                // A Picker inside a Menu gets the native menu check column; the previous
-                // per-row `systemImage: isSelected ? "checkmark" : ""` faked it and logged
-                // "No symbol named ''" for every unselected row on every open.
-                Picker("Sort By", selection: $syncManager.sortOption) {
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
-                    }
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-            } label: {
-                Label("Sort", systemImage: "arrow.up.arrow.down")
-            }
-            .labelStyle(.titleAndIcon)
-            .help("Choose how items are sorted")
-            // The hidden-files toggle now lives in each pane header, next to its nav buttons.
-        }
-
-        // Push the utility actions to the trailing edge of the titlebar. macOS 26's grouped
-        // toolbar no longer trails `.primaryAction` on its own, so a flexible spacer separates
-        // the file actions from the utility pill; earlier systems trail primaryAction natively.
+        // A leading flexible spacer keeps the utility pill trailing now that no leading group
+        // precedes it (macOS 26's grouped toolbar no longer trails `.primaryAction` on its own).
         if #available(macOS 26.0, *) {
             ToolbarSpacer(.flexible)
         }

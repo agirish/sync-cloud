@@ -185,19 +185,16 @@ struct ContentView: View {
             || provider(rightId, in: old) != provider(rightId, in: new)
     }
 
-    var body: some View {
-        NavigationSplitView {
-            ProviderSidebar(
-                settings: settings,
-                leftProviderId: $leftProviderId,
-                rightProviderId: $rightProviderId,
-                onSwap: swapPanesAction
-            )
-        } detail: {
-            mainContentView
-                .frame(minWidth: 600)
-                .toolbar { mainToolbar }
-        }
+    /// The window content with its overlays, animations, and background. Split out of `body` so the
+    /// full modifier chain stays under the Swift type-checker's budget — `mainContentView` is a heavy
+    /// `some View` now (it owns the tab strip, panes, and workspace), and chaining everything on it in
+    /// one expression times the checker out.
+    private var chromedContent: some View {
+        // No provider sidebar: provider choice now rides on each pane/source header (ProviderMenu),
+        // so the window is a single content column — the panes fill the space the sidebar used to take.
+        mainContentView
+            .frame(minWidth: 600)
+            .toolbar { mainToolbar }
         .overlay {
             if showSettings {
                 settingsOverlay
@@ -225,6 +222,10 @@ struct ContentView: View {
         }
         .quickLookPreview($quickLookURL)
         .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
+    }
+
+    var body: some View {
+        chromedContent
         .alert(
             syncManager.currentError?.title ?? "Something Went Wrong",
             isPresented: Binding(
@@ -606,7 +607,7 @@ struct ContentView: View {
         syncManager.banner = .warning("Review ended — the comparison changed")
     }
 
-    private func swapPanesAction() {
+    func swapPanesAction() {
         // While discoverProviders() is still awaiting, both id onChanges bail on the bootstrap
         // guard without decrementing pendingSwapProviderChanges — a swap now would strand the
         // counter at 2 and silently swallow the user's next two real provider switches. The
@@ -996,11 +997,32 @@ struct ContentView: View {
                 onForward: { syncManager.goForward(isLeft: isLeft) },
                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
                 onNavigateBoth: { syncManager.focusBoth(relativePath: $0) },
+                providers: settings.enabledProviders,
+                onSelectProvider: { id in
+                    if isLeft { leftProviderId = id } else { rightProviderId = id }
+                },
+                onManageProviders: openProviderSettings,
+                sortOption: $syncManager.sortOption,
+                // Only the single-source Tidy rail collapses itself (back to the spine); the two
+                // comparison panes never collapse individually.
+                onCollapse: layoutMode == .singleSource
+                    ? { withAnimation(.easeInOut(duration: 0.2)) { togglePanesForCurrentTab() } }
+                    : nil,
                 showHiddenFiles: $syncManager.showHiddenFiles
             )
             treeView(pane)
         }
         .paneCardIfNeeded(surfaceStyle)
+        // The file actions (Copy/Move/Compare/New Folder/Delete) live here now, not in the titlebar:
+        // a contextual bar on whichever pane holds the selection, so the buttons name their target.
+        .overlay(alignment: .bottom) {
+            if paneActionBarVisible(isLeft: isLeft) {
+                paneActionBar(isLeft: isLeft)
+                    .padding(10)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: activeSelectionNodes.count)
     }
 
     @ViewBuilder
@@ -1178,7 +1200,7 @@ struct ContentView: View {
                 Button {
                     selectedTidyLens = lens
                 } label: {
-                    Text(lens.rawValue)
+                    Text(lens.title)
                         .font(.system(size: 12, weight: isActive ? .semibold : .regular))
                         .foregroundStyle(isActive ? Color.primary : Color.secondary)
                         .padding(.horizontal, 8)
@@ -1220,7 +1242,14 @@ struct ContentView: View {
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,
                 onQuickLook: { toggleQuickLook($0) },
-                onBuildStorage: buildStorageLensAction
+                onBuildStorage: buildStorageLensAction,
+                // The single Tidy source is the left provider; its picker shows in the workspace only
+                // while the rail is collapsed (expanded, the rail header owns the provider dropdown).
+                showSourcePicker: panesHiddenForCurrentTab,
+                providers: settings.enabledProviders,
+                currentProviderId: leftProviderId,
+                onSelectProvider: { leftProviderId = $0 },
+                onManageProviders: openProviderSettings
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table); tabs live in the top strip.
