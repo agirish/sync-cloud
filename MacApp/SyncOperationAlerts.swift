@@ -66,6 +66,11 @@ struct SyncOperationAlerts {
     /// Presents a collision resolution alert with an "Apply to all" option for bulk sync.
     /// - Returns: The chosen resolution and whether to apply it to all remaining conflicts in this bulk run.
     static func promptForCollisionWithApplyToAll(_ collision: FileCollision) -> (resolution: CollisionResolution, applyToAll: Bool) {
+        // Folder collisions never offer "Apply to all": replacing a folder trashes its entire
+        // contents, so each one is decided on its own (matching the engine's directory guard).
+        guard !collision.isDirectory else {
+            return (runCollisionAlert(collision, accessoryView: nil), false)
+        }
         let checkbox = NSButton(checkboxWithTitle: "Apply to all for remaining conflicts", target: nil, action: nil)
         checkbox.state = .off
         checkbox.sizeToFit()

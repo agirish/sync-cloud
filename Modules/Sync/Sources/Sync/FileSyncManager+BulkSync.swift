@@ -333,7 +333,14 @@ extension FileSyncManager {
             }
             if destinationOccupied {
                 let resolution: CollisionResolution
-                if let cached = bulkApplyToAllResolution {
+                // A directory collision ALWAYS prompts and is never auto-resolved from the
+                // "Apply to all" cache — replacing a folder trashes every item that exists only in
+                // the destination, so it must never ride in on a decision the user made for a FILE.
+                // This mirrors ConflictPolicy.autoResolution's `guard !isDirectory` (which the
+                // single-file and standing-policy paths honor); the interactive bulk cache is the
+                // one path that otherwise skips it. A directory decision likewise never SEEDS the
+                // cache, so a folder Replace can't silently automate a later file (or folder).
+                if let cached = bulkApplyToAllResolution, !destinationIsDirectory {
                     resolution = cached
                 } else {
                     promptShownSinceStatPass = true
@@ -343,7 +350,7 @@ extension FileSyncManager {
                         isMove: isMove,
                         isDirectory: destinationIsDirectory
                     ))
-                    if applyToAll { bulkApplyToAllResolution = res }
+                    if applyToAll && !destinationIsDirectory { bulkApplyToAllResolution = res }
                     resolution = res
                 }
                 switch resolution {

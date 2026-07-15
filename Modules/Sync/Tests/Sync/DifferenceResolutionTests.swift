@@ -213,6 +213,49 @@ import Foundation
         #expect(mockFM.trashedPaths.isEmpty)
     }
 
+    /// A file collision resolved with "Replace + Apply to all" must NOT silently replace a later
+    /// DIRECTORY collision: replacing a folder trashes every item that exists only in the
+    /// destination, so folders always re-prompt (they're never auto-resolved from the file cache).
+    @MainActor
+    @Test func testApplyToAllFromAFileNeverAutoReplacesALaterFolder() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        // A file collision first, then a directory collision. The dst folder holds a file that
+        // exists ONLY there — a wholesale replace would trash it.
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
+        mockFM.virtualDisk["/dst/folder"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["keep.txt"])
+        mockFM.virtualDisk["/dst/folder/keep.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let diffs = ["a.txt", "folder"].map { name in
+            FileDifference(relativePath: name, leftItemPath: "/src/\(name)", rightItemPath: "/dst/\(name)",
+                           type: .missingOnRight, action: .copyToRight, description: "Missing")
+        }
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        var prompted: [String] = []
+        manager.bulkCollisionResolver = { collision in
+            prompted.append(collision.fileName)
+            // The file opts into "Apply to all"; the folder must still be asked (and we decline it).
+            return collision.isDirectory ? (.skip, false) : (.replace, true)
+        }
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // The folder was prompted despite the file's "Apply to all" — not auto-resolved from cache.
+        #expect(prompted == ["a.txt", "folder"])
+        // The dst-only file inside the folder survives — proof the folder was never replaced (a
+        // wholesale replace moves the old folder, and keep.txt with it, aside then trashes it).
+        // (The file a.txt's own replace legitimately trashes its rollback backup, so trashedPaths
+        // is not empty here — that's the file path working, not the folder being destroyed.)
+        #expect(mockFM.virtualDisk["/dst/folder/keep.txt"] != nil)
+    }
+
     /// Builds a mock disk with only the source file and one missing-on-right difference, wired
     /// so the destination appears externally right after syncFile's initial existence stat —
     /// the single-file TOCTOU window (cloud placeholder hydration, another sync client).
