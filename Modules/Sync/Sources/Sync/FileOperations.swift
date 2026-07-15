@@ -572,9 +572,10 @@ extension FileSyncManager {
             self.registerRestoreItems(urls: urls, trashedItems: successfullyTrashed.map { $0.trashed }, actionName: "Delete \(successfullyTrashed.count) Items", fileManager: fm)
         }
         
-        if let firstError = result.errors.first {
-            present(.deleteFailed(reason: firstError.localizedDescription))
-        } else if !items.isEmpty {
+        // Show the success banner for whatever was removed, INDEPENDENTLY of any failure below: a
+        // transiently-busy item in a larger batch must not hide the "Deleted N — ⌘Z" banner for the
+        // items that did trash (they're already registered for undo above).
+        if !items.isEmpty {
             // Distinguish recoverable (Trash) from irreversible (permanent) deletes: a permanent
             // delete happens only on Trash-less volumes after the user confirmed, and cannot be
             // undone — it deserves a named, warning-level record, not a lumped debug line.
@@ -590,12 +591,18 @@ extension FileSyncManager {
                 }
             }
             let name = items.first?.original.lastPathComponent ?? "item"
-            // Undoable only when EVERY item went to the Trash — the restore undo can bring back only
-            // the trashed subset, so a mixed batch (some permanently deleted on a Trash-less volume)
-            // must not offer an Undo that would silently leave the permanent deletions in place.
+            // Undoable only when EVERY removed item went to the Trash — the restore undo can bring
+            // back only the trashed subset, so a mixed batch (some permanently deleted on a
+            // Trash-less volume) must not offer an Undo that would silently leave the permanent
+            // deletions in place.
             self.banner = .success(items.count == 1
                 ? "Deleted \"\(name)\""
                 : "Deleted \(items.count) items", undoable: successfullyTrashed.count == items.count)
+        }
+        // Surface any failure (e.g. a transiently-busy item), after the success banner so a mixed
+        // batch reports both what worked and what didn't.
+        if let firstError = result.errors.first {
+            present(.deleteFailed(reason: firstError.localizedDescription))
         }
 
         // Durable Sync History (X2): one `.delete` record per removed item, sharing this run id.

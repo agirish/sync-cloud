@@ -67,7 +67,29 @@ import Foundation
         #expect(mockFM.virtualDisk["/src/data.bin"] != nil)  // still on disk — a retry could trash it
         #expect(manager.currentError != nil)                 // surfaced as a retryable error instead
     }
-    
+
+    @MainActor
+    @Test func testMixedDeleteBatchStillShowsUndoBannerForWhatTrashed() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        mockFM.virtualDisk["/src/b.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        // The first trashItem call is transiently busy; the other succeeds.
+        mockFM.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+
+        let manager = FileSyncManager()
+        let removed = await manager.deleteItems(at: ["/src/a.bin", "/src/b.bin"], fileManager: mockFM)
+
+        #expect(removed == 1)                                // one trashed, one transiently busy
+        // The item that trashed still gets its undoable success banner despite the busy failure...
+        #expect(manager.banner?.severity == .success)
+        #expect(manager.banner?.isUndoable == true)
+        // ...and the failure is still surfaced (not swallowed).
+        #expect(manager.currentError != nil)
+        // Exactly one file remains on disk.
+        #expect(["/src/a.bin", "/src/b.bin"].filter { mockFM.virtualDisk[$0] != nil }.count == 1)
+    }
+
     @Test func testSafeCopyReplaceFallsBackWhenTrashUnsupported() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
