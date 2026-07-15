@@ -1413,7 +1413,16 @@ struct ContentView: View {
         Binding(
             get: { selectedBottomTab },
             set: { newTab in
+                let previousTab = selectedBottomTab
                 selectedBottomTab = newTab
+                // A duplicate review the user has already navigated away from (its banner and Done
+                // button gone, `duplicateReviewActive` false) is abandoned. Leaving Compare must drop
+                // it — otherwise the Compare-restore below silently snaps both panes back onto the two
+                // copies, discarding the user's navigation, every time they revisit Compare. An
+                // ACTIVE review is kept so the intended Tidy-and-back round-trip still restores it.
+                if previousTab == .differences, let review = duplicateReview, !duplicateReviewActive(review) {
+                    duplicateReview = nil
+                }
                 if newTab == .tidy {
                     presentTidyRail(for: selectedTidyLens)
                 } else if newTab == .differences, let review = duplicateReview {
