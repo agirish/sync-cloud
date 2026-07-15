@@ -540,6 +540,39 @@ struct ContentView: View {
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
+    /// Entering a Tidy lens from the tab strip opens the source rail and positions it for the lens:
+    /// Organize works on the loose-files inbox, so it opens there; every other lens works over the
+    /// whole provider, so it opens at the root. Fired only from the explicit tab/lens controls — the
+    /// programmatic scan actions (Find Duplicates / loose files from a Compare menu) set the lens
+    /// directly and bypass this, so they keep scanning the folder the user picked.
+    func presentTidyRail(for lens: TidyLens) {
+        // Show the rail for the Tidy tab (remembered per tab, like the manual toggle). The layout
+        // animates via `.animation(value: panesHiddenForCurrentTab)`, so no explicit withAnimation.
+        let overrides = TopPaneVisibility.settingOverride(
+            TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
+            tab: .tidy,
+            hidden: false
+        )
+        topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
+
+        // Position the single source (the left pane) for the lens.
+        syncManager.focusOn(relativePath: tidyRailRelativePath(for: lens), isLeft: true)
+    }
+
+    /// The provider-root-relative folder a Tidy lens's rail opens on: the loose-files inbox for
+    /// Organize (Settings ▸ Tidy, default "TODO"), the provider root for every other lens. Falls back
+    /// to the root when the inbox is unset or missing, so the rail never strands on an absent folder.
+    private func tidyRailRelativePath(for lens: TidyLens) -> String {
+        guard lens == .filing else { return "" }
+        let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
+            .trimmingCharacters(in: .whitespaces)
+        guard !inbox.isEmpty else { return "" }
+        let inboxPath = (tidyProviderRootExpanded as NSString).appendingPathComponent(inbox)
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
+        return exists ? inbox : ""
+    }
+
     private func applyProviderSelection(preferDistinctPair: Bool) {
         guard let resolved = Self.resolvedProviderSelection(
             providers: settings.enabledProviders,
@@ -1250,7 +1283,10 @@ struct ContentView: View {
             providerIsEnabled: settings.isEnabled(pane.providerId),
             hasOnlyHiddenEntries: pane.hasOnlyHiddenEntries,
             rootPath: settings.path(for: pane.providerId),
-            onOpenSettings: openProviderSettings
+            onOpenSettings: openProviderSettings,
+            // The Tidy rail is a single source with no opposite pane, so its row menu drops the
+            // comparison-only items and renames "Compare only this folder" to "Open".
+            isSingleSource: layoutMode == .singleSource
         )
     }
 
@@ -1293,9 +1329,24 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
+    /// Binding for the primary tab picker that, when the user switches *to* Tidy, opens the source
+    /// rail and positions it for the active lens. Wrapping the binding (rather than observing
+    /// `selectedBottomTab` globally) confines this to the tab strip's own control: the programmatic
+    /// scan actions assign `selectedBottomTab` directly and so never trip it, keeping their chosen
+    /// scan folder intact.
+    private var primaryTabSelection: Binding<BottomTab> {
+        Binding(
+            get: { selectedBottomTab },
+            set: { newTab in
+                selectedBottomTab = newTab
+                if newTab == .tidy { presentTidyRail(for: selectedTidyLens) }
+            }
+        )
+    }
+
     /// The primary tabs — a boxed segmented control, the parent level of the underline lens tabs.
     private var primaryTabPicker: some View {
-        Picker("", selection: $selectedBottomTab) {
+        Picker("", selection: primaryTabSelection) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
                 Text(tab.title).tag(tab)
             }
@@ -1315,6 +1366,9 @@ struct ContentView: View {
                 let isActive = (selectedTidyLens == lens)
                 Button {
                     selectedTidyLens = lens
+                    // Open the source rail and point it at this lens's folder (root, or the TODO
+                    // inbox for Organize).
+                    presentTidyRail(for: lens)
                 } label: {
                     Text(lens.title)
                         .font(.system(size: 12, weight: isActive ? .semibold : .regular))

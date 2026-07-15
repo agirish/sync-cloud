@@ -44,6 +44,12 @@ public struct FileTreeView: View {
     /// the "Open Settings" buttons.
     public let onOpenSettings: (() -> Void)?
 
+    /// True when this pane is the Tidy single-source rail rather than one of the two comparison
+    /// panes. The rail has no "other pane" to compare or copy across, so its row menu drops the
+    /// comparison-only items (Ignore, Copy/Move to the other provider) and renames "Compare only
+    /// this folder" to a plain "Open".
+    public let isSingleSource: Bool
+
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
@@ -53,7 +59,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -69,6 +75,7 @@ public struct FileTreeView: View {
         self.hasOnlyHiddenEntries = hasOnlyHiddenEntries
         self.rootPath = rootPath ?? currentPath
         self.onOpenSettings = onOpenSettings
+        self.isSingleSource = isSingleSource
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -260,6 +267,7 @@ public struct FileTreeView: View {
                 currentPath: currentPath,
                 delegate: delegate,
                 otherPaneName: otherPaneName,
+                isSingleSource: isSingleSource,
                 onQuickLook: { quickLookItem = $0 }
             )
         }
@@ -417,6 +425,10 @@ struct FileContextMenu: View {
     let currentPath: String
     let delegate: FileActionDelegate
     let otherPaneName: String
+    /// True on the Tidy single-source rail: no opposite pane exists, so the comparison-only items
+    /// (Ignore, Copy/Move to the other provider, Copy from the other pane) are dropped and the
+    /// folder-focus item reads as a plain "Open" rather than "Compare only this folder".
+    let isSingleSource: Bool
     /// Presents a Quick Look preview for the given item (parity with the Differences
     /// table's row menu); provided by the owning pane's `FileTreeView`.
     let onQuickLook: (URL) -> Void
@@ -459,34 +471,52 @@ struct FileContextMenu: View {
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)
                     Divider()
                     Button(action: { delegate.handleFocus(singleNode) }) {
-                        // Better clarifies the function which isolates a specific folder mapping
-                        Label("Compare only this folder", systemImage: "scope")
+                        // On the comparison panes this isolates a specific folder mapping ("Compare
+                        // only this folder"); on the single-source rail there's nothing to compare —
+                        // it just drills the rail into the folder, so it reads as a plain "Open".
+                        if isSingleSource {
+                            Label("Open", systemImage: "arrow.forward")
+                        } else {
+                            Label("Compare only this folder", systemImage: "scope")
+                        }
                     }
                 }
             }
-            
-            let allIgnored = selectedNodes.allSatisfy { n in 
-                delegate.isNodeIgnored(n, currentPath: currentPath)
-            }
-            Button(action: { delegate.handleIgnore(selectedNodes) }) {
-                Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
-            }
-            Divider()
-            
-            // Copy/Move to the other pane share the toolbar/header vocabulary (TransferGlyph).
-            // Copy is non-directional (the target pane is named in the label); Move points its
-            // box-arrow at the actual target pane, like the toolbar — right when this is the
-            // left pane, left when it's the right pane.
-            Button(action: { delegate.handleCopy(selectedNodes) }) {
-                Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
+
+            // Comparison-only: Ignore and Copy/Move to the other provider are meaningless on the
+            // single-source rail (there is no opposite pane), so they're dropped there.
+            if !isSingleSource {
+                let allIgnored = selectedNodes.allSatisfy { n in
+                    delegate.isNodeIgnored(n, currentPath: currentPath)
+                }
+                Button(action: { delegate.handleIgnore(selectedNodes) }) {
+                    Label(allIgnored ? "Include in comparison" : "Ignore in comparison", systemImage: allIgnored ? "eye" : "eye.slash")
+                }
             }
 
-            Button(action: { delegate.handleMove(selectedNodes) }) {
-                Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
+            // Separator before the clipboard section. Skipped only when nothing sits between it and
+            // the Refresh divider above (single-source multi-select drops the single-node block and
+            // every comparison item), so two dividers never stack.
+            if count == 1 || !isSingleSource {
+                Divider()
             }
-            
-            Divider()
-            
+
+            if !isSingleSource {
+                // Copy/Move to the other pane share the toolbar/header vocabulary (TransferGlyph).
+                // Copy is non-directional (the target pane is named in the label); Move points its
+                // box-arrow at the actual target pane, like the toolbar — right when this is the
+                // left pane, left when it's the right pane.
+                Button(action: { delegate.handleCopy(selectedNodes) }) {
+                    Label(count > 1 ? "Copy \(count) items to \(otherPaneName)" : "Copy to \(otherPaneName)", systemImage: TransferGlyph.copy)
+                }
+
+                Button(action: { delegate.handleMove(selectedNodes) }) {
+                    Label(count > 1 ? "Move \(count) items to \(otherPaneName)" : "Move to \(otherPaneName)", systemImage: TransferGlyph.move(toRight: isLeft))
+                }
+
+                Divider()
+            }
+
             Button(action: { delegate.handleCopyToClipboard(selectedNodes, isCut: true) }) {
                 Label(count > 1 ? "Cut \(count) items" : "Cut", systemImage: "scissors")
             }
@@ -499,7 +529,7 @@ struct FileContextMenu: View {
                 delegate.handlePaste(node)
             }
 
-            if !otherSelection.isEmpty {
+            if !isSingleSource, !otherSelection.isEmpty {
                 let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
                 if !otherSelectedNodes.isEmpty {
                     Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
