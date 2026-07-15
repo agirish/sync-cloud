@@ -774,7 +774,10 @@ public struct DifferencesView: View {
                     .fixedSize()
                 ForEach(suggestions, id: \.raw) { suggestion in
                     Button {
-                        searchText = searchText.isEmpty ? suggestion.raw : searchText + " " + suggestion.raw
+                        // Trim first so appending never leaves a double space when the field already
+                        // ends in whitespace (leading/trailing spaces are meaningless to the query).
+                        let base = searchText.trimmingCharacters(in: .whitespaces)
+                        searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
                     } label: {
                         Text(suggestion.label)
                             .font(.caption2)

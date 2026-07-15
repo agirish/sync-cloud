@@ -112,7 +112,7 @@ enum DifferenceSearch {
         for character in string {
             if character.isNumber || character == "." { number.append(character) } else { unit.append(character) }
         }
-        guard let value = Double(number), value >= 0 else { return nil }
+        guard let value = Double(number), value.isFinite, value >= 0 else { return nil }
         let multiplier: Double
         switch unit {
         case "", "b": multiplier = 1
@@ -121,6 +121,12 @@ enum DifferenceSearch {
         case "g", "gb": multiplier = 1_000_000_000
         default: return nil
         }
-        return Int((value * multiplier).rounded())
+        // Guard the Double→Int conversion: `Int(_: Double)` TRAPS when the value isn't representable,
+        // and this parses live on every keystroke — an over-large token (e.g. `>99999999999gb`) would
+        // otherwise crash the window. Strict `<`: `Double(Int.max)` rounds up to 2^63, which is itself
+        // one past `Int.max`, so `bytes < Double(Int.max)` is what keeps `Int(bytes)` in range.
+        let bytes = (value * multiplier).rounded()
+        guard bytes >= 0, bytes < Double(Int.max) else { return nil }
+        return Int(bytes)
     }
 }

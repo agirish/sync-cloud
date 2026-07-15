@@ -38,6 +38,23 @@ import Sync
         #expect(DifferenceSearch.parseSize("mb") == nil)             // no number
     }
 
+    @Test func parseSizeRejectsOverflowingValuesWithoutCrashing() {
+        // `Int(_: Double)` traps on out-of-range values; these must return nil, not crash.
+        #expect(DifferenceSearch.parseSize("99999999999gb") == nil)          // ~1e20 bytes
+        #expect(DifferenceSearch.parseSize("9999999999999999999") == nil)    // ~1e19 bytes > Int.max
+        #expect(DifferenceSearch.parseSize(String(repeating: "9", count: 400)) == nil) // Double → inf
+        // Large but in range still parses.
+        #expect(DifferenceSearch.parseSize("9000000000") == 9_000_000_000)
+        #expect(DifferenceSearch.parseSize("8gb") == 8_000_000_000)
+    }
+
+    @Test func overflowingSizeWordStaysFreeTextNotACrash() {
+        // A `>`-word whose size overflows is not a valid token, so it falls through to free text.
+        let query = DifferenceSearch.parse(">99999999999gb report")
+        #expect(query.tokens.isEmpty)
+        #expect(query.freeText == ">99999999999gb report")
+    }
+
     // MARK: parse — legacy preservation
 
     @Test func noTokensPreservesRawFreeTextSpacing() {
