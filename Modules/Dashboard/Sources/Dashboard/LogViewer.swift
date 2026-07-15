@@ -221,14 +221,17 @@ public struct LogViewer: View {
             // Severity filter chips — the level threshold as tappable pills (All / Info & above /
             // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the
             // active scope is always visible, not one click away.
-            HStack(spacing: 6) {
-                ForEach(Self.chipOptions, id: \.label) { option in
-                    levelChip(option.label, level: option.level, count: levelCounts[option.level] ?? 0)
+            // Horizontal scroll so four chips with large counts never compress/truncate on the
+            // narrow (380 pt) log window.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Self.chipOptions, id: \.label) { option in
+                        levelChip(option.label, level: option.level, count: levelCounts[option.level] ?? 0)
+                    }
                 }
-                Spacer(minLength: 0)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 10)
 
             // Search Bar
             HStack(spacing: 10) {
@@ -304,6 +307,7 @@ public struct LogViewer: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .fixedSize()
         .help("Show \(label.lowercased())")
     }
 
