@@ -182,6 +182,10 @@ public enum StorageLensAnalyzer {
     /// directories (an `isUnexplored` folder's empty `children` is a construction artifact).
     private static func collectLeaves(_ nodes: [FileNode], into out: inout [StorageEntry]) {
         for node in nodes {
+            // Skip symlinks: the walk resolves a link's size/content to its target, so counting a
+            // link AND its in-tree target would double the reported usage (and list every big file
+            // twice). A symlink occupies no real space of its own. Mirrors DuplicateFinder.
+            if node.isSymbolicLink == true { continue }
             if node.isDirectory {
                 if node.isUnexplored == true { continue }
                 collectLeaves(node.children ?? [], into: &out)
@@ -199,6 +203,8 @@ public enum StorageLensAnalyzer {
     /// The recursive rolled-up byte size of one node: a leaf's own size, or the sum of every leaf
     /// beneath a directory (skipping unexplored subtrees).
     static func rolledUpBytes(_ node: FileNode) -> Int {
+        // A symlink reclaims no real space (its size/content is its target's); don't roll it up.
+        if node.isSymbolicLink == true { return 0 }
         if node.isDirectory {
             if node.isUnexplored == true { return 0 }
             return (node.children ?? []).reduce(0) { $0 + rolledUpBytes($1) }
@@ -212,6 +218,7 @@ public enum StorageLensAnalyzer {
         var nodes: [TreemapNode] = []
         var looseFileBytes = 0
         for node in tree {
+            if node.isSymbolicLink == true { continue }   // no phantom tile / double-count for a link
             if node.isDirectory {
                 let bytes = rolledUpBytes(node)
                 if bytes > 0 {

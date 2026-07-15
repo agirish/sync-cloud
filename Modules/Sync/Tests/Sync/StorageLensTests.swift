@@ -43,6 +43,22 @@ import Testing
         #expect(report.treemap[0].path == "/root/Photos")
     }
 
+    @Test func symlinksAreNotCountedTwice() {
+        // The walk resolves a symlink to its target's size, so a link (fileSize = target's size)
+        // plus its in-tree target would double the reported usage. Storage Lens must skip symlinks.
+        let realFile = file("/root/A/big.bin", size: 10_000)
+        let link = FileNode(id: "/root/shortcut", name: "shortcut", isDirectory: false,
+                            modificationDate: nil, fileSize: 10_000, isSymbolicLink: true)
+        let tree = [dir("/root/A", [realFile]), link]
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let report = StorageLensAnalyzer.analyze(tree: tree, now: now)
+
+        #expect(report.totalBytes == 10_000)                            // counted once, not 20_000
+        #expect(!report.treemap.contains { $0.name == "shortcut" })     // no phantom tile for the link
+        #expect(report.largest.filter { $0.name == "big.bin" }.count == 1)   // listed once
+    }
+
     @Test func unexploredSubtreeExcludedFromRollup() {
         // An unexplored directory's empty `children` is a walk artifact, not an observation — it
         // must contribute nothing to the rollup rather than a false zero *or* a guessed size.
