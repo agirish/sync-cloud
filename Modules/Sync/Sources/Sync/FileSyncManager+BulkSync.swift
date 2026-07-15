@@ -195,7 +195,7 @@ extension FileSyncManager {
     ///   - confirmed: Pass true when the calling UI already embodies the user's confirmation
     ///     for this exact run (e.g. review mode's "Copy Remaining N…" button, which names the
     ///     count) — the `transferConfirmer` prompt is skipped so one gesture never asks twice.
-    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false) async {
+    public func syncAll(direction: FileDifference.SyncAction, isMove: Bool = false, subset: [FileDifference]? = nil, confirmed: Bool = false, postBanner: Bool = true) async {
         let source = subset ?? differences
         let toSync = source.filter { $0.action == direction }
         let total = toSync.count
@@ -466,7 +466,7 @@ extension FileSyncManager {
         // On a clean run, offer Undo: the whole run's per-file undos are grouped into one "Sync run"
         // step above, so ⌘Z reverses it in one go. On a partial run the failure alert already
         // speaks, so stay quiet here rather than stacking a second message.
-        if result.failures.isEmpty, !result.successes.isEmpty {
+        if postBanner, result.failures.isEmpty, !result.successes.isEmpty {
             let pastTense = isMove ? "Moved" : "Copied"
             banner = .success(result.successes.count == 1
                 ? "\(pastTense) 1 item"

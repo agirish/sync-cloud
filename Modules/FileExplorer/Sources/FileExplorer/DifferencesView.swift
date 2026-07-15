@@ -629,13 +629,25 @@ public struct DifferencesView: View {
         // declining the second prompt silently dropped items after the session was torn down.
         if remaining.count == 1, let single = remaining.first {
             Task { await syncManager.syncFile(single, isMove: isMove, confirmed: true) }
-        } else {
+            return
+        }
+        let hasRight = remaining.contains { $0.action == .copyToRight }
+        let hasLeft = remaining.contains { $0.action == .copyToLeft }
+        if hasRight && hasLeft {
+            // A mixed-direction remainder needs two sequential syncAll runs (each takes one
+            // direction) — two separate undo groups, so no single Undo reverses both. Suppress
+            // their per-run completion banners: the second would overwrite the first with an
+            // undercount, and its Undo would silently reverse only its own half. This path had no
+            // completion banner before the Undo feature anyway; the resolved rows disappearing is
+            // the feedback.
             Task {
-                // syncAll takes one direction and filters the subset by it; a mixed-direction
-                // remainder needs both runs — sequential, since syncAll refuses to overlap.
-                await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: remaining, confirmed: true)
-                await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: remaining, confirmed: true)
+                await syncManager.syncAll(direction: .copyToRight, isMove: isMove, subset: remaining, confirmed: true, postBanner: false)
+                await syncManager.syncAll(direction: .copyToLeft, isMove: isMove, subset: remaining, confirmed: true, postBanner: false)
             }
+        } else {
+            // Single direction: one run, which posts its own (undoable) completion banner.
+            let direction: FileDifference.SyncAction = hasRight ? .copyToRight : .copyToLeft
+            Task { await syncManager.syncAll(direction: direction, isMove: isMove, subset: remaining, confirmed: true) }
         }
     }
 

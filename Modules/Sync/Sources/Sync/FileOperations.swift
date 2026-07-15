@@ -563,12 +563,12 @@ extension FileSyncManager {
                 }
             }
             let name = items.first?.original.lastPathComponent ?? "item"
-            // Undoable only when at least one item went to the Trash — that is exactly when a
-            // restore undo was registered above. An all-permanent delete (Trash-less volume) has
-            // nothing to bring back, so it offers no Undo.
+            // Undoable only when EVERY item went to the Trash — the restore undo can bring back only
+            // the trashed subset, so a mixed batch (some permanently deleted on a Trash-less volume)
+            // must not offer an Undo that would silently leave the permanent deletions in place.
             self.banner = .success(items.count == 1
                 ? "Deleted \"\(name)\""
-                : "Deleted \(items.count) items", undoable: !successfullyTrashed.isEmpty)
+                : "Deleted \(items.count) items", undoable: successfullyTrashed.count == items.count)
         }
 
         // Durable Sync History (X2): one `.delete` record per removed item, sharing this run id.

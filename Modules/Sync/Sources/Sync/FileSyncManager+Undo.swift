@@ -101,6 +101,16 @@ extension FileSyncManager {
         }
     }
 
+    /// Any change to the undo stack invalidates a still-showing *undoable* completion banner: its
+    /// Undo button pops the current top step, so once a different operation is registered (or an
+    /// undo/redo re-registers its reverse), the button would reverse the WRONG operation. Clearing
+    /// the banner here removes the affordance the moment it goes stale. The op that WANTS a banner
+    /// registers its undo first and posts the banner after, so its own banner survives; non-undoable
+    /// (warning/error) banners are left alone — an error must not vanish because an unrelated op ran.
+    private func invalidateUndoableBanner() {
+        if banner?.isUndoable == true { banner = nil }
+    }
+
     /// Convenience for call sites whose undo state is fully known at registration time: wraps
     /// the items in a pre-resolved `AsyncValueResolver` so the resolver-based form below stays
     /// the single implementation. The resolver forms remain for the undo/redo chain, where the
@@ -127,6 +137,7 @@ extension FileSyncManager {
     }
 
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
@@ -196,6 +207,7 @@ extension FileSyncManager {
     }
     
     func registerCopyRedo(paramResolver: AsyncValueResolver<[(source: URL, destination: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
@@ -232,6 +244,7 @@ extension FileSyncManager {
     }
     
     func registerMoveUndo(stateResolver: AsyncValueResolver<[MoveItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
@@ -299,6 +312,7 @@ extension FileSyncManager {
     }
 
     func registerMoveRedo(paramResolver: AsyncValueResolver<[(from: URL, to: URL)]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
@@ -335,6 +349,7 @@ extension FileSyncManager {
     }
     
     func registerCreateFolderUndo(url: URL, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: New Folder")
@@ -367,6 +382,7 @@ extension FileSyncManager {
     }
     
     func registerCreateFolderRedo(url: URL, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: New Folder")
             target.registerCreateFolderUndo(url: url, fileManager: fm)
@@ -387,6 +403,7 @@ extension FileSyncManager {
     /// Registers the REDO of a delete: the handler re-trashes `urls`. Its only caller is the
     /// delete-undo handler in `registerRestoreItems`, so the audit label is always "Redo".
     func registerTrashItems(urls: [URL], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
@@ -416,6 +433,7 @@ extension FileSyncManager {
 
     /// Registers the UNDO of a delete: the handler restores each item from its Trash location.
     func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+        invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
