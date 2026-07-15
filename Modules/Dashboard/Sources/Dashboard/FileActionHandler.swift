@@ -234,9 +234,11 @@ public class FileActionHandler {
     /// `verb` is the past-tense operation name ("Copied" or "Moved").
     private func setTransferBanner(verb: String, _ nodes: [FileNode], to destinationName: String) {
         guard !nodes.isEmpty else { return }
+        // copyItems/moveItems register one grouped undo for the whole batch, so a single Undo (⌘Z)
+        // reverses it — the banner may offer the button.
         syncManager.banner = .success(nodes.count == 1
             ? "\(verb) \"\(nodes[0].name)\" to \(destinationName)"
-            : "\(verb) \(nodes.count) items to \(destinationName)")
+            : "\(verb) \(nodes.count) items to \(destinationName)", undoable: true)
     }
     
     // MARK: - Mutations

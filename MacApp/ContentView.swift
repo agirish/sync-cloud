@@ -1157,10 +1157,24 @@ struct ContentView: View {
         .animation(.spring(), value: syncManager.activeProgress == nil)
         .overlay(alignment: .top) {
             if let banner = syncManager.banner {
-                OperationBannerView(banner: banner)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 16)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                OperationBannerView(
+                    banner: banner,
+                    glassIntensity: glassIntensity,
+                    canUndo: undoManager?.canUndo ?? false,
+                    onUndo: {
+                        // The same reversal ⌘Z performs: this operation registered exactly one
+                        // (grouped) undo step and its banner is the newest, so it sits on top of
+                        // the stack. Clear the banner so the affordance doesn't linger post-undo.
+                        undoManager?.undo()
+                        syncManager.banner = nil
+                    },
+                    onClose: { syncManager.banner = nil },
+                    onHover: { hovering in bannerDismissScheduler.hoverChanged(isHovering: hovering) }
+                )
+                .id(banner.id)
+                .padding(.top, 8)
+                .padding(.horizontal, 16)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
@@ -1179,34 +1193,6 @@ struct ContentView: View {
         }
     }
 
-    /// Lightweight in-app banner used for bulk operation completion notifications.
-    @ViewBuilder
-    private func OperationBannerView(banner: OperationBanner) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: OperationBannerStyle.iconName(for: banner.severity))
-                .font(.title3)
-                .foregroundStyle(OperationBannerStyle.tint(for: banner.severity))
-            Text(banner.message)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.primary)
-            Spacer(minLength: 0)
-            Button {
-                syncManager.banner = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Close notification")
-        }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
-        .glassCardStyle(material: .ultraThickMaterial, intensity: glassIntensity)
-        .onHover { hovering in
-            bannerDismissScheduler.hoverChanged(isHovering: hovering)
-        }
-    }
 
     /// Selection binding for one pane that enforces the one-pane-selected invariant: setting a
     /// non-empty selection in one pane clears the other. The clicked pane commits synchronously

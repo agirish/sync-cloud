@@ -18,19 +18,25 @@ public struct OperationBanner: Equatable, Sendable {
     public let id: UUID
     public var message: String
     public var severity: Severity
+    /// Whether the operation this banner reports can be reversed by a single `UndoManager.undo()` —
+    /// i.e. it registered exactly one (possibly grouped) undo step. When true the banner offers an
+    /// Undo button, the visible face of the ⌘Z that already works. Left false for outcomes that are
+    /// not a single undo (a guided-review session, a partial batch) or not undoable at all.
+    public var isUndoable: Bool
 
-    public init(message: String, severity: Severity, id: UUID = UUID()) {
+    public init(message: String, severity: Severity, isUndoable: Bool = false, id: UUID = UUID()) {
         self.id = id
         self.message = message
         self.severity = severity
+        self.isUndoable = isUndoable
     }
 
-    public static func success(_ message: String) -> OperationBanner {
-        OperationBanner(message: message, severity: .success)
+    public static func success(_ message: String, undoable: Bool = false) -> OperationBanner {
+        OperationBanner(message: message, severity: .success, isUndoable: undoable)
     }
 
-    public static func warning(_ message: String) -> OperationBanner {
-        OperationBanner(message: message, severity: .warning)
+    public static func warning(_ message: String, undoable: Bool = false) -> OperationBanner {
+        OperationBanner(message: message, severity: .warning, isUndoable: undoable)
     }
 
     public static func error(_ message: String) -> OperationBanner {

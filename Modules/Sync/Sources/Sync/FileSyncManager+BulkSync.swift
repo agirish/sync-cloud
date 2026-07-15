@@ -115,7 +115,8 @@ extension FileSyncManager {
         if !result.failures.isEmpty {
             banner = .warning("\(result.successes.count) copied; \(result.failures.count) failed")
         } else if !result.successes.isEmpty {
-            banner = .success("\(result.successes.count) files copied — dates matched")
+            // The whole run's per-file undos are wrapped in one group above, so ⌘Z reverses it all.
+            banner = .success("\(result.successes.count) files copied — dates matched", undoable: true)
         }
         // Summary breadcrumb for the bulk path: a single-file copy already logs its "Copied …"
         // line, but a "Copy All" of hundreds of files otherwise leaves no successful-outcome
@@ -460,6 +461,18 @@ extension FileSyncManager {
                 firstReason: firstError.localizedDescription
             ))
         }
+        // Completion banner for the bulk transfer. This marquee Compare flow ("Copy N to →")
+        // previously finished with no confirmation at all — only the resolved differences vanished.
+        // On a clean run, offer Undo: the whole run's per-file undos are grouped into one "Sync run"
+        // step above, so ⌘Z reverses it in one go. On a partial run the failure alert already
+        // speaks, so stay quiet here rather than stacking a second message.
+        if result.failures.isEmpty, !result.successes.isEmpty {
+            let pastTense = isMove ? "Moved" : "Copied"
+            banner = .success(result.successes.count == 1
+                ? "\(pastTense) 1 item"
+                : "\(pastTense) \(result.successes.count) items", undoable: true)
+        }
+
         // Summary breadcrumb for the bulk path (parity with the single-file "Synced file:" line):
         // a "Sync All" of hundreds of files otherwise leaves no successful-outcome record.
         if !result.successes.isEmpty {
