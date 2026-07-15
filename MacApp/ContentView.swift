@@ -1122,13 +1122,22 @@ struct ContentView: View {
         }
     }
 
-    /// Selection binding for one pane that enforces the one-pane-selected invariant
-    /// synchronously: setting a non-empty selection also clears the other pane in the
-    /// same update, so consumers (`PaneLogic.activePane`, Details, Quick Look) never see
-    /// both panes selected — not even for one runloop tick. Binding setters run during
-    /// event handling, so writing both `@Published` properties here is safe; a didSet on
-    /// FileSyncManager would publish from within a view update and had to defer instead,
-    /// which left a stale other-pane selection when a click produced no set change.
+    /// Selection binding for one pane that enforces the one-pane-selected invariant: setting a
+    /// non-empty selection in one pane clears the other. The clicked pane commits synchronously
+    /// so the click lands on the first try; the OTHER pane's clear is deferred one runloop tick.
+    ///
+    /// Clearing the other pane synchronously here (which the previous version did) writes a
+    /// `@Published` the sibling `List` is bound to *while this List is still committing its own
+    /// selection* — SwiftUI re-enters the enclosing view update, the sibling table reloads, and
+    /// AppKit drops the just-clicked row. The symptom was a dead first click on the comparison
+    /// panes: every selection took two clicks to stick. Deferring the sibling's clear to the next
+    /// tick lets this pane's selection settle first, so one click is enough.
+    ///
+    /// The one-tick window where both panes hold a selection is invisible (a single frame) and
+    /// harmless — `PaneLogic.activePane` is left-wins, so at worst the action bar / Info follow
+    /// the correct pane one frame late. Setting an EMPTY selection (a deselect, or SwiftUI
+    /// re-writing an unchanged empty set) still leaves the other pane alone, which is what keeps
+    /// the right-click "Copy from other pane" menu working.
     private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
@@ -1139,11 +1148,34 @@ struct ContentView: View {
                     currentLeft: syncManager.selectedLeftPaths,
                     currentRight: syncManager.selectedRightPaths
                 )
-                if syncManager.selectedLeftPaths != reconciled.left {
-                    syncManager.selectedLeftPaths = reconciled.left
+                // Commit the clicked pane now — this is the write the List is waiting on.
+                if isLeft {
+                    if syncManager.selectedLeftPaths != reconciled.left {
+                        syncManager.selectedLeftPaths = reconciled.left
+                    }
+                } else {
+                    if syncManager.selectedRightPaths != reconciled.right {
+                        syncManager.selectedRightPaths = reconciled.right
+                    }
                 }
-                if syncManager.selectedRightPaths != reconciled.right {
-                    syncManager.selectedRightPaths = reconciled.right
+                // A deselect (empty write) enforces nothing — leave the other pane untouched.
+                guard !newSelection.isEmpty else { return }
+                // Clear the other pane a tick later, but only if this pane is still the active
+                // one: a rapid switch back to the other pane must not clobber that newer pick.
+                DispatchQueue.main.async {
+                    let thisStillActive = isLeft
+                        ? syncManager.selectedLeftPaths == reconciled.left
+                        : syncManager.selectedRightPaths == reconciled.right
+                    guard thisStillActive else { return }
+                    if isLeft {
+                        if syncManager.selectedRightPaths != reconciled.right {
+                            syncManager.selectedRightPaths = reconciled.right
+                        }
+                    } else {
+                        if syncManager.selectedLeftPaths != reconciled.left {
+                            syncManager.selectedLeftPaths = reconciled.left
+                        }
+                    }
                 }
             }
         )

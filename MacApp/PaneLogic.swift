@@ -57,9 +57,10 @@ enum PaneLogic {
     }
 
     /// The left pane wins when both panes have selections (it is checked first, matching
-    /// the historical behavior of the details/actions targeting). Since the selection
-    /// bindings enforce exclusivity synchronously via `reconciledSelections`, the
-    /// both-non-empty tie can no longer occur in the app; the rule remains as a safe default.
+    /// the historical behavior of the details/actions targeting). The selection bindings
+    /// enforce exclusivity via `reconciledSelections`, clearing the other pane one runloop
+    /// tick after a pick lands, so a both-non-empty state can exist for at most a single
+    /// frame — this left-wins tiebreak keeps that frame pointing at a real pane.
     static func activePane(leftSelection: Set<String>, rightSelection: Set<String>) -> ActivePane? {
         if !leftSelection.isEmpty { return .left }
         if !rightSelection.isEmpty { return .right }
