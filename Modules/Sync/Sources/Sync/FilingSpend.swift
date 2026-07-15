@@ -43,7 +43,18 @@ public enum FilingSpendStore {
     static let historyKey = "tidyFilingSpendHistory"
     static let totalsKey = "tidyFilingSpendTotals"
     static let lastKey = "tidyFilingSpendLast"
-    static let maxEntries = 500
+    // High enough that a single calendar month can't realistically trim its own entries — the
+    // monthly cap sums the current-month entries from this history, so a cap smaller than a month's
+    // worth of calls would under-enforce. (~2000 cloud classifies in one month is not humanly
+    // reachable; the lifetime cap uses the never-trimmed `totals`, so it is unaffected regardless.)
+    static let maxEntries = 2000
+
+    /// Serializes the read-modify-write in `record`/`clear`. `record` runs off the main actor
+    /// (called from `CloudFilingClassifier.classify`, a `nonisolated async` function), so two
+    /// overlapping cloud calls — e.g. two quick "Try another folder" taps — would otherwise race
+    /// the non-atomic UserDefaults RMW, dropping a spend increment and under-counting the total the
+    /// budget cap is enforced against.
+    private static let lock = NSLock()
 
     public static func entries(defaults: UserDefaults = .standard) -> [FilingSpendEntry] {
         guard let data = defaults.data(forKey: historyKey),
@@ -63,6 +74,8 @@ public enum FilingSpendStore {
     }
 
     public static func record(_ entry: FilingSpendEntry, defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
         var list = entries(defaults: defaults)
         list.append(entry)
         if list.count > maxEntries { list.removeFirst(list.count - maxEntries) }
@@ -80,6 +93,8 @@ public enum FilingSpendStore {
     }
 
     public static func clear(defaults: UserDefaults = .standard) {
+        lock.lock()
+        defer { lock.unlock() }
         defaults.removeObject(forKey: historyKey)
         defaults.removeObject(forKey: totalsKey)
         defaults.removeObject(forKey: lastKey)

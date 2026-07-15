@@ -15,6 +15,26 @@ import Testing
                          cacheReadTokens: 0, cacheCreationTokens: 0, estimatedCostUSD: cost)
     }
 
+    @Test func concurrentRecordsLoseNoIncrements() {
+        // `record` runs off the main actor (from CloudFilingClassifier.classify) and does a
+        // non-atomic read-modify-write of UserDefaults; two overlapping cloud calls would otherwise
+        // drop a spend increment and under-count the total the budget cap is enforced against. The
+        // lock must serialize them so every record lands.
+        let (defaults, name) = suite()
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let iterations = 100
+        DispatchQueue.concurrentPerform(iterations: iterations) { _ in
+            FilingSpendStore.record(entry(cost: 0.01, tokens: 10), defaults: defaults)
+        }
+
+        let totals = FilingSpendStore.totals(defaults: defaults)
+        #expect(totals.scans == iterations)                                  // no lost increment
+        #expect(totals.tokens == iterations * 10)
+        #expect(abs(totals.costUSD - Double(iterations) * 0.01) < 1e-6)
+        #expect(FilingSpendStore.entries(defaults: defaults).count == iterations)
+    }
+
     @Test func recordAccumulatesTotalsAndTracksLast() {
         let (defaults, name) = suite()
         defer { defaults.removePersistentDomain(forName: name) }
