@@ -3,7 +3,28 @@ import Foundation
 @testable import Sync
 
 @Suite struct FileDiffEngineTests {
-    
+
+    @Test func getFilesInDirectoryCapsALinkToAnAncestorWithoutOverExpanding() throws {
+        // A symlink pointing at a real ancestor (`a/b/link -> a`) must be capped immediately, as
+        // `buildTree` does — not expanded a full extra level (`a/b/link/b/…`) before the target
+        // guard catches it. Real `FileManager` on a temp dir: mock disks can't hold symlinks.
+        let fm = FileManager.default
+        let root = try makeCanonicalTempRoot(prefix: "DiffSymlinkTests")
+        defer { try? fm.removeItem(at: root) }
+
+        let b = root.appendingPathComponent("a/b")
+        try fm.createDirectory(at: b, withIntermediateDirectories: true)
+        try "x".write(to: b.appendingPathComponent("leaf.txt"), atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(at: b.appendingPathComponent("link"),
+                                  withDestinationURL: root.appendingPathComponent("a"))
+
+        let keys = Set(try FileDiffEngine.getFilesInDirectory(root).keys)
+
+        #expect(keys.contains("a/b/leaf.txt"))
+        #expect(keys.contains("a/b/link"))                       // the link is listed as a directory…
+        #expect(!keys.contains { $0.hasPrefix("a/b/link/") })    // …but never descended into (no phantom rows)
+    }
+
     @Test func testSameFilesNoDifferences() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

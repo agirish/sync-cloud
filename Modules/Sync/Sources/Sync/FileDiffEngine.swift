@@ -207,7 +207,18 @@ public struct FileDiffEngine {
                         if isSymlinkedDir {
                             let targetID = canonicalIdentity(fileURL)
                             let depth = keyPath.split(separator: "/").count
-                            if !branchVisited.contains(targetID) && depth < symlinkDepthCap {
+                            // The flat enumerator descends the whole real subtree in one call, so
+                            // `branchVisited` only ever holds the root plus targets we manually
+                            // descended — never the real intermediate directories walked through.
+                            // A link pointing at one of those ancestors (a/b/link -> a) would thus
+                            // over-expand a full extra level before the target-repeat guard below
+                            // finally catches it. `buildTree` caps such a link immediately because
+                            // its `visited` set carries every ancestor. Match that: refuse to
+                            // descend a link whose target is an ancestor of (or the same as) the
+                            // directory the link lives in.
+                            let hostID = canonicalIdentity(fileURL.deletingLastPathComponent())
+                            let pointsIntoAncestor = hostID == targetID || hostID.hasPrefix(targetID + "/")
+                            if !branchVisited.contains(targetID) && !pointsIntoAncestor && depth < symlinkDepthCap {
                                 try walk(fileURL.resolvingSymlinksInPath(), prefix: keyPath,
                                          branchVisited: branchVisited.union([targetID]))
                             }
