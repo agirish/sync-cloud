@@ -113,7 +113,8 @@ public enum ProviderNameRules {
     /// Windows/OneDrive reserved device names; invalid as a base name regardless of extension.
     private static let oneDriveReservedNames: Set<String> = {
         var names: Set<String> = ["CON", "PRN", "AUX", "NUL"]
-        for i in 0...9 {
+        // Only COM1–COM9 and LPT1–LPT9 are reserved; COM0/LPT0 are ordinary valid names.
+        for i in 1...9 {
             names.insert("COM\(i)")
             names.insert("LPT\(i)")
         }
@@ -150,7 +151,10 @@ public enum ProviderNameRules {
             if name.hasSuffix(".") {
                 return make("OneDrive doesn't allow names ending with a period.")
             }
-            let baseName = name.split(separator: ".", maxSplits: 1).first.map(String.init) ?? name
+            // Match `sanitized(...)`'s split exactly (omittingEmptySubsequences: false), so a
+            // leading-dot name like ".CON" derives an empty base — not "CON" — and isn't
+            // flagged as reserved when the sanitizer would leave it unchanged anyway.
+            let baseName = name.split(separator: ".", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? name
             if oneDriveReservedNames.contains(baseName.uppercased()) {
                 return make("\"\(baseName)\" is a reserved name on OneDrive.")
             }
