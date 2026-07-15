@@ -299,8 +299,8 @@ extension FileSyncManager {
         let n = moves.count
         logger.info("Automation filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) failed" : "")")
         banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo")
-            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo")
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo", undoable: true)
+            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
         return (n, failures)
     }
 }

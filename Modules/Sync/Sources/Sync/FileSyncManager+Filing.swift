@@ -536,7 +536,7 @@ extension FileSyncManager {
             if remember { rememberFilingRule(fileName: suggestion.fileName, destinationPath: destination.path) }
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
-            banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo")
+            banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo", undoable: true)
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remember ? " (remembered as a rule)" : "")")
             return .moved
         case .noMoveNeeded:
@@ -576,8 +576,8 @@ extension FileSyncManager {
         let n = moves.count
         Logger.shared.info("Filing: filed \(n) file(s)\(failures > 0 ? ", \(failures) couldn't be filed" : "")")
         banner = failures > 0
-            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo")
-            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo")
+            ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo", undoable: true)
+            : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
     }
 
     /// Removes a suggestion without moving anything ("Not here" / leave it).
