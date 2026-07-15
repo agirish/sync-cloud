@@ -358,6 +358,11 @@ public enum DuplicateFinder {
         dirs: inout [NodeInfo]
     ) -> NodeInfo? {
         if options.ignoredNames.contains(node.name) { return nil }
+        // Exclude symlinks (files AND directories). The walk resolves a link's size/content to its
+        // target, so a link and its in-tree target would hash identically and group as "copies" —
+        // and trashing the real target would leave a dangling link as the "kept" copy. A symlink
+        // reclaims no real space anyway, so dropping it here loses nothing.
+        if node.isSymbolicLink == true { return nil }
 
         if !node.isDirectory {
             let hash = fileHashes[node.id]

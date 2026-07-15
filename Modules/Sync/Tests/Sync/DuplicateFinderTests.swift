@@ -40,6 +40,25 @@ import Testing
         #expect(g.redundantCopies.first?.isFullyRedundant == true)
     }
 
+    @Test func symlinkIsNotGroupedWithItsInTreeTarget() {
+        // The walk resolves a symlink's size/content to its target, so a link and its in-tree
+        // target hash identically. They must NOT group as duplicates: trashing the real target
+        // would leave a dangling link as the "kept" copy. The finder excludes symlinks outright.
+        let link = FileNode(id: "/root/Current/report.pdf", name: "report.pdf", isDirectory: false,
+                            modificationDate: nil, fileSize: 8192, isSymbolicLink: true)
+        let tree = [
+            dir("/root/Current", [link, file("/root/Current/c-only.txt")]),
+            dir("/root/Archive", [file("/root/Archive/report.pdf"), file("/root/Archive/a-only.txt")]),
+        ]
+        let hashes = [
+            "/root/Current/report.pdf": "H", "/root/Archive/report.pdf": "H",
+            "/root/Current/c-only.txt": "UC", "/root/Archive/a-only.txt": "UA",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.isEmpty)   // the symlink is excluded, so the real file has no duplicate
+    }
+
     @Test func identicalFileInManyFoldersGroupsAll() {
         var children: [FileNode] = []
         var hashes: [String: String] = [:]

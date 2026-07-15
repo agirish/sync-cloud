@@ -628,6 +628,7 @@ extension FileSyncManager {
                     var fileSize: Int?
                     var tags: [String]?
                     var kind: String?
+                    var isSymlink = false
                 }
 
                 func stat(at fullURL: URL) -> ItemStat? {
@@ -642,6 +643,7 @@ extension FileSyncManager {
                         s.tags = includeTags ? rv.tagNames : nil
                         s.kind = rv.typeIdentifier
                         if rv.isSymbolicLink == true {
+                            s.isSymlink = true
                             // resourceValues reports on the link itself, not its target. Preserve the
                             // prior fileExists behavior for symlinks: resolve to the target so linked
                             // directories still recurse and broken links are still dropped.
@@ -675,18 +677,18 @@ extension FileSyncManager {
                 // or `isUnexplored` semantics lands on every walk path at once.
 
                 func leafNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
                 }
 
                 /// A directory reported but not walked into (shallow-pass cap, cycle guard, or
                 /// hard depth cap). `isUnexplored` keeps cache consumers from mistaking the
                 /// artificial empty children for a genuinely empty (authoritative) deep tree.
                 func cappedNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true)
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true, isSymbolicLink: s.isSymlink)
                 }
 
                 func folderNode(_ fullURL: URL, _ s: ItemStat, children: [FileNode]) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind)
+                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
                 }
 
                 /// The one node builder for every regime — fanned-out and sequential, real

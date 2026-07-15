@@ -28,6 +28,12 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// it the in-memory diff) must treat such a node as a miss, never as an empty folder.
     /// Optional so drag payloads encoded before this field existed still decode (nil = walked).
     public var isUnexplored: Bool?
+    /// True when this entry is a symbolic link (its `fileSize`/`kind`/`isDirectory` describe the
+    /// link's TARGET — the walk resolves them for display and diffing). Tidy's duplicate finder
+    /// excludes symlinks: a link and its in-tree target otherwise hash identically and group as
+    /// "copies," and trashing the real target would leave a dangling link as the "kept" copy.
+    /// Optional so drag payloads encoded before this field existed still decode (nil = not a link).
+    public var isSymbolicLink: Bool?
 
     /// Initializes a new FileNode with optional metadata.
     public init(
@@ -39,7 +45,8 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         fileSize: Int? = nil,
         tags: [String]? = nil,
         kind: String? = nil,
-        isUnexplored: Bool? = nil
+        isUnexplored: Bool? = nil,
+        isSymbolicLink: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -50,6 +57,7 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.tags = tags
         self.kind = kind
         self.isUnexplored = isUnexplored
+        self.isSymbolicLink = isSymbolicLink
     }
 }
 
