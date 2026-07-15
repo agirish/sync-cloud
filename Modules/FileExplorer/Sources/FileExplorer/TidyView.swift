@@ -890,16 +890,11 @@ public struct TidyView: View {
             onFileHere: { dest in
                 filedThisSession = true
                 Task {
-                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest) else { return }
-                    // Offer a rule only when the file actually MOVED. Filing into the folder the file
-                    // already lives in is a no-op that still reports success (see `performFiling`'s
-                    // `.noMoveNeeded`), and a rule keyed on where the file already sits is noise.
-                    // Mirror that no-move check with the same URL-standardized folder comparison.
-                    let destFolder = URL(fileURLWithPath: dest.path).standardizedFileURL.path
-                    let srcFolder = URL(fileURLWithPath: suggestion.filePath).deletingLastPathComponent().standardizedFileURL.path
-                    if destFolder != srcFolder {
-                        offerRule(fileName: suggestion.fileName, destinationPath: dest.path)
-                    }
+                    // Offer a rule only when the file actually MOVED — filing into the folder it
+                    // already lives in (`.notNeeded`) is a no-op, and a rule keyed on where the file
+                    // already sits is noise.
+                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved else { return }
+                    offerRule(fileName: suggestion.fileName, destinationPath: dest.path)
                 }
             },
             onChooseFolder: { chooseFolder(for: suggestion) },
@@ -1000,8 +995,9 @@ public struct TidyView: View {
         let teachable = FilingOverride.isOverride(suggestion, chosenPath: url.path)
             && FilingEngine.canRemember(fileName: suggestion.fileName)
         Task {
-            let filed = await syncManager.applyFilingSuggestion(suggestion, to: dest)
-            if filed && teachable {
+            // Only prompt to remember an override when the file actually MOVED — no point learning a
+            // rule from filing a file into the folder it already sits in (`.notNeeded`).
+            if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
                                                               destinationPath: url.path)
             }

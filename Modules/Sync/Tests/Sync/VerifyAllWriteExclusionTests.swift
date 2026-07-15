@@ -160,7 +160,7 @@ import Foundation
         manager.isVerifyAllRunning = true
         let ok = await manager.applyFilingSuggestion(s, to: dest)
 
-        #expect(ok == false)
+        #expect(ok == .failed)
         #expect(manager.banner?.message == "Wait for Verify All to finish before filing")
         #expect(manager.banner?.severity == .warning)
         #expect(mockFM.virtualDisk["/src/f.txt"] != nil, "the file must stay put mid-verify")

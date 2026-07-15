@@ -503,17 +503,32 @@ extension FileSyncManager {
 
     private enum FilingOutcome { case moved(MoveItemState); case noMoveNeeded; case failed }
 
+    /// The outcome of a single `applyFilingSuggestion`. The `moved` / `notNeeded` distinction lets a
+    /// caller act only on a real move (e.g. offering a learned rule, or the remember-override prompt)
+    /// without re-deriving "did it move?" from a path comparison — the manager is the single source of
+    /// truth. `notNeeded` is still a success: the file is where the caller asked, just already there.
+    public enum FilingApplyResult: Sendable, Equatable {
+        /// The file was moved into the destination (and the list row dropped).
+        case moved
+        /// The chosen folder is where the file already lives — nothing to do (success, no move).
+        case notNeeded
+        /// The move was refused (Verify All in flight) or failed; the file stayed put.
+        case failed
+    }
+
     /// Moves the suggestion's file into the chosen destination, creating any new folders in the
     /// path, and drops it from the list. Reversible with Undo (⌘Z). Never overwrites — a name
     /// collision keeps both by uniquifying.
+    /// - Returns: `.moved` on a real move, `.notNeeded` when the file already lives there, `.failed`
+    ///   when refused or the move errored.
     @discardableResult
     public func applyFilingSuggestion(_ suggestion: FilingSuggestion, to destination: FilingDestination,
-                                      remember: Bool = false) async -> Bool {
+                                      remember: Bool = false) async -> FilingApplyResult {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): filing moves a file Verify All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before filing")
-            return false
+            return .failed
         }
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
@@ -523,11 +538,11 @@ extension FileSyncManager {
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo")
             Logger.shared.info("Filing: filed “\(suggestion.fileName)” → \(folderName)\(remember ? " (remembered as a rule)" : "")")
-            return true
+            return .moved
         case .noMoveNeeded:
-            return true   // the chosen folder is where the file already lives — nothing to do
+            return .notNeeded   // the chosen folder is where the file already lives — nothing to do
         case .failed:
-            return false
+            return .failed
         }
     }
 

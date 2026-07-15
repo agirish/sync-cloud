@@ -58,7 +58,7 @@ final class Flag: @unchecked Sendable { var value = false }
         let ok = await manager.applyFilingSuggestion(suggestion, to: dest)
 
         let movedPath = root.appendingPathComponent("Documents/Vehicles/Tesla/Insurance/Tesla Policy.pdf").path
-        #expect(ok)
+        #expect(ok == .moved)
         #expect(FileManager.default.fileExists(atPath: movedPath))          // moved, new folders created
         #expect(!FileManager.default.fileExists(atPath: srcPath.path))      // gone from Downloads
         #expect(manager.filingSuggestions.isEmpty)                          // dropped from the list
@@ -122,7 +122,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let ok = await manager.applyFilingSuggestion(s, to: dest)
 
-        #expect(ok)
+        #expect(ok == .notNeeded)   // filing into its own folder is a no-op success, not a move
         #expect(FileManager.default.fileExists(atPath: srcPath.path))                                   // unchanged
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/report 2.pdf").path))
         #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
