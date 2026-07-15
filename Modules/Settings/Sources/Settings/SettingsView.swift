@@ -35,6 +35,11 @@ public enum GeneralSettings {
     /// while SyncCloud is not the active app. Read by `OperationNotifier`.
     public static let notifyOnBackgroundCompletionKey = "notifyOnBackgroundCompletion"
 
+    /// String (default "TODO"). The provider-root-relative folder Organize scans for loose files by
+    /// default — the "inbox" where loose files pile up. Read by ContentView's Filing action; an empty
+    /// value (or navigating the rail into a subfolder) falls back to the focused folder.
+    public static let filingInboxRelativePathKey = "filingInboxRelativePath"
+
     /// The delete-confirmation flag with its default-true semantics (a bare `bool(forKey:)`
     /// would read an unset key as false and silently skip the alert).
     public static func shouldConfirmBeforeDelete(_ defaults: UserDefaults = .standard) -> Bool {
@@ -1142,6 +1147,7 @@ struct TidySettingsTab: View {
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
+    @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
     @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-haiku-4-5"
@@ -1198,6 +1204,12 @@ struct TidySettingsTab: View {
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
+                LabeledContent("Loose-files inbox") {
+                    TextField("TODO", text: $filingInbox)
+                        .frame(maxWidth: 180)
+                        .multilineTextAlignment(.trailing)
+                }
+                .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
                 LabeledContent("Remembered rules") {
                     HStack(spacing: 8) {
                         Text(filingRuleCount == 0 ? "None yet" : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")

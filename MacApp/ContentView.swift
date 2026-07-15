@@ -907,11 +907,17 @@ struct ContentView: View {
                                           providerName: tidyProviderName, only: only)
     }
 
-    /// Kicks off a Filing scan of the focused folder, with the whole provider as the taxonomy.
+    /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy. Defaults to
+    /// the loose-files inbox (Settings ▸ Tidy, default "TODO"); if the rail has been navigated into a
+    /// subfolder, that focused folder is scanned instead.
     func findFilingSuggestionsAction() {
-        let folder = tidyScanRootExpanded
+        let focused = tidyScanRootExpanded
         let root = tidyProviderRootExpanded
-        guard !folder.isEmpty, !root.isEmpty else { return }
+        guard !focused.isEmpty, !root.isEmpty else { return }
+        let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
+            .trimmingCharacters(in: .whitespaces)
+        let atRoot = (focused as NSString).standardizingPath == (root as NSString).standardizingPath
+        let folder = (atRoot && !inbox.isEmpty) ? (root as NSString).appendingPathComponent(inbox) : focused
         Logger.shared.info("User requested Filing suggestions for \(folder)")
         selectedBottomTab = .tidy
         selectedTidyLens = .filing
