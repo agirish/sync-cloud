@@ -342,6 +342,7 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched left provider to \(newId)")
             endReviewForComparisonChange()
+            duplicateReview = nil   // a manual provider switch takes over Compare; don't restore later
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview
@@ -358,6 +359,7 @@ struct ContentView: View {
             }
             Logger.shared.info("User switched right provider to \(newId)")
             endReviewForComparisonChange()
+            duplicateReview = nil   // a manual provider switch takes over Compare; don't restore later
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview
@@ -630,6 +632,7 @@ struct ContentView: View {
         guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
         endReviewForComparisonChange()
+        duplicateReview = nil   // the swap redefines the comparison; drop any duplicate review
         let swapped = PaneLogic.swappedProviderIds(
             leftProviderId: leftProviderId,
             rightProviderId: rightProviderId
@@ -922,6 +925,13 @@ struct ContentView: View {
             Logger.shared.warning("Compare copies: a copy path sits outside the Tidy provider root — skipping")
             return
         }
+        // Snapshot the Compare setup so exiting the review restores it — but when a review is already
+        // in progress (comparing a second pair without ending the first), its panes are already
+        // pinned to this provider, so keep the ORIGINAL snapshot rather than capturing the pinned one.
+        let restore = duplicateReview?.restore ?? SavedCompareState(
+            leftProviderId: leftProviderId, rightProviderId: rightProviderId,
+            leftRelativePath: syncManager.leftRelativePath, rightRelativePath: syncManager.rightRelativePath)
+
         // The comparison itself is changing; end any guided review that was framed on the old panes
         // (the id onChange would normally do this, but we're about to suppress it).
         endReviewForComparisonChange()
@@ -939,7 +949,7 @@ struct ContentView: View {
         syncManager.focusOn(relativePath: keepRel, isLeft: true)
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
         duplicateReview = DuplicateCompareContext(
-            groupName: keep.name, keepPath: keepPath, deletePath: deletePath)
+            groupName: keep.name, keepPath: keepPath, deletePath: deletePath, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedBottomTab = .differences
@@ -1560,7 +1570,7 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)
-            Button("Keep both") { duplicateReview = nil }
+            Button("Done") { endDuplicateReview() }
                 .controlSize(.small)
             Button(role: .destructive) { trashRightCopy(review) } label: {
                 Label("Trash right copy", systemImage: "trash")
@@ -1573,31 +1583,72 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
+    /// Ends the duplicate review without deleting: dismisses the banner and restores the Compare
+    /// setup the review overrode, so the right pane returns to the user's own provider and folder.
+    func endDuplicateReview() {
+        guard let review = duplicateReview else { return }
+        duplicateReview = nil
+        restoreCompareState(review.restore)
+    }
+
+    /// Puts both Compare panes back to a saved setup — used when a duplicate review ends, so pinning
+    /// both panes to the duplicate's provider never permanently repoints the user's right pane. The
+    /// id onChanges are suppressed (as `compareCopies` does) so the restore can't clear the surviving
+    /// Tidy results or reset navigation; then each pane re-focuses its saved folder and rescans.
+    private func restoreCompareState(_ saved: SavedCompareState) {
+        if leftProviderId != saved.leftProviderId {
+            pendingSwapProviderChanges += 1
+            leftProviderId = saved.leftProviderId
+        }
+        if rightProviderId != saved.rightProviderId {
+            pendingSwapProviderChanges += 1
+            rightProviderId = saved.rightProviderId
+        }
+        syncManager.focusOn(relativePath: saved.leftRelativePath, isLeft: true)
+        syncManager.focusOn(relativePath: saved.rightRelativePath, isLeft: false)
+        refreshAction()
+    }
+
     /// Trashes the right copy of the reviewed duplicate (undoable), then returns to the Duplicates
-    /// list and drops just that copy from its group in place — the group's figures update, or the
-    /// group disappears when only the keeper is left, without re-walking the whole tree.
+    /// list, drops just that copy from its group in place — the group's figures update, or the group
+    /// disappears when only the keeper is left, without re-walking the whole tree — and restores the
+    /// Compare setup. A declined or failed trash keeps the review (and its banner) up for a retry.
     func trashRightCopy(_ review: DuplicateCompareContext) {
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Move the right copy of “\(review.groupName)” to the Trash?",
             informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Reversible with ⌘Z.",
             confirmTitle: "Move to Trash")
         guard ok else { return }
-        duplicateReview = nil
         Task {
             let removed = await syncManager.deleteItems(at: [review.deletePath])
             guard removed > 0 else { return }
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
+            duplicateReview = nil
             selectedBottomTab = .tidy
             selectedTidyLens = .duplicates
             syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
+            restoreCompareState(review.restore)
         }
     }
 }
 
 /// A live "compare two duplicate copies" review handed off from Tidy to the Compare tab. Holds the
-/// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right.
+/// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right —
+/// plus the Compare setup to put back when the review ends.
 struct DuplicateCompareContext: Equatable {
     let groupName: String
     let keepPath: String
     let deletePath: String
+    /// Where Compare was before this review pinned both panes to the duplicate's provider — restored
+    /// on exit so opening two copies never permanently repoints the user's right pane.
+    let restore: SavedCompareState
+}
+
+/// A Compare pane setup — both providers and both focused folders. Captured before a duplicate
+/// review overrides them and replayed when it ends.
+struct SavedCompareState: Equatable {
+    let leftProviderId: String
+    let rightProviderId: String
+    let leftRelativePath: String
+    let rightRelativePath: String
 }
