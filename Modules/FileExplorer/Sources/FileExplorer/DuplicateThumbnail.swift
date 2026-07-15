@@ -11,17 +11,23 @@ import QuickLookThumbnailing
 /// travel with it: the background generator hands back PNG `Data` (Sendable) and the `NSImage` is
 /// built and cached on the main actor.
 enum DuplicateThumbnail {
-    /// Main-actor cache of decoded previews, keyed by path + point size + scale, so re-expanding a
-    /// group never regenerates.
-    @MainActor private static var imageCache: [String: NSImage] = [:]
+    /// Bounded, self-purging cache of decoded previews — an unbounded dict would grow with every
+    /// duplicate file viewed across a session, and `NSCache` also drops entries under memory
+    /// pressure. Keyed by path + size + scale + modification time, so a re-scan where a file's
+    /// content changed regenerates rather than serving a stale preview.
+    @MainActor private static let imageCache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 256
+        return cache
+    }()
 
     @MainActor
-    static func image(path: String, side: CGFloat, scale: CGFloat) async -> NSImage? {
-        let key = "\(path)|\(Int(side))|\(Int(scale))"
-        if let hit = imageCache[key] { return hit }
+    static func image(path: String, side: CGFloat, scale: CGFloat, modified: Date?) async -> NSImage? {
+        let key = "\(path)|\(Int(side))|\(Int(scale))|\(modified?.timeIntervalSince1970 ?? 0)" as NSString
+        if let hit = imageCache.object(forKey: key) { return hit }
         guard let data = await pngData(path: path, side: side, scale: scale),
               let image = NSImage(data: data) else { return nil }
-        imageCache[key] = image
+        imageCache.setObject(image, forKey: key)
         return image
     }
 
@@ -53,6 +59,9 @@ struct DuplicateThumbnailView: View {
     let path: String
     let name: String
     let isKeeper: Bool
+    /// The copy's modification date — part of the cache key, so a re-scan that changed the file's
+    /// content refreshes the preview instead of serving the stale one.
+    let modified: Date?
     var side: CGFloat = 54
 
     @State private var image: NSImage?
@@ -94,7 +103,8 @@ struct DuplicateThumbnailView: View {
                 }
             }
             .shadow(color: .black.opacity(isHovering ? 0.22 : 0), radius: isHovering ? 7 : 0, y: isHovering ? 3 : 0)
-            .scaleEffect(isHovering && !reduceMotion ? 1.18 : 1)
+            // Modest lift — kept small so it doesn't clip against the horizontal scroll container.
+            .scaleEffect(isHovering && !reduceMotion ? 1.1 : 1)
             .zIndex(isHovering ? 1 : 0)
 
             Text(isKeeper ? "keeper" : "duplicate")
@@ -104,8 +114,8 @@ struct DuplicateThumbnailView: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.14)) { isHovering = hovering }
         }
-        .task(id: path) {
-            image = await DuplicateThumbnail.image(path: path, side: side, scale: max(1, displayScale))
+        .task(id: "\(path)|\(modified?.timeIntervalSince1970 ?? 0)") {
+            image = await DuplicateThumbnail.image(path: path, side: side, scale: max(1, displayScale), modified: modified)
         }
         .help(path)
         .accessibilityElement()

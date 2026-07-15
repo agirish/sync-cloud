@@ -162,17 +162,24 @@ struct TidyGroupCard: View {
     @ViewBuilder
     private var thumbnailStrip: some View {
         if !group.isDirectory {
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(thumbnailCopies) { copy in
-                    DuplicateThumbnailView(path: copy.path, name: group.name, isKeeper: copy.isRecommendedKeeper)
+            // Horizontal scroll so a many-copy group (or a narrow Tidy pane) never runs the tiles
+            // off the card — the cap bounds how many render, this bounds how wide they reach.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    ForEach(thumbnailCopies) { copy in
+                        DuplicateThumbnailView(path: copy.path, name: group.name,
+                                               isKeeper: copy.isRecommendedKeeper, modified: copy.modificationDate)
+                    }
+                    if group.copies.count > Self.maxThumbnails {
+                        overflowTile(group.copies.count - Self.maxThumbnails)
+                    }
                 }
-                if group.copies.count > Self.maxThumbnails {
-                    overflowTile(group.copies.count - Self.maxThumbnails)
-                }
-                Spacer(minLength: 0)
+                // Vertical room so the hover lift isn't clipped by the scroll view; a little
+                // horizontal inset so the first/last tiles aren't flush to the card edge.
+                .padding(.vertical, 6)
+                .padding(.horizontal, 2)
             }
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.top, 4)
             Divider().overlay(Color.primary.opacity(0.05))
         }
     }
