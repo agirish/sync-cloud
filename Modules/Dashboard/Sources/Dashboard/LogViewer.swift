@@ -119,6 +119,15 @@ public struct LogViewer: View {
         ("Errors", .error),
     ]
 
+    /// Short labels for the severity filter chips — same thresholds as `levelOptions`, trimmed so four
+    /// pills fit the narrow log window. Counts are looked up from the shared `thresholdCounts`.
+    private static let chipOptions: [(label: String, level: LogLevel?)] = [
+        ("All", nil),
+        ("Info", .info),
+        ("Warnings", .warning),
+        ("Errors", .error),
+    ]
+
     /// One O(N) pass tallying how many entries sit at or above each menu threshold (plus the total
     /// under the `nil`/"All Levels" key). Computed once per body render and read by the picker
     /// labels, instead of a full `entries` reduce per option on every render.
@@ -181,15 +190,6 @@ public struct LogViewer: View {
                 Text("Activity Log")
                     .font(.headline.weight(.semibold))
                 Spacer()
-                
-                Picker("Level", selection: $selectedLevel) {
-                    ForEach(Self.levelOptions, id: \.label) { option in
-                        Text("\(option.label) (\(levelCounts[option.level] ?? 0))")
-                            .tag(option.level)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(width: 180)
 
                 Button(action: { copyVisibleEntries(filtered) }) {
                     Image(systemName: "doc.on.doc")
@@ -214,10 +214,22 @@ public struct LogViewer: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
             .glassBarStyle(intensity: glassIntensity)
-            
+
             Divider()
                 .opacity(0.6)
-            
+
+            // Severity filter chips — the level threshold as tappable pills (All / Info & above /
+            // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the
+            // active scope is always visible, not one click away.
+            HStack(spacing: 6) {
+                ForEach(Self.chipOptions, id: \.label) { option in
+                    levelChip(option.label, level: option.level, count: levelCounts[option.level] ?? 0)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+
             // Search Bar
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -249,9 +261,7 @@ public struct LogViewer: View {
                     if filtered.isEmpty && visibleHistory.isEmpty {
                         emptyState
                     } else {
-                        ForEach(filtered) { entry in
-                            LogEntryRow(entry: entry)
-                        }
+                        daySections(filtered)
                     }
                     historyFooter(visibleHistory: visibleHistory, moreAvailable: moreHistory)
                 }
@@ -266,6 +276,56 @@ public struct LogViewer: View {
         .onChange(of: searchText) { _, _ in historyLimit = Self.historyPageSize }
     }
 
+    // MARK: Severity chips
+
+    /// One severity-threshold pill: its label, its live count, and a filled state when it's the active
+    /// threshold. Tapping sets the same `selectedLevel` the old menu did, so the filter logic is
+    /// unchanged — only its presentation.
+    @ViewBuilder
+    private func levelChip(_ label: String, level: LogLevel?, count: Int) -> some View {
+        let selected = selectedLevel == level
+        Button {
+            selectedLevel = level
+        } label: {
+            HStack(spacing: 5) {
+                Text(label)
+                Text(count.formatted())
+                    .monospacedDigit()
+                    .foregroundStyle(selected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+            }
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .background(
+                Capsule().fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.12)))
+            )
+            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: selected ? 0 : 0.5))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Show \(label.lowercased())")
+    }
+
+    // MARK: Day-grouped list
+
+    /// Renders `entries` (session or history) as day sections, folding per-file operation runs. Shared
+    /// by the live list and the loaded-history footer so both read identically.
+    @ViewBuilder
+    private func daySections(_ entries: [LogEntry]) -> some View {
+        ForEach(LogGrouping.byDay(entries)) { section in
+            LogDayHeader(text: section.header)
+            ForEach(section.items) { item in
+                switch item {
+                case .entry(let entry):
+                    LogEntryRow(entry: entry)
+                case .group(let group):
+                    LogOperationGroupRow(group: group)
+                }
+            }
+        }
+    }
+
     // MARK: History footer
 
     /// The bottom-of-list history controls: before loading, one "Show older history" button; after,
@@ -275,7 +335,7 @@ public struct LogViewer: View {
         if let loadedHistory {
             if !visibleHistory.isEmpty {
                 historyDivider
-                ForEach(visibleHistory) { LogEntryRow(entry: $0) }
+                daySections(visibleHistory)
                 if moreAvailable {
                     historyActionButton("Show \(Self.historyPageSize) more", icon: "chevron.down") {
                         historyLimit += Self.historyPageSize
@@ -435,4 +495,81 @@ private struct LogEntryRow: View {
     private func timeString(from date: Date) -> String {
         return Self.timeFormatter.string(from: date)
     }
+}
+
+/// A day divider ("Today" / "Yesterday" / a date) above that day's rows.
+private struct LogDayHeader: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.bold))
+            .textCase(.uppercase)
+            .kerning(0.4)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 10)
+            .padding(.bottom, 2)
+    }
+}
+
+/// A folded operation run (e.g. "Synced 12 files") as an expandable disclosure row. Collapsed by
+/// default — the point is to fold a bulk action's per-file lines out of the way — but the header
+/// keeps the run's highest severity color so a failure inside a run is never hidden.
+private struct LogOperationGroupRow: View {
+    let group: LogGrouping.OperationGroup
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 12)
+                    Image(systemName: group.icon)
+                        .font(.caption)
+                        .foregroundStyle(group.level.color)
+                        .frame(width: 18)
+                    Text(group.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(group.count.formatted())
+                        .font(.caption2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color.secondary.opacity(0.14), in: Capsule())
+                    Spacer(minLength: 8)
+                    Text(Self.timeString(group.timestamp))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(group.children) { LogEntryRow(entry: $0) }
+                }
+                .padding(.leading, 22)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.06)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(group.title), \(expanded ? "expanded" : "collapsed")")
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter
+    }()
+    private static func timeString(_ date: Date) -> String { timeFormatter.string(from: date) }
 }
