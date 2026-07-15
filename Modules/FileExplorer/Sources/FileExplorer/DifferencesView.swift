@@ -665,34 +665,45 @@ public struct DifferencesView: View {
         .padding(.bottom, 10)
     }
 
-    /// Inline search field (second header row): a magnifier, the query, a clear button, and a
-    /// live "N of M" match count when a filter or search narrows the list.
+    /// Inline search field (second header row): the query, a clear button, and a live "N of M"
+    /// match count — plus, below, the parsed filter tokens (removable) and, while focused,
+    /// one-tap suggestions. Typing `kind:pdf`, `>10mb`, or `only:left` narrows the list; anything
+    /// else is a plain path substring, exactly as before.
     private func searchField(filteredCount: Int) -> some View {
-        HStack(spacing: 6) {
-            TextField("Search by name or path", text: $searchText)
-                .textFieldStyle(.plain)
-                .focused($searchFocused)
-                // Focus is claimed here, once the field exists — not by the reveal button,
-                // whose FocusState write lands in the transaction that inserts the field
-                // and can fail silently. The one-turn defer outlives that transaction.
-                .onAppear { Task { @MainActor in searchFocused = true } }
-                .onExitCommand { collapseSearch() }
-            if !searchText.isEmpty {
-                Button {
-                    searchText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
+        let tokens = DifferenceSearch.parse(searchText).tokens
+        return VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                TextField("Search — try kind:pdf, >10mb, only:left", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($searchFocused)
+                    // Focus is claimed here, once the field exists — not by the reveal button,
+                    // whose FocusState write lands in the transaction that inserts the field
+                    // and can fail silently. The one-turn defer outlives that transaction.
+                    .onAppear { Task { @MainActor in searchFocused = true } }
+                    .onExitCommand { collapseSearch() }
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Clear search")
+                    .accessibilityLabel("Clear search")
+                }
+                if selectedFilter != .all || !searchText.isEmpty {
+                    Text("\(filteredCount) of \(syncManager.differences.count)")
+                        .font(.caption)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help("Clear search")
-                .accessibilityLabel("Clear search")
             }
-            if selectedFilter != .all || !searchText.isEmpty {
-                Text("\(filteredCount) of \(syncManager.differences.count)")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
+            if !tokens.isEmpty {
+                tokenChips(tokens)
+            }
+            if searchFocused {
+                suggestionRow(active: tokens)
             }
         }
         .padding(.horizontal, 10)
@@ -701,6 +712,82 @@ public struct DifferencesView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(.quaternary.opacity(0.5))
         )
+    }
+
+    /// The parsed filter tokens as removable chips: a human reading of the query, each with an ✕
+    /// that edits it back out of the raw text.
+    private func tokenChips(_ tokens: [DifferenceSearch.Token]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+                HStack(spacing: 4) {
+                    Text(tokenLabel(token))
+                        .font(.caption.monospaced())
+                    Button {
+                        searchText = DifferenceSearch.removingToken(token, from: searchText)
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove filter \(tokenLabel(token))")
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .foregroundStyle(glassHue.accentColor)
+                .background(Capsule().fill(glassHue.accentColor.opacity(0.16)))
+                .overlay(Capsule().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.5))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func tokenLabel(_ token: DifferenceSearch.Token) -> String {
+        switch token {
+        case .kind(let ext): return "kind: \(ext)"
+        case .sizeAtLeast(let bytes): return "> \(FileSyncManager.formatBytes(bytes))"
+        case .sizeAtMost(let bytes): return "< \(FileSyncManager.formatBytes(bytes))"
+        case .onlyLeft: return "only on \(paneNames.left)"
+        case .onlyRight: return "only on \(paneNames.right)"
+        }
+    }
+
+    /// One-tap filter suggestions shown while the field is focused, omitting any already active.
+    @ViewBuilder
+    private func suggestionRow(active: [DifferenceSearch.Token]) -> some View {
+        let suggestions = searchSuggestions(active: active)
+        if !suggestions.isEmpty {
+            HStack(spacing: 6) {
+                Text("Add filter")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+                ForEach(suggestions, id: \.raw) { suggestion in
+                    Button {
+                        searchText = searchText.isEmpty ? suggestion.raw : searchText + " " + suggestion.raw
+                    } label: {
+                        Text(suggestion.label)
+                            .font(.caption2)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.quaternary.opacity(0.6)))
+                            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func searchSuggestions(active: [DifferenceSearch.Token]) -> [(label: String, raw: String)] {
+        let candidates: [(label: String, raw: String, token: DifferenceSearch.Token)] = [
+            ("only on \(paneNames.left)", "only:left", .onlyLeft),
+            ("only on \(paneNames.right)", "only:right", .onlyRight),
+            ("PDFs", "kind:pdf", .kind("pdf")),
+            ("larger than 10 MB", ">10mb", .sizeAtLeast(10_000_000)),
+        ]
+        return candidates
+            .filter { !active.contains($0.token) }
+            .map { (label: $0.label, raw: $0.raw) }
     }
 
     /// The Copy/Move button label, reflecting the target count and the held move modifier.

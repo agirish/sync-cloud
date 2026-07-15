@@ -5,18 +5,19 @@ import Sync
 /// predicate, the bulk "ignore all" set operation, and the selection-vs-filtered action
 /// target set. Kept free of SwiftUI so every rule is unit-testable.
 enum DifferencesQuery {
-    /// A difference is visible when it matches the active type filter AND (the search box is
-    /// empty OR its `relativePath` contains the search text, case-insensitively).
+    /// A difference is visible when it matches the active type filter AND the search query — which
+    /// is the structured token search (`kind:`, size, `only:`) plus free-text substring. A query
+    /// with no recognized tokens is exactly the legacy case-insensitive `relativePath` substring.
     static func matches(_ difference: FileDifference, filter: DifferenceFilter, searchText: String) -> Bool {
         guard filter.matches(difference) else { return false }
-        if searchText.isEmpty { return true }
-        return difference.relativePath.range(of: searchText, options: .caseInsensitive) != nil
+        return DifferenceSearch.parse(searchText).matches(difference)
     }
 
-    /// Single O(n) pass applying `matches` to the whole list — mirrors the one pass the view
-    /// makes per render.
+    /// Single O(n) pass over the whole list. The search query is parsed ONCE here (not per row) and
+    /// reused, so the token grammar costs nothing per difference.
     static func filtered(_ differences: [FileDifference], filter: DifferenceFilter, searchText: String) -> [FileDifference] {
-        differences.filter { matches($0, filter: filter, searchText: searchText) }
+        let query = DifferenceSearch.parse(searchText)
+        return differences.filter { filter.matches($0) && query.matches($0) }
     }
 
     /// Per-filter row counts for the filter menu (the `Identical (312)` parity ask): how many
