@@ -949,7 +949,8 @@ struct ContentView: View {
         syncManager.focusOn(relativePath: keepRel, isLeft: true)
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
         duplicateReview = DuplicateCompareContext(
-            groupName: keep.name, keepPath: keepPath, deletePath: deletePath, restore: restore)
+            groupName: keep.name, keepPath: keepPath, deletePath: deletePath,
+            keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedBottomTab = .differences
@@ -1413,7 +1414,17 @@ struct ContentView: View {
             get: { selectedBottomTab },
             set: { newTab in
                 selectedBottomTab = newTab
-                if newTab == .tidy { presentTidyRail(for: selectedTidyLens) }
+                if newTab == .tidy {
+                    presentTidyRail(for: selectedTidyLens)
+                } else if newTab == .differences, let review = duplicateReview {
+                    // The left pane is shared between the Tidy rail and Compare, so its focus can't
+                    // serve both during a review: leaving for Tidy reset it to the rail's root
+                    // (presentTidyRail above), which would leave Compare diffing the root against the
+                    // right copy. Re-focus the two copies and re-diff so returning restores the review.
+                    syncManager.focusOn(relativePath: review.keeperRelativePath, isLeft: true)
+                    syncManager.focusOn(relativePath: review.redundantRelativePath, isLeft: false)
+                    refreshAction()
+                }
             }
         )
     }
@@ -1639,6 +1650,10 @@ struct DuplicateCompareContext: Equatable {
     let groupName: String
     let keepPath: String
     let deletePath: String
+    /// The two copies as provider-root-relative paths — used to re-focus the panes when the user
+    /// returns to Compare after a Tidy detour reset the shared left pane to the rail's root.
+    let keeperRelativePath: String
+    let redundantRelativePath: String
     /// Where Compare was before this review pinned both panes to the duplicate's provider — restored
     /// on exit so opening two copies never permanently repoints the user's right pane.
     let restore: SavedCompareState
