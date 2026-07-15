@@ -1055,6 +1055,12 @@ struct ContentView: View {
     /// use: the divider keeps its slim layout footprint while a 10pt-wide clear strip straddles it
     /// for the drag. `inspectorWidth` is held constant through the gesture (written only on release),
     /// so it's the stable base for `PaneLogic.inspectorDragWidth`.
+    ///
+    /// The drag reads `.global`, NOT the default `.local`, coordinate space: this handle slides left
+    /// as the inspector widens, so in its own moving frame `translation` feeds back on itself and
+    /// collapses to ~0 once layout catches up — the panes' splits dodge the same trap by reading a
+    /// fixed coordinate space. Global translation is the cursor's real delta, independent of the
+    /// handle's position, so the resize stays smooth instead of stuttering.
     private var inspectorResizeHandle: some View {
         Divider()
             .overlay {
@@ -1064,7 +1070,7 @@ struct ContentView: View {
                     .contentShape(Rectangle())
                     .pointerStyle(.columnResize)
                     .gesture(
-                        DragGesture(minimumDistance: 1)
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { value in
                                 inspectorDragWidth = PaneLogic.inspectorDragWidth(
                                     base: inspectorWidth, translation: value.translation.width)
