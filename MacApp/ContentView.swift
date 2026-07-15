@@ -372,6 +372,15 @@ struct ContentView: View {
         // new selection.
         .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
         .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
+        // The Get-Info override also goes stale when the comparison context changes underneath it:
+        // a provider switch (its file is on the old provider) or a tab switch (Tidy is single-source
+        // and shows its own selection). Without these, `DetailsSidebar` — which prefers `overridePath`
+        // over everything — keeps showing the old-provider/old-tab file, defeating the single-source
+        // guard. `resetNavigation` only clears selections when non-empty, so the selection onChanges
+        // above don't cover the no-selection case.
+        .onChange(of: leftProviderId) { _, _ in infoPath = nil }
+        .onChange(of: rightProviderId) { _, _ in infoPath = nil }
+        .onChange(of: selectedBottomTab) { _, _ in infoPath = nil }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -856,7 +865,10 @@ struct ContentView: View {
     /// User-triggered refresh: clears prefetch cache so new files on disk appear immediately.
     func forceRefreshAction() {
         Logger.shared.info("User requested a force refresh")
-        syncManager.prefetchedTrees.removeAll()
+        // Drop the cache AND bump the scan-config epoch so this supersedes any same-target refresh
+        // already in flight — a bare cache clear leaves the RefreshKey identical and the forced
+        // rescan gets deduped away, silently doing nothing.
+        syncManager.prepareForcedRescan()
         refreshAction()
     }
 
@@ -1416,12 +1428,13 @@ struct ContentView: View {
                 let previousTab = selectedBottomTab
                 selectedBottomTab = newTab
                 // A duplicate review the user has already navigated away from (its banner and Done
-                // button gone, `duplicateReviewActive` false) is abandoned. Leaving Compare must drop
-                // it — otherwise the Compare-restore below silently snaps both panes back onto the two
-                // copies, discarding the user's navigation, every time they revisit Compare. An
-                // ACTIVE review is kept so the intended Tidy-and-back round-trip still restores it.
+                // button gone, `duplicateReviewActive` false) is abandoned. Tear it down through the
+                // same restore path as Done — NOT a bare `= nil`: compareCopies auto-pinned the right
+                // pane to the duplicate's provider, and dropping the review without restoring would
+                // leave that pin in place, silently repointing the user's pane (and any later
+                // Copy/Move) to the wrong provider. (presentTidyRail resets the left focus just below.)
                 if previousTab == .differences, let review = duplicateReview, !duplicateReviewActive(review) {
-                    duplicateReview = nil
+                    endDuplicateReview()
                 }
                 if newTab == .tidy {
                     presentTidyRail(for: selectedTidyLens)

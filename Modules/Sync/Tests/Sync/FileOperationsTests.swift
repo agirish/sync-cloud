@@ -90,6 +90,20 @@ import Foundation
         #expect(["/src/a.bin", "/src/b.bin"].filter { mockFM.virtualDisk[$0] != nil }.count == 1)
     }
 
+    @MainActor
+    @Test func testPrepareForcedRescanClearsCacheAndBumpsConfigEpoch() {
+        let manager = FileSyncManager()
+        manager.prefetchedTrees["/x"] = [FileNode(id: "/x", name: "x", isDirectory: true)]
+        let before = manager.scanConfigGeneration
+
+        manager.prepareForcedRescan()
+
+        // Both are required: the cache clear alone leaves the RefreshKey identical, so a same-target
+        // refresh in flight would dedupe the forced rescan away — the epoch bump makes it supersede.
+        #expect(manager.prefetchedTrees.isEmpty)
+        #expect(manager.scanConfigGeneration == before + 1)
+    }
+
     @Test func testSafeCopyReplaceFallsBackWhenTrashUnsupported() async throws {
         let mockFM = MockFileManager()
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)

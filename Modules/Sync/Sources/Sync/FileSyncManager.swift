@@ -745,6 +745,18 @@ public class FileSyncManager: ObservableObject {
         scanConfigGeneration += 1
     }
 
+    /// Prepares a user-initiated force refresh: drops the prefetch cache AND bumps the scan-config
+    /// epoch. The epoch bump is essential — `refreshTreesAndScan` dedupes on a `RefreshKey` that
+    /// includes `scanConfigGeneration`, so without it a forced rescan requested while a same-target
+    /// refresh is already in flight would produce a byte-identical key and be swallowed as a
+    /// duplicate, silently doing nothing. Bumping the epoch makes the forced refresh supersede the
+    /// in-flight one instead (matching the file-operation and setting-change supersede paths).
+    /// `noteScanConfigChanged` is `internal`, so the app can't do this itself — hence this entry.
+    public func prepareForcedRescan() {
+        prefetchedTrees.removeAll()
+        noteScanConfigChanged()
+    }
+
     /// The dedupe identity for a refresh of the given targets under the current config epoch.
     internal func makeRefreshKey(left: CloudProvider, right: CloudProvider) -> RefreshKey {
         RefreshKey(
