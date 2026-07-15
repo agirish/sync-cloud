@@ -137,6 +137,12 @@ public struct TidyView: View {
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
     @State private var pendingRememberPrompt: PendingRememberPrompt?
+    /// A learn-by-example rule offered after the user files a loose file — turned into an editable
+    /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
+    /// until saved or dismissed; cleared when a new scan starts.
+    @State private var pendingRuleOffer: RuleOffer?
+    /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
+    @State private var ruleConditionChoice: AutomationCondition?
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -248,6 +254,7 @@ public struct TidyView: View {
                 filedThisSession = false
                 dismissedThisSession = false
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
+                pendingRuleOffer = nil
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
@@ -656,9 +663,12 @@ public struct TidyView: View {
     @ViewBuilder
     private var filingContent: some View {
         VStack(spacing: 0) {
-            // G2: the teach prompt sits above every Filing state (not just the list) so it survives
-            // filing the last loose file — the card that triggered it is already gone.
-            if let prompt = pendingRememberPrompt {
+            // The teach prompt sits above every Filing state (not just the list) so it survives
+            // filing the last loose file — the card that triggered it is already gone. The rule offer
+            // (after a "File here") takes precedence over the legacy override "Remember" prompt.
+            if let offer = pendingRuleOffer {
+                ruleOfferPrompt(offer)
+            } else if let prompt = pendingRememberPrompt {
                 rememberOverridePrompt(prompt)
             }
             Group {
@@ -675,6 +685,7 @@ public struct TidyView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
+        .animation(.easeInOut(duration: 0.2), value: pendingRuleOffer?.id)
     }
 
     /// The "Rename" lens (the un-folded Name Normalizer): finds and fixes cloud-hostile names.
@@ -748,6 +759,85 @@ public struct TidyView: View {
         pendingRememberPrompt = nil
     }
 
+    // MARK: Learned rules (offered after a filing move)
+
+    /// After the user files a loose file, propose an editable Automation rule for files like it —
+    /// the deterministic, learn-by-example complement to the AI backend.
+    private func offerRule(fileName: String, destinationPath: String) {
+        let rel = relativeToProviderRoot(destinationPath)
+        guard let proposal = AutomationRuleProposer.propose(fileName: fileName, destinationRelativePath: rel) else { return }
+        pendingRememberPrompt = nil   // the new offer supersedes the legacy override prompt
+        ruleConditionChoice = proposal.defaultCondition
+        pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal)
+    }
+
+    /// Saves the offered rule (with the chosen condition) as an Automation, then dismisses the offer.
+    private func saveProposedRule(_ offer: RuleOffer) {
+        var rule = offer.proposal.rule
+        if let condition = ruleConditionChoice { rule.conditions = [condition] }
+        syncManager.upsertAutomationRule(rule)
+        syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
+        pendingRuleOffer = nil
+    }
+
+    /// The destination folder as a path relative to the provider root (the rule's template is
+    /// provider-relative).
+    private func relativeToProviderRoot(_ absolutePath: String) -> String {
+        guard let root = automationDestinationRoot, !root.isEmpty else {
+            return (absolutePath as NSString).lastPathComponent
+        }
+        let r = (root as NSString).standardizingPath
+        let p = (absolutePath as NSString).standardizingPath
+        if p == r { return "" }
+        if p.hasPrefix(r + "/") { return String(p.dropFirst(r.count + 1)) }
+        return (absolutePath as NSString).lastPathComponent
+    }
+
+    /// The inline "Save a rule?" offer after a filing move: the proposed match condition with a
+    /// compact picker (name / content / kind) and the destination; Save creates an Automation.
+    private func ruleOfferPrompt(_ offer: RuleOffer) -> some View {
+        let conditions = [offer.proposal.defaultCondition] + offer.proposal.alternatives
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(glassHue.accentColor)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Filed “\(offer.fileName)” → \(offer.proposal.destinationTemplate). Save a rule?")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .lineLimit(2).truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text("Match:").font(.system(size: 11)).foregroundStyle(.secondary)
+                    ForEach(conditions, id: \.self) { condition in
+                        let on = (ruleConditionChoice == condition)
+                        Button { ruleConditionChoice = condition } label: {
+                            Text(condition.summary)
+                                .font(.system(size: 10.5, weight: on ? .semibold : .regular))
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(Capsule().fill(on ? glassHue.accentColor.opacity(0.18) : Color.primary.opacity(0.05)))
+                                .overlay(Capsule().strokeBorder(on ? glassHue.accentColor.opacity(0.5) : Color.clear, lineWidth: 0.5))
+                                .foregroundStyle(on ? glassHue.accentColor : Color.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Spacer(minLength: 8)
+            VStack(spacing: 5) {
+                Button("Save rule") { saveProposedRule(offer) }
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                Button("Not now") { pendingRuleOffer = nil }
+                    .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(glassHue.accentColor.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(glassHue.accentColor.opacity(0.28), lineWidth: 1))
+        .padding(.horizontal, 12).padding(.top, 12)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
     private var filingList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
@@ -799,7 +889,11 @@ public struct TidyView: View {
             suggestion: suggestion,
             onFileHere: { dest in
                 filedThisSession = true
-                Task { await syncManager.applyFilingSuggestion(suggestion, to: dest) }
+                Task {
+                    if await syncManager.applyFilingSuggestion(suggestion, to: dest) {
+                        offerRule(fileName: suggestion.fileName, destinationPath: dest.path)
+                    }
+                }
             },
             onChooseFolder: { chooseFolder(for: suggestion) },
             onReveal: { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: suggestion.filePath)]) },
@@ -1006,6 +1100,14 @@ private struct PendingRememberPrompt: Identifiable {
     let id = UUID()
     let fileName: String
     let destinationPath: String
+}
+
+/// One pending "save a rule?" offer — the file just filed and the proposed Automation for files like
+/// it. Identifiable so the inline prompt animates in and out.
+private struct RuleOffer: Identifiable {
+    let id = UUID()
+    let fileName: String
+    let proposal: AutomationRuleProposer.Proposal
 }
 
 // MARK: - Reclaim pill (H5)
