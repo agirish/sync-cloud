@@ -1191,6 +1191,16 @@ struct ContentView: View {
         .onChange(of: syncManager.showHiddenFiles) { _, newValue in
             Logger.shared.info("User toggled hidden files to: \(newValue)")
         }
+        // Feed the pane header's quick-jump "Recent" list: every folder either pane focuses — by
+        // drilling in, a crumb, back/forward, or a scan — is recorded against its provider root.
+        .onChange(of: syncManager.leftRelativePath) { _, rel in
+            FolderJumpStore.shared.recordVisit(root: settings.path(for: leftProviderId),
+                                               relativePath: rel, name: (rel as NSString).lastPathComponent)
+        }
+        .onChange(of: syncManager.rightRelativePath) { _, rel in
+            FolderJumpStore.shared.recordVisit(root: settings.path(for: rightProviderId),
+                                               relativePath: rel, name: (rel as NSString).lastPathComponent)
+        }
     }
 
 

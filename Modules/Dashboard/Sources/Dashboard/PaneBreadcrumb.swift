@@ -61,6 +61,14 @@ struct PaneBreadcrumb: View {
                     .help("Collapsed folders")
                 }
             }
+            // The quick-jump affordance on the current folder: sibling folders (the lateral hop the
+            // breadcrumb and back/forward can't make), plus recent and pinned folders.
+            FolderJumpMenu(
+                rootPath: rootPath,
+                relativePath: relativePath,
+                currentName: crumbs.last?.name ?? BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
+                onNavigate: onNavigate
+            )
             Spacer(minLength: 0)
             linkBothToggle
         }
