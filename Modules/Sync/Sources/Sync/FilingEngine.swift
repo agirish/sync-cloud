@@ -229,14 +229,24 @@ public enum FilingEngine {
         for p in profiles {
             let nameHits = tokens.intersection(p.nameTokens)
             let contentHits = tokens.intersection(p.contentTokens).subtracting(nameHits)
-            let score = nameHits.count * 3 + contentHits.count
-            guard score >= 3 else { continue }   // a folder-name hit, or ≥3 content hits
+            // A bare year names WHICH same-year folder, not WHAT category — matching a year-named
+            // folder on the year alone must never stand up a high-confidence, batch-eligible home,
+            // or the blind "File recommended" batch would move e.g. "2024-tax-return.pdf" into
+            // whichever `…/2024` folder sorts first. Only non-year hits carry category strength;
+            // the year still rides along in the displayed reason below.
+            let categoryNameHits = nameHits.filter { !isYear($0) }
+            let categoryContentHits = contentHits.filter { !isYear($0) }
+            let score = categoryNameHits.count * 3 + categoryContentHits.count
+            guard score >= 3 else { continue }   // a real folder-name hit, or ≥3 content hits
             let hitSet = nameHits.union(contentHits)
             let hits = hitSet.sorted().prefix(3).joined(separator: ", ")
-            // Content-derived when the deciding tokens are NOT in the filename (compare to the real
-            // filename tokens, so a token in BOTH name and content counts as from the name).
-            let fromContent = hitSet.isDisjoint(with: nameTokens) && !hitSet.isDisjoint(with: contentTokens)
-            let base: FilingConfidence = !nameHits.isEmpty ? .high : .medium
+            // Content-derived when the deciding (non-year) tokens are NOT in the filename — a year
+            // shared between the filename and the folder must not make a content match look
+            // name-derived (and thus batch-eligible). Compare the category hits to the real
+            // filename tokens, so a token in BOTH name and content counts as from the name.
+            let categoryHits = categoryNameHits.union(categoryContentHits)
+            let fromContent = categoryHits.isDisjoint(with: nameTokens) && !categoryHits.isDisjoint(with: contentTokens)
+            let base: FilingConfidence = !categoryNameHits.isEmpty ? .high : .medium
             let confidence = fromContent ? min(base, .medium) : base
             if fromContent {
                 // Surface the single strongest evidence word (prefer a sibling-content hit, which

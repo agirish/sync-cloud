@@ -43,6 +43,21 @@ import Testing
         #expect(best.confidence == .high)
     }
 
+    // MARK: A bare year must not stand up a batch-eligible taxonomy home
+
+    @Test func bareYearMatchIsNotBatchEligible() throws {
+        // Two same-year folders and a file whose only taxonomy overlap is the year. Filing on the
+        // year alone would blindly move it into whichever folder sorts first (Archive < Projects) —
+        // so it must NOT be a confident, batch-eligible home.
+        let taxonomy = [dir("/root/Archive", [dir("/root/Archive/2024", [])]),
+                        dir("/root/Projects", [dir("/root/Projects/2024", [])])]
+        let loose = [file("/root/Downloads/2024-overview.pdf", modified: y2024)]
+
+        let suggestion = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first)
+        #expect(!suggestion.isBatchEligible)
+        #expect(!suggestion.candidates.contains { $0.path.hasSuffix("/2024") })
+    }
+
     // MARK: Universal rules
 
     @Test func photoIsFiledByYearUnderExistingPhotos() throws {
