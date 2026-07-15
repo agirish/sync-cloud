@@ -1,9 +1,11 @@
 import SwiftUI
 import Foundation
+import Events
 
 /// One jump target within a provider pane: a folder to hop to, identified by its path relative to
-/// the pane's provider root ("" is the root), plus the display name shown in the menu.
-struct JumpLocation: Codable, Equatable, Identifiable, Hashable {
+/// the pane's provider root ("" is the root), plus the display name shown in the menu. `Sendable`
+/// so the sibling enumeration can hand results back from a detached (off-main) task.
+struct JumpLocation: Codable, Equatable, Identifiable, Hashable, Sendable {
     let relativePath: String
     let name: String
     var id: String { relativePath }
@@ -83,20 +85,31 @@ public final class FolderJumpStore: ObservableObject {
 enum FolderJump {
     /// The immediate subfolders of the current folder's PARENT, excluding the current folder — the
     /// lateral hops neither the breadcrumb (up) nor back/forward (back) can reach. Returns an empty
-    /// list at the pane root (no in-pane parent) or on any read error, and skips hidden folders.
-    /// Names sort with the same localized-standard order the file panes use.
-    static func siblings(rootPath: String, relativePath: String, fileManager: FileManager = .default) -> [JumpLocation] {
+    /// list at the pane root (no in-pane parent) or on any read error. Honors the pane's
+    /// show-hidden-files setting so the jump menu matches what the pane shows. Names sort with the
+    /// same localized-standard order the file panes use. `nonisolated` and pure so it can run off
+    /// the main thread (a large cloud directory would otherwise jank the menu-open).
+    nonisolated static func siblings(rootPath: String, relativePath: String, showHidden: Bool = false, fileManager: FileManager = .default, logError: (@Sendable (String) -> Void)? = nil) -> [JumpLocation] {
         let components = relativePath.split(separator: "/").map(String.init)
         guard let currentName = components.last else { return [] } // "" → root has no in-pane parent
         let parentComponents = components.dropLast()
         let parentRelative = parentComponents.joined(separator: "/")
         let parentAbsolute = parentComponents.isEmpty ? rootPath : rootPath + "/" + parentRelative
 
-        guard let entries = try? fileManager.contentsOfDirectory(
-            at: URL(fileURLWithPath: parentAbsolute),
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return [] }
+        let entries: [URL]
+        do {
+            entries = try fileManager.contentsOfDirectory(
+                at: URL(fileURLWithPath: parentAbsolute),
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: showHidden ? [] : [.skipsHiddenFiles])
+        } catch {
+            // Don't silently read as "no other folders" — a permission/IO failure is worth a
+            // breadcrumb (debug level: this can fire on every menu-open). Logged via the injected
+            // closure because this runs off-main and `Logger.shared` is main-actor isolated; the
+            // caller captures it on the main actor.
+            logError?("Folder jump: couldn't list siblings under \(parentAbsolute): \(error.localizedDescription)")
+            return []
+        }
 
         return entries.compactMap { url -> JumpLocation? in
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true else { return nil }
@@ -116,9 +129,14 @@ struct FolderJumpMenu: View {
     let rootPath: String
     let relativePath: String
     let currentName: String
+    /// The pane's live show-hidden-files state, so the menu's siblings match what the pane lists.
+    let showHidden: Bool
     let onNavigate: (String) -> Void
 
     @ObservedObject private var store = FolderJumpStore.shared
+    /// Sibling folders, enumerated OFF the main thread whenever the current folder (or the
+    /// show-hidden setting) changes, so opening the menu never blocks on a large cloud directory.
+    @State private var siblings: [JumpLocation] = []
 
     var body: some View {
         Menu {
@@ -133,6 +151,14 @@ struct FolderJumpMenu: View {
         .fixedSize()
         .help("Jump to a pinned, recent, or nearby folder")
         .accessibilityLabel("Jump to another folder")
+        .task(id: "\(rootPath)|\(relativePath)|\(showHidden)") {
+            let root = rootPath, rel = relativePath, hidden = showHidden
+            let logger = Logger.shared // captured on the main actor; its methods are nonisolated
+            siblings = await Task.detached(priority: .userInitiated) {
+                FolderJump.siblings(rootPath: root, relativePath: rel, showHidden: hidden,
+                                    logError: { logger.debug($0) })
+            }.value
+        }
     }
 
     @ViewBuilder
@@ -140,7 +166,8 @@ struct FolderJumpMenu: View {
         let pinned = store.pinned(forRoot: rootPath)
         // A recent entry for the folder you're already in would be a no-op — drop it.
         let recents = store.recents(forRoot: rootPath).filter { $0.relativePath != relativePath }
-        let siblings = FolderJump.siblings(rootPath: rootPath, relativePath: relativePath)
+        // `siblings` is the pre-loaded @State (scanned off-main on folder change), not a fresh
+        // synchronous directory read at menu-open time.
 
         if pinned.isEmpty && recents.isEmpty && siblings.isEmpty {
             Text("No other folders")

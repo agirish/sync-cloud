@@ -201,6 +201,7 @@ public struct PaneHeader: View {
                 rootPath: rootPath,
                 providerName: provider?.displayName,
                 relativePath: relativePath,
+                showHidden: showHiddenFiles,
                 onNavigate: onNavigate,
                 onNavigateBoth: onNavigateBoth
             )

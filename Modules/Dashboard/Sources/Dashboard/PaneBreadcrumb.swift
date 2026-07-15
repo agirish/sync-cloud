@@ -16,6 +16,9 @@ struct PaneBreadcrumb: View {
     /// `nil` (no provider) keeps the plain primary/secondary crumb styling.
     let providerName: String?
     let relativePath: String
+    /// The pane's live show-hidden-files state, forwarded to the quick-jump menu so its sibling
+    /// list matches what the pane shows.
+    let showHidden: Bool
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
 
@@ -67,6 +70,7 @@ struct PaneBreadcrumb: View {
                 rootPath: rootPath,
                 relativePath: relativePath,
                 currentName: crumbs.last?.name ?? BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
+                showHidden: showHidden,
                 onNavigate: onNavigate
             )
             Spacer(minLength: 0)

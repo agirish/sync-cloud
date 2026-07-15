@@ -79,4 +79,18 @@ import Foundation
         #expect(FolderJump.siblings(rootPath: "/anything", relativePath: "").isEmpty)
         #expect(FolderJump.siblings(rootPath: "/no/such/root", relativePath: "Docs/Sub").isEmpty)
     }
+
+    @Test func siblingsHonorShowHiddenSetting() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("fjh-\(UUID().uuidString)")
+        let parent = root.appendingPathComponent("Projects")
+        try fm.createDirectory(at: parent.appendingPathComponent("2026"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: parent.appendingPathComponent(".secret"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        // Hidden off: the hidden sibling is filtered (and 2026 is the current folder) → nothing.
+        #expect(FolderJump.siblings(rootPath: root.path, relativePath: "Projects/2026", showHidden: false).isEmpty)
+        // Hidden on: it appears, matching what the pane would show.
+        #expect(FolderJump.siblings(rootPath: root.path, relativePath: "Projects/2026", showHidden: true).map(\.name) == [".secret"])
+    }
 }
