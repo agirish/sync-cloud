@@ -55,10 +55,15 @@ public enum AutomationRuleProposer {
            snippet.range(of: term, options: .caseInsensitive) != nil {
             ordered.append(.contentContains(term))
         }
-        // Guarantee at least one condition — kind, or a name glob on the extension.
+        // Guarantee at least one condition — a name glob on the extension. With no distinctive name
+        // token, no content match, AND no extension to anchor on, the only fallback would be
+        // `name matches *` — a match-EVERYTHING rule that files every loose file into this folder.
+        // One token-less, extension-less example (e.g. "ab", "2024") isn't enough signal to learn a
+        // rule from, so decline to propose rather than offer a dangerous universal glob.
         if ordered.isEmpty {
             let ext = (fileName as NSString).pathExtension
-            ordered.append(ext.isEmpty ? .nameMatches("*") : .nameMatches("*.\(ext)"))
+            guard !ext.isEmpty else { return nil }
+            ordered.append(.nameMatches("*.\(ext)"))
         }
 
         let defaultCondition = ordered[0]

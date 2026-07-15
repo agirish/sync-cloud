@@ -37,6 +37,13 @@ import Foundation
         #expect(p?.defaultCondition == .kindIs(.pdf))
     }
 
+    @Test func testDeclinesWhenNoDistinctiveTokenAndNoExtension() {
+        // A token-less, extension-less example (only a year, no kind to anchor on) would otherwise
+        // fall back to `name matches *` — a match-EVERYTHING rule. Decline instead of proposing it.
+        #expect(propose("2024", into: "Archive") == nil)
+        #expect(propose("ab", into: "Archive") == nil)
+    }
+
     @Test func testContentOfferedAsAlternativeWhenSnippetMatches() {
         let p = propose("Kaiser-EOB.pdf", into: "Medical", snippet: "Explanation of benefits from Kaiser Permanente")
         // Default is still the name token; content is a swap-to alternative.
