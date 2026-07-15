@@ -2,6 +2,18 @@ import SwiftUI
 import AppKit
 import Design
 
+/// The "Link both panes" preference behind the breadcrumb chain toggle. The toggle itself is a
+/// `@AppStorage` inside `PaneBreadcrumb`, but the same lock-step intent has to be honored from
+/// code paths that never touch the breadcrumb view — chiefly drilling into a folder from the file
+/// list (`FileActionHandler.focusFolder`). Centralizing the key here keeps those readers in sync
+/// with the toggle instead of duplicating the string literal.
+enum PaneLinkPreference {
+    static let defaultsKey = "breadcrumbLinkBothPanes"
+    /// Whether the user has the panes linked. Reads the same UserDefaults key `@AppStorage` writes,
+    /// so it stays true to the toggle without threading the state through every call site.
+    static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
+}
+
 /// Clickable breadcrumb inside each `PaneHeader`: the provider root (named after the root
 /// folder, full path in the tooltip) followed by the pane's relative-path segments. Clicking
 /// a crumb re-focuses that pane on the ancestor; ⌥-clicking any crumb (including the current
@@ -24,7 +36,7 @@ struct PaneBreadcrumb: View {
 
     /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Shared
     /// across both panes' breadcrumbs by design: one setting, mirrored in each toggle.
-    @AppStorage("breadcrumbLinkBothPanes") private var linkBothPanes = false
+    @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
 
     var body: some View {
         let crumbs = BreadcrumbTrail.crumbs(forRelativePath: relativePath)
@@ -71,7 +83,9 @@ struct PaneBreadcrumb: View {
                 relativePath: relativePath,
                 currentName: crumbs.last?.name ?? BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
                 showHidden: showHidden,
-                onNavigate: onNavigate
+                // Route through the same link-aware path as crumbs so a lateral jump also moves
+                // both panes when linked (or ⌥ is held); unlinked, it's the plain single-pane hop.
+                onNavigate: { navigate(to: $0, isCurrent: false) }
             )
             Spacer(minLength: 0)
             linkBothToggle

@@ -52,7 +52,15 @@ public class FileActionHandler {
         }
 
         Logger.shared.info("User focusing folder: \(relPath)")
-        syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
+        // Honor the breadcrumb "Link both panes" toggle here too. The feature promises the panes
+        // stay in lock-step "while drilling down," but drilling into a folder from the file list
+        // lands here — not on a breadcrumb crumb — so without this check only clicking an ancestor
+        // crumb ever moved the sibling pane. When linked, drive both panes to the same subfolder.
+        if PaneLinkPreference.isLinked {
+            syncManager.focusBoth(relativePath: relPath)
+        } else {
+            syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
+        }
     }
     
     // MARK: - Native Actions

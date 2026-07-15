@@ -22,6 +22,40 @@ import Settings
     }
 
     @MainActor
+    @Test func testFocusFolderMovesOnlyTargetPaneWhenUnlinked() {
+        // Default (unlinked): drilling into the left pane must not disturb the right pane.
+        UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey)
+        let manager = FileSyncManager()
+        let settings = SettingsManager(autoDiscover: false)
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+
+        let root = settings.path(for: "iCloud")
+        let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        #expect(manager.leftRelativePath == "Projects/Sync")
+        #expect(manager.rightRelativePath == "")
+    }
+
+    @MainActor
+    @Test func testFocusFolderMovesBothPanesWhenLinked() {
+        // With "Link both panes" on, drilling into a folder from the file list must move the
+        // sibling pane to the same relative path — the bug where only breadcrumb clicks honored it.
+        UserDefaults.standard.set(true, forKey: PaneLinkPreference.defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey) }
+        let manager = FileSyncManager()
+        let settings = SettingsManager(autoDiscover: false)
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+
+        let root = settings.path(for: "iCloud")
+        let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud")
+        #expect(manager.leftRelativePath == "Projects/Sync")
+        #expect(manager.rightRelativePath == "Projects/Sync")
+    }
+
+    @MainActor
     @Test func testFocusFolderOnRootYieldsEmptyRelativePath() {
         let manager = FileSyncManager()
         let settings = SettingsManager(autoDiscover: false)
