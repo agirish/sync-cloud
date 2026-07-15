@@ -455,6 +455,23 @@ extension FileSyncManager {
     }
 
     /// Permanently deletes files or directories from disk.
+    /// Whether a `trashItem` failure is transient (the item is busy/locked or momentarily
+    /// permission-blocked) rather than the volume genuinely lacking a Trash. Only the latter should
+    /// be offered an unrecoverable permanent delete; a transient failure must stay retryable, since
+    /// silently upgrading it to a permanent delete could destroy a file a retry would have trashed.
+    /// Unknown/unsupported errors are treated as non-transient so a real Trash-less volume still
+    /// escalates (the pre-existing behavior).
+    nonisolated static func isTransientTrashFailure(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSPOSIXErrorDomain {
+            return [EBUSY, EAGAIN, EACCES, EPERM].map(Int.init).contains(ns.code)
+        }
+        if ns.domain == NSCocoaErrorDomain {
+            return ns.code == NSFileWriteNoPermissionError || ns.code == NSFileLockingError
+        }
+        return false
+    }
+
     /// Moves the given paths to the Trash (falling back to a confirmed permanent delete only on
     /// Trash-less volumes). Returns the number of items actually removed — 0 when everything
     /// failed or a permanent delete was declined, and short of the batch after a mid-batch
@@ -511,7 +528,17 @@ extension FileSyncManager {
                         try fm.trashItem(at: url, resultingItemURL: &trashedURL)
                         trashedItems.append((original: url, trashed: trashedURL as? URL))
                     } catch {
-                        trashFailures.append(url)
+                        if Self.isTransientTrashFailure(error) {
+                            // Busy / locked / permission-blocked right now — common for a cloud file
+                            // a provider daemon is mid-write, or an evicted placeholder. Report it as
+                            // a retryable failure rather than escalating to the permanent-delete
+                            // prompt: a retry may well move it to the Trash recoverably. A genuinely
+                            // Trash-less volume throws an unsupported/unknown error, which still falls
+                            // through to `trashFailures` and the confirmation prompt below.
+                            taskErrors.append(error)
+                        } else {
+                            trashFailures.append(url)
+                        }
                     }
                 }
                 await MainActor.run {

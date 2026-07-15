@@ -46,6 +46,27 @@ import Foundation
         // Verify it didn't end up in the `.trashedPaths` mock stub array but was physically deleted instead
         #expect(mockFM.trashedPaths.isEmpty == true)
     }
+
+    @MainActor
+    @Test func testDeleteItemsTransientTrashFailureDoesNotEscalateToPermanentDelete() async throws {
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/data.bin"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        // A transient failure (the file is momentarily busy — e.g. a cloud daemon mid-write), NOT a
+        // Trash-less volume. It must not be silently upgraded to an unrecoverable permanent delete.
+        mockFM.trashErrorOnce = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+
+        let manager = FileSyncManager()
+        var permanentDeleteOffered = false
+        manager.permanentDeleteConfirmer = { _ in permanentDeleteOffered = true; return true }
+        let removed = await manager.deleteItems(at: ["/src/data.bin"], fileManager: mockFM)
+
+        #expect(removed == 0)                                // nothing was destroyed
+        #expect(permanentDeleteOffered == false)             // no permanent-delete prompt
+        #expect(mockFM.virtualDisk["/src/data.bin"] != nil)  // still on disk — a retry could trash it
+        #expect(manager.currentError != nil)                 // surfaced as a retryable error instead
+    }
     
     @Test func testSafeCopyReplaceFallsBackWhenTrashUnsupported() async throws {
         let mockFM = MockFileManager()

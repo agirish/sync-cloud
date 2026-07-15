@@ -137,6 +137,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     public var shouldFailTrash: Bool = false
+    /// When set, the next `trashItem` throws this specific error (then clears), letting tests pin
+    /// how a particular failure — e.g. a transient EBUSY vs. an unsupported-volume error — is
+    /// classified by `deleteItems`. Checked before `shouldFailTrash`.
+    public var trashErrorOnce: Error? = nil
     public var trashedPaths: [String] = []
     public var enumeratorDelay: TimeInterval = 0
     public var failRemovePathsOnce: Set<String> = []
@@ -151,6 +155,10 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public func trashItem(at url: URL, resultingItemURL outResultingURL: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
         try sync {
+            if let err = trashErrorOnce {
+                trashErrorOnce = nil
+                throw err
+            }
             if shouldFailTrash {
                 // Simulate network drive without trash bin
                 throw NSError(domain: POSIXError.errorDomain, code: Int(POSIXError.ENOTSUP.rawValue))
