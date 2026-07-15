@@ -16,6 +16,10 @@ struct TidyGroupCard: View {
     let onKeepSeparate: () -> Void
     let onChooseKeeper: (String) -> Void
     let onMerge: () -> Void
+    /// Opens two copies of this group side by side in Compare — the keeper on the left (kept), the
+    /// chosen redundant copy on the right (the delete candidate). Only surfaced for folder groups;
+    /// `var` with a default so the memberwise init keeps it optional for existing call sites/tests.
+    var onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in }
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
@@ -345,6 +349,11 @@ struct TidyGroupCard: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
             }
+            // Folder groups can be inspected side by side before deciding — identical/overlapping/
+            // name-only are all directories. File "Versions" groups have the thumbnail strip instead.
+            if group.isDirectory {
+                compareControl
+            }
             Button(action: onReveal) {
                 Label("Reveal", systemImage: RevealGlyph.inFinder)
             }
@@ -364,6 +373,38 @@ struct TidyGroupCard: View {
         case .versions: return "Keep newest, Trash older"
         default: return group.copies.count > 2 ? "Keep one, Trash the rest" : "Trash redundant copy"
         }
+    }
+
+    /// "Compare copies": a direct button when there's a single redundant copy (a 2-copy group), or a
+    /// menu to pick which redundant copy to compare against the keeper when there are more than two —
+    /// Compare has exactly two panes, so bigger groups are reviewed two at a time (keeper vs each).
+    @ViewBuilder
+    private var compareControl: some View {
+        if group.redundantCopies.count <= 1 {
+            Button {
+                if let other = group.redundantCopies.first { onCompareCopies(group.keeper, other) }
+            } label: {
+                Label("Compare copies", systemImage: "rectangle.split.2x1")
+            }
+            .controlSize(.small)
+        } else {
+            Menu {
+                ForEach(group.redundantCopies) { copy in
+                    Button(location(for: copy.path)) { onCompareCopies(group.keeper, copy) }
+                }
+            } label: {
+                Label("Compare with…", systemImage: "rectangle.split.2x1")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .controlSize(.small)
+        }
+    }
+
+    /// A short "iCloud › … › name" location for a copy, reusing the breadcrumb derivation so a
+    /// many-copy menu can tell the otherwise identically-named copies apart by where they live.
+    private func location(for path: String) -> String {
+        crumbs(path).joined(separator: " › ")
     }
 
     // MARK: Breadcrumb

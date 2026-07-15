@@ -177,6 +177,8 @@ public struct TidyView: View {
     private let currentProviderId: String
     private let onSelectProvider: (String) -> Void
     private let onManageProviders: () -> Void
+    /// Opens two copies of a duplicate folder group in the Compare tab (keeper left, redundant right).
+    private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
 
     public init(
         syncManager: FileSyncManager,
@@ -195,7 +197,8 @@ public struct TidyView: View {
         providers: [CloudProvider] = [],
         currentProviderId: String = "",
         onSelectProvider: @escaping (String) -> Void = { _ in },
-        onManageProviders: @escaping () -> Void = {}
+        onManageProviders: @escaping () -> Void = {},
+        onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in }
     ) {
         self.syncManager = syncManager
         self._lens = lens
@@ -214,6 +217,7 @@ public struct TidyView: View {
         self.currentProviderId = currentProviderId
         self.onSelectProvider = onSelectProvider
         self.onManageProviders = onManageProviders
+        self.onCompareCopies = onCompareCopies
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -593,7 +597,8 @@ public struct TidyView: View {
                         onReveal: { reveal(group) },
                         onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
                         onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
-                        onMerge: { merge(group) }
+                        onMerge: { merge(group) },
+                        onCompareCopies: { keep, delete in onCompareCopies(keep, delete) }
                     )
                     .transition(cardRemoval)
                 }
