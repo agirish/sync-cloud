@@ -174,6 +174,56 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         return DuplicateGroup(id: id, matchType: matchType, name: name, isDirectory: isDirectory,
                               copies: [newKeeper] + rest, reclaimableBytes: reclaim)
     }
+
+    /// Returns this group with the copy at `path` removed and its figures recomputed, or nil when
+    /// fewer than two copies remain (the cluster is no longer a duplicate). Keeps the same `id` so
+    /// list/expansion identity is stable. Used when a single copy is resolved out-of-band — trashed
+    /// from the Compare duplicate review — so the Duplicates list updates without a full rescan.
+    ///
+    /// The Compare flow only ever trashes a *redundant* copy (the keeper stays on the left), but if
+    /// the keeper is the one removed we promote the shallowest survivor so the group keeps a keeper.
+    public func removingRedundantCopy(atPath path: String) -> DuplicateGroup? {
+        guard let removed = copies.first(where: { $0.id == path }) else { return self }
+        var remaining = copies.filter { $0.id != path }
+        guard remaining.count >= 2 else { return nil }
+
+        if removed.isRecommendedKeeper, !remaining.contains(where: { $0.isRecommendedKeeper }) {
+            let newKeeperID = remaining.min { ($0.depth, $0.id) < ($1.depth, $1.id) }!.id
+            remaining = remaining.map { Self.relabel($0, isKeeper: $0.id == newKeeperID) }
+        }
+        let keeperFirst = remaining.sorted {
+            (($0.isRecommendedKeeper ? 0 : 1), $0.depth, $0.id) < (($1.isRecommendedKeeper ? 0 : 1), $1.depth, $1.id)
+        }
+        return DuplicateGroup(
+            id: id, matchType: matchType, name: name, isDirectory: isDirectory,
+            copies: keeperFirst,
+            reclaimableBytes: Self.reclaim(after: removed, matchType: matchType,
+                                           remaining: keeperFirst, priorReclaim: reclaimableBytes))
+    }
+
+    /// A copy of `c` with its keeper flag set — mirrors ``choosingKeeper``'s relabelling.
+    private static func relabel(_ c: DuplicateCopy, isKeeper: Bool) -> DuplicateCopy {
+        DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
+                      itemCount: c.itemCount, modificationDate: c.modificationDate,
+                      uniqueItemCount: c.uniqueItemCount, depth: c.depth, isRecommendedKeeper: isKeeper)
+    }
+
+    /// Recomputes reclaimable bytes after one copy is removed, per the finder's own rules: identical
+    /// and versions groups reclaim the full size of every remaining redundant copy; an overlapping
+    /// group reclaims each redundant copy's *shared* bytes, so it drops by the removed copy's share
+    /// (its per-copy fraction isn't retained, so the group's average shared fraction stands in);
+    /// name-only groups reclaim nothing.
+    private static func reclaim(after removed: DuplicateCopy, matchType: DuplicateMatchType,
+                                remaining: [DuplicateCopy], priorReclaim: Int) -> Int {
+        switch matchType {
+        case .identical, .versions:
+            return remaining.filter { !$0.isRecommendedKeeper }.reduce(0) { $0 + $1.size }
+        case .overlapping(let fraction):
+            return max(0, priorReclaim - Int(Double(removed.size) * fraction))
+        case .nameOnly:
+            return 0
+        }
+    }
 }
 
 // MARK: - Options

@@ -345,4 +345,63 @@ import Testing
         #expect(!g(.overlapping(sharedFraction: 0.9)).isRecommendedForBatch)
         #expect(!g(.nameOnly).isFullyResolvableByRemoval && !g(.nameOnly).isRecommendedForBatch)
     }
+
+    private func copy(_ id: String, size: Int, depth: Int, keeper: Bool, unique: Int = 0) -> DuplicateCopy {
+        DuplicateCopy(id: id, name: (id as NSString).lastPathComponent, isDirectory: true, size: size,
+                      itemCount: 1, modificationDate: nil, uniqueItemCount: unique, depth: depth,
+                      isRecommendedKeeper: keeper)
+    }
+
+    @Test func removingLastRedundantResolvesGroupToNil() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
+                               copies: [copy("/a/x", size: 100, depth: 2, keeper: true),
+                                        copy("/b/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 100)
+        #expect(g.removingRedundantCopy(atPath: "/b/x") == nil)   // only the keeper would remain
+    }
+
+    @Test func removingOneOfManyRecomputesIdenticalReclaim() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
+                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                        copy("/b/x", size: 100, depth: 1, keeper: false),
+                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 200)
+        let g2 = g.removingRedundantCopy(atPath: "/b/x")!
+        #expect(g2.copies.count == 2)
+        #expect(g2.keeper.id == "/a/x")
+        #expect(g2.reclaimableBytes == 100)                       // one remaining redundant copy
+        #expect(g2.recommendedRemovalPaths == ["/c/x"])
+        #expect(g2.id == g.id)                                    // list identity preserved
+    }
+
+    @Test func removingOneOverlappingCopyDropsItsSharedBytes() {
+        let g = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Inv", isDirectory: true,
+                               copies: [copy("/a", size: 100, depth: 0, keeper: true),
+                                        copy("/b", size: 90, depth: 1, keeper: false, unique: 1),
+                                        copy("/c", size: 80, depth: 2, keeper: false, unique: 2)],
+                               reclaimableBytes: 85)   // 90*0.5 + 80*0.5
+        let g2 = g.removingRedundantCopy(atPath: "/b")!
+        #expect(g2.copies.count == 2)
+        #expect(g2.reclaimableBytes == 40)             // 85 - round(90*0.5)
+        if case .overlapping(let f) = g2.matchType { #expect(f == 0.5) } else { Issue.record("match type changed") }
+    }
+
+    @Test func removingTheKeeperPromotesShallowestSurvivor() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
+                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                        copy("/b/x", size: 100, depth: 1, keeper: false),
+                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 200)
+        let g2 = g.removingRedundantCopy(atPath: "/a/x")!   // not expected from Compare, but must stay honest
+        #expect(g2.keeper.id == "/b/x")                     // shallowest survivor promoted
+        #expect(g2.reclaimableBytes == 100)
+    }
+
+    @Test func removingUnknownPathIsANoOp() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: true,
+                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                        copy("/b/x", size: 100, depth: 1, keeper: false)],
+                               reclaimableBytes: 100)
+        #expect(g.removingRedundantCopy(atPath: "/nope")! == g)
+    }
 }

@@ -424,6 +424,19 @@ extension FileSyncManager {
         duplicateGroups.removeAll { $0.id == group.id }
     }
 
+    /// Drops a single resolved copy — one trashed out-of-band, e.g. from the Compare duplicate
+    /// review — from its group without a rescan: removes the copy and recomputes the group's
+    /// figures, or removes the whole group when only the keeper is left. Matched by absolute path;
+    /// a no-op if the path isn't in any current group.
+    public func removeResolvedDuplicateCopy(atPath path: String) {
+        guard let idx = duplicateGroups.firstIndex(where: { $0.copies.contains { $0.id == path } }) else { return }
+        if let updated = duplicateGroups[idx].removingRedundantCopy(atPath: path) {
+            duplicateGroups[idx] = updated
+        } else {
+            duplicateGroups.remove(at: idx)
+        }
+    }
+
     /// Chooses a different keeper for a group (identical & versions only). Updates fates/reclaim.
     public func setKeeper(for groupID: DuplicateGroup.ID, to copyID: String) {
         guard let idx = duplicateGroups.firstIndex(where: { $0.id == groupID }) else { return }

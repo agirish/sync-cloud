@@ -939,8 +939,7 @@ struct ContentView: View {
         syncManager.focusOn(relativePath: keepRel, isLeft: true)
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
         duplicateReview = DuplicateCompareContext(
-            groupName: keep.name, keepPath: keepPath, deletePath: deletePath,
-            scanRoot: syncManager.duplicateScanRoot ?? "")
+            groupName: keep.name, keepPath: keepPath, deletePath: deletePath)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedBottomTab = .differences
@@ -1575,8 +1574,8 @@ struct ContentView: View {
     }
 
     /// Trashes the right copy of the reviewed duplicate (undoable), then returns to the Duplicates
-    /// list and re-scans the original root so the now-resolved group drops out. A full re-scan is
-    /// the honest prototype choice — an incremental in-place group update is a follow-up.
+    /// list and drops just that copy from its group in place — the group's figures update, or the
+    /// group disappears when only the keeper is left, without re-walking the whole tree.
     func trashRightCopy(_ review: DuplicateCompareContext) {
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Move the right copy of “\(review.groupName)” to the Trash?",
@@ -1590,20 +1589,15 @@ struct ContentView: View {
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
             selectedBottomTab = .tidy
             selectedTidyLens = .duplicates
-            if !review.scanRoot.isEmpty {
-                syncManager.startFindDuplicates(root: URL(fileURLWithPath: review.scanRoot),
-                                                options: DuplicateFinderOptions.fromDefaults())
-            }
+            syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
         }
     }
 }
 
 /// A live "compare two duplicate copies" review handed off from Tidy to the Compare tab. Holds the
-/// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right —
-/// plus the duplicate scan root to re-scan after the right copy is trashed.
+/// two absolute (tilde-expanded) copy paths — keeper on the left, delete candidate on the right.
 struct DuplicateCompareContext: Equatable {
     let groupName: String
     let keepPath: String
     let deletePath: String
-    let scanRoot: String
 }
