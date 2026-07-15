@@ -160,9 +160,11 @@ public struct LogViewer: View {
     private func loadHistory() {
         guard !isLoadingHistory, loadedHistory == nil else { return }
         isLoadingHistory = true
-        // Older than the session's start; distantFuture (no session entries yet) means the whole file
-        // is history.
-        let boundary = logger.entries.first?.timestamp ?? .distantFuture
+        // Everything on disk older than this app session's start is prior-session history. Use the
+        // fixed session-start timestamp, NOT `entries.first` — the memory cache is trimmed to the
+        // newest N, so after a busy session `entries.first` drifts into the current session and
+        // would pull current-session lines (and the ms-truncated launch breadcrumb) into "history".
+        let boundary = logger.sessionStart
         let fileURL = logger.logFileURL
         Task {
             let history = await Task.detached(priority: .userInitiated) {

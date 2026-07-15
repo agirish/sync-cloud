@@ -153,6 +153,10 @@ public class SettingsManager: ObservableObject {
     public func resetAllSettings() {
         Logger.shared.info("User reset all settings to defaults")
         userDefaults.removePersistentDomain(forName: overridesDomainName ?? Self.appSuiteName)
+        // Re-seed the LIVE log level from the (now-cleared) persisted value, exactly as launch does.
+        // removePersistentDomain drops the persisted `logMinimumLevel`, but the running Logger keeps
+        // whatever the user had set, so a raised threshold would keep hiding entries until relaunch.
+        Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
         ignoreGoogleDriveNewerDateOnly = false
         dateToleranceSeconds = 1
         autoVerifySameSizeDuringScan = false

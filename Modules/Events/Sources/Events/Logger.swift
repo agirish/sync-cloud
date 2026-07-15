@@ -150,6 +150,14 @@ public class Logger: ObservableObject {
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
 
+    /// When this Logger (i.e. this app session) started, captured at construction. The Activity
+    /// Log's "Show older history" divides entries at this boundary. It must come from a FIXED
+    /// value, not `entries.first` — the memory cache is trimmed to the newest N, so after a busy
+    /// session `entries.first` is no longer the session's start and current-session lines would be
+    /// mislabeled under "Earlier sessions" (and the ms-truncated launch breadcrumb could re-appear
+    /// as a duplicate).
+    public let sessionStart = Date()
+
     /// The absolute disk URL mapping to the destination log file. Public so Settings can
     /// reveal it in Finder and show its size next to the Clear Log control.
     public let logFileURL: URL
@@ -429,8 +437,12 @@ final class LogFileWriter: @unchecked Sendable {
         if !FileManager.default.fileExists(atPath: url.path) {
             FileManager.default.createFile(atPath: url.path, contents: nil, attributes: nil)
         }
-        handle = try? FileHandle(forWritingTo: url)
-        _ = try? handle?.seekToEnd()
+        // Open O_APPEND so the kernel positions every write at the true end of file atomically.
+        // Without it, append()'s seek-to-end + write has a window where a second process sharing
+        // ~/sync-cloud.log (the `synccloud` CLI running while the app is open) writes between our
+        // seek and write, and one line silently overwrites the other.
+        let fd = open(url.path, O_WRONLY | O_APPEND)
+        handle = fd >= 0 ? FileHandle(fileDescriptor: fd, closeOnDealloc: true) : nil
         handleFileIdentity = handle == nil ? nil : currentFileIdentity()
     }
 
