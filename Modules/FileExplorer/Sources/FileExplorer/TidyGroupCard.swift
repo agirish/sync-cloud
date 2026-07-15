@@ -131,6 +131,7 @@ struct TidyGroupCard: View {
 
     private func body(for group: DuplicateGroup) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            thumbnailStrip
             ForEach(Array(group.copies.enumerated()), id: \.element.id) { idx, copy in
                 copyRow(copy)
                 if idx < group.copies.count - 1 {
@@ -142,6 +143,54 @@ struct TidyGroupCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 6)
+    }
+
+    // MARK: Thumbnail strip
+
+    /// Keeper-first, capped so a pathological group can't run the row off the card.
+    private var thumbnailCopies: [DuplicateCopy] {
+        let keeper = group.copies.filter { $0.isRecommendedKeeper }
+        let rest = group.copies.filter { !$0.isRecommendedKeeper }
+        return Array((keeper + rest).prefix(Self.maxThumbnails))
+    }
+    private static let maxThumbnails = 6
+
+    /// A row of content previews, one per copy — shown only for file groups, where a QuickLook
+    /// thumbnail confirms the copies really match before trashing. Directory groups (identical
+    /// trees, name-only folders, overlapping folders) skip it: a folder icon adds no confidence,
+    /// and the breadcrumbs + note already carry what they need.
+    @ViewBuilder
+    private var thumbnailStrip: some View {
+        if !group.isDirectory {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(thumbnailCopies) { copy in
+                    DuplicateThumbnailView(path: copy.path, name: group.name, isKeeper: copy.isRecommendedKeeper)
+                }
+                if group.copies.count > Self.maxThumbnails {
+                    overflowTile(group.copies.count - Self.maxThumbnails)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            Divider().overlay(Color.primary.opacity(0.05))
+        }
+    }
+
+    private func overflowTile(_ count: Int) -> some View {
+        VStack(spacing: 5) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+                .frame(width: 54, height: 54 * 1.2)
+                .overlay(
+                    Text("+\(count)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                )
+            Text("more")
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(.tertiary)
+        }
     }
 
     private func copyRow(_ copy: DuplicateCopy) -> some View {
