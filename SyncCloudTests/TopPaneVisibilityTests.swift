@@ -7,15 +7,13 @@ import AppKit
     // MARK: Mode & pane count
 
     @Test func testModePerTab() {
-        // Differences and Details compare two locations; Tidy scans one.
+        // Compare (Differences) compares two locations; Tidy scans one.
         #expect(TopPaneVisibility.mode(for: .differences) == .compare)
-        #expect(TopPaneVisibility.mode(for: .details) == .compare)
         #expect(TopPaneVisibility.mode(for: .tidy) == .singleSource)
     }
 
     @Test func testPaneCountPerTab() {
         #expect(TopPaneVisibility.paneCount(for: .differences) == 2)
-        #expect(TopPaneVisibility.paneCount(for: .details) == 2)
         #expect(TopPaneVisibility.paneCount(for: .tidy) == 1)
     }
 
@@ -25,7 +23,6 @@ import AppKit
         // The single-source rail starts collapsed (workspace fills); comparison panes start shown.
         #expect(TopPaneVisibility.defaultPanesHidden(for: .tidy))
         #expect(!TopPaneVisibility.defaultPanesHidden(for: .differences))
-        #expect(!TopPaneVisibility.defaultPanesHidden(for: .details))
     }
 
     // MARK: Resolution
@@ -33,14 +30,12 @@ import AppKit
     @Test func testResolvesToTabDefaultWhenNoOverride() {
         #expect(TopPaneVisibility.panesHidden(for: .tidy, override: nil))
         #expect(!TopPaneVisibility.panesHidden(for: .differences, override: nil))
-        #expect(!TopPaneVisibility.panesHidden(for: .details, override: nil))
     }
 
     @Test func testOverrideWinsOnEveryTab() {
         // Every tab is freely hideable now — an override flips the default in both directions.
         #expect(!TopPaneVisibility.panesHidden(for: .tidy, override: false))     // keep the rail up
         #expect(TopPaneVisibility.panesHidden(for: .differences, override: true)) // hide compare panes
-        #expect(!TopPaneVisibility.panesHidden(for: .details, override: false))
     }
 
     // MARK: Override encoding (persistence format is stable — stores `hidden`, keyed by tab raw value)

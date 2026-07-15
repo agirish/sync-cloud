@@ -31,7 +31,7 @@ enum TopPaneVisibility {
     /// The layout mode for a tab.
     static func mode(for tab: ContentView.BottomTab) -> Mode {
         switch tab {
-        case .differences, .details: return .compare
+        case .differences: return .compare
         case .tidy: return .singleSource
         }
     }

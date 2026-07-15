@@ -154,13 +154,13 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
     // MARK: BottomTab persistence format
 
     @Test func testBottomTabRawValuesAreAStablePersistenceFormat() {
-        // The selected bottom tab is persisted via @AppStorage("selectedBottomTab") using
-        // these raw values, so a user who was on Details relaunches into Details. Renaming
-        // a case's rawValue (e.g. while relabeling the Picker) would silently drop every
-        // user back to the Differences default — relabel the UI elsewhere instead.
+        // The selected bottom tab is persisted via @AppStorage("selectedBottomTab") using these raw
+        // values, so a user relaunches into the tab they left. Renaming a case's rawValue would
+        // silently drop every user back to the Differences default — the display label (`title`)
+        // is separate for exactly this reason ("Differences" persists, but shows as "Compare").
         #expect(ContentView.BottomTab.differences.rawValue == "Differences")
-        #expect(ContentView.BottomTab.details.rawValue == "Details")
         #expect(ContentView.BottomTab.tidy.rawValue == "Tidy")
+        #expect(ContentView.BottomTab.differences.title == "Compare")
     }
 
     @Test func testBottomTabRestoresFromStoredRawValue() {

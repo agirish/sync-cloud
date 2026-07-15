@@ -14,6 +14,9 @@ public struct DetailsSidebar: View {
     public let leftPath: String
     /// Current root path for the right pane (used when no item is selected).
     public let rightPath: String
+    /// Lays the icon above the metadata (vertical) instead of beside it (horizontal), for the narrow
+    /// Compare Info inspector where a side-by-side icon column would starve the values of width.
+    public let compact: Bool
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -40,10 +43,11 @@ public struct DetailsSidebar: View {
         return formatter
     }()
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
+        self.compact = compact
     }
     
     // Internal struct to hold parsed metadata logic cleanly.
@@ -204,9 +208,14 @@ public struct DetailsSidebar: View {
         // renders the summary instead, so the single-item lookup is skipped entirely.
         let (data, icon): (FileMetadata?, NSImage?) = summary == nil ? cache.data(for: activePath) : (nil, nil)
         let sizeKey = DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil, generation: sizeGeneration)
+        // Compact (narrow inspector): stack the icon above the metadata so values get the full width.
+        // Wide (bottom pane): the icon sits in a column beside the metadata.
+        let layout = compact
+            ? AnyLayout(VStackLayout(alignment: .center, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .top))
         return ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 0) {
-                HStack(alignment: .top) {
+                layout {
                     if let summary {
                         // Stack-of-documents header mirroring the single-item icon column.
                         VStack {

@@ -95,16 +95,23 @@ struct ContentView: View {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
-    /// Represents the available tabs in the integrated bottom workspace. Two are comparison tabs
-    /// (two provider panes); Tidy is the single-source hub whose lenses include the folded-in
-    /// Storage Lens.
+    /// Represents the available top-level tabs. Compare shows the two provider panes; Tidy is the
+    /// single-source hub. (Details is no longer a tab — it's the Info inspector inside Compare.)
     enum BottomTab: String, CaseIterable {
-        /// Displays differential scanning results and sync actions.
+        /// Differential scanning results and sync actions, across the two panes.
         case differences = "Differences"
-        /// Displays rich file metadata (size, dates, permissions).
-        case details = "Details"
-        /// Single-provider hub: Duplicates, Filing, Names, Automations, and the read-only Storage lens.
+        /// Single-provider hub: Duplicates, Organize, Automations, and the read-only Storage lens.
         case tidy = "Tidy"
+
+        /// The label shown in the tab picker. Kept separate from `rawValue` so the display name can
+        /// change without breaking the persisted `selectedBottomTab` id (Differences shows as
+        /// "Compare").
+        var title: String {
+            switch self {
+            case .differences: return "Compare"
+            case .tidy: return "Tidy"
+            }
+        }
     }
     /// Persisted so a user who was on Details stays there across launches. Stored by
     /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
@@ -119,10 +126,10 @@ struct ContentView: View {
     /// showing or hiding the Left/Right panes on Tidy or Storage Lens sticks across launches.
     @AppStorage("topPaneOverridesByTab") private var topPaneOverridesRaw: String = ""
 
-    /// True once the user manually picks the Differences tab via the segmented Picker;
-    /// suppresses the selection-driven auto-switch to Details until they manually pick
-    /// Details again. Per-launch only — deliberately not persisted.
-    @State private var differencesTabPickedManually: Bool = false
+    /// Whether the Compare Info inspector is shown. It replaces the old Details tab: a toggleable
+    /// right-side panel that shows metadata (and both-sides status) for the current selection.
+    /// Persisted so it stays open/closed across launches.
+    @AppStorage("showCompareInspector") private var showInspector: Bool = false
 
     @State private var bannerDismissScheduler = BannerDismissScheduler()
 
@@ -342,12 +349,8 @@ struct ContentView: View {
                 pairKey: IgnoredItemsStore.pairKey(leftProviderId, newId))
             syncManager.resetNavigation()
         }
-        .onChange(of: syncManager.selectedLeftPaths) { _, paths in
-            switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
-        }
-        .onChange(of: syncManager.selectedRightPaths) { _, paths in
-            switchToDetailsTabIfNeeded(whenSelectionChanges: paths)
-        }
+        // The Info inspector reads the selection directly, so a selection change no longer needs to
+        // switch tabs — it just updates the inspector when it's open.
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -459,37 +462,6 @@ struct ContentView: View {
     /// Builds the full path for the right pane. Uses only the right provider's root + right relative path to avoid mixing roots.
     var currentRightPath: String {
         PaneLogic.fullPath(root: settings.path(for: rightProviderId), relativePath: syncManager.rightRelativePath)
-    }
-
-    /// When user selects items in a pane and the bottom pane is on Differences, switch to
-    /// Details tab — unless the user manually picked Differences (see PaneLogic).
-    private func switchToDetailsTabIfNeeded(whenSelectionChanges paths: Set<String>) {
-        // An active review owns the bottom pane: clicking a pane file to eyeball it mid-review
-        // must not yank the review UI away (the session survives, but invisibly).
-        guard !reviewStore.isReviewing else { return }
-        // The Tidy workspace owns the bottom pane like a review: clicking a pane file to eyeball a
-        // duplicate (or read the Storage lens) must not eject you to Details.
-        guard selectedBottomTab != .tidy else { return }
-        guard PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: !paths.isEmpty,
-            bottomPaneVisible: showingBottomPane,
-            currentTabIsDetails: selectedBottomTab == .details,
-            differencesPickedManually: differencesTabPickedManually
-        ) else { return }
-        selectedBottomTab = .details
-    }
-
-    /// Binding used exclusively by the bottom-tab Picker, so every write through it is by
-    /// construction a manual user pick — the programmatic auto-switch above writes
-    /// `selectedBottomTab` directly and never trips this setter.
-    private var manualBottomTabSelection: Binding<BottomTab> {
-        Binding(
-            get: { selectedBottomTab },
-            set: { tab in
-                differencesTabPickedManually = (tab == .differences)
-                selectedBottomTab = tab
-            }
-        )
     }
 
     // MARK: - Pane visibility & content layout
@@ -1020,16 +992,51 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: activeSelectionNodes.count)
     }
 
+    /// The Compare Info inspector — the former Details tab, now a toggleable right-side panel showing
+    /// metadata (and both-sides status) for the current selection. `DetailsSidebar` handles the
+    /// no-selection empty state itself.
+    private var compareInspector: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Info").font(.system(size: 12, weight: .semibold))
+                Spacer(minLength: 0)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
+                } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Hide the inspector")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            Divider()
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true)
+        }
+        .frame(width: 270)
+        .background(.bar)
+    }
+
     @ViewBuilder
     private var mainContentView: some View {
         VStack(spacing: 0) {
             topContentBar
-            verticalSplit
+            HStack(spacing: 0) {
+                verticalSplit
+                if showInspector && selectedBottomTab == .differences {
+                    Divider()
+                    compareInspector
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
+            }
         }
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
         .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
         .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
+        .animation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
             if let progress = syncManager.activeProgress {
                 ZStack {
@@ -1164,6 +1171,19 @@ struct ContentView: View {
                 lensTabs
             }
             Spacer(minLength: 0)
+            if selectedBottomTab == .differences {
+                // Details is the Info inspector now — a Compare-only toggle for the right-side panel.
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
+                } label: {
+                    Label("Info", systemImage: "sidebar.right")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.borderless)
+                .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
+                .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -1174,9 +1194,9 @@ struct ContentView: View {
 
     /// The primary tabs — a boxed segmented control, the parent level of the underline lens tabs.
     private var primaryTabPicker: some View {
-        Picker("", selection: manualBottomTabSelection) {
+        Picker("", selection: $selectedBottomTab) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
-                Text(tab.rawValue).tag(tab)
+                Text(tab.title).tag(tab)
             }
         }
         .pickerStyle(.segmented)
@@ -1250,40 +1270,36 @@ struct ContentView: View {
             // DifferencesView renders its own two cards (toolbar + table); tabs live in the top strip.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) })
         } else {
-            // Details / empty / no-scan: just the content card — the tabs live in the top strip now.
+            // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {
-                    if selectedBottomTab == .differences {
-                        if isScanning {
-                            // While the first scan runs the whole placeholder becomes a busy
-                            // state (the Tidy pattern) — livelier than a spinning button glyph.
-                            VStack(spacing: 14) {
-                                ProgressView()
-                                    .controlSize(.large)
-                                Text("Scanning \(paneNames.left) and \(paneNames.right)…")
-                                    .font(.system(size: 13, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                        } else if syncManager.hasScanned {
-                            EmptyStateView(
-                                icon: "checkmark.seal.fill",
-                                tint: .green,
-                                title: "Everything is in sync",
-                                message: "No differences found between focused directories.",
-                                secondary: .init("Scan again", systemImage: "arrow.clockwise") { forceRefreshAction() }
-                            )
-                        } else {
-                            // Same symbol as the toolbar's Compare button — one glyph for
-                            // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
-                            EmptyStateView(
-                                icon: PaneGlyph.compare,
-                                tint: glassHue.accentColor,
-                                title: "Compare \(paneNames.left) ↔ \(paneNames.right)",
-                                message: "Nothing scanned yet. Scan the two focused folders to see what differs.",
-                                primary: .init("Scan", systemImage: "arrow.clockwise") { forceRefreshAction() }
-                            )
+                    if isScanning {
+                        // While the first scan runs the whole placeholder becomes a busy
+                        // state (the Tidy pattern) — livelier than a spinning button glyph.
+                        VStack(spacing: 14) {
+                            ProgressView()
+                                .controlSize(.large)
+                            Text("Scanning \(paneNames.left) and \(paneNames.right)…")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
                         }
+                    } else if syncManager.hasScanned {
+                        EmptyStateView(
+                            icon: "checkmark.seal.fill",
+                            tint: .green,
+                            title: "Everything is in sync",
+                            message: "No differences found between focused directories.",
+                            secondary: .init("Scan again", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                        )
                     } else {
-                        DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath)
+                        // Same symbol as the toolbar's Compare button — one glyph for
+                        // "compare these two panes"; ⇄ stays reserved for swap (UX 1.2).
+                        EmptyStateView(
+                            icon: PaneGlyph.compare,
+                            tint: glassHue.accentColor,
+                            title: "Compare \(paneNames.left) ↔ \(paneNames.right)",
+                            message: "Nothing scanned yet. Scan the two focused folders to see what differs.",
+                            primary: .init("Scan", systemImage: "arrow.clockwise") { forceRefreshAction() }
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
