@@ -1326,8 +1326,12 @@ struct ContentView: View {
             .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Pin the bar to a fixed height so switching tabs never nudges the chrome. Without this the
+        // height tracks the tallest child: Compare's segmented picker (~22pt) vs. Tidy's taller
+        // padded lens tabs (~27pt), which made the bar grow a few points on Tidy. 44pt clears the
+        // tallest content with room to spare (content stays vertically centered, nothing clips), so
+        // the bar reads at one constant height across every tab.
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
     }
