@@ -44,11 +44,12 @@ extension ContentView {
     // MARK: - Contextual pane action bar
 
     /// Whether the selection-driven action bar could show on this pane: this is the compare layout
-    /// and this is the active (selected) side. The caller pairs this with a non-empty resolved
-    /// selection (`barSelectionNodes`) so the bar and its "N selected" count agree, without this
-    /// re-walking the ~40k-node tree — `activePane == side` already implies that side's selection
-    /// set is non-empty. Only the comparison panes have an "other pane" to copy/move to, so it
-    /// never shows on the single-source Tidy rail.
+    /// and this is the active (selected) side. This is only a coarse gate — the caller still
+    /// requires a non-empty *resolved* selection (`barSelectionNodes`) before showing the bar, so a
+    /// stale selected path that no longer resolves to a node keeps the bar hidden (matching the old
+    /// `!activeSelectionNodes.isEmpty` check). Keeping the node walk out of here means the bar's
+    /// visibility and its "N selected" count come from a single resolve, not two. Only the
+    /// comparison panes have an "other pane" to copy/move to, so it never shows on the Tidy rail.
     func paneActionBarSideActive(isLeft: Bool) -> Bool {
         guard layoutMode == .compare else { return false }
         let side: PaneLogic.ActivePane = isLeft ? .left : .right

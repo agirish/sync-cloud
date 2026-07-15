@@ -62,33 +62,40 @@ extension FileNode: Transferable {
 extension Array where Element == FileNode {
     /// Recursively searches for all nodes matching the provided set of absolute path IDs.
     /// - Parameter paths: A set of absolute path IDs.
-    /// - Returns: An array of matching `FileNode` objects, in pre-order.
+    /// - Returns: The matching `FileNode`s in pre-order.
     ///
-    /// Stops as soon as every requested path has been found. The result is identical to a full
-    /// walk whenever the paths all exist in the tree (the common case — a selection is a subset
-    /// of the visible nodes), so this is a pure speed-up, not a behavior change. It matters a
-    /// lot: this runs per render against panes of ~40k nodes, and a full walk was ~100ms each —
-    /// with a 1-item selection the early exit returns after the first match instead of visiting
-    /// every node. A stale path not present in the tree still degrades to a full walk (found <
-    /// requested, so the exit never triggers), exactly as before.
+    /// Stops walking once *every distinct requested path* has been matched at least once — a big
+    /// win because this runs per render against panes of ~40k nodes (a full walk was ~100ms each
+    /// in debug), and a 1-item selection now returns right after its match instead of visiting
+    /// every node. Guarantees: no requested path present in the tree is ever dropped, and results
+    /// stay pre-ordered. The exit is keyed on distinct paths (not `found.count`), so a tree with
+    /// duplicate ids can't satisfy it early and skip a still-unmatched path. The only difference
+    /// from an exhaustive walk is that a *trailing duplicate* of an already-matched id — which a
+    /// real filesystem tree never produces (paths are unique) — may be omitted; harmless for the
+    /// selection consumers, which act per path. A stale path absent from the tree keeps the exit
+    /// from ever triggering, so it degrades to a full walk exactly as before.
     public func findNodes(at paths: Set<String>) -> [FileNode] {
         guard !paths.isEmpty else { return [] }
         var found: [FileNode] = []
         found.reserveCapacity(paths.count)
-        _ = collectNodes(matching: paths, into: &found)
+        var unmatched = paths
+        _ = collectNodes(matching: paths, unmatched: &unmatched, into: &found)
         return found
     }
 
-    /// Appends matching nodes in pre-order; returns `true` once `found` holds one node per
-    /// requested path so callers can unwind the recursion immediately.
-    private func collectNodes(matching paths: Set<String>, into found: inout [FileNode]) -> Bool {
+    /// Appends matching nodes in pre-order; `unmatched` shrinks as distinct ids are seen, and the
+    /// walk unwinds as soon as it is empty (every requested path has a match). Nodes are still
+    /// appended whenever their id is requested, so duplicates encountered before the walk
+    /// completes are preserved.
+    private func collectNodes(matching paths: Set<String>, unmatched: inout Set<String>, into found: inout [FileNode]) -> Bool {
         for node in self {
             if paths.contains(node.id) {
                 found.append(node)
-                if found.count == paths.count { return true }
+                unmatched.remove(node.id)
+                if unmatched.isEmpty { return true }
             }
             if let children = node.children,
-               children.collectNodes(matching: paths, into: &found) {
+               children.collectNodes(matching: paths, unmatched: &unmatched, into: &found) {
                 return true
             }
         }

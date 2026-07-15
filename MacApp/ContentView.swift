@@ -1167,15 +1167,18 @@ struct ContentView: View {
                         syncManager.selectedRightPaths = reconciled.right
                     }
                 }
-                // A deselect (empty write) enforces nothing — leave the other pane untouched.
+                // A deselect (empty write) enforces nothing — leave the other pane untouched
+                // (this is what keeps the right-click "Copy from other pane" menu working).
                 guard !newSelection.isEmpty else { return }
-                // Clear the other pane a tick later, but only if this pane is still the active
-                // one: a rapid switch back to the other pane must not clobber that newer pick.
+                // Enforce the one-pane-selected invariant by clearing the other pane — but a tick
+                // later, so this pane's selection commits first (a synchronous sibling write here
+                // reloaded that List mid-commit and dropped the click). The clear is idempotent —
+                // it only ever writes the empty set (`reconciled` clears the other side for any
+                // non-empty pick) — so it needs no "is this still the active pane" guard: whatever
+                // the user's latest pick is, the non-clicked pane should end up empty regardless.
+                // Distinct click events land in separate runloop turns with this block draining
+                // between them, so it can't clobber a newer pick from a later click.
                 DispatchQueue.main.async {
-                    let thisStillActive = isLeft
-                        ? syncManager.selectedLeftPaths == reconciled.left
-                        : syncManager.selectedRightPaths == reconciled.right
-                    guard thisStillActive else { return }
                     if isLeft {
                         if syncManager.selectedRightPaths != reconciled.right {
                             syncManager.selectedRightPaths = reconciled.right

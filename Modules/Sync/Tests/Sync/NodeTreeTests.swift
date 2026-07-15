@@ -88,6 +88,32 @@ import Foundation
         #expect(found.map(\.id) == ["/a", "/d.txt"])
     }
 
+    /// Once every requested path is matched the walk stops, so a trailing node whose id was
+    /// already satisfied is not appended — this is the one observable effect of the early exit.
+    @Test func testFindNodesStopsAfterAllRequestedPathsMatched() {
+        // Two nodes share id "/x"; asking only for "/x" returns the first and skips the trailing dup.
+        let tree = [
+            FileNode(id: "/x", name: "x", isDirectory: false),
+            FileNode(id: "/y", name: "y", isDirectory: false),
+            FileNode(id: "/x", name: "x", isDirectory: false),
+        ]
+        #expect(tree.findNodes(at: ["/x"]).map(\.id) == ["/x"])
+    }
+
+    /// The exit is keyed on distinct requested paths, not the match count, so a duplicate id can't
+    /// satisfy it early and skip a still-unmatched path. The dup "/a" sits before "/b"; a
+    /// count-based exit would stop at two "/a" matches and drop "/b" — this pins that it does not.
+    @Test func testFindNodesDuplicateIdDoesNotDropAnotherRequestedPath() {
+        let tree = [
+            FileNode(id: "/a", name: "a", isDirectory: false),
+            FileNode(id: "/a", name: "a", isDirectory: false),
+            FileNode(id: "/b", name: "b", isDirectory: false),
+        ]
+        let found = tree.findNodes(at: ["/a", "/b"])
+        // Both "/a" occurrences (they precede the last-needed match) and "/b" are all present.
+        #expect(found.map(\.id) == ["/a", "/a", "/b"])
+    }
+
     // MARK: pruneNestedNodes
 
     @Test func testPruneNestedNodesKeepsOnlyHighestParents() {
