@@ -54,7 +54,6 @@ struct ContentView: View {
 
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
-    @State var showingBottomPane: Bool = true
     @State private var isBootstrappingProviders: Bool = true
     /// Guided-review state, owned here so it outlives DifferencesView — that view unmounts on
     /// a Details-tab peek and whenever the live differences list goes empty, and the session
@@ -481,17 +480,15 @@ struct ContentView: View {
     // MARK: - Pane visibility & content layout
 
     /// The resolved arrangement of the panes and workspace beneath the persistent tab strip.
-    /// Comparison tabs stack two panes over the workspace (both regions independently hideable);
-    /// the single-source Tidy tab docks one collapsible rail beside a workspace that's always shown.
+    /// Comparison tabs stack two panes over the workspace; the single-source Tidy tab docks one
+    /// collapsible rail beside a workspace that's always shown.
     enum ContentLayout {
         /// Compare: panes over workspace.
         case compareSplit
-        /// Compare: only the two panes (workspace hidden).
-        case comparePanesOnly
-        /// Compare: only the workspace (panes hidden).
+        /// Compare: only the workspace (the panes hidden). No UI triggers this today — the compare
+        /// pane/workspace toggles were removed (you resize with the divider) — but it's kept as the
+        /// honest counterpart to the single-source collapse, should compare-pane hiding return.
         case compareWorkspaceOnly
-        /// Compare: both regions hidden — an honest empty state under the strip.
-        case compareEmpty
         /// Single source: the source rail expanded beside the workspace.
         case singleExpanded
         /// Single source: the source rail collapsed to a spine beside the workspace.
@@ -515,13 +512,10 @@ struct ContentView: View {
     var contentLayout: ContentLayout {
         switch layoutMode {
         case .compare:
-            let panes = !panesHiddenForCurrentTab
-            switch (panes, showingBottomPane) {
-            case (true, true): return .compareSplit
-            case (true, false): return .comparePanesOnly
-            case (false, true): return .compareWorkspaceOnly
-            case (false, false): return .compareEmpty
-            }
+            // The comparison panes and the workspace are both always shown now (their toggles were
+            // removed — you resize with the divider instead), so compare is `.compareSplit` unless a
+            // stored override hides the panes, which no current control writes.
+            return panesHiddenForCurrentTab ? .compareWorkspaceOnly : .compareSplit
         case .singleSource:
             // The single-source workspace is always shown; only the rail collapses.
             return panesHiddenForCurrentTab ? .singleCollapsed : .singleExpanded
@@ -652,11 +646,11 @@ struct ContentView: View {
     }
 
     /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for the
-    /// path (not Finder's Get Info). Opens the inspector and switches to Compare, where it lives.
+    /// path (not Finder's Get Info). Opens the inspector in place on the current tab — the inspector
+    /// is available on both Compare and Tidy, so this no longer yanks the Tidy rail over to Compare.
     func showInfo(for path: String) {
         infoPath = path
-        showInspector = true
-        selectedBottomTab = .differences
+        withAnimation(.easeInOut(duration: 0.15)) { showInspector = true }
     }
 
     /// Reopens each pane at the folder it showed when the app last quit (General setting,
@@ -859,18 +853,23 @@ struct ContentView: View {
 
     // MARK: Tidy — Find Duplicates
 
-    /// The provider name for the pane a Tidy scan targets (the focused pane, else the left pane).
-    var tidyProviderName: String {
-        switch activePane {
-        case .right?: return paneNames.right
-        default: return paneNames.left
-        }
+    /// Whether a Tidy scan/inspect should target the right pane. Always false in single-source Tidy
+    /// (the rail is the left pane), so a stale right-pane selection can't silently aim Tidy at the
+    /// hidden provider. In compare mode the focused pane wins. See `PaneLogic.tidyTargetsRightPane`.
+    var tidyTargetIsRight: Bool {
+        PaneLogic.tidyTargetsRightPane(isCompare: layoutMode == .compare, activePane: activePane)
     }
 
-    /// The absolute (tilde-expanded) folder a Tidy scan walks: the focused pane's current
-    /// directory, falling back to the left pane.
+    /// The provider name for the pane a Tidy scan targets: the single-source rail is always the left
+    /// pane; in compare mode it follows the focused pane.
+    var tidyProviderName: String {
+        tidyTargetIsRight ? paneNames.right : paneNames.left
+    }
+
+    /// The absolute (tilde-expanded) folder a Tidy scan walks: the targeted pane's current directory
+    /// (always the left rail in single-source; the focused pane in compare).
     var tidyScanRootExpanded: String {
-        ((activePanePath ?? currentLeftPath) as NSString).expandingTildeInPath
+        ((tidyTargetIsRight ? currentRightPath : currentLeftPath) as NSString).expandingTildeInPath
     }
 
     /// Switches to the Tidy tab and kicks off a duplicate scan of the focused provider.
@@ -880,7 +879,6 @@ struct ContentView: View {
         Logger.shared.info("User requested Find Duplicates in \(root)")
         selectedBottomTab = .tidy
         selectedTidyLens = .duplicates
-        showingBottomPane = true
         let options = DuplicateFinderOptions.fromDefaults()
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
@@ -893,21 +891,21 @@ struct ContentView: View {
         Logger.shared.info("User requested Storage Lens for \(root)")
         selectedBottomTab = .tidy
         selectedTidyLens = .storage
-        showingBottomPane = true
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
 
-    /// The provider root of the pane a Tidy/Filing action targets (the focused pane, else left).
+    /// The provider root of the pane a Tidy/Filing action targets (the left rail in single-source;
+    /// the focused pane in compare).
     var tidyProviderRootExpanded: String {
-        let id = (activePane == .right) ? rightProviderId : leftProviderId
+        let id = tidyTargetIsRight ? rightProviderId : leftProviderId
         return (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
-    /// The provider ruleset a Name Normalizer scan targets — the focused pane's provider (else left).
-    /// Falls back to OneDrive, the strictest ruleset, when the type can't be resolved, so nothing
-    /// risky slips past.
+    /// The provider ruleset a Name Normalizer scan targets — the targeted pane's provider (the left
+    /// rail in single-source; the focused pane in compare). Falls back to OneDrive, the strictest
+    /// ruleset, when the type can't be resolved, so nothing risky slips past.
     var tidyProviderType: CloudProvider.ProviderType {
-        let id = (activePane == .right) ? rightProviderId : leftProviderId
+        let id = tidyTargetIsRight ? rightProviderId : leftProviderId
         return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
     }
 
@@ -941,7 +939,6 @@ struct ContentView: View {
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
         selectedBottomTab = .tidy
         selectedTidyLens = .automations
-        showingBottomPane = true
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),
                                           providerName: tidyProviderName, only: only)
@@ -957,11 +954,18 @@ struct ContentView: View {
         let inbox = (UserDefaults.standard.string(forKey: GeneralSettings.filingInboxRelativePathKey) ?? "TODO")
             .trimmingCharacters(in: .whitespaces)
         let atRoot = (focused as NSString).standardizingPath == (root as NSString).standardizingPath
-        let folder = (atRoot && !inbox.isEmpty) ? (root as NSString).appendingPathComponent(inbox) : focused
+        // Default to the inbox only when we're at the provider root AND the inbox folder actually
+        // exists; otherwise scan the focused folder. This mirrors `tidyRailRelativePath`'s existence
+        // check, so the rail and the scan never disagree about a missing inbox (before, the rail fell
+        // back to the root but the scan blindly targeted a non-existent root/TODO).
+        let inboxPath = (root as NSString).appendingPathComponent(inbox)
+        var isDir: ObjCBool = false
+        let inboxExists = !inbox.isEmpty
+            && FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
+        let folder = (atRoot && inboxExists) ? inboxPath : focused
         Logger.shared.info("User requested Filing suggestions for \(folder)")
         selectedBottomTab = .tidy
         selectedTidyLens = .filing
-        showingBottomPane = true
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root))
     }
@@ -1056,10 +1060,10 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.15), value: barNodes.count)
     }
 
-    /// The Compare Info inspector — the former Details tab, now a toggleable right-side panel showing
-    /// metadata (and both-sides status) for the current selection. `DetailsSidebar` handles the
-    /// no-selection empty state itself.
-    private var compareInspector: some View {
+    /// The Info inspector — the former Details tab, now a toggleable right-side panel showing metadata
+    /// for the current selection. Available on both Compare (both-sides status) and the single-source
+    /// Tidy rail. `DetailsSidebar` handles the no-selection empty state itself.
+    private var infoInspector: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle")
@@ -1077,7 +1081,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath)
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource)
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
         .background(.bar)
@@ -1122,9 +1126,9 @@ struct ContentView: View {
             topContentBar
             HStack(spacing: 0) {
                 verticalSplit
-                if showInspector && selectedBottomTab == .differences {
+                if showInspector {
                     inspectorResizeHandle
-                    compareInspector
+                    infoInspector
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -1306,21 +1310,20 @@ struct ContentView: View {
                 lensTabs
             }
             Spacer(minLength: 0)
-            if selectedBottomTab == .differences {
-                // Details is the Info inspector now — a Compare-only toggle for the right-side panel.
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
-                } label: {
-                    Label("Info", systemImage: "sidebar.right")
-                        .font(.system(size: 12, weight: .medium))
-                        // Accent-blue when the inspector is open; a normal enabled label (`.primary`)
-                        // when closed. It used to render `.secondary`, which read as disabled/greyed.
-                        .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
-                }
-                .buttonStyle(.borderless)
-                .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
-                .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+            // Info inspector toggle — available on every tab now (Compare shows both-sides status;
+            // Tidy shows the single source), so opening Info never yanks the Tidy rail over to Compare.
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
+            } label: {
+                Label("Info", systemImage: "sidebar.right")
+                    .font(.system(size: 12, weight: .medium))
+                    // Accent-blue when the inspector is open; a normal enabled label (`.primary`)
+                    // when closed. It used to render `.secondary`, which read as disabled/greyed.
+                    .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
             }
+            .buttonStyle(.borderless)
+            .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
+            .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

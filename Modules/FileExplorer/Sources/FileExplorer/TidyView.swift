@@ -890,7 +890,14 @@ public struct TidyView: View {
             onFileHere: { dest in
                 filedThisSession = true
                 Task {
-                    if await syncManager.applyFilingSuggestion(suggestion, to: dest) {
+                    guard await syncManager.applyFilingSuggestion(suggestion, to: dest) else { return }
+                    // Offer a rule only when the file actually MOVED. Filing into the folder the file
+                    // already lives in is a no-op that still reports success (see `performFiling`'s
+                    // `.noMoveNeeded`), and a rule keyed on where the file already sits is noise.
+                    // Mirror that no-move check with the same URL-standardized folder comparison.
+                    let destFolder = URL(fileURLWithPath: dest.path).standardizedFileURL.path
+                    let srcFolder = URL(fileURLWithPath: suggestion.filePath).deletingLastPathComponent().standardizedFileURL.path
+                    if destFolder != srcFolder {
                         offerRule(fileName: suggestion.fileName, destinationPath: dest.path)
                     }
                 }

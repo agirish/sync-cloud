@@ -31,22 +31,28 @@ extension FileSyncManager {
         automationRules = persistedAutomationRules
     }
 
-    /// Adds a new rule (or replaces one with the same id) and persists.
+    /// Adds a new rule (or replaces one with the same id) and persists. Logged — a rule is durable,
+    /// user-auditable state (it silently files matching files on every run), so its creation/edit
+    /// belongs in the activity log alongside the filing moves it will drive.
     public func upsertAutomationRule(_ rule: AutomationRule) {
         ensureAutomationRulesLoaded()
+        let isNew = !automationRules.contains(where: { $0.id == rule.id })
         if let idx = automationRules.firstIndex(where: { $0.id == rule.id }) {
             automationRules[idx] = rule
         } else {
             automationRules.append(rule)
         }
         persistedAutomationRules = automationRules
+        Logger.shared.info("Automation rule \(isNew ? "created" : "updated"): “\(rule.name)” → \(rule.destinationTemplate)")
     }
 
     /// Removes a rule and persists.
     public func removeAutomationRule(id: UUID) {
         ensureAutomationRulesLoaded()
+        let removed = automationRules.first(where: { $0.id == id })
         automationRules.removeAll { $0.id == id }
         persistedAutomationRules = automationRules
+        if let removed { Logger.shared.info("Automation rule deleted: “\(removed.name)”") }
     }
 
     /// Enables/disables a rule (kept, not deleted) and persists.
@@ -55,6 +61,7 @@ extension FileSyncManager {
         guard let idx = automationRules.firstIndex(where: { $0.id == id }) else { return }
         automationRules[idx].enabled = enabled
         persistedAutomationRules = automationRules
+        Logger.shared.info("Automation rule \(enabled ? "enabled" : "disabled"): “\(automationRules[idx].name)”")
     }
 
     // MARK: Dry run

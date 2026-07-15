@@ -20,6 +20,10 @@ public struct DetailsSidebar: View {
     /// An explicit path to inspect, overriding the pane selection — set by "Get Info" on a
     /// differences-table row, whose file has no pane selection to derive from. nil = follow selection.
     public let overridePath: String?
+    /// True when the inspector is showing the single-source Tidy rail (which is the left pane). The
+    /// right pane is hidden there, so its (possibly stale) selection from a prior Compare session must
+    /// not drive the inspector — otherwise the panel would describe a file in the wrong provider.
+    public let singleSource: Bool
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -46,12 +50,13 @@ public struct DetailsSidebar: View {
         return formatter
     }()
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
         self.compact = compact
         self.overridePath = overridePath
+        self.singleSource = singleSource
     }
     
     // Internal struct to hold parsed metadata logic cleanly.
@@ -66,6 +71,12 @@ public struct DetailsSidebar: View {
         let isDirectory: Bool
     }
     
+    /// The right pane's selection, treated as empty in single-source mode: the right pane is hidden
+    /// on the Tidy rail, so its lingering selection must not leak into what the inspector shows.
+    private var rightSelectionPaths: Set<String> {
+        singleSource ? [] : syncManager.selectedRightPaths
+    }
+
     /// The path to display metadata for: first selected path in either pane, or the focused folder path.
     internal var activePath: String {
         // A "Get Info" target wins over the pane selection (a differences-table row has no pane
@@ -75,7 +86,7 @@ public struct DetailsSidebar: View {
         // first selected path (left pane first), matching `PaneLogic.primarySelectionPath`.
         if let leftSelection = syncManager.selectedLeftPaths.min() {
             return leftSelection
-        } else if let rightSelection = syncManager.selectedRightPaths.min() {
+        } else if let rightSelection = rightSelectionPaths.min() {
             return rightSelection
         }
         
@@ -87,7 +98,7 @@ public struct DetailsSidebar: View {
     /// folder rather than a user-chosen item. Drives the "— focused folder" caption so the
     /// metadata card doesn't read as a selection the user made.
     internal var isShowingFocusedFolderFallback: Bool {
-        syncManager.selectedLeftPaths.isEmpty && syncManager.selectedRightPaths.isEmpty
+        syncManager.selectedLeftPaths.isEmpty && rightSelectionPaths.isEmpty
     }
 
     /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
@@ -97,7 +108,7 @@ public struct DetailsSidebar: View {
         if !syncManager.selectedLeftPaths.isEmpty {
             return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedLeftPaths, in: syncManager.leftTree)
         }
-        return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedRightPaths, in: syncManager.rightTree)
+        return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths, in: syncManager.rightTree)
     }
 
     /// `.task(id:)` key for the directory-size walk. Includes the multi-selection flag so the

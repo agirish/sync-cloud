@@ -34,6 +34,32 @@ import Foundation
     }
     
     @MainActor
+    @Test func testSingleSourceInspectorIgnoresTheHiddenRightPane() async throws {
+        // On the Tidy rail the right pane is hidden, so a selection lingering there (from a prior
+        // Compare session) must not drive the inspector — otherwise it would describe a file in the
+        // wrong provider. With `singleSource`, a right-only selection is ignored and the panel falls
+        // back to the left rail's focused folder.
+        let manager = FileSyncManager()
+        let railFolder = "/rail/folder"
+        let sidebar = DetailsSidebar(syncManager: manager, leftPath: railFolder, rightPath: "/hidden/right",
+                                     singleSource: true)
+
+        manager.selectedRightPaths = ["/hidden/right/other.txt"]
+        #expect(sidebar.activePath == railFolder)
+        #expect(sidebar.isShowingFocusedFolderFallback)
+
+        // A real rail (left) selection still shows through.
+        manager.selectedLeftPaths = ["/rail/folder/file.txt"]
+        #expect(sidebar.activePath == "/rail/folder/file.txt")
+
+        // The same view WITHOUT singleSource would follow the right selection — the default (Compare)
+        // behavior is unchanged.
+        let compare = DetailsSidebar(syncManager: manager, leftPath: railFolder, rightPath: "/hidden/right")
+        manager.selectedLeftPaths = []
+        #expect(compare.activePath == "/hidden/right/other.txt")
+    }
+
+    @MainActor
     @Test func testDetailsSidebarFallbackToDestIfSourceEmpty() async throws {
         let manager = FileSyncManager()
         // If source path is empty string for some reason (not likely in normal app use but testable)

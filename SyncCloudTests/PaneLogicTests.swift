@@ -139,59 +139,23 @@ import Sync
         #expect(PaneLogic.primarySelectionPath(leftSelection: [], rightSelection: []) == nil)
     }
 
-    // MARK: shouldAutoSwitchToDetails
+    // MARK: tidyTargetsRightPane
 
-    @Test func testAutoSwitchFiresOnSelectionWhenTabWasNotManuallyChosen() {
-        // The default flow: bottom pane on Differences (automatically), user selects a file.
-        #expect(PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: true,
-            bottomPaneVisible: true,
-            currentTabIsDetails: false,
-            differencesPickedManually: false))
+    @Test func testTidySingleSourceAlwaysTargetsLeftEvenWithStaleRightSelection() {
+        // The Tidy rail IS the left pane, so single-source mode must never target the right pane —
+        // even when a selection lingers in the hidden right pane from a prior Compare session (which
+        // would otherwise make `activePane` resolve to `.right` and aim the scan at the wrong provider).
+        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: .right))
+        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: .left))
+        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: false, activePane: nil))
     }
 
-    @Test func testAutoSwitchIsSuppressedAfterManualDifferencesPick() {
-        // Once the user manually picked Differences, selection changes must not steal the tab.
-        #expect(!PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: true,
-            bottomPaneVisible: true,
-            currentTabIsDetails: false,
-            differencesPickedManually: true))
-    }
-
-    @Test func testAutoSwitchReArmsAfterManualDetailsPick() {
-        // Manually picking Details clears the manual-Differences flag (the Picker setter
-        // only raises it for .differences), so the next selection auto-switches again.
-        let flagAfterManualDetailsPick = false
-        #expect(PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: true,
-            bottomPaneVisible: true,
-            currentTabIsDetails: false,
-            differencesPickedManually: flagAfterManualDetailsPick))
-    }
-
-    @Test func testAutoSwitchNeverFiresWhenBottomPaneHidden() {
-        #expect(!PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: true,
-            bottomPaneVisible: false,
-            currentTabIsDetails: false,
-            differencesPickedManually: false))
-    }
-
-    @Test func testAutoSwitchNeverFiresWhenSelectionIsEmpty() {
-        #expect(!PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: false,
-            bottomPaneVisible: true,
-            currentTabIsDetails: false,
-            differencesPickedManually: false))
-    }
-
-    @Test func testAutoSwitchIsANoOpWhenAlreadyOnDetails() {
-        #expect(!PaneLogic.shouldAutoSwitchToDetails(
-            hasSelection: true,
-            bottomPaneVisible: true,
-            currentTabIsDetails: true,
-            differencesPickedManually: false))
+    @Test func testTidyCompareFollowsTheFocusedPane() {
+        // In compare mode a Tidy scan launched from a menu targets the pane the user is working in.
+        #expect(PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: .right))
+        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: .left))
+        // No selection → left is the natural default (the caller falls back to the left pane).
+        #expect(!PaneLogic.tidyTargetsRightPane(isCompare: true, activePane: nil))
     }
 
     // MARK: fullPath

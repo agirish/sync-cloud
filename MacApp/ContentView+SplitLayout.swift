@@ -115,14 +115,6 @@ extension ContentView {
                 // Comparison tab with its panes hidden: the workspace fills the content area.
                 bottomPaneView
                     .frame(width: geo.size.width, height: totalHeight)
-            case .comparePanesOnly:
-                panesSplit
-                    .panesRegionFrame(surfaceStyle)
-            case .compareEmpty:
-                // Both regions hidden — the persistent tab strip keeps the window from being truly
-                // empty, so this is an honest, recoverable placeholder rather than an impossible state.
-                bothHiddenPlaceholder
-                    .frame(width: geo.size.width, height: totalHeight)
             case .compareSplit:
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
@@ -220,25 +212,6 @@ extension ContentView {
         .overlay(alignment: .trailing) { Divider() }
         .help("Show the \(name) pane to browse or re-scope")
         .accessibilityLabel("Show the \(name) source pane")
-    }
-
-    /// The both-regions-hidden placeholder (compare tabs only): a recoverable empty state under the
-    /// always-present tab strip.
-    @ViewBuilder
-    var bothHiddenPlaceholder: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "rectangle.dashed")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("Nothing shown")
-                .font(.system(size: 15, weight: .semibold))
-            Text("Turn the panes or the workspace back on from the toolbar to see content.")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(40)
     }
 
     /// Invisible drag handle on the rail/workspace boundary — mirrors `paneResizeHandle` but writes

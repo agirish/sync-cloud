@@ -76,18 +76,14 @@ enum PaneLogic {
         leftSelection.min() ?? rightSelection.min()
     }
 
-    /// Whether a pane selection change should switch the bottom pane to the Details tab.
-    /// A manual Differences pick is sticky: once the user has chosen Differences via the
-    /// Picker, selection changes never steal the tab (they may be clicking tree files while
-    /// working through the differences list). Manually picking Details re-arms the
-    /// auto-switch — the caller clears `differencesPickedManually` in the Picker's setter.
-    static func shouldAutoSwitchToDetails(
-        hasSelection: Bool,
-        bottomPaneVisible: Bool,
-        currentTabIsDetails: Bool,
-        differencesPickedManually: Bool
-    ) -> Bool {
-        hasSelection && bottomPaneVisible && !currentTabIsDetails && !differencesPickedManually
+    /// Which pane a single-source Tidy scan/inspect should target. The Tidy rail is always the LEFT
+    /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in
+    /// the (hidden) right pane from a prior Compare session, which would otherwise make `activePane`
+    /// resolve to `.right` and silently aim Tidy's scans (Find Duplicates / Organize / Rename /
+    /// Storage) at the wrong provider while the rail shows the left one. In compare mode the focused
+    /// pane still wins, so a Tidy scan launched from a Compare menu targets the pane the user is in.
+    static func tidyTargetsRightPane(isCompare: Bool, activePane: ActivePane?) -> Bool {
+        isCompare && activePane == .right
     }
 
     /// Builds a pane's full path from its provider root and in-pane relative path.
