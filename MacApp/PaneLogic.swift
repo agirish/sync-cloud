@@ -241,4 +241,21 @@ enum PaneLogic {
     static func verticalDragFraction(locationY: CGFloat, panesHeight: CGFloat) -> Double {
         Double((panesHeight - locationY) / panesHeight)
     }
+
+    /// The Info inspector's minimum width — matches `DetailsSidebar`'s own `minWidth: 200` content
+    /// floor, below which the metadata rows stop reflowing cleanly.
+    static let inspectorMinWidth: Double = 200
+    /// The inspector's maximum width, so a drag can't let the panel swallow the whole window and
+    /// starve the comparison panes. A fixed cap (rather than a window-relative one) keeps the math
+    /// pure and geometry-free; the flexible panes absorb whatever is left.
+    static let inspectorMaxWidth: Double = 600
+
+    /// The inspector width during a resize drag. The handle sits on the panel's leading (left)
+    /// edge, so dragging left (`translation` negative) widens it. `base` is the width at drag start
+    /// — held constant for the whole gesture since it's only committed to storage on release — and
+    /// `translation` is the gesture's cumulative horizontal translation. Clamped to
+    /// `[inspectorMinWidth, inspectorMaxWidth]` so the same guard runs in tests, not only live.
+    static func inspectorDragWidth(base: Double, translation: CGFloat) -> Double {
+        min(max(base - Double(translation), inspectorMinWidth), inspectorMaxWidth)
+    }
 }

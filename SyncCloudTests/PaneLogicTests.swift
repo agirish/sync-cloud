@@ -382,6 +382,21 @@ import Sync
         #expect(isClose(PaneLogic.verticalDragFraction(locationY: 600, panesHeight: 800), 0.25))
     }
 
+    // inspectorDragWidth
+
+    @Test func testInspectorDragLeftWidensRightNarrows() {
+        // The handle is on the panel's leading edge: dragging left (negative translation) widens it,
+        // dragging right (positive) narrows it.
+        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: -50), 320))
+        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: 50), 220))
+    }
+
+    @Test func testInspectorDragWidthClampsToBounds() {
+        // A big drag can't push the panel below the content floor or past the window-safety cap.
+        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: 500), PaneLogic.inspectorMinWidth))
+        #expect(isClose(PaneLogic.inspectorDragWidth(base: 270, translation: -1000), PaneLogic.inspectorMaxWidth))
+    }
+
     // MARK: bootstrapSteps
 
     @Test func testFirstAppearanceRunsTheFullBootstrapInOrder() {

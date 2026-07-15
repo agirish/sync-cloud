@@ -130,6 +130,13 @@ struct ContentView: View {
     /// right-side panel that shows metadata (and both-sides status) for the current selection.
     /// Persisted so it stays open/closed across launches.
     @AppStorage("showCompareInspector") private var showInspector: Bool = false
+    /// The Info inspector's persisted width, resizable by dragging its leading edge. Defaults to the
+    /// former fixed 270pt. Clamped to `PaneLogic.inspector{Min,Max}Width` whenever it's written.
+    @AppStorage("compareInspectorWidth") private var inspectorWidth: Double = 270
+    /// The live width during a resize drag; `nil` when idle. Mirrors the pane splits' pattern —
+    /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
+    /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
+    @State private var inspectorDragWidth: Double? = nil
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -1039,8 +1046,35 @@ struct ContentView: View {
             Divider()
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath)
         }
-        .frame(width: 270)
+        .frame(width: inspectorDragWidth ?? inspectorWidth)
         .background(.bar)
+    }
+
+    /// The draggable seam between the panes and the Info inspector. Replaces the static `Divider()`
+    /// with the same "invisible hit target overlaid on a visible 1pt divider" idiom the pane splits
+    /// use: the divider keeps its slim layout footprint while a 10pt-wide clear strip straddles it
+    /// for the drag. `inspectorWidth` is held constant through the gesture (written only on release),
+    /// so it's the stable base for `PaneLogic.inspectorDragWidth`.
+    private var inspectorResizeHandle: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(width: 10)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .pointerStyle(.columnResize)
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                inspectorDragWidth = PaneLogic.inspectorDragWidth(
+                                    base: inspectorWidth, translation: value.translation.width)
+                            }
+                            .onEnded { _ in
+                                if let w = inspectorDragWidth { inspectorWidth = w }
+                                inspectorDragWidth = nil
+                            }
+                    )
+            }
     }
 
     @ViewBuilder
@@ -1050,7 +1084,7 @@ struct ContentView: View {
             HStack(spacing: 0) {
                 verticalSplit
                 if showInspector && selectedBottomTab == .differences {
-                    Divider()
+                    inspectorResizeHandle
                     compareInspector
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -1237,7 +1271,9 @@ struct ContentView: View {
                 } label: {
                     Label("Info", systemImage: "sidebar.right")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.secondary))
+                        // Accent-blue when the inspector is open; a normal enabled label (`.primary`)
+                        // when closed. It used to render `.secondary`, which read as disabled/greyed.
+                        .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
                 }
                 .buttonStyle(.borderless)
                 .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
