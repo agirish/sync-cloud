@@ -871,13 +871,11 @@ struct ContentView: View {
         return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
     }
 
-    /// Runs the cheap local name scan for the Organize folder. The Name Normalizer is folded into
-    /// the Organize lens as a risky-names section now, so this is auto-triggered from within Organize
-    /// (when it opens or its folder changes) — it just kicks off the scan; it doesn't switch tab/lens.
+    /// Runs the local name scan for the Rename lens's focused folder (triggered by its Scan button).
     func startNameScanAction() {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
-        Logger.shared.info("Auto-scanning names for \(root)")
+        Logger.shared.info("User requested name scan for \(root)")
         syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
     }
 

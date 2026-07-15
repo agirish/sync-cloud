@@ -9,6 +9,9 @@ import Design
 /// persistent tab strip and drive `TidyView.lens` as a binding.
 public enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
+    /// The former Name Normalizer, its own lens again (was briefly folded into Organize) — finds and
+    /// fixes cloud-hostile names. Shown as "Rename".
+    case rename = "Rename"
     case filing = "Filing"
     case automations = "Automations"
     /// The former standalone Storage Lens tab, folded in as a read-only lens (treemap + largest /
@@ -92,9 +95,8 @@ enum TidyMatchStyle {
 
 // MARK: - TidyView
 
-/// The Tidy workspace: a single-source hub of lenses (Duplicates, Organize, Automations, and the
-/// read-only Storage). The Name Normalizer is folded into Organize as a risky-names section rather
-/// than a lens of its own. The host owns the active `lens` (its picker lives in the persistent tab
+/// The Tidy workspace: a single-source hub of lenses (Duplicates, Rename, Organize, Automations, and
+/// the read-only Storage). The host owns the active `lens` (its picker lives in the persistent tab
 /// strip) and docks the source rail beside this workspace.
 public struct TidyView: View {
     @ObservedObject public var syncManager: FileSyncManager
@@ -229,7 +231,7 @@ public struct TidyView: View {
         switch lens {
         case .duplicates: return hasResults
         case .filing: return hasFilingResults || spendTotals.scans > 0
-        case .automations, .storage: return false
+        case .rename, .automations, .storage: return false
         }
     }
 
@@ -252,17 +254,6 @@ public struct TidyView: View {
         // counts the current results' work (H5).
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
             if isScanning { reclaim.reset() }
-        }
-        // Fold-in of the Name Normalizer: when Organize opens (or its folder changes), run the cheap
-        // local name scan in the background so risky names surface on their own. Skipped if this
-        // folder was already scanned; silent (no scanning UI) so a clean folder shows nothing.
-        .task(id: "organize-names:\(lens == .filing)-\(scanTargetFolder ?? "")") {
-            guard lens == .filing, let folder = scanTargetFolder, !folder.isEmpty else { return }
-            let current = URL(fileURLWithPath: folder).standardizedFileURL.path
-            let alreadyScanned = syncManager.nameScanRoot?.standardizedFileURL.path == current
-            if !alreadyScanned && !syncManager.isScanningNames {
-                onScanNames()
-            }
         }
     }
 
@@ -558,6 +549,7 @@ public struct TidyView: View {
         VStack(spacing: 0) {
             switch lens {
             case .duplicates: duplicatesContent
+            case .rename: renameContent
             case .filing: filingContent
             case .automations: automationsContent
             case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
@@ -669,20 +661,6 @@ public struct TidyView: View {
             if let prompt = pendingRememberPrompt {
                 rememberOverridePrompt(prompt)
             }
-            // The folded-in Name Normalizer: a safety section that surfaces on its own (from the
-            // cheap local scan that runs when Organize opens) whenever this folder has cloud-hostile
-            // names. A clean folder adds nothing here, so it only ever appears when it matters.
-            if showRiskyNamesSection {
-                RiskyNamesSection(
-                    syncManager: syncManager,
-                    accent: glassHue.accentColor,
-                    densityMetrics: densityMetrics,
-                    onNormalize: onNormalizeNames,
-                    onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
-                    onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
-                )
-                Divider().opacity(0.5)
-            }
             Group {
                 if syncManager.isSuggestingFiles {
                     filingScanningState
@@ -697,16 +675,20 @@ public struct TidyView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.2), value: pendingRememberPrompt?.id)
-        .animation(.easeInOut(duration: 0.2), value: showRiskyNamesSection)
     }
 
-    /// Whether to show the risky-names section: there are risky names, and they were scanned from
-    /// the folder currently in focus (a lingering prior-folder scan must not show here).
-    private var showRiskyNamesSection: Bool {
-        guard !syncManager.riskyNames.isEmpty,
-              let scanned = syncManager.nameScanRoot,
-              let folder = scanTargetFolder, !folder.isEmpty else { return false }
-        return scanned.standardizedFileURL.path == URL(fileURLWithPath: folder).standardizedFileURL.path
+    /// The "Rename" lens (the un-folded Name Normalizer): finds and fixes cloud-hostile names.
+    private var renameContent: some View {
+        RenameLens(
+            syncManager: syncManager,
+            providerName: providerName,
+            accent: glassHue.accentColor,
+            densityMetrics: densityMetrics,
+            onScan: onScanNames,
+            onNormalize: onNormalizeNames,
+            onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
+            onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
+        )
     }
 
     /// N2 — the Automations lens (preview-only). Self-contained (its own rule-list / previewing /
