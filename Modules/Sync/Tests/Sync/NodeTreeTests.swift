@@ -80,6 +80,14 @@ import Foundation
         #expect(nestedTree().findNodes(at: ["/nope"]).isEmpty)
     }
 
+    /// The early-exit optimization must not reorder results: matches come back in pre-order
+    /// (parent before sibling) regardless of the query set's order, and every requested match is
+    /// present even when the last one is found before the walk would otherwise finish.
+    @Test func testFindNodesReturnsMatchesInPreOrder() {
+        let found = nestedTree().findNodes(at: ["/d.txt", "/a"])
+        #expect(found.map(\.id) == ["/a", "/d.txt"])
+    }
+
     // MARK: pruneNestedNodes
 
     @Test func testPruneNestedNodesKeepsOnlyHighestParents() {

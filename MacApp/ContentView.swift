@@ -969,7 +969,12 @@ struct ContentView: View {
     @ViewBuilder
     func paneColumn(isLeft: Bool) -> some View {
         let pane = paneContext(isLeft: isLeft)
-        VStack(spacing: 0) {
+        // Resolve the action-bar selection ONCE per render (a tree walk over ~40k nodes) and reuse
+        // it for both the overlay gate and the layout animation below — reading `activeSelectionNodes`
+        // separately in each spot re-walked the tree several times per render (~100ms each), which
+        // was the comparison panes' selection lag.
+        let barNodes = barSelectionNodes(isLeft: isLeft)
+        return VStack(spacing: 0) {
             PaneHeader(
                 title: pane.title,
                 provider: settings.availableProviders.first(where: { $0.id == pane.providerId }),
@@ -1002,13 +1007,13 @@ struct ContentView: View {
         // The file actions (Copy/Move/Compare/New Folder/Delete) live here now, not in the titlebar:
         // a contextual bar on whichever pane holds the selection, so the buttons name their target.
         .overlay(alignment: .bottom) {
-            if paneActionBarVisible(isLeft: isLeft) {
-                paneActionBar(isLeft: isLeft)
+            if !barNodes.isEmpty {
+                paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                     .padding(10)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .animation(.easeInOut(duration: 0.15), value: activeSelectionNodes.count)
+        .animation(.easeInOut(duration: 0.15), value: barNodes.count)
     }
 
     /// The Compare Info inspector — the former Details tab, now a toggleable right-side panel showing

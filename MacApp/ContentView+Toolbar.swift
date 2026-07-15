@@ -18,6 +18,10 @@ extension ContentView {
         )
     }
 
+    /// The selected nodes in whichever pane is active. Resolves paths to nodes via a tree walk,
+    /// so it is NOT free on the ~40k-node comparison panes — compute it once per render (see
+    /// `paneColumn`) and thread the result to consumers rather than reading this property several
+    /// times, or each read re-walks the tree.
     var activeSelectionNodes: [FileNode] {
         switch activePane {
         case .left?:
@@ -39,21 +43,31 @@ extension ContentView {
 
     // MARK: - Contextual pane action bar
 
-    /// Whether the selection-driven action bar shows on this pane: it's the active (selected) pane
-    /// and there's at least one selected item. Only the comparison panes have an "other pane" to
-    /// copy/move to, so it never shows on the single-source Tidy rail.
-    func paneActionBarVisible(isLeft: Bool) -> Bool {
+    /// Whether the selection-driven action bar could show on this pane: this is the compare layout
+    /// and this is the active (selected) side. The caller pairs this with a non-empty resolved
+    /// selection (`barSelectionNodes`) so the bar and its "N selected" count agree, without this
+    /// re-walking the ~40k-node tree — `activePane == side` already implies that side's selection
+    /// set is non-empty. Only the comparison panes have an "other pane" to copy/move to, so it
+    /// never shows on the single-source Tidy rail.
+    func paneActionBarSideActive(isLeft: Bool) -> Bool {
         guard layoutMode == .compare else { return false }
         let side: PaneLogic.ActivePane = isLeft ? .left : .right
-        return activePane == side && !activeSelectionNodes.isEmpty
+        return activePane == side
+    }
+
+    /// The nodes the action bar acts on: resolved once here (a tree walk) so `paneColumn` can pass
+    /// the same array to both the bar's visibility gate and its contents. Empty when this side
+    /// isn't the active pane, so the inactive column never walks its tree.
+    func barSelectionNodes(isLeft: Bool) -> [FileNode] {
+        paneActionBarSideActive(isLeft: isLeft) ? activeSelectionNodes : []
     }
 
     /// The selection-driven file-action bar, docked at the bottom of the active pane. These are the
     /// actions that used to sit in the titlebar (Compare / Copy / Move / New Folder / Delete), now
-    /// scoped to — and naming — the pane whose selection they act on.
+    /// scoped to — and naming — the pane whose selection they act on. `selectionNodes` is resolved
+    /// by the caller (once) rather than re-read here, so the tree isn't walked twice per render.
     @ViewBuilder
-    func paneActionBar(isLeft: Bool) -> some View {
-        let selectionNodes = activeSelectionNodes
+    func paneActionBar(isLeft: Bool, selectionNodes: [FileNode]) -> some View {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         HStack(spacing: 8) {
