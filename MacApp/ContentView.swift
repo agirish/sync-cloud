@@ -884,16 +884,13 @@ struct ContentView: View {
         return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
     }
 
-    /// Switches to the Tidy tab and scans the focused folder for cloud-hostile file & folder names.
-    /// The scan is kicked off from the Names lens's own intro button, so the pane is already on that
-    /// lens when this runs.
+    /// Runs the cheap local name scan for the Organize folder. The Name Normalizer is folded into
+    /// the Organize lens as a risky-names section now, so this is auto-triggered from within Organize
+    /// (when it opens or its folder changes) — it just kicks off the scan; it doesn't switch tab/lens.
     func startNameScanAction() {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
-        Logger.shared.info("User requested Name Normalizer scan for \(root)")
-        selectedBottomTab = .tidy
-        selectedTidyLens = .names
-        showingBottomPane = true
+        Logger.shared.info("Auto-scanning names for \(root)")
         syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
     }
 

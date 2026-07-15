@@ -17,118 +17,33 @@ enum NameNormalizeGlyph {
     static let risky = "exclamationmark.triangle.fill"
 }
 
-// MARK: - Name Normalizer lens
+// MARK: - Risky names section
 
-/// The Name Normalizer workspace: scans a provider subtree for cloud-hostile file & folder names,
-/// previews the safe replacement for each, and normalizes them in one undoable pass. Rendered inside
-/// ``TidyView``'s content card (which supplies the surface), so this view provides only the inner
-/// intro / scanning / results / all-clean states — never its own card background.
-public struct NameNormalizeLens: View {
-    @ObservedObject public var syncManager: FileSyncManager
-
-    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-
-    /// Provider named in the intro copy (e.g. "OneDrive"). Falls back to a generic phrase.
-    private let providerName: String?
-    /// Kicks off a scan of the focused folder (host-supplied — it owns the root/provider derivation).
-    private let onScanNames: () -> Void
-    /// Applies the safe rename to the given rows as one undoable batch (host wires it to
-    /// `syncManager.normalizeNames`).
-    private let onNormalize: ([RiskyName]) -> Void
+/// The risky-names results as an embeddable section — a header with a Fix-all action over a bounded,
+/// scrolling list of cards — folded into the Organize lens. Unlike the retired standalone Name
+/// Normalizer lens, it has no intro / scanning / all-clean states: the host shows it only when the
+/// focused folder actually has risky names (surfaced by the cheap local scan Organize runs on open),
+/// so a clean folder adds nothing to Organize.
+struct RiskyNamesSection: View {
+    @ObservedObject var syncManager: FileSyncManager
+    let accent: Color
+    let densityMetrics: ListDensityMetrics
+    /// Applies the safe rename to the given rows as one undoable batch (host wires `normalizeNames`).
+    let onNormalize: ([RiskyName]) -> Void
     /// Reveals the given absolute path in Finder (host owns the `NSWorkspace` call).
-    private let onReveal: (String) -> Void
-    /// Quick Looks the file at the given absolute path (routed to the same `quickLookPreview`
-    /// binding the spacebar shortcut uses). nil hides the per-row Preview button.
-    private let onQuickLook: ((String) -> Void)?
+    let onReveal: (String) -> Void
+    /// Quick Looks the file at the given absolute path. nil hides the per-row Preview button.
+    let onQuickLook: ((String) -> Void)?
 
-    public init(
-        syncManager: FileSyncManager,
-        providerName: String? = nil,
-        onScanNames: @escaping () -> Void,
-        onNormalize: @escaping ([RiskyName]) -> Void,
-        onReveal: @escaping (String) -> Void = { _ in },
-        onQuickLook: ((String) -> Void)? = nil
-    ) {
-        self.syncManager = syncManager
-        self.providerName = providerName
-        self.onScanNames = onScanNames
-        self.onNormalize = onNormalize
-        self.onReveal = onReveal
-        self.onQuickLook = onQuickLook
-    }
-
-    private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
-    private var densityMetrics: ListDensityMetrics {
-        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
-    }
-    private var provider: String { providerName ?? "this provider" }
-
-    public var body: some View {
-        Group {
-            if syncManager.isScanningNames {
-                scanningState
-            } else if !syncManager.hasScannedNames {
-                introState
-            } else if syncManager.riskyNames.isEmpty {
-                cleanState
-            } else {
-                resultsState
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    // MARK: Intro / scanning / clean
-
-    private var introState: some View {
-        EmptyStateView(
-            icon: NameNormalizeGlyph.lens,
-            tint: glassHue.accentColor,
-            title: "Find risky names in \(provider)",
-            message: "Scan for file and folder names \(provider) can't sync — trailing spaces, forbidden characters, reserved names, and hidden invisible characters — then fix them all in one pass.",
-            caption: "Nothing is renamed without your say-so, and every fix undoes with ⌘Z.",
-            primary: .init("Scan for risky names", systemImage: NameNormalizeGlyph.lens, handler: onScanNames)
-        )
-    }
-
-    private var scanningState: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large)
-            Text(syncManager.nameScanStatus.isEmpty ? "Scanning…" : syncManager.nameScanStatus)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            Button("Cancel") { syncManager.cancelNameScan() }
-                .controlSize(.regular)
-                .padding(.top, 2)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
-    }
-
-    private var cleanState: some View {
-        EmptyStateView(
-            icon: NameNormalizeGlyph.allSafe,
-            tint: .green,
-            title: "No risky names — every name is cloud-safe",
-            message: "Nothing in \(provider) would trip a cloud sync on its name. Scan again after adding files.",
-            secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onScanNames)
-        )
-    }
-
-    // MARK: Results
-
-    private var resultsState: some View {
+    var body: some View {
         VStack(spacing: 0) {
-            resultsHeader
-            Divider().opacity(0.5)
+            header
             ScrollView {
                 LazyVStack(spacing: densityMetrics.cardListSpacing) {
                     ForEach(syncManager.riskyNames) { risky in
                         RiskyNameCard(
                             risky: risky,
-                            accent: glassHue.accentColor,
+                            accent: accent,
                             onFix: { onNormalize([risky]) },
                             onSkip: { syncManager.dismissRiskyName(risky) },
                             onReveal: { onReveal(risky.id) },
@@ -142,27 +57,26 @@ public struct NameNormalizeLens: View {
                 .animation(.easeInOut(duration: 0.22), value: syncManager.riskyNames.map(\.id))
             }
             .scrollContentBackground(.hidden)
+            // Bounded so a long list of risky names can't push the loose-files section off screen —
+            // it scrolls within its own section instead.
+            .frame(maxHeight: 300)
         }
     }
 
-    private var resultsHeader: some View {
+    private var header: some View {
         let count = syncManager.riskyNames.count
-        return HStack(spacing: 10) {
+        return HStack(spacing: 8) {
             Image(systemName: NameNormalizeGlyph.risky)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.orange)
-            Text("\(count) risky name\(count == 1 ? "" : "s") found")
-                .font(.system(size: 13, weight: .semibold))
+            Text("\(count) name\(count == 1 ? "" : "s") may not sync")
+                .font(.system(size: 12.5, weight: .semibold))
                 .monospacedDigit()
-            Text("→ review & fix in one pass")
-                .font(.system(size: 12))
+            Text("· fix to keep them cloud-safe")
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer(minLength: 8)
-            Button(action: onScanNames) { Label("Rescan", systemImage: "arrow.clockwise") }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(syncManager.isNormalizingNames)
-                .help("Scan the focused folder again")
             Button(action: { onNormalize(syncManager.riskyNames) }) {
                 Label("Fix all \(count)", systemImage: "checkmark.circle.fill")
             }
@@ -172,7 +86,7 @@ public struct NameNormalizeLens: View {
             .help("Renames every risky name above to its cloud-safe form. Never overwrites an existing "
                   + "file, and the whole pass undoes with a single ⌘Z.")
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
     }
 }
 
