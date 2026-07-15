@@ -36,17 +36,21 @@ public struct DifferencesView: View {
     @State private var reviewFocusNudge = 0
     private let paneNames: PaneProviderNames
     private let onQuickLook: ((URL) -> Void)?
+    /// Shows the in-app Info inspector for a path (the "Get Info" row action). Default no-op.
+    private let onGetInfo: (String) -> Void
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
     ///     created inline here — a per-render store would reset the session every render).
     ///   - onQuickLook: Presents a Quick Look preview for the given file. The app routes this
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil) {
+    ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
         self.onQuickLook = onQuickLook
+        self.onGetInfo = onGetInfo
     }
 
     private var isBulkSyncing: Bool {
@@ -830,6 +834,14 @@ public struct DifferencesView: View {
     @ViewBuilder
     private func inspectionMenuItems(for difference: FileDifference) -> some View {
         let sides = DifferenceRowMenu.existingSides(for: difference, paneNames: paneNames)
+        ForEach(sides, id: \.paneName) { side in
+            Button {
+                onGetInfo(side.path)
+            } label: {
+                Label("Get Info (\(side.paneName))", systemImage: "info.circle")
+            }
+        }
+        Divider()
         ForEach(sides, id: \.paneName) { side in
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: side.path)])

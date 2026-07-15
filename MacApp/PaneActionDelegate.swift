@@ -15,6 +15,8 @@ struct PaneActionDelegate: FileActionDelegate {
     let leftProviderId: String
     let rightProviderId: String
     let forceRefreshAction: () -> Void
+    /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
+    let onGetInfo: (String) -> Void
 
     func handleRefresh() {
         forceRefreshAction()
@@ -42,7 +44,7 @@ struct PaneActionDelegate: FileActionDelegate {
     }
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
     func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
-    func handleGetInfo(for path: String) { handler?.openGetInfo(for: path) }
+    func handleGetInfo(for path: String) { onGetInfo(path) }
     func handleSort(_ option: SortOption) { 
         Logger.shared.info("User changed sort option to \(option)")
         syncManager.sortOption = option 

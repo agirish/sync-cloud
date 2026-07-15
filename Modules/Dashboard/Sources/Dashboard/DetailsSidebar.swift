@@ -17,6 +17,9 @@ public struct DetailsSidebar: View {
     /// Lays the icon above the metadata (vertical) instead of beside it (horizontal), for the narrow
     /// Compare Info inspector where a side-by-side icon column would starve the values of width.
     public let compact: Bool
+    /// An explicit path to inspect, overriding the pane selection — set by "Get Info" on a
+    /// differences-table row, whose file has no pane selection to derive from. nil = follow selection.
+    public let overridePath: String?
 
     @State private var computedDirectorySizeKey: DirectorySizeTaskID? = nil
     @State private var computedDirectorySize: String? = nil
@@ -43,11 +46,12 @@ public struct DetailsSidebar: View {
         return formatter
     }()
     
-    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false) {
+    public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
         self.compact = compact
+        self.overridePath = overridePath
     }
     
     // Internal struct to hold parsed metadata logic cleanly.
@@ -64,6 +68,9 @@ public struct DetailsSidebar: View {
     
     /// The path to display metadata for: first selected path in either pane, or the focused folder path.
     internal var activePath: String {
+        // A "Get Info" target wins over the pane selection (a differences-table row has no pane
+        // selection of its own).
+        if let overridePath, !overridePath.isEmpty { return overridePath }
         // `min()` is the allocation-free equivalent of `sorted().first` — the alphabetically
         // first selected path (left pane first), matching `PaneLogic.primarySelectionPath`.
         if let leftSelection = syncManager.selectedLeftPaths.min() {

@@ -130,6 +130,10 @@ struct ContentView: View {
     /// right-side panel that shows metadata (and both-sides status) for the current selection.
     /// Persisted so it stays open/closed across launches.
     @AppStorage("showCompareInspector") private var showInspector: Bool = false
+    /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
+    /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
+    /// follows the selection again.
+    @State private var infoPath: String? = nil
 
     @State private var bannerDismissScheduler = BannerDismissScheduler()
 
@@ -350,7 +354,10 @@ struct ContentView: View {
             syncManager.resetNavigation()
         }
         // The Info inspector reads the selection directly, so a selection change no longer needs to
-        // switch tabs — it just updates the inspector when it's open.
+        // switch tabs — it just clears any explicit "Get Info" target so the inspector follows the
+        // new selection.
+        .onChange(of: syncManager.selectedLeftPaths) { _, _ in infoPath = nil }
+        .onChange(of: syncManager.selectedRightPaths) { _, _ in infoPath = nil }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -602,6 +609,14 @@ struct ContentView: View {
     private func openProviderSettings() {
         settingsTab = .providers
         showSettings = true
+    }
+
+    /// "Get Info" from a pane or differences-row right-click: show the in-app Info inspector for the
+    /// path (not Finder's Get Info). Opens the inspector and switches to Compare, where it lives.
+    func showInfo(for path: String) {
+        infoPath = path
+        showInspector = true
+        selectedBottomTab = .differences
     }
 
     /// Reopens each pane at the folder it showed when the app last quit (General setting,
@@ -1013,7 +1028,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
-            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true)
+            DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath)
         }
         .frame(width: 270)
         .background(.bar)
@@ -1144,7 +1159,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
@@ -1268,7 +1283,7 @@ struct ContentView: View {
             )
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table); tabs live in the top strip.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) })
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) })
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {
