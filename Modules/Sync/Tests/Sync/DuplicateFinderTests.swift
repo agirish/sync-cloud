@@ -59,6 +59,29 @@ import Testing
         #expect(groups.isEmpty)   // the symlink is excluded, so the real file has no duplicate
     }
 
+    @Test func aFolderWithASymlinkIsNotIdenticalToOneWithout() {
+        // Excluding a symlink from the dedup buckets must NOT drop it from its PARENT folder's
+        // signature: folder A {real.txt, link} and folder B {real.txt} differ (A has an extra
+        // entry), so they must NOT be reported as identical duplicate folders.
+        let link = FileNode(id: "/root/A/link.pdf", name: "link.pdf", isDirectory: false,
+                            modificationDate: nil, fileSize: 8192, isSymbolicLink: true)
+        let tree = [
+            dir("/root/A", [file("/root/A/real.txt"), link]),
+            dir("/root/B", [file("/root/B/real.txt")]),
+        ]
+        // link.pdf resolves to a hashed target; real.txt is identical across A and B.
+        let hashes = [
+            "/root/A/real.txt": "H", "/root/B/real.txt": "H", "/root/A/link.pdf": "L",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        // The folders are NOT reported as identical (A carries an extra symlink) — the bug was that
+        // dropping the symlink made A's signature equal B's and grouped them.
+        #expect(!groups.contains { $0.isDirectory })
+        // The genuinely-identical real.txt still surfaces as a file duplicate (unchanged behavior).
+        #expect(groups.contains { !$0.isDirectory && $0.name == "real.txt" })
+    }
+
     @Test func identicalFileInManyFoldersGroupsAll() {
         var children: [FileNode] = []
         var hashes: [String: String] = [:]

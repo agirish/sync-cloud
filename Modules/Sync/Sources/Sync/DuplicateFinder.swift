@@ -358,11 +358,29 @@ public enum DuplicateFinder {
         dirs: inout [NodeInfo]
     ) -> NodeInfo? {
         if options.ignoredNames.contains(node.name) { return nil }
-        // Exclude symlinks (files AND directories). The walk resolves a link's size/content to its
-        // target, so a link and its in-tree target would hash identically and group as "copies" —
-        // and trashing the real target would leave a dangling link as the "kept" copy. A symlink
-        // reclaims no real space anyway, so dropping it here loses nothing.
-        if node.isSymbolicLink == true { return nil }
+        // A symlink must never be a duplicate CANDIDATE: the walk resolves its size/content to its
+        // target, so a link and its in-tree target would hash identically and group as "copies,"
+        // and trashing the real target would leave a dangling link as the "kept" copy. But it still
+        // occupies a name in its parent, so it MUST contribute to the parent's structural signature
+        // — otherwise a folder containing a symlink would look identical to one without it and the
+        // two would be offered as duplicate folders. So return an info the parent folds into its
+        // signature (a file link carries its target's hash; a directory link is left unhashed, which
+        // conservatively makes its parent non-groupable) WITHOUT adding it to the file/dir buckets,
+        // and without walking a linked directory's contents. Size 0: a symlink reclaims no space.
+        if node.isSymbolicLink == true {
+            let signature = node.isDirectory ? nil : fileHashes[node.id]
+            return NodeInfo(
+                path: node.id,
+                name: node.name,
+                isDirectory: node.isDirectory,
+                size: 0,
+                itemCount: 1,
+                modificationDate: node.modificationDate,
+                depth: depth,
+                signature: signature,
+                contentHashes: []
+            )
+        }
 
         if !node.isDirectory {
             let hash = fileHashes[node.id]
