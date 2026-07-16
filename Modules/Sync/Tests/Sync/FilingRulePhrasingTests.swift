@@ -1,8 +1,9 @@
 import Testing
-@testable import Settings
+@testable import Sync
 
-/// Pins the plain-words rendering the Filing rules manager uses (G1) so a learned rule reads as
-/// something a person can understand instead of a raw token dump.
+/// Pins the plain-words rendering the remembered-rule surfaces use (Settings ▸ Filing and the
+/// Tidy ▸ Automations lens) so a learned rule reads as something a person can understand instead
+/// of a raw token dump.
 @Suite struct FilingRulePhrasingTests {
 
     @Test func singleTokenReadsNaturally() {

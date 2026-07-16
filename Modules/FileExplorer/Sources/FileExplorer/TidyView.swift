@@ -147,6 +147,13 @@ public struct TidyView: View {
     @State private var pendingRuleOffer: RuleOffer?
     /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
     @State private var ruleConditionChoice: AutomationCondition?
+    /// The just-learned remembered rule, opened in the editor right after "Remember" so it can be
+    /// reviewed and adjusted while it's fresh (Cancel keeps it as learned; it stays editable under
+    /// Automations and Settings ▸ Filing).
+    @State private var reviewingRememberedRule: FilingRule?
+    /// The just-saved automation, opened in the editor right after "Save rule" for the same review
+    /// pass (Cancel keeps it as saved; it stays editable under Automations).
+    @State private var reviewingAutomationRule: AutomationRule?
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -256,6 +263,33 @@ public struct TidyView: View {
             lensBody
         }
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
+        // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
+        // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
+        // exactly as created — the review is an offer, not a gate.
+        .sheet(item: $reviewingRememberedRule) { rule in
+            FilingRuleEditorView(
+                title: "Review remembered rule",
+                original: rule,
+                accent: glassHue.accentColor,
+                onSave: { edited in
+                    syncManager.replaceFilingRule(rule, with: edited)
+                    reviewingRememberedRule = nil
+                },
+                onCancel: { reviewingRememberedRule = nil }
+            )
+        }
+        .sheet(item: $reviewingAutomationRule) { rule in
+            AutomationRuleEditor(
+                rule: rule,
+                accent: glassHue.accentColor,
+                browseRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                onSave: { saved in
+                    syncManager.upsertAutomationRule(saved)
+                    reviewingAutomationRule = nil
+                },
+                onCancel: { reviewingAutomationRule = nil }
+            )
+        }
         // A fresh scan starts a fresh session: forget any files filed against the previous results,
         // so the "All filed" terminal state is only earned by this scan's work.
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
@@ -846,7 +880,7 @@ public struct TidyView: View {
                 Text("Remember this for files like “\(prompt.fileName)”?")
                     .font(.system(size: 12.5, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
-                Text("File future matches into “\(folderName)” automatically — manage or undo this in Settings ▸ Filing.")
+                Text("File future matches into “\(folderName)” automatically — you’ll review it next; manage it anytime under Automations.")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -867,13 +901,15 @@ public struct TidyView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    /// Learns the correction as an F3 rule, then dismisses the prompt. `rememberFilingRule` is
-    /// gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
-    /// (returns false) still just dismisses — no misleading "learned" banner.
+    /// Learns the correction as an F3 rule, dismisses the prompt, and opens the learned rule for
+    /// review so it can be adjusted while it's fresh. `rememberFilingRule` is gated at the call
+    /// site by `FilingEngine.canRemember`, so it should succeed; a rare no-op (returns nil) still
+    /// just dismisses — no misleading "learned" banner, nothing to review.
     private func rememberOverride(_ prompt: PendingRememberPrompt) {
-        if syncManager.rememberFilingRule(fileName: prompt.fileName, destinationPath: prompt.destinationPath) {
+        if let rule = syncManager.rememberFilingRule(fileName: prompt.fileName, destinationPath: prompt.destinationPath) {
             let folderName = (prompt.destinationPath as NSString).lastPathComponent
             syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
+            reviewingRememberedRule = rule
         }
         pendingRememberPrompt = nil
     }
@@ -890,13 +926,15 @@ public struct TidyView: View {
         pendingRuleOffer = RuleOffer(fileName: fileName, proposal: proposal)
     }
 
-    /// Saves the offered rule (with the chosen condition) as an Automation, then dismisses the offer.
+    /// Saves the offered rule (with the chosen condition) as an Automation, dismisses the offer,
+    /// and opens the saved rule for review so it can be adjusted while it's fresh.
     private func saveProposedRule(_ offer: RuleOffer) {
         var rule = offer.proposal.rule
         if let condition = ruleConditionChoice { rule.conditions = [condition] }
         syncManager.upsertAutomationRule(rule)
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
         pendingRuleOffer = nil
+        reviewingAutomationRule = rule
     }
 
     /// The destination folder as a path relative to the provider root (the rule's template is

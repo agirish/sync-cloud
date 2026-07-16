@@ -1532,27 +1532,6 @@ struct AdvancedSettingsTab: View {
 /// Turns a remembered rule's canonical trigger tokens and absolute destination into the plain
 /// words shown in the manager — a rule should read as something a person can understand and undo,
 /// not as a raw token dump. Pure and internal so it can be pinned by tests.
-enum FilingRulePhrasing {
-    /// Natural-language phrasing of a rule's trigger tokens, e.g. `Files with "invoice" and "acme"`.
-    /// Falls back to `Any file` for the (unexpected) empty set.
-    static func trigger(_ tokens: [String]) -> String {
-        let quoted = tokens.map { "\"\($0)\"" }
-        switch quoted.count {
-        case 0: return "Any file"
-        case 1: return "Files with \(quoted[0])"
-        case 2: return "Files with \(quoted[0]) and \(quoted[1])"
-        default:
-            let head = quoted.dropLast().joined(separator: ", ")
-            return "Files with \(head), and \(quoted.last!)"
-        }
-    }
-
-    /// Home-abbreviated destination for compact display, e.g. `~/Documents/Invoices`.
-    static func destination(_ path: String) -> String {
-        (path as NSString).abbreviatingWithTildeInPath
-    }
-}
-
 /// Reviews, edits, disables, and forgets the remembered filing rules (F3). Each rule is a trigger
 /// token-set the user taught by correcting a Filing suggestion, mapped to the folder those files
 /// should go into. Rendered in plain words with a live "drives N suggestions" read-out so a rule
@@ -1637,25 +1616,16 @@ struct FilingRulesManagerView: View {
         onChange()
     }
 
-    /// Flips a rule's `enabled` flag and persists it through the manager's `filingRules` setter.
-    /// The id is independent of `enabled`, so this replaces the same rule in place.
+    /// Flips a rule's `enabled` flag through the manager (kept, not deleted).
     private func setEnabled(_ enabled: Bool, for rule: FilingRule) {
-        var all = syncManager.filingRules
-        guard let idx = all.firstIndex(where: { $0.id == rule.id }) else { return }
-        all[idx] = FilingRule(tokens: rule.tokens, destinationPath: rule.destinationPath, enabled: enabled)
-        syncManager.filingRules = all
+        syncManager.setFilingRule(rule, enabled: enabled)
         rules = syncManager.filingRules
         onChange()
     }
 
-    /// Replaces the edited rule via the `filingRules` setter. The edit can change tokens and/or
-    /// destination — both feed the derived id — so drop the original *and* anything already sharing
-    /// the edited id (a merge into an existing rule) before appending, avoiding duplicate ids.
+    /// Replaces the edited rule through the manager (which also merges an id collision).
     private func applyEdit(original: FilingRule, edited: FilingRule) {
-        var all = syncManager.filingRules
-        all.removeAll { $0.id == original.id || $0.id == edited.id }
-        all.append(edited)
-        syncManager.filingRules = all
+        syncManager.replaceFilingRule(original, with: edited)
         rules = syncManager.filingRules
         onChange()
     }

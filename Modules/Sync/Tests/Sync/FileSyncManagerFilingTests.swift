@@ -304,12 +304,12 @@ final class Flag: @unchecked Sendable { var value = false }
         let manager = manager(withRuleSuite: suite)
         defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
 
-        #expect(manager.rememberFilingRule(fileName: "Tesla Policy.pdf", destinationPath: "/p/Vehicles/Tesla"))
-        #expect(manager.rememberFilingRule(fileName: "Geico Bill.pdf", destinationPath: "/p/Insurance/Geico"))
+        #expect(manager.rememberFilingRule(fileName: "Tesla Policy.pdf", destinationPath: "/p/Vehicles/Tesla") != nil)
+        #expect(manager.rememberFilingRule(fileName: "Geico Bill.pdf", destinationPath: "/p/Insurance/Geico") != nil)
         #expect(manager.filingRules.count == 2)
 
         // A nameless file (IMG_0007 → no usable tokens) yields nothing to key on — nothing remembered.
-        #expect(manager.rememberFilingRule(fileName: "IMG_0007.pdf", destinationPath: "/p/Misc") == false)
+        #expect(manager.rememberFilingRule(fileName: "IMG_0007.pdf", destinationPath: "/p/Misc") == nil)
         #expect(manager.filingRules.count == 2)
 
         // Re-teaching the same trigger replaces the destination rather than duplicating.
@@ -324,6 +324,35 @@ final class Flag: @unchecked Sendable { var value = false }
 
         manager.clearFilingRules()
         #expect(manager.filingRules.isEmpty)
+    }
+
+    @MainActor
+    @Test func setEnabledAndReplaceRule() {
+        let suite = "FilingRulesEdit-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+
+        let tesla = manager.rememberFilingRule(fileName: "Tesla Policy.pdf", destinationPath: "/p/Cars/Tesla")!
+        let geico = manager.rememberFilingRule(fileName: "Geico Bill.pdf", destinationPath: "/p/Insurance/Geico")!
+
+        // Disabling keeps the rule (same id) but marks it inert.
+        manager.setFilingRule(tesla, enabled: false)
+        #expect(manager.filingRules.count == 2)
+        #expect(manager.filingRules.first { $0.id == tesla.id }?.enabled == false)
+        manager.setFilingRule(tesla, enabled: true)
+        #expect(manager.filingRules.first { $0.id == tesla.id }?.enabled == true)
+
+        // A plain edit swaps the rule in place.
+        let edited = FilingRule(tokens: ["tesla", "insurance"], destinationPath: "/p/Cars/Tesla")
+        manager.replaceFilingRule(tesla, with: edited)
+        #expect(manager.filingRules.count == 2)
+        #expect(manager.filingRules.contains { $0.id == edited.id })
+        #expect(!manager.filingRules.contains { $0.id == tesla.id })
+
+        // Editing a rule into another rule's identity merges instead of duplicating ids.
+        manager.replaceFilingRule(edited, with: geico)
+        #expect(manager.filingRules.count == 1)
+        #expect(manager.filingRules.first?.id == geico.id)
     }
 
     @MainActor

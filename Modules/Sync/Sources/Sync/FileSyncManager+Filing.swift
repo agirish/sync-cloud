@@ -326,21 +326,41 @@ extension FileSyncManager {
     }
 
     /// Learns a rule from a correction: "file <fileName> here" becomes "files like this go here."
-    /// No-op (returns false) when the filename yields nothing distinctive to key on.
+    /// Returns the learned rule so the caller can offer it for review; nil (a no-op) when the
+    /// filename yields nothing distinctive to key on.
     @discardableResult
-    public func rememberFilingRule(fileName: String, contentTokens: Set<String> = [], destinationPath: String) -> Bool {
+    public func rememberFilingRule(fileName: String, contentTokens: Set<String> = [], destinationPath: String) -> FilingRule? {
         guard let rule = FilingEngine.rule(forFileNamed: fileName, contentTokens: contentTokens,
-                                           filedInto: destinationPath) else { return false }
+                                           filedInto: destinationPath) else { return nil }
         var rules = filingRules
         rules.removeAll { $0.tokens == rule.tokens }   // newest destination for a trigger wins
         rules.append(rule)
         filingRules = rules
-        return true
+        return rule
     }
 
     /// Forgets one remembered rule.
     public func forgetFilingRule(_ rule: FilingRule) {
         filingRules.removeAll { $0.id == rule.id }
+    }
+
+    /// Flips a remembered rule's `enabled` flag in place. The id is independent of `enabled`, so
+    /// this replaces the same rule; a disabled rule is kept (the teaching isn't lost) but inert.
+    public func setFilingRule(_ rule: FilingRule, enabled: Bool) {
+        var all = filingRules
+        guard let idx = all.firstIndex(where: { $0.id == rule.id }) else { return }
+        all[idx] = FilingRule(tokens: rule.tokens, destinationPath: rule.destinationPath, enabled: enabled)
+        filingRules = all
+    }
+
+    /// Replaces `original` with `edited`. The edit can change tokens and/or destination — both feed
+    /// the derived id — so drop the original *and* anything already sharing the edited id (a merge
+    /// into an existing rule) before appending, avoiding duplicate ids.
+    public func replaceFilingRule(_ original: FilingRule, with edited: FilingRule) {
+        var all = filingRules
+        all.removeAll { $0.id == original.id || $0.id == edited.id }
+        all.append(edited)
+        filingRules = all
     }
 
     /// Forgets every remembered rule.
