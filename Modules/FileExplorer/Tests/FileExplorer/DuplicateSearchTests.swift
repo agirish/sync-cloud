@@ -54,4 +54,23 @@ import Sync
         #expect(!query.matches(group("contract.docx", keeperSize: 1))) // kind fails
         #expect(!query.matches(group("summary.pdf", keeperSize: 1)))   // text fails
     }
+
+    @Test func chipsListKindAndSizeAndSkipNameText() {
+        let chips = DuplicateSearch.chips("kind:PDF >5mb contract")
+        #expect(chips == [DuplicateSearch.Chip(raw: "kind:PDF", label: "kind: pdf"),
+                          DuplicateSearch.Chip(raw: ">5mb", label: "> \(FileSyncManager.formatBytes(5_000_000))")])
+    }
+
+    @Test func chipsCoverBothSizeComparators() {
+        #expect(DuplicateSearch.chips("<1mb") == [DuplicateSearch.Chip(raw: "<1mb", label: "< \(FileSyncManager.formatBytes(1_000_000))")])
+    }
+
+    @Test func chipsAreEmptyWithoutTokens() {
+        #expect(DuplicateSearch.chips("contract kind:").isEmpty)
+    }
+
+    @Test func removingDropsOnlyTheChipWordVerbatim() {
+        #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: "kind:pdf") == ">5mb contract")
+        #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: ">5mb") == "kind:pdf contract")
+    }
 }

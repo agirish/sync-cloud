@@ -56,4 +56,31 @@ import Events
         #expect(query.level == nil && query.since == nil)
         #expect(query.text == "since:soon level:")
     }
+
+    @Test func chipsListRecognizedTokensAndSkipFreeText() {
+        let chips = LogSearch.chips("level:error since:1h dropbox")
+        #expect(chips == [LogSearch.Chip(raw: "level:error", label: "level: error"),
+                          LogSearch.Chip(raw: "since:1h", label: "since: 1h")])
+    }
+
+    @Test func chipLabelKeepsTheTypedSinceValueButCanonicalizesLevel() {
+        // The since value survives exactly as typed; the level label is the canonical name even when
+        // abbreviated.
+        #expect(LogSearch.chips("since:30m") == [LogSearch.Chip(raw: "since:30m", label: "since: 30m")])
+        #expect(LogSearch.chips("level:err") == [LogSearch.Chip(raw: "level:err", label: "level: error")])
+        #expect(LogSearch.chips("level:WARN") == [LogSearch.Chip(raw: "level:WARN", label: "level: warn")])
+    }
+
+    @Test func chipsAreEmptyWithoutTokens() {
+        #expect(LogSearch.chips("disk full since:soon").isEmpty)
+    }
+
+    @Test func removingDropsOnlyTheChipWordVerbatim() {
+        #expect(LogSearch.removing("level:error since:1h dropbox", word: "level:error") == "since:1h dropbox")
+        #expect(LogSearch.removing("level:error since:1h dropbox", word: "since:1h") == "level:error dropbox")
+    }
+
+    @Test func removingLeavesFreeTextWhenNoTokensLeft() {
+        #expect(LogSearch.removing("dropbox level:error", word: "level:error") == "dropbox")
+    }
 }

@@ -54,6 +54,45 @@ enum LogSearch {
         }
     }
 
+    // MARK: Chips (UI)
+
+    /// A recognized filter word paired with a human label, so the search bar can render removable
+    /// chips like Compare's. `raw` is the exact word the user typed (e.g. `since:1h`), so a chip's ✕
+    /// removes precisely that word and its label reflects the value chosen — `since:1h` stays "1h",
+    /// not a normalized "3600s".
+    struct Chip: Equatable {
+        var raw: String
+        var label: String
+    }
+
+    /// The `level:`/`since:` words in `raw`, in order, as display chips. Free text is excluded, so the
+    /// chips are exactly the active structured filters.
+    static func chips(_ raw: String) -> [Chip] {
+        var out: [Chip] = []
+        for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
+            if let level = parseLevel(word) {
+                // Canonical level name (matches the log's own [WARN]/[ERROR] vocabulary) regardless of
+                // the abbreviation typed (`level:err`, `level:warn`).
+                out.append(Chip(raw: word, label: "level: \(level.rawValue.lowercased())"))
+            } else if parseSince(word) != nil {
+                out.append(Chip(raw: word, label: "since: \(word.lowercased().dropFirst("since:".count))"))
+            }
+        }
+        return out
+    }
+
+    /// Removes the first occurrence of `word` from `raw`, leaving every other word as typed. Backs a
+    /// chip's ✕ button.
+    static func removing(_ raw: String, word: String) -> String {
+        var removed = false
+        var kept: [String] = []
+        for candidate in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
+            if !removed, candidate == word { removed = true; continue }
+            kept.append(candidate)
+        }
+        return kept.joined(separator: " ")
+    }
+
     /// "1h" / "30m" / "2d" / "45s" → seconds. Returns nil for anything else, so an unrecognized
     /// `since:` word falls through to plain free text rather than silently filtering everything out.
     static func parseSince(_ word: String) -> TimeInterval? {

@@ -90,6 +90,9 @@ public struct LogViewer: View {
     // in view, which the old exact-match filter couldn't do.
     @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
+    /// Drives the one-tap suggestion row: shown only while the field has the caret, exactly like
+    /// Compare's search.
+    @FocusState private var searchFocused: Bool
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
 
     /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first). nil until the
@@ -232,20 +235,32 @@ public struct LogViewer: View {
                 .padding(.top, 10)
             }
 
-            // Search Bar
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Filter — try level:error, since:1h", text: $searchText)
-                    .textFieldStyle(.plain)
-                
-                if !searchText.isEmpty {
-                    Button(action: { searchText = "" }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
+            // Search Bar — the query, plus (below) the parsed filter tokens as removable chips and,
+            // while focused, one-tap suggestions. Mirrors Compare's search so one vocabulary reads the
+            // same everywhere.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Filter — try level:error, since:1h", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .focused($searchFocused)
+
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                }
+                let chips = LogSearch.chips(searchText)
+                if !chips.isEmpty {
+                    logTokenChips(chips)
+                }
+                if searchFocused {
+                    logSuggestionRow(active: chips)
                 }
             }
             .padding(12)
@@ -276,6 +291,83 @@ public struct LogViewer: View {
         // list doesn't stay expanded to hundreds of now-filtered rows.
         .onChange(of: selectedLevel) { _, _ in historyLimit = Self.historyPageSize }
         .onChange(of: searchText) { _, _ in historyLimit = Self.historyPageSize }
+    }
+
+    // MARK: Token chips & suggestions
+
+    /// The parsed `level:`/`since:` tokens as removable chips: a plain reading of the query, each with
+    /// an ✕ that edits that word back out of the raw text.
+    private func logTokenChips(_ chips: [LogSearch.Chip]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                HStack(spacing: 4) {
+                    Text(chip.label)
+                        .font(.caption.monospaced())
+                    Button {
+                        searchText = LogSearch.removing(searchText, word: chip.raw)
+                    } label: {
+                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove filter \(chip.label)")
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 2)
+                .foregroundStyle(Color.accentColor)
+                .background(Capsule().fill(Color.accentColor.opacity(0.16)))
+                .overlay(Capsule().strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 0.5))
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// One-tap filter suggestions shown while the field is focused, omitting any family already active
+    /// (level and since are each single-valued, so a second one just replaces the first).
+    @ViewBuilder
+    private func logSuggestionRow(active: [LogSearch.Chip]) -> some View {
+        let suggestions = logSuggestions(active: active)
+        if !suggestions.isEmpty {
+            HStack(spacing: 6) {
+                Text("Add filter")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize()
+                ForEach(suggestions, id: \.raw) { suggestion in
+                    Button {
+                        // Trim first so appending never leaves a double space when the field already
+                        // ends in whitespace.
+                        let base = searchText.trimmingCharacters(in: .whitespaces)
+                        searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
+                    } label: {
+                        Text(suggestion.label)
+                            .font(.caption2)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(.quaternary.opacity(0.6)))
+                            .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private static let logSuggestionCandidates: [(label: String, raw: String)] = [
+        ("Errors", "level:error"),
+        ("Warnings", "level:warning"),
+        ("Last hour", "since:1h"),
+        ("Last day", "since:1d"),
+    ]
+
+    private func logSuggestions(active: [LogSearch.Chip]) -> [(label: String, raw: String)] {
+        let hasLevel = active.contains { $0.raw.lowercased().hasPrefix("level:") }
+        let hasSince = active.contains { $0.raw.lowercased().hasPrefix("since:") }
+        return Self.logSuggestionCandidates.filter { candidate in
+            if candidate.raw.hasPrefix("level:") { return !hasLevel }
+            if candidate.raw.hasPrefix("since:") { return !hasSince }
+            return true
+        }
     }
 
     // MARK: Severity chips

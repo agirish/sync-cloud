@@ -118,6 +118,8 @@ public struct TidyView: View {
     @State private var filter: TidyFilter = .all
     /// Token search over the duplicate list (`kind:`, size, name); ANDed with `filter`.
     @State private var dupSearchText: String = ""
+    /// Drives the one-tap suggestion row under the search field: shown only while it holds the caret.
+    @FocusState private var dupSearchFocused: Bool
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
     /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
@@ -368,6 +370,7 @@ public struct TidyView: View {
             }
             if lens == .duplicates, hasResults {
                 summaryRow
+                dupSearchAccessories
             } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
                 // The Filing scan publishes its suggestions once, at the very end, so results are
                 // empty (hasFilingResults == false) for the whole scan; the `!isSuggestingFiles`
@@ -530,6 +533,7 @@ public struct TidyView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 11))
                 .frame(maxWidth: 150)
+                .focused($dupSearchFocused)
             if !dupSearchText.isEmpty {
                 Button { dupSearchText = "" } label: {
                     Image(systemName: "xmark.circle.fill")
@@ -544,6 +548,85 @@ public struct TidyView: View {
         .padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.quaternary.opacity(0.5)))
         .fixedSize()
+    }
+
+    /// The removable filter chips and one-tap suggestions for the duplicate search, shown as a second
+    /// toolbar row beneath the summary so the compact field itself stays single-line. Right-aligned to
+    /// sit under the field. Renders nothing until there's a chip or the field holds the caret.
+    @ViewBuilder
+    private var dupSearchAccessories: some View {
+        let chips = DuplicateSearch.chips(dupSearchText)
+        if !chips.isEmpty || dupSearchFocused {
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
+                ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                    HStack(spacing: 4) {
+                        Text(chip.label)
+                            .font(.caption.monospaced())
+                        Button {
+                            dupSearchText = DuplicateSearch.removing(dupSearchText, word: chip.raw)
+                        } label: {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove filter \(chip.label)")
+                    }
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 2)
+                    .foregroundStyle(glassHue.accentColor)
+                    .background(Capsule().fill(glassHue.accentColor.opacity(0.16)))
+                    .overlay(Capsule().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.5))
+                }
+                if dupSearchFocused {
+                    dupSuggestions(active: chips)
+                }
+            }
+        }
+    }
+
+    /// One-tap filter suggestions, appended to the field. Omits a family already active (kind and the
+    /// size floor are each single-valued, so a second just replaces the first).
+    @ViewBuilder
+    private func dupSuggestions(active: [DuplicateSearch.Chip]) -> some View {
+        let suggestions = dupSuggestionList(active: active)
+        if !suggestions.isEmpty {
+            Text("Add filter")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize()
+            ForEach(suggestions, id: \.raw) { suggestion in
+                Button {
+                    // Trim first so appending never leaves a double space when the field already ends
+                    // in whitespace.
+                    let base = dupSearchText.trimmingCharacters(in: .whitespaces)
+                    dupSearchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
+                } label: {
+                    Text(suggestion.label)
+                        .font(.caption2)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(.quaternary.opacity(0.6)))
+                        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private static let dupSuggestionCandidates: [(label: String, raw: String)] = [
+        ("PDFs", "kind:pdf"),
+        ("Images", "kind:jpg"),
+        ("> 10 MB", ">10mb"),
+    ]
+
+    private func dupSuggestionList(active: [DuplicateSearch.Chip]) -> [(label: String, raw: String)] {
+        let hasKind = active.contains { $0.raw.lowercased().hasPrefix("kind:") }
+        let hasFloor = active.contains { $0.raw.hasPrefix(">") }
+        return Self.dupSuggestionCandidates.filter { candidate in
+            if candidate.raw.hasPrefix("kind:") { return !hasKind }
+            if candidate.raw.hasPrefix(">") { return !hasFloor }
+            return true
+        }
     }
 
     /// Credits a completed resolve to the session tally and flashes the reclaim pill (H5). Called only
