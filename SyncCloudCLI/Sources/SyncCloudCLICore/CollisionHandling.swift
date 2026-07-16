@@ -46,14 +46,20 @@ public enum SkipReason: Equatable, Sendable {
     case nameViolation
 }
 
-/// One skipped item: the path plus why it was skipped.
+/// One skipped item: the path, why it was skipped, and — for name-rule skips — the specific
+/// rule that rejected it (e.g. "Dropbox doesn't allow names ending with a space."), so the
+/// stdout summary can name each file's reason inline instead of pointing at stderr.
 public struct SkippedItem: Equatable, Sendable {
     public let relativePath: String
     public let reason: SkipReason
+    /// The per-file explanation, when the skip site has one (name-violation skips do; plain
+    /// collision skips don't — their cause is fully described by the section heading).
+    public let detail: String?
 
-    public init(relativePath: String, reason: SkipReason) {
+    public init(relativePath: String, reason: SkipReason, detail: String? = nil) {
         self.relativePath = relativePath
         self.reason = reason
+        self.detail = detail
     }
 }
 
@@ -77,8 +83,8 @@ public struct SyncTally: Equatable, Sendable {
         if replacedExisting { replaced += 1 }
     }
     public mutating func recordFailed() { failed += 1 }
-    public mutating func recordSkipped(relativePath: String, reason: SkipReason) {
-        skippedItems.append(SkippedItem(relativePath: relativePath, reason: reason))
+    public mutating func recordSkipped(relativePath: String, reason: SkipReason, detail: String? = nil) {
+        skippedItems.append(SkippedItem(relativePath: relativePath, reason: reason, detail: detail))
     }
 }
 
@@ -107,11 +113,15 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     }
     let nameSkips = tally.skippedItems.filter { $0.reason == .nameViolation }
     if !nameSkips.isEmpty {
-        // The per-file "Skipping <path>: <rule> …" lines are printed by the sync loop as it
-        // goes — on STDERR. This summary lands on stdout, so "reasons above" was wrong for
-        // anyone piping or redirecting one of the streams; point at stderr explicitly.
-        out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider; per-file reasons on stderr):")
-        out.append(contentsOf: nameSkips.map { "  \($0.relativePath)" })
+        // Each file's reason is threaded from the skip site into the tally and printed inline
+        // (`path — reason`), so the stdout summary stands alone even when stderr is redirected
+        // away. The per-file "Skipping <path>: …" stderr lines are still emitted by the sync
+        // loop as it goes. A missing detail (defensive: no current caller omits it) falls back
+        // to the bare path, described by the heading.
+        out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider):")
+        out.append(contentsOf: nameSkips.map { item in
+            "  \(item.relativePath)\(item.detail.map { " — \($0)" } ?? "")"
+        })
     }
     var err: [String] = []
     if tally.failed > 0 {

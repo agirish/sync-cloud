@@ -316,7 +316,10 @@ struct SyncFiles: AsyncParsableCommand {
             let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
             if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
                 fputs("Skipping \(diff.relativePath): \(violation.reason) \(targetProvider.displayName) would not upload it.\n", stderr)
-                tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation)
+                // Carry the rule text into the tally so the stdout summary can list
+                // "path — reason" inline (the stderr line above scrolls away / can be redirected).
+                tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation,
+                                    detail: violation.reason)
                 continue
             }
 

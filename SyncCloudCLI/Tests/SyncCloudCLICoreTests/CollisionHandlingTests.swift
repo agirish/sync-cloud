@@ -28,7 +28,8 @@ import Testing
         tally.recordCopied()
         tally.recordCopied(replacedExisting: true)
         tally.recordSkipped(relativePath: "a.txt", reason: .collision)
-        tally.recordSkipped(relativePath: "b/c.txt", reason: .nameViolation)
+        tally.recordSkipped(relativePath: "b/c.txt", reason: .nameViolation,
+                            detail: "Dropbox doesn't allow names ending with a space.")
         tally.recordFailed()
 
         #expect(tally.copied == 2)
@@ -38,7 +39,8 @@ import Testing
         #expect(tally.skippedPaths == ["a.txt", "b/c.txt"])
         #expect(tally.skippedItems == [
             SkippedItem(relativePath: "a.txt", reason: .collision),
-            SkippedItem(relativePath: "b/c.txt", reason: .nameViolation),
+            SkippedItem(relativePath: "b/c.txt", reason: .nameViolation,
+                        detail: "Dropbox doesn't allow names ending with a space."),
         ])
     }
 }
@@ -47,12 +49,14 @@ import Testing
 
     private func tally(
         copied: Int = 0, replaced: Int = 0, skipped: [String] = [],
-        nameSkipped: [String] = [], failed: Int = 0
+        nameSkipped: [(path: String, detail: String?)] = [], failed: Int = 0
     ) -> SyncTally {
         var t = SyncTally()
         for i in 0..<copied { t.recordCopied(replacedExisting: i < replaced) }
         for path in skipped { t.recordSkipped(relativePath: path, reason: .collision) }
-        for path in nameSkipped { t.recordSkipped(relativePath: path, reason: .nameViolation) }
+        for item in nameSkipped {
+            t.recordSkipped(relativePath: item.path, reason: .nameViolation, detail: item.detail)
+        }
         for _ in 0..<failed { t.recordFailed() }
         return t
     }
@@ -87,14 +91,19 @@ import Testing
 
     @Test func testNameViolationSkipsReportedSeparatelyFromCollisions() {
         // Both skipping paths in one run: the summary must attribute each cause truthfully,
-        // not lump name-rule skips under the collision wording.
-        let s = syncSummary(tally: tally(skipped: ["kept.txt"], nameSkipped: ["Swimming "]), strategy: .skip)
+        // not lump name-rule skips under the collision wording — and each name skip carries
+        // its own rule inline, so stdout stands alone even with stderr redirected away.
+        let s = syncSummary(
+            tally: tally(skipped: ["kept.txt"],
+                         nameSkipped: [("Swimming ", "Dropbox doesn't allow names ending with a space.")]),
+            strategy: .skip
+        )
         #expect(s.stdoutLines.contains(
             "Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
         #expect(s.stdoutLines.contains("  kept.txt"))
         #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (name not allowed by the destination provider; per-file reasons on stderr):"))
-        #expect(s.stdoutLines.contains("  Swimming "))
+            "Skipped 1 file(s) (name not allowed by the destination provider):"))
+        #expect(s.stdoutLines.contains("  Swimming  — Dropbox doesn't allow names ending with a space."))
         #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
         #expect(!s.exitNonzero)
     }
@@ -102,10 +111,22 @@ import Testing
     @Test func testNameViolationSkipsUnderReplaceStrategyDoNotClaimCollision() {
         // Under --strategy replace, the only skips are name-rule skips; the collision
         // wording ("destination already existed") must not appear at all.
-        let s = syncSummary(tally: tally(copied: 2, nameSkipped: ["a b "]), strategy: .replace)
+        let s = syncSummary(
+            tally: tally(copied: 2, nameSkipped: [("a b ", "OneDrive doesn't allow names beginning or ending with a space.")]),
+            strategy: .replace
+        )
         #expect(!s.stdoutLines.joined().contains("destination already existed"))
         #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (name not allowed by the destination provider; per-file reasons on stderr):"))
+            "Skipped 1 file(s) (name not allowed by the destination provider):"))
+        #expect(s.stdoutLines.contains("  a b  — OneDrive doesn't allow names beginning or ending with a space."))
+    }
+
+    @Test func testNameViolationSkipWithoutDetailFallsBackToTheBarePath() {
+        // Defensive: no current caller omits the detail, but a missing one must degrade to the
+        // old bare-path line, never print a dangling " — ".
+        let s = syncSummary(tally: tally(nameSkipped: [("Swimming ", nil)]), strategy: .replace)
+        #expect(s.stdoutLines.contains("  Swimming "))
+        #expect(!s.stdoutLines.joined().contains(" — "))
     }
 
     @Test func testNoSkipExplanationWhenNothingSkipped() {
@@ -117,12 +138,15 @@ import Testing
     /// sync directions updating existing destinations), a collision skip, a name-violation skip,
     /// AND a failure at once. Pins the exact line order and the per-reason skip headings as one
     /// block: round 4's 8228e27 split the skip reporting by cause (collision vs name rule), and
-    /// this flips if any heading, count, item indent, ordering, or the stdout/stderr split drifts.
+    /// round 5 threaded each name skip's rule inline ("path — reason") so the stdout summary
+    /// stands alone. This flips if any heading, count, item indent, inline reason, ordering, or
+    /// the stdout/stderr split drifts.
     @Test func testMixedRunSummarySnapshot() {
         let s = syncSummary(
             tally: tally(copied: 3, replaced: 2,
                          skipped: ["kept.txt", "docs/old.txt"],
-                         nameSkipped: ["Swimming ", "docs/.CON/x.txt"],
+                         nameSkipped: [("Swimming ", "Dropbox doesn't allow names ending with a space."),
+                                       ("docs/CON.txt/x.txt", "\"CON\" is a reserved name on OneDrive.")],
                          failed: 1),
             strategy: .skip
         )
@@ -132,9 +156,9 @@ import Testing
             "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):",
             "  kept.txt",
             "  docs/old.txt",
-            "Skipped 2 file(s) (name not allowed by the destination provider; per-file reasons on stderr):",
-            "  Swimming ",
-            "  docs/.CON/x.txt",
+            "Skipped 2 file(s) (name not allowed by the destination provider):",
+            "  Swimming  — Dropbox doesn't allow names ending with a space.",
+            "  docs/CON.txt/x.txt — \"CON\" is a reserved name on OneDrive.",
         ])
         #expect(s.stderrLines == ["1 file(s) failed to sync (errors above); exiting with a non-zero status."])
         #expect(s.exitNonzero)
