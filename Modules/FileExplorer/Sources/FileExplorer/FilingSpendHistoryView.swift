@@ -73,14 +73,14 @@ struct FilingSpendHistoryView: View {
                 Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                     .font(.system(size: 12))
                 Text("\(FilingSpendFormat.model(entry.model)) · \(entry.fileCount) files · placed \(entry.placedCount)")
-                    .font(.system(size: 10.5)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(FilingSpendFormat.cost(entry.estimatedCostUSD))
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 Text(FilingSpendFormat.tokens(entry.totalTokens))
-                    .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)

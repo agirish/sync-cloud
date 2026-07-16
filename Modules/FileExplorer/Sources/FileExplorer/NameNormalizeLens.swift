@@ -190,7 +190,7 @@ private struct RiskyNameCard: View {
         let parent = (risky.relativePath as NSString).deletingLastPathComponent
         let kind = risky.isDirectory ? "folder" : "file"
         return Text(parent.isEmpty ? "\(kind) at the scan root" : "\(kind) in \(parent)")
-            .font(.system(size: 10.5, design: .monospaced))
+            .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
             .lineLimit(1).truncationMode(.middle)
     }
@@ -203,7 +203,7 @@ private struct RiskyNameCard: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.tertiary)
             Text(risky.sanitizedName)
-                .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(Color.green)
                 .lineLimit(1).truncationMode(.middle)
         }
@@ -261,7 +261,7 @@ private struct InvisibleMarkedName: View {
                 segment(for: scalar, isEdge: idx == 0 || idx == scalars.count - 1)
             }
         }
-        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+        .font(.system(size: 12, weight: .medium, design: .monospaced))
         .lineLimit(1)
     }
 

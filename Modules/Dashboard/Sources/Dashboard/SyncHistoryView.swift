@@ -92,7 +92,7 @@ public struct SyncHistoryView: View {
     private func toolbar(filtered: [SyncHistoryRecord]) -> some View {
         HStack(spacing: 10) {
             Text("Sync History")
-                .font(.headline.weight(.semibold))
+                .font(.headline)
             Spacer()
 
             Picker("Action", selection: $selectedAction) {

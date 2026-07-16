@@ -182,7 +182,7 @@ struct AutomationRuleEditor: View {
 
             if rows.isEmpty {
                 Text("Add at least one condition — all on-device.")
-                    .font(.system(size: 11.5)).foregroundStyle(.tertiary)
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
                     .padding(.vertical, 4)
             } else {
                 ForEach($rows) { $row in
@@ -241,7 +241,7 @@ struct AutomationRuleEditor: View {
         case .nameMatches:
             TextField("*.pdf", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
         case .contentContains:
             TextField("invoice", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
@@ -252,7 +252,7 @@ struct AutomationRuleEditor: View {
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
-                        .font(.system(size: 10.5)).foregroundStyle(.orange)
+                        .font(.system(size: 11)).foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -265,13 +265,13 @@ struct AutomationRuleEditor: View {
             HStack(spacing: 5) {
                 TextField("100", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
-                Text("MB").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("MB").font(.system(size: 11)).foregroundStyle(.secondary)
             }
         case .untouchedForDays:
             HStack(spacing: 5) {
                 TextField("365", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
-                Text("days").font(.system(size: 11.5)).foregroundStyle(.secondary)
+                Text("days").font(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }

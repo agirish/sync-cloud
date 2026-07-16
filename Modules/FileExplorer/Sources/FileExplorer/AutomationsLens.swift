@@ -344,10 +344,10 @@ public struct AutomationsLens: View {
     private func ruleGroupHeader(_ group: RuleGroup) -> some View {
         HStack(spacing: 7) {
             Image(systemName: AutomationsGlyph.lens)
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(accent)
             Text(group.name.isEmpty ? "Untitled rule" : group.name)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
             Text("\(group.rows.count)")
                 .font(PillVariant.mini.numberFont).monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -361,7 +361,7 @@ public struct AutomationsLens: View {
         HStack(spacing: 8) {
             Image(systemName: "eye.circle.fill").foregroundStyle(accent)
             Text("A preview — nothing has moved yet. “File …” walks you through the matches.")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
@@ -413,13 +413,13 @@ public struct AutomationsLens: View {
                 Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
                     .resizable().frame(width: 44, height: 44)
                 Text(row.fileName)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.forward").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
                     Image(systemName: "folder.fill").font(.system(size: 11)).foregroundStyle(accent)
                     Text(row.destinationLabel ?? "its destination")
-                        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(accent)
                         .lineLimit(1).truncationMode(.middle)
                 }
@@ -570,11 +570,11 @@ private struct AutomationRuleCard: View {
     private var nameRow: some View {
         HStack(spacing: 6) {
             Text(rule.name.isEmpty ? "Untitled rule" : rule.name)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(rule.enabled ? .primary : .secondary)
             if !rule.isRunnable {
                 Text("incomplete")
-                    .font(.system(size: 9.5, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.orange)
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule().fill(Color.orange.opacity(0.15)))
@@ -629,8 +629,8 @@ private struct ConditionChip: View {
     let text: String
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 9.5, weight: .semibold))
-            Text(text).font(.system(size: 10.5, weight: .medium))
+            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
+            Text(text).font(.system(size: 11, weight: .medium))
                 .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 320, alignment: .leading)
@@ -648,10 +648,10 @@ private struct DestinationPill: View {
     let accent: Color
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.forward").font(.system(size: 8.5, weight: .bold))
+            Image(systemName: "arrow.forward").font(.system(size: 9, weight: .bold))
             Image(systemName: "folder.fill").font(.system(size: 9))
             Text(template.isEmpty ? "set a destination" : template)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1).truncationMode(.middle)
         }
         .foregroundStyle(template.isEmpty ? Color.secondary : accent)
@@ -680,7 +680,7 @@ private struct AutomationDryRunRowView: View {
                 .resizable().frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.fileName)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 detail
             }

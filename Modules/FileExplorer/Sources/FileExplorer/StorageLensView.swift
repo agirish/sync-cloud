@@ -387,7 +387,7 @@ private struct StorageEntryRow: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 // The folder + age line is the secondary detail compact hides (D4); the name and

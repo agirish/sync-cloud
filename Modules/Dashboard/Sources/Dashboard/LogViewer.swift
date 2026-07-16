@@ -211,7 +211,7 @@ public struct LogViewer: View {
             // Toolbar Area
             HStack {
                 Text("Activity Log")
-                    .font(.headline.weight(.semibold))
+                    .font(.headline)
                 Spacer()
 
                 Button(action: { copyVisibleEntries(filtered) }) {
@@ -635,7 +635,7 @@ private struct LogDayHeader: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.bold))
+            .font(.caption2.weight(.semibold))
             .textCase(.uppercase)
             .kerning(0.4)
             .foregroundStyle(.secondary)

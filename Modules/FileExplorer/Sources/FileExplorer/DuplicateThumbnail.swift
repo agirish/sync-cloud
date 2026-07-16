@@ -108,7 +108,7 @@ struct DuplicateThumbnailView: View {
             .zIndex(isHovering ? 1 : 0)
 
             Text(isKeeper ? "keeper" : "duplicate")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(isKeeper ? AnyShapeStyle(.green) : AnyShapeStyle(.tertiary))
         }
         .onHover { hovering in

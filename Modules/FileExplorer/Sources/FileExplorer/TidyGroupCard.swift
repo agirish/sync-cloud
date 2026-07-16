@@ -193,11 +193,11 @@ struct TidyGroupCard: View {
                 .frame(width: 54, height: 54 * 1.2)
                 .overlay(
                     Text("+\(count)")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
                 )
             Text("more")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -211,7 +211,7 @@ struct TidyGroupCard: View {
                 // fate chip and breadcrumb still carry what happens to the copy and where it is.
                 if densityMetrics.showsSecondaryDetail {
                     Text(metaLine(copy))
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
             }

@@ -496,8 +496,10 @@ struct HelpView: View {
                     }
                     ForEach(results, id: \.title) { section in
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(section.title.uppercased())
+                            Text(section.title)
                                 .font(.caption2.weight(.semibold))
+                                .textCase(.uppercase)
+                                .kerning(0.4)
                                 .foregroundStyle(.tertiary)
                                 .padding(.horizontal, 12)
                                 .padding(.bottom, 2)
@@ -603,8 +605,10 @@ struct HelpArticleView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
                 if let sectionTitle {
-                    Text(sectionTitle.uppercased())
-                        .font(.caption.weight(.semibold))
+                    Text(sectionTitle)
+                        .font(.caption2.weight(.semibold))
+                        .textCase(.uppercase)
+                        .kerning(0.4)
                         .foregroundStyle(Color.accentColor)
                 }
                 Text(topic.title)
@@ -693,8 +697,10 @@ struct HelpArticleView: View {
 
     private var relatedChips: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("RELATED")
+            Text("Related")
                 .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+                .kerning(0.4)
                 .foregroundStyle(.tertiary)
             FlexibleChips(ids: topic.article.related, onSelect: onSelectRelated)
         }

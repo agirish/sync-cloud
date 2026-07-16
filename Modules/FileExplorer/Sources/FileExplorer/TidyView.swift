@@ -974,7 +974,7 @@ public struct TidyView: View {
         HStack(spacing: 8) {
             ConfidenceMeter(tier: section.tier)
             Text(section.tier.title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(section.suggestions.count.formatted())
                 .font(.system(size: 11, weight: .semibold))

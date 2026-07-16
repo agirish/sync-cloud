@@ -66,7 +66,7 @@ struct FilingSuggestionCard: View {
     private var sourceRow: some View {
         let parent = ((suggestion.filePath as NSString).deletingLastPathComponent as NSString).lastPathComponent
         return Text("from \(parent) · \(FileSyncManager.formatBytes(suggestion.size))")
-            .font(.system(size: 10.5, design: .monospaced))
+            .font(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
     }
 
@@ -78,7 +78,7 @@ struct FilingSuggestionCard: View {
             breadcrumb(dest)
             if let peek = destinationPeekLabel(dest) {
                 Text("· \(peek)")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .help("Files already in the destination folder")

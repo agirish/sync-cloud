@@ -76,7 +76,7 @@ public struct PaneHeader: View {
                         Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .semibold))
                     }
                 }
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(tint.opacity(freshness.isStale ? 0.14 : 0.1), in: Capsule())

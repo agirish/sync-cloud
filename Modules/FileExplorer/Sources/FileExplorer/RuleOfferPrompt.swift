@@ -56,11 +56,11 @@ struct RememberOverridePromptView: View {
         let folderName = (prompt.destinationPath as NSString).lastPathComponent
         return HStack(spacing: 10) {
             Image(systemName: "memories")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(accent)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Remember this for files like “\(prompt.fileName)”?")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 Text("File future matches into “\(folderName)” automatically — you’ll review it next; manage it anytime under Automations.")
                     .font(.system(size: 11))
@@ -101,11 +101,11 @@ struct RuleOfferPromptView: View {
         let conditions = [offer.proposal.defaultCondition] + offer.proposal.alternatives
         return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "wand.and.stars")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(accent)
             VStack(alignment: .leading, spacing: 6) {
                 Text("Filed “\(offer.fileName)” → \(offer.proposal.destinationTemplate). Save a rule?")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(2).truncationMode(.middle)
                 HStack(spacing: 6) {
                     Text("Match:").font(.system(size: 11)).foregroundStyle(.secondary)
@@ -113,7 +113,7 @@ struct RuleOfferPromptView: View {
                         let on = (conditionChoice == condition)
                         Button { conditionChoice = condition } label: {
                             Text(condition.summary)
-                                .font(.system(size: 10.5, weight: on ? .semibold : .regular))
+                                .font(.system(size: 11, weight: on ? .semibold : .regular))
                                 .padding(.horizontal, 8).padding(.vertical, 2)
                                 .background(Capsule().fill(on ? accent.opacity(0.18) : Color.primary.opacity(0.05)))
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
