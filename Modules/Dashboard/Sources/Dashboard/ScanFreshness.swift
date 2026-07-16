@@ -18,16 +18,21 @@ enum ScanFreshness {
 
     /// Coarse, glanceable buckets — "just now", minutes, hours, days. Deliberately not second-precise
     /// (the pill answers "is this fresh?", not "exactly how old?").
+    ///
+    /// Units FLOOR rather than round, so "N <unit> ago" always means at least N of that unit has
+    /// elapsed and a label can never contradict the next coarser one. Rounding produced seam
+    /// artifacts: "Scanned 60m ago" at 3570–3599s (an hour that isn't "1h"), "24h ago" just shy of
+    /// a day, and a "1m → 2m" jump at 89→90s when only 1.5 minutes had passed.
     static func relative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         switch s {
         case ..<45: return "just now"
-        case ..<90: return "1m ago"
-        case ..<3600: return "\(Int((seconds / 60).rounded()))m ago"
-        case ..<5400: return "1h ago"
-        case ..<86_400: return "\(Int((seconds / 3600).rounded()))h ago"
+        case ..<120: return "1m ago"
+        case ..<3600: return "\(s / 60)m ago"           // 2m…59m; never "60m"
+        case ..<7200: return "1h ago"
+        case ..<86_400: return "\(s / 3600)h ago"       // 2h…23h; never "24h"
         default:
-            let days = Int((seconds / 86_400).rounded())
+            let days = s / 86_400
             return days <= 1 ? "1 day ago" : "\(days) days ago"
         }
     }
