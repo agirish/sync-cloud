@@ -728,7 +728,7 @@ struct AppearanceSettingsTab: View {
             } header: {
                 Text("List density")
             } footer: {
-                Text("Comfortable keeps the standard spacing. Compact tightens the rows in the Differences, Tidy, and Filing lists so more fits on screen.")
+                Text("Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, Compare, Tidy, Filing, and the Activity Log — so more fits on screen.")
             }
         }
         .formStyle(.grouped)

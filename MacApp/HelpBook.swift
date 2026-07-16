@@ -233,7 +233,7 @@ enum HelpBook {
                     .bullets([
                         "Content surface — Unified, Framed, or Solid panes.",
                         "Glass intensity and accent tint for the translucent surfaces.",
-                        "List density — comfortable or compact rows.",
+                        "List density — comfortable or compact rows across the file panes and lists.",
                     ]),
                 ],
                 related: ["providers"]

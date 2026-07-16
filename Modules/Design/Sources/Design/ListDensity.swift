@@ -34,7 +34,10 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
                 cardListSpacing: 10,
                 cardListPadding: 12,
                 tableMinRowHeight: nil,
-                showsSecondaryDetail: true
+                showsSecondaryDetail: true,
+                flatRowVerticalPadding: 6,
+                treeIconSize: 17,
+                logListSpacing: 6
             )
         case .compact:
             return ListDensityMetrics(
@@ -43,7 +46,10 @@ public enum ListDensity: String, CaseIterable, Identifiable, Sendable {
                 cardListSpacing: 6,
                 cardListPadding: 8,
                 tableMinRowHeight: 20,
-                showsSecondaryDetail: false
+                showsSecondaryDetail: false,
+                flatRowVerticalPadding: 2,
+                treeIconSize: 14,
+                logListSpacing: 2
             )
         }
     }
@@ -65,6 +71,12 @@ public struct ListDensityMetrics: Equatable, Sendable {
     public let tableMinRowHeight: CGFloat?
     /// Whether rows show their secondary size/date detail line; compact hides it.
     public let showsSecondaryDetail: Bool
+    /// Vertical padding of a flat list row (file rows, log rows, history rows).
+    public let flatRowVerticalPadding: CGFloat
+    /// Side of a file row's square icon frame.
+    public let treeIconSize: CGFloat
+    /// `LazyVStack` spacing in the log-style windows (Activity Log, Sync History).
+    public let logListSpacing: CGFloat
 }
 
 public extension View {

@@ -598,6 +598,13 @@ struct FileRowView: View {
     /// Bumped when a Download is requested for this file (see `.cloudDownloadRequested`), keying
     /// the short poll that clears the badge once the content lands.
     @State private var downloadWatchToken = 0
+    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
+    /// tightens the row and drops the secondary size/date detail.
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+
+    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    private var densityMetrics: ListDensityMetrics { density.metrics }
 
     /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
     /// scroll fast, so allocating a formatter per row body would still churn.
@@ -620,10 +627,10 @@ struct FileRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: density == .compact ? 8 : 10) {
             Image(nsImage: FileIconCache.icon(name: node.name, isDirectory: node.isDirectory))
                 .resizable()
-                .frame(width: 17, height: 17)
+                .frame(width: densityMetrics.treeIconSize, height: densityMetrics.treeIconSize)
             // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
             // have a pixel-identical sibling that is actually a different item.
             Text(NameDisplay.visibleName(node.name))
@@ -631,7 +638,7 @@ struct FileRowView: View {
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
-            if let secondaryText {
+            if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)
                     .font(.caption)
                     .monospacedDigit()
@@ -666,7 +673,7 @@ struct FileRowView: View {
                     .accessibilityLabel("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, densityMetrics.flatRowVerticalPadding)
         .contentShape(Rectangle())
         .task(id: node.id) {
             guard !node.isDirectory else { isCloudOnly = false; return }

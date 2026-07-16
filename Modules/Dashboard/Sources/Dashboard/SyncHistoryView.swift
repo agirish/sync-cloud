@@ -30,6 +30,13 @@ public struct SyncHistoryView: View {
     @State private var dateRange: DateRange = .all
     @State private var searchText: String = ""
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
+    /// tightens the row spacing so more history records fit on screen.
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+
+    private var densityMetrics: ListDensityMetrics {
+        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    }
 
     /// A coarse relative date window — enough for "what did I do recently" without a full date
     /// picker. Resolves to a lower bound at render time (upper bound is always "now").
@@ -169,7 +176,7 @@ public struct SyncHistoryView: View {
     @ViewBuilder
     private func list(filtered: [SyncHistoryRecord]) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 6) {
+            LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
                 ForEach(filtered) { record in
                     SyncHistoryRow(record: record)
                 }
@@ -236,6 +243,14 @@ public struct SyncHistoryView: View {
 /// time, the source→destination paths, and the size — kept honest and readable.
 private struct SyncHistoryRow: View {
     let record: SyncHistoryRecord
+    /// List-density setting (H7): comfortable keeps the two-line pill/meta-over-path layout
+    /// exactly; compact collapses to a single baseline row where the path middle-truncates
+    /// (it stays visible — the path IS the record).
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+
+    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    private var densityMetrics: ListDensityMetrics { density.metrics }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -245,53 +260,104 @@ private struct SyncHistoryRow: View {
                 .frame(width: 18)
                 .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(record.action.label)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(actionColor)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(actionColor.opacity(0.15))
-                        .clipShape(Capsule())
+            if density == .compact {
+                // One baseline row: pill, path (middle-truncating, never hidden), then the
+                // time/size meta pinned readable at the trailing edge.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    actionPill
 
                     if let direction = record.direction {
-                        Text(direction)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                        directionText(direction)
                     }
 
-                    Text(Self.timeString(record.timestamp))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    if let size = record.sizeBytes {
-                        Text(Self.sizeString(size))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                // Source → destination. A delete has no destination, so it shows the origin alone.
-                if let dest = record.destPath {
-                    HStack(spacing: 6) {
-                        Text(Self.displayPath(record.sourcePath))
-                        Image(systemName: "arrow.right")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Text(Self.displayPath(dest))
-                    }
-                    .font(.system(.subheadline, design: .monospaced))
-                    .textSelection(.enabled)
-                } else {
-                    Text(Self.displayPath(record.sourcePath))
+                    compactPathText
                         .font(.system(.subheadline, design: .monospaced))
                         .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    timeText
+                        .layoutPriority(1)
+
+                    if let size = record.sizeBytes {
+                        sizeText(size)
+                            .layoutPriority(1)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        actionPill
+
+                        if let direction = record.direction {
+                            directionText(direction)
+                        }
+
+                        timeText
+
+                        if let size = record.sizeBytes {
+                            sizeText(size)
+                        }
+                    }
+
+                    // Source → destination. A delete has no destination, so it shows the origin alone.
+                    if let dest = record.destPath {
+                        HStack(spacing: 6) {
+                            Text(Self.displayPath(record.sourcePath))
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text(Self.displayPath(dest))
+                        }
+                        .font(.system(.subheadline, design: .monospaced))
+                        .textSelection(.enabled)
+                    } else {
+                        Text(Self.displayPath(record.sourcePath))
+                            .font(.system(.subheadline, design: .monospaced))
+                            .textSelection(.enabled)
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, densityMetrics.flatRowVerticalPadding)
+    }
+
+    private var actionPill: some View {
+        Text(record.action.label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(actionColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(actionColor.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private func directionText(_ direction: String) -> some View {
+        Text(direction)
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(.secondary)
+    }
+
+    private var timeText: some View {
+        Text(Self.timeString(record.timestamp))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+    }
+
+    private func sizeText(_ size: Int) -> some View {
+        Text(Self.sizeString(size))
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+    }
+
+    /// The whole path as one `Text` (a "→" character instead of the comfortable layout's Image)
+    /// so compact's middle truncation applies across source and destination together.
+    private var compactPathText: Text {
+        if let dest = record.destPath {
+            return Text("\(Self.displayPath(record.sourcePath)) → \(Self.displayPath(dest))")
+        }
+        return Text(Self.displayPath(record.sourcePath))
     }
 
     private var actionColor: Color {

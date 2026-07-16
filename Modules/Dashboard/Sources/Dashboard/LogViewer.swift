@@ -94,6 +94,13 @@ public struct LogViewer: View {
     /// Compare's search.
     @FocusState private var searchFocused: Bool
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
+    /// tightens the row spacing so more log lines fit on screen.
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+
+    private var densityMetrics: ListDensityMetrics {
+        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    }
 
     /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first). nil until the
     /// user asks for history via "Show older history"; an empty array means the log holds nothing
@@ -276,7 +283,7 @@ public struct LogViewer: View {
             // Log List. The empty state renders in-flow (not as an overlay) so the "Show older
             // history" footer below it stays reachable even when this session logged nothing.
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 6) {
+                LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
                     if filtered.isEmpty && visibleHistory.isEmpty {
                         emptyState
                     } else {
@@ -531,7 +538,14 @@ public struct LogViewer: View {
 /// An atomic row view rendering a single LogEntry with color-coded severity icons.
 private struct LogEntryRow: View {
     let entry: LogEntry
-    
+    /// List-density setting (H7): comfortable keeps the two-line pill/time-over-message layout
+    /// exactly; compact collapses to a single truncating baseline row and drops the Location tail.
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+
+    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    private var densityMetrics: ListDensityMetrics { density.metrics }
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: entry.level.icon)
@@ -539,40 +553,62 @@ private struct LogEntryRow: View {
                 .foregroundStyle(entry.level.color)
                 .frame(width: 18)
                 .padding(.top, 2)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(entry.level.rawValue)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(entry.level.color)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(entry.level.color.opacity(0.15))
-                        .clipShape(Capsule())
-                    
-                    Text(timeString(from: entry.timestamp))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                
-                Text(entry.messageBody)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .textSelection(.enabled)
 
-                // The `Location: file:line / function` tail that warnings/errors carry is a
-                // developer breadcrumb, not the event — show it dimmed and smaller so the row
-                // reads as its message. Still selectable; the full line remains in the log file
-                // and in Copy.
-                if let location = entry.messageLocation {
-                    Text(location)
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.tertiary)
-                        .textSelection(.enabled)
+            if density == .compact {
+                // One baseline row: pill, time, then the message truncating — the scanning eye
+                // gets a column of aligned messages instead of two-line blocks.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    levelPill
+                    timeText
+                    messageText
+                        .lineLimit(1)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        levelPill
+                        timeText
+                    }
+
+                    messageText
+
+                    // The `Location: file:line / function` tail that warnings/errors carry is a
+                    // developer breadcrumb, not the event — show it dimmed and smaller so the row
+                    // reads as its message. Still selectable; the full line remains in the log file
+                    // and in Copy.
+                    if densityMetrics.showsSecondaryDetail, let location = entry.messageLocation {
+                        Text(location)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                    }
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, densityMetrics.flatRowVerticalPadding)
+    }
+
+    private var levelPill: some View {
+        Text(entry.level.rawValue)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(entry.level.color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(entry.level.color.opacity(0.15))
+            .clipShape(Capsule())
+    }
+
+    private var timeText: some View {
+        Text(timeString(from: entry.timestamp))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+    }
+
+    private var messageText: some View {
+        Text(entry.messageBody)
+            .font(.system(.subheadline, design: .monospaced))
+            .textSelection(.enabled)
     }
     
     private static let timeFormatter: DateFormatter = {

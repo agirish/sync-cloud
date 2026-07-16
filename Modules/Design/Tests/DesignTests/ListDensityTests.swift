@@ -47,6 +47,25 @@ import Foundation
         #expect(m.showsSecondaryDetail)
     }
 
+    @Test func comfortableFlatRowMetricsMatchThePreDensityConstants() {
+        // These are the literals the flat lists used before density reached them (file rows /
+        // log rows / history rows padding 6, file-row icon 17, log-window LazyVStack spacing 6).
+        // Comfortable must stay pixel-identical to that look.
+        let m = ListDensity.comfortable.metrics
+        #expect(m.flatRowVerticalPadding == 6)
+        #expect(m.treeIconSize == 17)
+        #expect(m.logListSpacing == 6)
+    }
+
+    @Test func compactFlatRowMetricsArePinned() {
+        // Pinned, not just "smaller": these numbers are the compact design (row padding 2,
+        // icon 14, log spacing 2) — a drive-by tweak should have to touch this test.
+        let m = ListDensity.compact.metrics
+        #expect(m.flatRowVerticalPadding == 2)
+        #expect(m.treeIconSize == 14)
+        #expect(m.logListSpacing == 2)
+    }
+
     @Test func compactIsStrictlyTighterThanComfortable() {
         let compact = ListDensity.compact.metrics
         let comfortable = ListDensity.comfortable.metrics
@@ -56,6 +75,9 @@ import Foundation
         #expect(compact.cardListPadding < comfortable.cardListPadding)
         #expect(compact.tableMinRowHeight != nil)
         #expect(!compact.showsSecondaryDetail)
+        #expect(compact.flatRowVerticalPadding < comfortable.flatRowVerticalPadding)
+        #expect(compact.treeIconSize < comfortable.treeIconSize)
+        #expect(compact.logListSpacing < comfortable.logListSpacing)
     }
 
     @Test func compactPaddingsStayUsable() {
