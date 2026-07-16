@@ -106,10 +106,6 @@ extension ContentView {
         GeometryReader { geo in
             let totalHeight = geo.size.height
             switch contentLayout {
-            case .compareWorkspaceOnly:
-                // Comparison tab with its panes hidden: the workspace fills the content area.
-                bottomPaneView
-                    .frame(width: geo.size.width, height: totalHeight)
             case .compareSplit:
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150

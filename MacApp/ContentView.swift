@@ -524,10 +524,6 @@ struct ContentView: View {
     enum ContentLayout {
         /// Compare: panes over workspace.
         case compareSplit
-        /// Compare: only the workspace (the panes hidden). No UI triggers this today — the compare
-        /// pane/workspace toggles were removed (you resize with the divider) — but it's kept as the
-        /// honest counterpart to the single-source collapse, should compare-pane hiding return.
-        case compareWorkspaceOnly
         /// Single source: the source rail expanded beside the workspace.
         case singleExpanded
         /// Single source: the source rail collapsed to a spine beside the workspace.
@@ -551,10 +547,10 @@ struct ContentView: View {
     var contentLayout: ContentLayout {
         switch layoutMode {
         case .compare:
-            // The comparison panes and the workspace are both always shown now (their toggles were
-            // removed — you resize with the divider instead), so compare is `.compareSplit` unless a
-            // stored override hides the panes, which no current control writes.
-            return panesHiddenForCurrentTab ? .compareWorkspaceOnly : .compareSplit
+            // The comparison panes and the workspace are both always shown (their toggles were
+            // removed — you resize with the divider instead; no current control writes a hidden
+            // override for a compare tab), so compare is always the split.
+            return .compareSplit
         case .singleSource:
             // The single-source workspace is always shown; only the rail collapses.
             return panesHiddenForCurrentTab ? .singleCollapsed : .singleExpanded
