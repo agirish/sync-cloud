@@ -11,10 +11,49 @@ import Design
 public class FileActionHandler {
     private let syncManager: FileSyncManager
     private let settings: SettingsManager
-    
-    public init(syncManager: FileSyncManager, settings: SettingsManager) {
+    /// Read for the "Confirm before deleting" flag; injectable so tests don't mutate `.standard`.
+    private let defaults: UserDefaults
+    /// Runs an AppleScript source, returning the error dictionary on failure (nil on success).
+    /// Injectable so tests can capture the script instead of driving the real Finder.
+    private let appleScriptRunner: (String) -> NSDictionary?
+    /// The modal prompts and confirmation behind rename / new-folder / delete. They default to
+    /// the real `NativeAlerts`; tests substitute closures because the real ones block on NSAlert.
+    private let renamePrompter: (_ currentName: String, _ validate: (String) -> String?) -> String?
+    private let newFolderPrompter: (_ validate: (String) -> String?) -> String?
+    private let deleteConfirmer: (_ itemNames: [String]) -> Bool
+
+    public init(
+        syncManager: FileSyncManager,
+        settings: SettingsManager,
+        defaults: UserDefaults = .standard,
+        appleScriptRunner: ((String) -> NSDictionary?)? = nil,
+        renamePrompter: @escaping (_ currentName: String, _ validate: (String) -> String?) -> String? =
+            { NativeAlerts.promptForRename(currentName: $0, validate: $1) },
+        newFolderPrompter: @escaping (_ validate: (String) -> String?) -> String? =
+            { NativeAlerts.promptForNewFolder(validate: $0) },
+        deleteConfirmer: @escaping (_ itemNames: [String]) -> Bool =
+            { NativeAlerts.confirmDelete(for: $0) }
+    ) {
         self.syncManager = syncManager
         self.settings = settings
+        self.defaults = defaults
+        // nil → the real NSAppleScript runner (an internal symbol can't appear as a public
+        // init's default argument directly).
+        self.appleScriptRunner = appleScriptRunner ?? Self.executeAppleScript
+        self.renamePrompter = renamePrompter
+        self.newFolderPrompter = newFolderPrompter
+        self.deleteConfirmer = deleteConfirmer
+    }
+
+    /// The production AppleScript runner behind `appleScriptRunner`: executes via `NSAppleScript`
+    /// and surfaces the error dictionary (nil when the script compiled and ran cleanly).
+    /// `nonisolated` only so it can be a default argument; `openGetInfo` still calls it on the
+    /// main actor, exactly like the pre-seam inline implementation.
+    nonisolated static func executeAppleScript(_ source: String) -> NSDictionary? {
+        guard let appleScript = NSAppleScript(source: source) else { return nil }
+        var error: NSDictionary?
+        appleScript.executeAndReturnError(&error)
+        return error
     }
     
     // MARK: - Navigation
@@ -74,14 +113,10 @@ public class FileActionHandler {
             open information window of (POSIX file "\(escapedPath)" as alias)
         end tell
         """
-        if let appleScript = NSAppleScript(source: script) {
-            var error: NSDictionary?
-            appleScript.executeAndReturnError(&error)
-            if let err = error {
-                // A failed Finder "Get Info" is a cosmetic dead-end (nothing is left in a bad
-                // state), so it's a warning, not an app-level error.
-                Logger.shared.warning("Failed to open Get Info: \(err)")
-            }
+        if let err = appleScriptRunner(script) {
+            // A failed Finder "Get Info" is a cosmetic dead-end (nothing is left in a bad
+            // state), so it's a warning, not an app-level error.
+            Logger.shared.warning("Failed to open Get Info: \(err)")
         }
     }
     
@@ -252,7 +287,7 @@ public class FileActionHandler {
     // MARK: - Mutations
     
     public func beginRename(_ node: FileNode) {
-        if let newName = NativeAlerts.promptForRename(currentName: node.name, validate: FileSyncManager.validateItemName), newName != node.name {
+        if let newName = renamePrompter(node.name, FileSyncManager.validateItemName), newName != node.name {
             Logger.shared.info("User initiated rename of '\(node.name)' to '\(newName)'")
             Task {
                 await syncManager.renameItem(at: node.id, to: newName)
@@ -271,7 +306,7 @@ public class FileActionHandler {
                 message: "The pane's folder is no longer available. Rescan before continuing."))
             return
         }
-        if let folderName = NativeAlerts.promptForNewFolder(validate: FileSyncManager.validateItemName) {
+        if let folderName = newFolderPrompter(FileSyncManager.validateItemName) {
             Logger.shared.info("User initiated create folder: '\(folderName)'")
             Task {
                 await syncManager.createFolder(named: folderName, in: path)
@@ -283,8 +318,8 @@ public class FileActionHandler {
     /// "Confirm before deleting" setting off (items still go to the Trash and stay undoable;
     /// deletions that require a PERMANENT delete keep their own confirmation regardless).
     public func confirmDelete(_ nodes: [FileNode]) {
-        if GeneralSettings.shouldConfirmBeforeDelete() {
-            guard NativeAlerts.confirmDelete(for: nodes.map { $0.name }) else { return }
+        if GeneralSettings.shouldConfirmBeforeDelete(defaults) {
+            guard deleteConfirmer(nodes.map { $0.name }) else { return }
             Logger.shared.info("User confirmed deletion of \(nodes.count) items")
         } else {
             Logger.shared.info("User deleted \(nodes.count) items (confirmation disabled in Settings)")
