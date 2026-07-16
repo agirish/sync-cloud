@@ -26,6 +26,15 @@ public struct DifferencesView: View {
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
+    /// The filtered+sorted table rows, cached in state and rebuilt by `.task(id:)` off the main
+    /// actor (the DiffStatusIndex pattern): running the O(n) filter and the O(n log n)
+    /// localized-comparator sort inline in `body` re-ran both on EVERY re-render, and during a
+    /// bulk sync the view re-renders per published file. `DisplayInputs` keys the task, so a
+    /// re-render with unchanged inputs costs an (identity-fast-pathed) equality check instead.
+    @State private var displayRows = DisplayRows()
+    /// False until the first row computation lands: gates the "No differences" empty overlay so
+    /// the async first pass shows a briefly blank table, never a wrong "nothing here" flash.
+    @State private var hasComputedRows = false
     @State private var isSearchExpanded = false
     @FocusState private var searchFocused: Bool
     /// The review table's selection — doubles as the review cursor: advancing the session moves
@@ -80,15 +89,45 @@ public struct DifferencesView: View {
         ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
 
+    /// One filtered + one sorted snapshot of the visible rows (see `displayRows`).
+    private struct DisplayRows {
+        var filtered: [FileDifference] = []
+        var sorted: [FileDifference] = []
+    }
+
+    /// Everything that decides the visible rows, bundled as the `.task(id:)` key so the pass
+    /// recomputes exactly when one of them changes — including per-row mutations mid-bulk
+    /// (`isSyncing` flips republish `differences`, and array equality catches element changes;
+    /// an untouched array fast-paths on buffer identity). Review mode is an input too: entering
+    /// it empties the rows without running the pass (nothing renders from them there).
+    ///
+    /// @unchecked Sendable: every stored property is an immutable value snapshot that's safe to
+    /// hop to the detached compute (`FileDifference` is Sendable; `DifferenceFilter` and
+    /// `KeyPathComparator` are plain value types that merely lack the public conformance).
+    private struct DisplayInputs: Equatable, @unchecked Sendable {
+        var differences: [FileDifference]
+        var filter: DifferenceFilter
+        var searchText: String
+        var sortOrder: [KeyPathComparator<FileDifference>]
+        var isReviewing: Bool
+    }
+
+    private var displayInputs: DisplayInputs {
+        DisplayInputs(
+            differences: syncManager.differences,
+            filter: selectedFilter,
+            searchText: searchText,
+            sortOrder: sortOrder,
+            isReviewing: reviewStore.session != nil
+        )
+    }
+
     public var body: some View {
-        // Derive everything once per render: the header reads the target counts several times and
-        // this view re-renders per file during bulk sync. One O(n) filter+search pass, then an
-        // O(n log n) sort over the (much smaller, filtered) result to match the Table's sortOrder.
-        // Skipped outright in review mode: nothing renders from them there, and every review
-        // decision triggers a rescan whose republished list would re-run the pass per render.
-        let isReviewing = reviewStore.session != nil
-        let filtered = isReviewing ? [] : DifferencesQuery.filtered(syncManager.differences, filter: selectedFilter, searchText: searchText)
-        let sorted = isReviewing ? [] : filtered.sorted(using: sortOrder)
+        // The rows come from the state cache (rebuilt by the .task(id:) below), so a re-render
+        // whose inputs didn't change — and during bulk sync the view re-renders per published
+        // file — does no filtering or sorting work in body.
+        let filtered = displayRows.filtered
+        let sorted = displayRows.sorted
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
 
         return VStack(spacing: 8) {
@@ -168,6 +207,25 @@ public struct DifferencesView: View {
             if let current = reviewStore.session?.current {
                 reviewSelection = [current.id]
             }
+        }
+        // Rebuild the visible rows off the main actor whenever an input changes (and once on
+        // appear). task(id:) cancels a stale rebuild when the inputs change again mid-flight,
+        // and the isCancelled check keeps its result from landing over a newer one — the same
+        // shape as ContentView's DiffStatusIndex rebuild.
+        .task(id: displayInputs) {
+            let inputs = displayInputs
+            if inputs.isReviewing {
+                displayRows = DisplayRows()
+                hasComputedRows = true
+                return
+            }
+            let rows = await Task.detached(priority: .userInitiated) { () -> DisplayRows in
+                let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText)
+                return DisplayRows(filtered: filtered, sorted: filtered.sorted(using: inputs.sortOrder))
+            }.value
+            guard !Task.isCancelled else { return }
+            displayRows = rows
+            hasComputedRows = true
         }
         .confirmationDialog("Copy to Match Dates", isPresented: Binding(
             get: { syncManager.verifiedIdenticalForCopy != nil },
@@ -504,7 +562,9 @@ public struct DifferencesView: View {
             differenceContextMenu(for: ids, in: sorted)
         }
         .overlay {
-            if sorted.isEmpty {
+            // hasComputedRows: the rows land asynchronously (see the .task(id:) in body), so the
+            // first beat after mounting must show a blank table, not a wrong "No differences".
+            if sorted.isEmpty, hasComputedRows {
                 emptyState
             }
         }
