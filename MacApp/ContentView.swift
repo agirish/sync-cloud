@@ -100,7 +100,9 @@ struct ContentView: View {
     var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
-    private var glassHue: LiquidGlassHue {
+    // Not `private`: the split-layout extension (ContentView+SplitLayout.swift) paints its
+    // seam chrome (swap button, rail spine) with the same user-selected hue (C7).
+    var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
@@ -1430,7 +1432,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .medium))
                     // Accent-blue when the inspector is open; a normal enabled label (`.primary`)
                     // when closed. It used to render `.secondary`, which read as disabled/greyed.
-                    .foregroundStyle(showInspector ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.primary))
+                    .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
             }
             .buttonStyle(.borderless)
             .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")

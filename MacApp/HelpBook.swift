@@ -340,6 +340,9 @@ extension HelpBook.Topic {
 extension HelpBook.Mood {
     /// The concrete color for a legend icon — the same semantic vocabulary the differences list
     /// uses (accent = a copy direction, warning = a mismatch, danger = a conflict).
+    // Help stays on the system accent deliberately (C7): its accent flows through this non-View
+    // Mood table and the AccentLabelColor on-fill helper, so threading the glass hue isn't the
+    // trivial @AppStorage read the main-window sites get — and it's a standalone overlay surface.
     var color: Color {
         switch self {
         case .accent: return .accentColor

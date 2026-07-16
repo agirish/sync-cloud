@@ -48,7 +48,7 @@ extension ContentView {
                 Button(action: swapPanesAction) {
                     Image(systemName: "arrow.left.arrow.right")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(glassHue.accentColor)
                         .frame(width: 26, height: 26)
                         .background(.regularMaterial, in: Circle())
                         .overlay(Circle().strokeBorder(.quaternary, lineWidth: 0.5))
@@ -190,7 +190,7 @@ extension ContentView {
                     .foregroundStyle(.secondary)
                 Image(systemName: "cloud")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(glassHue.accentColor)
                 Spacer(minLength: 0)
             }
             .padding(.top, 12)

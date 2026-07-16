@@ -228,7 +228,7 @@ public struct FileTreeView: View {
         .overlay {
             if isBackgroundDropTargeted && backgroundDropAllowed {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 2)
+                    .strokeBorder(glassHue.accentColor, lineWidth: 2)
                     .padding(2)
                     .allowsHitTesting(false)
             }
@@ -378,13 +378,16 @@ private struct PaneDropTarget: ViewModifier {
 
     @ObservedObject private var dragSession = PaneDragSession.shared
     @State private var isTargeted = false
+    // Drop highlight reads the user-selected glass hue, like the rest of the main window (C7).
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     func body(content: Content) -> some View {
         let targetDirectoryPath = PaneDropLogic.dropTargetDirectory(forRowId: rowPath, isDirectory: rowIsDirectory)
         content
             .background {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.accentColor.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
+                    .fill(hueAccent.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
             }
             .dropDestination(for: PaneDragPayload.self) { payloads, _ in
                 guard let payload = payloads.first else { return false }

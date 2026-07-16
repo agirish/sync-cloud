@@ -323,6 +323,9 @@ private struct WelcomeArt: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var appeared = false
     @State private var breathe = false
+    // The welcome halo breathes in the user-selected glass hue, matching the app accent (C7).
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     private let providers = ["icloud", "googledrive", "dropbox", "onedrive"]
 
@@ -335,7 +338,7 @@ private struct WelcomeArt: View {
                 .background(
                     Circle()
                         .fill(RadialGradient(
-                            colors: [Color.accentColor.opacity(breathe ? 0.38 : 0.22), Color.accentColor.opacity(0)],
+                            colors: [hueAccent.opacity(breathe ? 0.38 : 0.22), hueAccent.opacity(0)],
                             center: .center, startRadius: 4, endRadius: 62))
                         .frame(width: 118, height: 118)
                         .scaleEffect(breathe ? 1.06 : 0.98)

@@ -37,6 +37,10 @@ struct PaneBreadcrumb: View {
     /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Shared
     /// across both panes' breadcrumbs by design: one setting, mirrored in each toggle.
     @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
+    // The link toggle's "on" tint reads the user-selected glass hue, like the rest of the
+    // main window (C7).
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     var body: some View {
         let crumbs = BreadcrumbTrail.crumbs(forRelativePath: relativePath)
@@ -101,7 +105,7 @@ struct PaneBreadcrumb: View {
         } label: {
             // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
             Image(systemName: PaneGlyph.linkBothPanes)
-                .foregroundColor(linkBothPanes ? .accentColor : .secondary)
+                .foregroundColor(linkBothPanes ? hueAccent : .secondary)
         }
         .buttonStyle(.plain)
         .help(linkBothPanes
