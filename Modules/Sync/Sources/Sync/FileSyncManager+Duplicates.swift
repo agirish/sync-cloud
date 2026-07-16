@@ -60,12 +60,7 @@ extension FileSyncManager {
     ///   - options: Detection tuning.
     /// Starts a cancellable Find Duplicates scan, replacing any in-flight one.
     public func startFindDuplicates(root: URL, options: DuplicateFinderOptions = .init()) {
-        let previous = duplicateScanTask
-        previous?.cancel()
-        duplicateScanTask = Task { [weak self] in
-            // Let the cancelled scan fully unwind (its defer clears isFindingDuplicates) before the
-            // new one runs, so findDuplicates' re-entrancy guard doesn't silently drop the restart.
-            _ = await previous?.value
+        duplicateScanTask = restartedScanTask(replacing: duplicateScanTask) { [weak self] in
             await self?.findDuplicates(root: root, options: options)
         }
     }
@@ -87,19 +82,14 @@ extension FileSyncManager {
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
-        isFindingDuplicates = true
-        duplicateScanStatus = "Scanning \(root.lastPathComponent)…"
+        let epoch = beginScan(\.duplicateScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
         duplicateScanProgress = nil   // walk phase — total unknown until candidates are counted
-        duplicateScanEpoch += 1
-        let epoch = duplicateScanEpoch
-        // hasFoundDuplicates is set only on completion (below), so a cancelled scan leaves the
+        // hasCompleted is set only on completion (below), so a cancelled scan leaves the
         // prior state intact rather than flashing an empty "no duplicates".
         defer {
-            // Bump the epoch so hashing-progress hops still in the main-actor queue can't
-            // republish status/numbers after this scan has ended (or into the next scan).
-            duplicateScanEpoch += 1
-            isFindingDuplicates = false
-            duplicateScanStatus = nil
+            // endScan bumps the epoch FIRST, so hashing-progress hops still in the main-actor
+            // queue can't republish status/numbers after this scan has ended (or into the next).
+            endScan(\.duplicateScanLifecycle)
             duplicateScanProgress = nil
         }
 
@@ -120,7 +110,8 @@ extension FileSyncManager {
             .map { $0.id }
 
         let total = candidatePaths.count
-        duplicateScanStatus = "Hashing \(total) candidate\(total == 1 ? "" : "s")…"
+        updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                   status: "Hashing \(total) candidate\(total == 1 ? "" : "s")…")
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
         let hashOutcome = await Self.hashFilesCounting(
             candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
@@ -128,8 +119,9 @@ extension FileSyncManager {
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
-                    guard let self, self.duplicateScanEpoch == epoch else { return }
-                    self.duplicateScanStatus = "Hashing \(done) of \(total)…"
+                    guard let self,
+                          self.updateScan(\.duplicateScanLifecycle, epoch: epoch,
+                                          status: "Hashing \(done) of \(total)…") else { return }
                     self.duplicateScanProgress = (completed: done, total: total)
                 }
             }
@@ -142,7 +134,7 @@ extension FileSyncManager {
         // We're back on the main actor with the epoch still current (and not cancelled, per
         // the guard above), so pin the bar to 100% before the grouping pass below.
         if total > 0 {
-            duplicateScanStatus = "Hashing \(total) of \(total)…"
+            updateScan(\.duplicateScanLifecycle, epoch: epoch, status: "Hashing \(total) of \(total)…")
             duplicateScanProgress = (completed: total, total: total)
         }
 
@@ -163,8 +155,7 @@ extension FileSyncManager {
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
-        duplicateScanRoot = root.path
-        hasFoundDuplicates = true
+        completeScan(\.duplicateScanLifecycle, root: root)
         let summary = duplicateSummary
         Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
         let skips = duplicateScanSkips

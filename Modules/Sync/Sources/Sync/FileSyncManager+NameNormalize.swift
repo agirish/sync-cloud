@@ -14,13 +14,8 @@ extension FileSyncManager {
     /// Starts a cancellable Name Normalizer scan of `root` for `provider`, replacing any in-flight
     /// one. `provider` is remembered so the "Fix all" pass can honor the same ruleset.
     public func startNameScan(root: URL, provider: CloudProvider.ProviderType) {
-        let previous = nameScanTask
-        previous?.cancel()
         nameScanProvider = provider
-        nameScanTask = Task { [weak self] in
-            // Let a cancelled scan fully unwind (its defer clears isScanningNames) before the new one
-            // runs, so scanNames' re-entrancy guard doesn't silently drop the restart.
-            _ = await previous?.value
+        nameScanTask = restartedScanTask(replacing: nameScanTask) { [weak self] in
             await self?.scanNames(root: root, provider: provider)
         }
     }
@@ -35,13 +30,11 @@ extension FileSyncManager {
     func scanNames(root: URL, provider: CloudProvider.ProviderType, fileManager fm: FileManaging? = nil) async {
         guard !isScanningNames else { return }
         let fileManager = fm ?? self.fileManager
-        isScanningNames = true
-        nameScanStatus = "Scanning \(root.lastPathComponent)…"
-        // hasScannedNames flips only on completion (below), so a cancelled scan leaves the prior
+        beginScan(\.nameScanLifecycle, status: "Scanning \(root.lastPathComponent)…")
+        // hasCompleted flips only on completion (below), so a cancelled scan leaves the prior
         // state intact rather than flashing an empty "no risky names".
         defer {
-            isScanningNames = false
-            nameScanStatus = ""
+            endScan(\.nameScanLifecycle)
         }
 
         let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
@@ -50,8 +43,8 @@ extension FileSyncManager {
         // tree, which on a large provider blocked the main actor for the full pass. Only the
         // @Published writes below happen back on the main actor. Staleness guard: a newer scan
         // cancels this task (startNameScan), so the isCancelled check after the hop keeps a
-        // stale result from landing after a newer scan started (the duplicate scan uses
-        // duplicateScanEpoch for the same job on its unstructured progress hops).
+        // stale result from landing after a newer scan started (the duplicate scan uses its
+        // lifecycle epoch for the same job on its unstructured progress hops).
         let risky = await Task.detached(priority: .userInitiated) {
             NameNormalizer.scan(nodes: tree, provider: provider)
         }.value
@@ -60,8 +53,7 @@ extension FileSyncManager {
         riskyNames = risky
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
-        nameScanRoot = root
-        hasScannedNames = true
+        completeScan(\.nameScanLifecycle, root: root)
         Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s)")
     }
 

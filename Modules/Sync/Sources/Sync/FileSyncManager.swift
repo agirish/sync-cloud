@@ -180,23 +180,41 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Tidy — in-provider duplicate finder (see FileSyncManager+Duplicates.swift)
 
+    /// The Find Duplicates scan lifecycle (see ``ScanLifecycle``). The legacy per-field property
+    /// names below forward onto it, so app-side call sites are unchanged.
+    @Published public internal(set) var duplicateScanLifecycle = ScanLifecycle()
     /// Duplicate/related groups from the most recent Find Duplicates scan of one provider.
     @Published public var duplicateGroups: [DuplicateGroup] = []
     /// The absolute root the current `duplicateGroups` were scanned from — captured at scan time so
     /// breadcrumbs stay correct even if the user navigates elsewhere afterward.
-    @Published public var duplicateScanRoot: String? = nil
+    public var duplicateScanRoot: String? {
+        get { duplicateScanLifecycle.root?.path }
+        set { duplicateScanLifecycle.root = newValue.map { URL(fileURLWithPath: $0) } }
+    }
     /// True while a Find Duplicates scan (walk + hash + group) is running.
-    @Published public var isFindingDuplicates = false
+    public var isFindingDuplicates: Bool {
+        get { duplicateScanLifecycle.isRunning }
+        set { duplicateScanLifecycle.isRunning = newValue }
+    }
     /// Human-readable progress for the running duplicate scan (e.g. "Hashing 340 candidates").
-    @Published public var duplicateScanStatus: String? = nil
+    public var duplicateScanStatus: String? {
+        get { duplicateScanLifecycle.status }
+        set { duplicateScanLifecycle.status = newValue }
+    }
     /// Numeric progress for the duplicate scan's hashing phase; nil during the walk phase (total
     /// unknown) and whenever no scan is running. Drives the determinate bar in Tidy.
+    ///
+    /// Deliberately NOT folded into ``duplicateScanLifecycle``: its projected publisher
+    /// (`$duplicateScanProgress`) — and its exact per-write emission cadence — is a tested
+    /// contract (the numeric-progress and epoch-guard pin tests subscribe to it), and a computed
+    /// forwarder has no projected value. It is the only lens with determinate progress; its
+    /// writes are epoch-gated alongside the lifecycle's status via `updateScan`.
     @Published public var duplicateScanProgress: (completed: Int, total: Int)? = nil
-    /// Bumped when a duplicate scan starts or ends, so main-actor progress hops scheduled by a
-    /// finished/cancelled scan drop themselves instead of republishing stale status or numbers.
-    var duplicateScanEpoch = 0
     /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
-    @Published public var hasFoundDuplicates = false
+    public var hasFoundDuplicates: Bool {
+        get { duplicateScanLifecycle.hasCompleted }
+        set { duplicateScanLifecycle.hasCompleted = newValue }
+    }
     /// Files the most recent duplicate scan could not content-verify — and among which identical
     /// copies therefore go undetected (see ``DuplicateScanSkips``). Set just before
     /// `duplicateGroups` publishes so observers of the results always read a matching value;
@@ -214,37 +232,68 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Storage Lens — read-only "where does my space go?" (see FileSyncManager+StorageLens.swift)
 
+    /// The Storage Lens build lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
+    @Published public internal(set) var storageLensLifecycle = ScanLifecycle()
     /// The most recent Storage Lens report (treemap + ranked lists) for one provider subtree.
     @Published public var storageLensReport: StorageLensReport?
     /// True while a Storage Lens build (walk + analyze) is running.
-    @Published public var isBuildingStorageLens = false
+    public var isBuildingStorageLens: Bool {
+        get { storageLensLifecycle.isRunning }
+        set { storageLensLifecycle.isRunning = newValue }
+    }
     /// The absolute root the current `storageLensReport` was built from — captured at build time so
     /// breadcrumbs stay correct even if the user navigates elsewhere afterward.
-    @Published public var storageLensRoot: URL?
+    public var storageLensRoot: URL? {
+        get { storageLensLifecycle.root }
+        set { storageLensLifecycle.root = newValue }
+    }
     /// True once a Storage Lens build has completed at least once (drives the intro-vs-report state).
-    @Published public var hasBuiltStorageLens = false
-    /// Human-readable progress for the running build (e.g. "Analyzing iCloud…").
-    @Published public var storageLensStatus = ""
+    public var hasBuiltStorageLens: Bool {
+        get { storageLensLifecycle.hasCompleted }
+        set { storageLensLifecycle.hasCompleted = newValue }
+    }
+    /// Human-readable progress for the running build (e.g. "Analyzing iCloud…"). This lens's
+    /// legacy status was a non-optional `String`, so the lifecycle's idle nil reads as "".
+    public var storageLensStatus: String {
+        get { storageLensLifecycle.status ?? "" }
+        set { storageLensLifecycle.status = newValue }
+    }
     /// Numeric progress for the build; the walk phase has no granular count, so it stays 0 (the UI
-    /// shows an indeterminate spinner). Reserved for a future determinate pass.
+    /// shows an indeterminate spinner). Reserved for a future determinate pass — kept as its own
+    /// stored property (like `duplicateScanProgress`) rather than folded into the lifecycle.
     @Published public var storageLensProgress: Double = 0
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
 
     // MARK: Name Normalizer — bulk-fix cloud-hostile names (see FileSyncManager+NameNormalize.swift)
 
+    /// The Name Normalizer scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
+    @Published public internal(set) var nameScanLifecycle = ScanLifecycle()
     /// The risky names (files AND folders) found by the most recent scan, each with its safe
     /// replacement. Empty until a scan runs; rows drop as they're fixed or skipped.
     @Published public var riskyNames: [RiskyName] = []
     /// True while a Name Normalizer scan (walk + detect) is running.
-    @Published public var isScanningNames = false
+    public var isScanningNames: Bool {
+        get { nameScanLifecycle.isRunning }
+        set { nameScanLifecycle.isRunning = newValue }
+    }
     /// The absolute root the current `riskyNames` were scanned from — captured at scan time so the
     /// results stay labeled correctly even if the user navigates elsewhere.
-    @Published public var nameScanRoot: URL?
+    public var nameScanRoot: URL? {
+        get { nameScanLifecycle.root }
+        set { nameScanLifecycle.root = newValue }
+    }
     /// True once a Name Normalizer scan has completed at least once (drives intro-vs-results state).
-    @Published public var hasScannedNames = false
-    /// Human-readable progress for the running scan (e.g. "Scanning iCloud…").
-    @Published public var nameScanStatus = ""
+    public var hasScannedNames: Bool {
+        get { nameScanLifecycle.hasCompleted }
+        set { nameScanLifecycle.hasCompleted = newValue }
+    }
+    /// Human-readable progress for the running scan (e.g. "Scanning iCloud…"). This lens's legacy
+    /// status was a non-optional `String`, so the lifecycle's idle nil reads as "".
+    public var nameScanStatus: String {
+        get { nameScanLifecycle.status ?? "" }
+        set { nameScanLifecycle.status = newValue }
+    }
     /// True while a "Fix all" / per-row normalize pass is applying renames.
     @Published public var isNormalizingNames = false
     /// The in-flight Name Normalizer scan task, so the UI can cancel a long walk.
@@ -255,16 +304,30 @@ public class FileSyncManager: ObservableObject {
 
     // MARK: Filing — suggest where loose files go (see FileSyncManager+Filing.swift)
 
+    /// The Filing scan lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
+    @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
     /// Filing suggestions from the most recent scan of a picked folder.
     @Published public var filingSuggestions: [FilingSuggestion] = []
     /// True while a Filing scan (walk folder + learn taxonomy + suggest) is running.
-    @Published public var isSuggestingFiles = false
+    public var isSuggestingFiles: Bool {
+        get { filingScanLifecycle.isRunning }
+        set { filingScanLifecycle.isRunning = newValue }
+    }
     /// Human-readable progress for the running Filing scan.
-    @Published public var filingScanStatus: String? = nil
+    public var filingScanStatus: String? {
+        get { filingScanLifecycle.status }
+        set { filingScanLifecycle.status = newValue }
+    }
     /// True once a Filing scan has completed at least once.
-    @Published public var hasSuggestedFiling = false
+    public var hasSuggestedFiling: Bool {
+        get { filingScanLifecycle.hasCompleted }
+        set { filingScanLifecycle.hasCompleted = newValue }
+    }
     /// The folder the current suggestions were scanned from.
-    @Published public var filingScanFolder: String? = nil
+    public var filingScanFolder: String? {
+        get { filingScanLifecycle.root?.path }
+        set { filingScanLifecycle.root = newValue.map { URL(fileURLWithPath: $0) } }
+    }
     /// The in-flight Filing scan task, so the UI can cancel it.
     public var filingScanTask: Task<Void, Never>?
     /// On-device content extractor for Filing (file path → entity/keyword tokens), injected by the
@@ -297,15 +360,28 @@ public class FileSyncManager: ObservableObject {
     @Published public var automationRules: [AutomationRule] = []
     /// Guards the one-time load so the empty default array can't overwrite persisted rules.
     var didLoadAutomationRules = false
+    /// The dry-run preview lifecycle (see ``ScanLifecycle``); the legacy names forward onto it.
+    /// Its `root` stays nil — the published report carries its own root string.
+    @Published public internal(set) var automationDryRunLifecycle = ScanLifecycle()
     /// The most recent dry-run preview — what the enabled rules *would* do — or nil before any run.
     /// This surface never moves a file; the report is illustration only.
     @Published public var automationDryRun: AutomationDryRunReport?
     /// True while a dry-run preview is walking the folder and evaluating rules.
-    @Published public var isRunningAutomationDryRun = false
-    /// Human-readable progress for the running dry run.
-    @Published public var automationDryRunStatus = ""
+    public var isRunningAutomationDryRun: Bool {
+        get { automationDryRunLifecycle.isRunning }
+        set { automationDryRunLifecycle.isRunning = newValue }
+    }
+    /// Human-readable progress for the running dry run. This lens's legacy status was a
+    /// non-optional `String`, so the lifecycle's idle nil reads as "".
+    public var automationDryRunStatus: String {
+        get { automationDryRunLifecycle.status ?? "" }
+        set { automationDryRunLifecycle.status = newValue }
+    }
     /// True once a dry-run preview has completed at least once (drives the empty-vs-results state).
-    @Published public var hasRunAutomationDryRun = false
+    public var hasRunAutomationDryRun: Bool {
+        get { automationDryRunLifecycle.hasCompleted }
+        set { automationDryRunLifecycle.hasCompleted = newValue }
+    }
     /// The in-flight preview task, so the UI can cancel it and a restart supersedes it.
     var automationDryRunTask: Task<Void, Never>?
     /// The capped folder list SENT to the classifier (bounded for token cost).

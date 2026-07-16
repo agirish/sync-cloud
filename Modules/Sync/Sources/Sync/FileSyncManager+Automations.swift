@@ -75,10 +75,7 @@ extension FileSyncManager {
     /// place. `providerName` labels the surface and resolves the `{provider}` token.
     /// `only` scopes the preview to a single rule (its id); nil previews all enabled, runnable rules.
     public func startAutomationDryRun(root: URL, destinationRoot: URL, providerName: String?, only: UUID? = nil) {
-        let previous = automationDryRunTask
-        previous?.cancel()
-        automationDryRunTask = Task { [weak self] in
-            _ = await previous?.value   // let a cancelled run unwind before the guard below
+        automationDryRunTask = restartedScanTask(replacing: automationDryRunTask) { [weak self] in
             await self?.runAutomationDryRun(root: root, destinationRoot: destinationRoot,
                                             providerName: providerName, only: only)
         }
@@ -141,11 +138,9 @@ extension FileSyncManager {
             return only == nil ? rule.enabled : rule.id == only
         }
 
-        isRunningAutomationDryRun = true
-        automationDryRunStatus = "Previewing \(root.lastPathComponent)…"
+        beginScan(\.automationDryRunLifecycle, status: "Previewing \(root.lastPathComponent)…")
         defer {
-            isRunningAutomationDryRun = false
-            automationDryRunStatus = ""
+            endScan(\.automationDryRunLifecycle)
         }
 
         // Loose files = the direct files in the folder (not its subfolders), mirroring Filing.
@@ -207,6 +202,8 @@ extension FileSyncManager {
             filesScanned: looseFiles.count, rows: rows
         )
         self.automationDryRun = report
+        // The report carries its own root string, so the lifecycle's `root` stays nil here —
+        // only the completion flag is published.
         self.hasRunAutomationDryRun = true
         Logger.shared.info("Automations dry run: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
             + "\(report.wouldFileCount) would file, \(report.needsAttentionCount) need a look "

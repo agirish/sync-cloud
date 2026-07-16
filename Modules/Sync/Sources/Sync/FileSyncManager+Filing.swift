@@ -64,10 +64,7 @@ extension FileSyncManager {
     /// `{provider}` token in automation destinations that steer the suggestions.
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
                                            options: FilingOptions = .init()) {
-        let previous = filingScanTask
-        previous?.cancel()
-        filingScanTask = Task { [weak self] in
-            _ = await previous?.value
+        filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
                                               providerName: providerName, options: options)
         }
@@ -84,13 +81,12 @@ extension FileSyncManager {
     ) async {
         guard !isSuggestingFiles else { return }
         let fileManager = fm ?? self.fileManager
-        isSuggestingFiles = true
-        filingScanStatus = FilingScanPhase.scanningFolder(folder.lastPathComponent).status
+        let epoch = beginScan(\.filingScanLifecycle,
+                              status: FilingScanPhase.scanningFolder(folder.lastPathComponent).status)
         // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
         if filingUsesAI, filingClassifier != nil { filingClassifierPrewarm?() }
         defer {
-            isSuggestingFiles = false
-            filingScanStatus = nil
+            endScan(\.filingScanLifecycle)
         }
 
         // Loose files = the direct files sitting in the picked folder (not its subfolders).
@@ -98,7 +94,7 @@ extension FileSyncManager {
         let looseFiles = looseTree.filter { !$0.isDirectory }
         if Task.isCancelled { return }
 
-        filingScanStatus = FilingScanPhase.learningFolders.status
+        updateScan(\.filingScanLifecycle, epoch: epoch, status: FilingScanPhase.learningFolders.status)
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
@@ -127,7 +123,8 @@ extension FileSyncManager {
                 }
             }
             if !candidates.isEmpty {
-                filingScanStatus = FilingScanPhase.readingContent(candidates.count).status
+                updateScan(\.filingScanLifecycle, epoch: epoch,
+                           status: FilingScanPhase.readingContent(candidates.count).status)
                 automationSnippets = await Self.extractSnippets(for: candidates.map { $0.id }, using: extractor)
                 if Task.isCancelled { return }
             }
@@ -162,7 +159,8 @@ extension FileSyncManager {
         if filingReadsContents, let extractor = filingContentExtractor {
             let unsure = suggestions.filter { !$0.hasConfidentHome }
             if !unsure.isEmpty {
-                filingScanStatus = FilingScanPhase.readingContent(unsure.count).status
+                updateScan(\.filingScanLifecycle, epoch: epoch,
+                           status: FilingScanPhase.readingContent(unsure.count).status)
                 let content = await Self.extractContent(for: unsure.map { $0.filePath }, using: extractor)
                 if Task.isCancelled { return }
                 if !content.isEmpty {
@@ -186,7 +184,8 @@ extension FileSyncManager {
             let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
             let toClassify = looseFiles.filter { !remembered.contains($0.id) }
             if !toClassify.isEmpty {
-                filingScanStatus = FilingScanPhase.findingHomes.status
+                updateScan(\.filingScanLifecycle, epoch: epoch,
+                           status: FilingScanPhase.findingHomes.status)
                 var snippets: [String: String] = [:]
                 if filingReadsContents, let extractor = filingSnippetExtractor {
                     // Only read contents for files whose NAME says nothing — a meaningful name plus

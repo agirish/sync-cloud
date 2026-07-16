@@ -8,12 +8,7 @@ extension FileSyncManager {
 
     /// Starts a cancellable Storage Lens build, replacing any in-flight one.
     public func startBuildStorageLens(root: URL, options: StorageLensOptions = .init()) {
-        let previous = storageLensTask
-        previous?.cancel()
-        storageLensTask = Task { [weak self] in
-            // Let a cancelled build fully unwind (its defer clears isBuildingStorageLens) before the
-            // new one runs, so the re-entrancy guard below doesn't silently drop the restart.
-            _ = await previous?.value
+        storageLensTask = restartedScanTask(replacing: storageLensTask) { [weak self] in
             await self?.buildStorageLens(root: root, options: options)
         }
     }
@@ -40,14 +35,12 @@ extension FileSyncManager {
     ) async {
         guard !isBuildingStorageLens else { return }
         let fileManager = fm ?? self.fileManager
-        isBuildingStorageLens = true
-        storageLensStatus = "Analyzing \(root.lastPathComponent)…"
+        beginScan(\.storageLensLifecycle, status: "Analyzing \(root.lastPathComponent)…")
         storageLensProgress = 0
-        // hasBuiltStorageLens flips only on completion (below), so a cancelled build leaves the
+        // hasCompleted flips only on completion (below), so a cancelled build leaves the
         // prior state intact rather than flashing an empty report.
         defer {
-            isBuildingStorageLens = false
-            storageLensStatus = ""
+            endScan(\.storageLensLifecycle)
             storageLensProgress = 0
         }
 
@@ -59,8 +52,8 @@ extension FileSyncManager {
         // the analyzer walks the whole tree, which on a 40k-node provider blocked the main actor
         // for the full pass. Only the @Published writes below happen back on the main actor.
         // Staleness guard: a newer build cancels this task (startBuildStorageLens), so the
-        // isCancelled check after the hop plays the role duplicateScanEpoch plays for the
-        // duplicate scan's unstructured progress hops — a stale report can never land after a
+        // isCancelled check after the hop plays the role the duplicate scan's lifecycle epoch
+        // plays for its unstructured progress hops — a stale report can never land after a
         // newer build started. Date() is captured before the hop so staleness is measured from now.
         let now = Date()
         let report = await Task.detached(priority: .userInitiated) {
@@ -71,8 +64,7 @@ extension FileSyncManager {
         // Published with the results, not at build start: the root labels what's on screen, and a
         // cancelled rebuild of a different folder must not relabel the previous report.
         self.storageLensReport = report
-        self.storageLensRoot = root
-        self.hasBuiltStorageLens = true
+        completeScan(\.storageLensLifecycle, root: root)
         Logger.shared.info("Storage Lens: analyzed \(root.lastPathComponent) — \(Self.formatBytes(report.totalBytes)) across \(report.treemap.count) area(s), \(report.reclaimCandidates.count) reclaim candidate(s)")
     }
 }
