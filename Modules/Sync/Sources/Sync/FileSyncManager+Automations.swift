@@ -233,11 +233,11 @@ extension FileSyncManager {
                 ? URL(fileURLWithPath: resolvedDestination).standardizedFileURL
                 : destinationRoot.appendingPathComponent(resolvedDestination).standardizedFileURL
             let currentParent = URL(fileURLWithPath: facts.parentPath).standardizedFileURL
-            // Label with the provider-relative form whenever the destination sits under the root.
+            // Label with the provider-relative form whenever the destination sits under the root
+            // (boundary-safe strip; a destination outside the root keeps its absolute path).
             let rootPath = destinationRoot.standardizedFileURL.path
-            let relativeDestination = destinationDir.path.hasPrefix(rootPath + "/")
-                ? String(destinationDir.path.dropFirst(rootPath.count + 1))
-                : (destinationDir.path == rootPath ? "" : destinationDir.path)
+            let relativeDestination = PathBoundary.relativize(destinationDir.path, under: rootPath)
+                ?? destinationDir.path
             let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
                                                     : relativeDestination
             if destinationDir.path == currentParent.path {

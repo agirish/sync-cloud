@@ -919,15 +919,11 @@ public class FileSyncManager: ObservableObject {
     }
     
     public func isNodeIgnored(_ node: FileNode, currentPath: String) -> Bool {
-        // Strip currentPath only at a path-component boundary so a pane rooted at
-        // "/root/ab" never claims "/root/abc/x" via a bare string prefix.
-        let base = currentPath.hasSuffix("/") ? String(currentPath.dropLast()) : currentPath
-        var rPath = node.id
-        if rPath == base {
-            rPath = ""
-        } else if rPath.hasPrefix(base + "/") {
-            rPath = String(rPath.dropFirst(base.count + 1))
-        }
+        // Strip currentPath only at a path-component boundary (PathBoundary's exact semantics —
+        // this method was its reference implementation) so a pane rooted at "/root/ab" never
+        // claims "/root/abc/x" via a bare string prefix. A node outside the pane root keeps its
+        // absolute path, exactly as the hand-rolled fall-through did.
+        let rPath = PathBoundary.relativize(node.id, under: currentPath) ?? node.id
         // Deliberately path-layers only, NO pattern matching: this predicate drives the pane
         // rows' ignored look AND the context menu's Ignore/Include label, whose click lands in
         // `toggleIgnored` — which can only edit the path layers. Counting pattern matches here

@@ -366,7 +366,7 @@ extension FileSyncManager {
     func filingRules(under providerRoot: URL) -> [FilingRule] {
         let root = providerRoot.path
         // Disabled rules (G1) stay persisted/editable in the manager but are inert for scans.
-        return filingRules.filter { $0.enabled && ($0.destinationPath == root || $0.destinationPath.hasPrefix(root + "/")) }
+        return filingRules.filter { $0.enabled && PathBoundary.contains($0.destinationPath, under: root) }
     }
 
     /// Learns an automation from a correction: "file <fileName> here" becomes a *mentions*-rule —
@@ -440,7 +440,7 @@ extension FileSyncManager {
     /// Rejections whose folder lives inside `providerRoot`.
     func filingRejections(under providerRoot: URL) -> [FilingRejection] {
         let root = providerRoot.path
-        return filingRejections.filter { $0.path == root || $0.path.hasPrefix(root + "/") }
+        return filingRejections.filter { PathBoundary.contains($0.path, under: root) }
     }
 
     /// The absolute folder paths rejected for a file — a rejection matches when its trigger tokens
@@ -470,10 +470,13 @@ extension FileSyncManager {
 
     public func clearFilingRejections() { filingRejections = [] }
 
-    /// Absolute folder path → relative to `root`, or nil if not under it.
+    /// Absolute folder path → relative to `root`, or nil if not STRICTLY under it. Thin wrapper
+    /// over ``PathBoundary/relativize(_:under:)`` that keeps this call's historical exact-match
+    /// behavior: `path == root` returns nil here (the callers build classifier exclusion lists,
+    /// where the provider root itself has never been an entry), not `""`.
     nonisolated static func relativePath(_ path: String, under root: String) -> String? {
-        guard path.hasPrefix(root + "/") else { return nil }
-        return String(path.dropFirst(root.count + 1))
+        guard let rel = PathBoundary.relativize(path, under: root), !rel.isEmpty else { return nil }
+        return rel
     }
 
     /// "Try another": the user rejected the current suggested folder. Records the rejection, then
