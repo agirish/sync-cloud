@@ -178,6 +178,53 @@ private func diff(
         #expect(DifferenceProcessing.sourceAndTarget(for: toLeft) == ("/right/x", "/left/x"))
     }
 
+    @Test func testTargetRelativePathUsesDestinationSpelling() {
+        // Trailing-space doppelganger: left "Swimming " vs Dropbox-normalized right "Swimming".
+        // The copyToRight write target is the right's own EXISTING valid path, so the name
+        // validated against the destination provider must be "Swimming" (not skipped) — the
+        // old code validated diff.relativePath ("Swimming ") and falsely skipped the copy.
+        let conflict = FileDifference(
+            relativePath: "Swimming ",
+            leftItemPath: "/left/Swimming ",
+            rightItemPath: "/right/Swimming",
+            type: .nameConflict,
+            action: .copyToRight,
+            description: "test",
+            leftFileSize: 1,
+            rightFileSize: 1
+        )
+        let validated = DifferenceProcessing.targetRelativePath(
+            for: conflict, targetRoot: URL(fileURLWithPath: "/right"))
+        #expect(validated == "Swimming")
+        // The left spelling IS a Dropbox violation, the destination's own spelling is not:
+        // the fixed validation keeps this row syncable.
+        #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
+        #expect(ProviderNameRules.violation(inRelativePath: validated, for: .dropBox) == nil)
+
+        // copyToLeft mirrors: the target is the LEFT item path relative to the left root.
+        let toLeft = FileDifference(
+            relativePath: "Swimming",
+            leftItemPath: "/left/Swimming",
+            rightItemPath: "/right/Swimming ",
+            type: .nameConflict,
+            action: .copyToLeft,
+            description: "test",
+            leftFileSize: 1,
+            rightFileSize: 1
+        )
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: toLeft, targetRoot: URL(fileURLWithPath: "/left/")) == "Swimming")
+    }
+
+    @Test func testTargetRelativePathFallsBackWhenTargetOutsideRoot() {
+        let d = diff("nested/x", action: .copyToRight) // target /right/nested/x
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: d, targetRoot: URL(fileURLWithPath: "/elsewhere")) == "nested/x")
+        // Ordinary rows under the real root reduce to the plain relative path.
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: d, targetRoot: URL(fileURLWithPath: "/right")) == "nested/x")
+    }
+
     @Test func testStableOutputNames() {
         #expect(DifferenceProcessing.typeString(.missingOnRight) == "missing-on-right")
         #expect(DifferenceProcessing.typeString(.missingOnLeft) == "missing-on-left")

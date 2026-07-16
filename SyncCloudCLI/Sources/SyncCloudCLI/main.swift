@@ -253,11 +253,13 @@ struct SyncFiles: AsyncParsableCommand {
 
     private func syncDifferences() async throws {
         let (leftProvider, rightProvider, ignoreDriveDateNoise) = try await resolveProviders(left: options.left, right: options.right)
-        var (diffs, _, _) = try scanForDifferences(
+        let scanResult = try scanForDifferences(
             left: leftProvider, right: rightProvider,
             direction: options.direction, showHidden: options.showHidden, ignore: options.ignore,
             ignoreGoogleDriveNewerDateOnly: ignoreDriveDateNoise
         )
+        var diffs = scanResult.diffs
+        let (leftURL, rightURL) = (scanResult.leftURL, scanResult.rightURL)
 
         if verify {
             print("Verifying files with matching sizes...")
@@ -306,8 +308,13 @@ struct SyncFiles: AsyncParsableCommand {
             // (Dropbox trailing space/period; OneDrive forbidden chars, reserved names, affixes).
             // The app prompts to sanitize; non-interactively we skip with a clear message, because
             // writing it would create a local-only file the provider silently never uploads.
+            // Validate the TARGET's own relative path, not diff.relativePath (the left spelling):
+            // for .nameConflict rows the write lands on the destination's existing, provider-valid
+            // path (e.g. left "Swimming " → right "Swimming"), which must not be skipped.
             let targetProvider = diff.action == .copyToRight ? rightProvider : leftProvider
-            if let violation = ProviderNameRules.violation(inRelativePath: diff.relativePath, for: targetProvider.type) {
+            let targetRoot = diff.action == .copyToRight ? rightURL : leftURL
+            let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
+            if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
                 fputs("Skipping \(diff.relativePath): \(violation.reason) \(targetProvider.displayName) would not upload it.\n", stderr)
                 tally.recordSkipped(relativePath: diff.relativePath)
                 continue

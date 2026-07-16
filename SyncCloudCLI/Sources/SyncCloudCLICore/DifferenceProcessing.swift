@@ -89,6 +89,23 @@ public enum DifferenceProcessing {
         }
     }
 
+    /// The relative path the DESTINATION provider's name rules must validate for one planned
+    /// copy. `diff.relativePath` is the LEFT side's spelling; for `.nameConflict` rows the two
+    /// sides' real paths differ in spelling (e.g. left "Swimming " vs the Dropbox-normalized
+    /// "Swimming" on the right) and the actual write target is the destination's own EXISTING
+    /// path — so validating the left spelling against the destination provider falsely flags
+    /// the copy. The app derives the checked path from the target URL
+    /// (FileSyncManager.nameViolationPrompt); this mirrors that: strip the target root from
+    /// the target item path. Falls back to `relativePath` when the target is not under
+    /// `targetRoot` (should not happen for engine-produced differences).
+    public static func targetRelativePath(for diff: FileDifference, targetRoot: URL) -> String {
+        let target = sourceAndTarget(for: diff).target
+        var root = targetRoot.path
+        while root.hasSuffix("/") { root.removeLast() }
+        guard !root.isEmpty, target.hasPrefix(root + "/") else { return diff.relativePath }
+        return String(target.dropFirst(root.count + 1))
+    }
+
     /// Stable machine-readable name for a difference type (used in text and JSON output).
     public static func typeString(_ type: FileDifference.DifferenceType) -> String {
         switch type {
