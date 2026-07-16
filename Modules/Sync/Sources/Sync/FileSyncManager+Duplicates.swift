@@ -392,7 +392,7 @@ extension FileSyncManager {
             // since plan time is content the merge neither verified nor copied, and trashing the
             // folder would destroy it. Same refusal shape as the keeper drift check — log, leave
             // the copy in place, keep the group listed for a re-scan/retry.
-            let currentSnapshot = Self.fileSizesByRelativePath(
+            let currentSnapshot = Self.fileSnapshotsByRelativePath(
                 await Self.buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil))
             if Self.mergeSourceDrifted(planned: plan.sourceSnapshot, current: currentSnapshot) {
                 Logger.shared.warning("Tidy merge: “\(redundant.name)” changed after the merge was planned — left in place, not trashed")
@@ -430,13 +430,13 @@ extension FileSyncManager {
 
     /// Plans the additive merge of `rURL` into `kURL`: the files under `rURL` whose content the
     /// keeper does NOT provably already have, mapped to their destination under the keeper —
-    /// plus a `sourceSnapshot` of the redundant copy's full file set (relative path → byte size)
+    /// plus a `sourceSnapshot` of the redundant copy's full file set (relative path → size+mtime)
     /// as it stood at plan time, so the trash step can prove nothing appeared or changed since.
     /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, fileManager fm: FileManaging
-    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: Int]) {
+    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot]) {
         let kItems = flattenFilesWithRelativePaths(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
         let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
@@ -458,32 +458,43 @@ extension FileSyncManager {
             if let h = rHashes[item.id], keeperHashByRel[item.rel] == h { continue }
             steps.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
-        return (steps, fileSizesByRelativePath(rTree))
+        return (steps, fileSnapshotsByRelativePath(rTree))
     }
 
-    /// Flattens a walked tree into relative path → byte size for the drift check around a merge's
-    /// trash step. Mirrors ``flattenFilesWithRelativePaths(_:prefix:)``'s traversal.
-    nonisolated static func fileSizesByRelativePath(
+    /// What the drift check knows about one file in the merge source: byte size AND modification
+    /// date. Size alone let a same-length in-place rewrite of a plan-skipped file slip through the
+    /// minutes-long hash/copy window — the rewrite's only copy would then be trashed. Any real
+    /// write bumps the mtime (both fields come from the same tree walk, so an unchanged file
+    /// always compares equal).
+    struct MergeFileSnapshot: Sendable, Equatable {
+        var size: Int
+        var modificationDate: Date?
+    }
+
+    /// Flattens a walked tree into relative path → (size, mtime) for the drift check around a
+    /// merge's trash step. Mirrors ``flattenFilesWithRelativePaths(_:prefix:)``'s traversal.
+    nonisolated static func fileSnapshotsByRelativePath(
         _ nodes: [FileNode], prefix: String = ""
-    ) -> [String: Int] {
-        var out: [String: Int] = [:]
+    ) -> [String: MergeFileSnapshot] {
+        var out: [String: MergeFileSnapshot] = [:]
         for n in nodes {
             let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
             if n.isDirectory {
-                out.merge(fileSizesByRelativePath(n.children ?? [], prefix: rel)) { a, _ in a }
+                out.merge(fileSnapshotsByRelativePath(n.children ?? [], prefix: rel)) { a, _ in a }
             } else {
-                out[rel] = n.fileSize ?? 0
+                out[rel] = MergeFileSnapshot(size: n.fileSize ?? 0, modificationDate: n.modificationDate)
             }
         }
         return out
     }
 
     /// Whether the merge's redundant copy drifted between plan time and trash time: any file that
-    /// is NEW (a relative path the snapshot never saw) or CHANGED size holds content the plan
-    /// neither verified nor copied — trashing the folder would destroy it. Files that merely
-    /// disappeared are fine: everything that remains was covered by the plan.
-    nonisolated static func mergeSourceDrifted(planned: [String: Int], current: [String: Int]) -> Bool {
-        current.contains { rel, size in planned[rel] != size }
+    /// is NEW (a relative path the snapshot never saw), CHANGED size, or CHANGED mtime holds
+    /// content the plan neither verified nor copied — trashing the folder would destroy it.
+    /// Files that merely disappeared are fine: everything that remains was covered by the plan.
+    nonisolated static func mergeSourceDrifted(planned: [String: MergeFileSnapshot],
+                                               current: [String: MergeFileSnapshot]) -> Bool {
+        current.contains { rel, snapshot in planned[rel] != snapshot }
     }
 
     /// Flattens a walked tree into (relative path, absolute path) leaf pairs, accumulating the

@@ -538,23 +538,43 @@ import Combine
         let uniqueStep = try #require(plan.steps.first { $0.src.lastPathComponent == "unique.txt" })
         #expect(uniqueStep.dst.path == keeper.appendingPathComponent("sub/unique.txt").path)
         // The snapshot covers the redundant copy's FULL file set (including provably-shared files
-        // the steps skip) with byte sizes — the trash step's drift baseline.
-        #expect(plan.sourceSnapshot == ["shared.txt": 5000, "sub/unique.txt": 5000])
+        // the steps skip) with byte sizes AND mtimes — the trash step's drift baseline.
+        #expect(plan.sourceSnapshot.keys.sorted() == ["shared.txt", "sub/unique.txt"])
+        #expect(plan.sourceSnapshot["shared.txt"]?.size == 5000)
+        #expect(plan.sourceSnapshot["sub/unique.txt"]?.size == 5000)
+        // The mtimes come from the same walk — a real fixture file always carries one.
+        #expect(plan.sourceSnapshot["shared.txt"]?.modificationDate != nil)
     }
 
     @Test func mergeSourceDriftedFlagsNewAndChangedFilesButNotRemovals() {
-        let planned = ["a.txt": 100, "sub/b.txt": 200]
+        typealias Snap = FileSyncManager.MergeFileSnapshot
+        let t1 = Date(timeIntervalSince1970: 1_000_000)
+        let t2 = Date(timeIntervalSince1970: 2_000_000)
+        let planned = ["a.txt": Snap(size: 100, modificationDate: t1),
+                       "sub/b.txt": Snap(size: 200, modificationDate: t1)]
         // Unchanged → no drift.
         #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: planned))
         // A file REMOVED since plan time is fine — what remains was covered by the plan.
-        #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: ["a.txt": 100]))
+        #expect(!FileSyncManager.mergeSourceDrifted(planned: planned,
+                                                    current: ["a.txt": Snap(size: 100, modificationDate: t1)]))
         #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: [:]))
         // A NEW file is content the plan never saw → drift.
         #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
-                                                   current: ["a.txt": 100, "sub/b.txt": 200, "new.txt": 1]))
+                                                   current: ["a.txt": Snap(size: 100, modificationDate: t1),
+                                                             "sub/b.txt": Snap(size: 200, modificationDate: t1),
+                                                             "new.txt": Snap(size: 1, modificationDate: t1)]))
         // A size CHANGE is content the plan never verified → drift.
         #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
-                                                   current: ["a.txt": 100, "sub/b.txt": 999]))
+                                                   current: ["a.txt": Snap(size: 100, modificationDate: t1),
+                                                             "sub/b.txt": Snap(size: 999, modificationDate: t1)]))
+        // A SAME-SIZE rewrite (mtime bumped, byte count unchanged) is drift too — size alone let
+        // the only copy of the rewritten bytes be trashed (round-5).
+        #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
+                                                   current: ["a.txt": Snap(size: 100, modificationDate: t2),
+                                                             "sub/b.txt": Snap(size: 200, modificationDate: t1)]))
+        // mtime unknown on both walks (mock FS) still compares as unchanged.
+        let dateless = ["c.txt": Snap(size: 50, modificationDate: nil)]
+        #expect(!FileSyncManager.mergeSourceDrifted(planned: dateless, current: dateless))
     }
 
     @MainActor
