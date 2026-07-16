@@ -956,6 +956,11 @@ struct ContentView: View {
             pendingSwapProviderChanges += 1
             rightProviderId = providerId
         }
+        // The suppression above also skips resetNavigation's comparison invalidation, so drop the
+        // OLD comparison's differences here — they carry absolute paths for roots the panes are
+        // about to stop showing, and would stay actionable until the re-diff lands. Targeted so
+        // the Tidy duplicate results survive (the whole reason the onChange is suppressed).
+        syncManager.invalidateDifferencesForPaneRetarget()
         syncManager.focusOn(relativePath: keepRel, isLeft: true)
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
         duplicateReview = DuplicateCompareContext(
@@ -1656,6 +1661,10 @@ struct ContentView: View {
             pendingSwapProviderChanges += 1
             rightProviderId = saved.rightProviderId
         }
+        // Same targeted invalidation as compareCopies: the review's diff of the two copies must
+        // not stay actionable while the restored panes' trees load (the suppression above skips
+        // the full reset that would normally clear it — and would also wipe the Tidy results).
+        syncManager.invalidateDifferencesForPaneRetarget()
         syncManager.focusOn(relativePath: saved.leftRelativePath, isLeft: true)
         syncManager.focusOn(relativePath: saved.rightRelativePath, isLeft: false)
         refreshAction()

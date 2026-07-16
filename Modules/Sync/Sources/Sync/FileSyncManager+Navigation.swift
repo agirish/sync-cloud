@@ -131,7 +131,6 @@ extension FileSyncManager {
     /// (with `hasScanned` false and `differences` empty the UI shows "No Scan Performed",
     /// never a false "Everything is in sync").
     @MainActor public func invalidateComparisonState() {
-        supersedeInFlightPaneWork()
         // Drop the prefetch cache too (keyed by absolute path): after a provider/root change the
         // old root's fully-walked tree is dead weight, and this method documents clearing "both
         // pane trees" — the fast-path cache is part of that state and its rescan repopulates it.
@@ -145,6 +144,29 @@ extension FileSyncManager {
         lastLoadedLeftFocusPath = nil
         lastLoadedRightFocusPath = nil
 
+        // The differences half (plus the in-flight supersedence and the fresh filter pass) is
+        // shared with the retarget-only invalidation below; everything runs in this one
+        // synchronous main-actor block, so no observer can see a half-cleared intermediate.
+        invalidateDifferencesForPaneRetarget()
+    }
+
+    /// The differences-only subset of `invalidateComparisonState`: drops the published diff
+    /// results — differences (raw and published), checksum-verification results, the pending
+    /// copy-identical offer, and the scan-freshness fields — and supersedes in-flight loads,
+    /// scans, and filter passes, WITHOUT touching the pane trees, navigation, selections, or
+    /// any Tidy state (`duplicateGroups` et al. survive untouched).
+    ///
+    /// For the suppressed provider-change paths (Tidy's "Compare copies" hand-off and its
+    /// restore): those repoint both panes while deliberately suppressing the provider-id
+    /// onChange — the full reset there would wipe the Tidy duplicate results the user must be
+    /// able to return to (see `pendingSwapProviderChanges`) — but skipping ALL invalidation
+    /// left the OLD comparison's differences published and actionable during the re-scan
+    /// window (`isScanning` false while trees load), where a row click ran syncFile on
+    /// absolute paths from roots the panes no longer show. Call this synchronously before the
+    /// re-focus + refresh; the rescan repopulates (with `hasScanned` false and `differences`
+    /// empty the UI shows "No Scan Performed", never a false "Everything is in sync").
+    @MainActor public func invalidateDifferencesForPaneRetarget() {
+        supersedeInFlightPaneWork()
         rawDifferences = []
         if !differences.isEmpty { differences = [] }
         verifiedSameDifferenceIds.removeAll()
