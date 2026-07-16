@@ -60,6 +60,10 @@ import Testing
             file("/root/Downloads/IMG_2023.jpg"),
             file("/root/Downloads/DSC_1995.jpg"),
             file("/root/Downloads/Wedding 2023.jpg"),
+            // GoPro pair: GOPR0001 is a genuine camera counter (mtime year), while a hand-named
+            // gopro video keeps its REAL 2023 — the old `gopr\w*` stem regex ate it.
+            file("/root/Downloads/GOPR0001.MP4"),
+            file("/root/Downloads/gopro_hawaii_2023.mp4"),
             file("/root/Downloads/Screen Shot 2024-11-02.png"),     // screenshot rides the photo rule
             file("/root/Downloads/1099-INT 2024.pdf"),             // tax doc, filename year == mtime year
             // Filename year ≠ mtime year: the filename's 2023 must win the year segment (every
@@ -98,8 +102,9 @@ import Testing
         //  · amazon order receipt hits the HIGH path (existing Receipts folder); honda geico
         //    insurance builds new Honda/Insurance segments under the existing Vehicles anchor;
         //  · Screen Shot …png rides the photo rule into Photos/<year>;
-        //  · IMG_2023 / DSC_1995 file by MTIME year (2024): a camera-sequence counter that looks
-        //    like a year is not a filing year — while Wedding 2023 keeps its real filename year;
+        //  · IMG_2023 / DSC_1995 / GOPR0001 file by MTIME year (2024): a camera-sequence counter
+        //    that looks like a year is not a filing year — while Wedding 2023 AND the hand-named
+        //    gopro_hawaii_2023 keep their real filename years (the latter pins the gopr regex fix);
         //  · scan0001.pdf finds a home ONLY via a content token: medium-capped, marked `content`,
         //    and NOT batch — a content match must never join the blind batch;
         //  · 2024-overview (bare year) and blorf.xyz still have no confident home.
@@ -111,6 +116,7 @@ import Testing
         2021-2022 tax summary.pdf -> /root/Documents/Taxes/2024 [medium, batch]
         2024-overview.pdf -> (no confident home)
         DSC_1995.jpg -> /root/Photos/2024 [high, batch]
+        GOPR0001.MP4 -> /root/Photos/2024 [high, batch]
         IMG_2023.jpg -> /root/Photos/2024 [high, batch]
         IMG_2831.HEIC -> /root/Photos/2024 [high, batch]
         Screen Shot 2024-11-02.png -> /root/Photos/2024 [high, batch]
@@ -118,6 +124,7 @@ import Testing
         amazon order receipt.pdf -> /root/Receipts/2024 [high, batch]
         blorf.xyz -> (no confident home)
         chase statement 2023.pdf -> /root/Finance/2023 [medium, batch]
+        gopro_hawaii_2023.mp4 -> /root/Photos/2023 [high, batch]
         honda geico insurance.pdf -> /root/Documents/Vehicles/Honda/Insurance [medium, batch]
         scan0001.pdf -> /root/Receipts/2024 [medium, content]
         tesla registration card.pdf -> /root/Documents/Vehicles/Tesla [high, batch]

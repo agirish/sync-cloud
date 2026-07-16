@@ -104,12 +104,27 @@ import Testing
         #expect(FilingEngine.isCameraSequenceStem("PXL_0421"))
         #expect(FilingEngine.isCameraSequenceStem("MVIMG_2020"))
         #expect(FilingEngine.isCameraSequenceStem("GOPR0042"))
+        // GoPro shapes as the cameras actually write them: GOPR + 4-digit file number, or
+        // GP/GH/GX/GS + 2-digit chapter + 4-digit file number, no separator.
+        #expect(FilingEngine.isCameraSequenceStem("GOPR0001"))
+        #expect(FilingEngine.isCameraSequenceStem("GP010001"))
+        #expect(FilingEngine.isCameraSequenceStem("GH010001"))
+        #expect(FilingEngine.isCameraSequenceStem("GX010023"))
+        #expect(FilingEngine.isCameraSequenceStem("GS010001"))
         #expect(!FilingEngine.isCameraSequenceStem("Wedding 2023"))
         #expect(!FilingEngine.isCameraSequenceStem("2023"))            // bare year, no device prefix
         #expect(!FilingEngine.isCameraSequenceStem("IMG_12"))          // counter too short
         #expect(!FilingEngine.isCameraSequenceStem("IMG_1234567"))     // counter too long
         #expect(!FilingEngine.isCameraSequenceStem("IMG_2023 edit"))   // trailing words = a real name
         #expect(!FilingEngine.isCameraSequenceStem("screenshot 2023"))
+        // Multi-word hand-named files must NEVER count as camera sequences: the old `gopr\w*`
+        // alternative backtracked through "o_hawaii"/"o_Backup" and ate the REAL year — breaking
+        // both year filing and "mentions 2023" automation rules for those files.
+        #expect(!FilingEngine.isCameraSequenceStem("gopro_hawaii_2023"))
+        #expect(!FilingEngine.isCameraSequenceStem("GoPro_Backup_2023"))
+        #expect(!FilingEngine.isCameraSequenceStem("gopro_2023"))      // gopro-the-word + year is a real name
+        #expect(!FilingEngine.isCameraSequenceStem("GX01002"))         // chaptered counter is exactly 6 digits
+        #expect(!FilingEngine.isCameraSequenceStem("GP_010001"))       // GoPro never writes a separator
     }
 
     @Test func cameraSequenceTokensDropTheYearShapedCounter() {
@@ -118,6 +133,12 @@ import Testing
         #expect(!FilingEngine.fileTokens("IMG_2023.jpg").contains("2023"))
         #expect(!FilingEngine.fileTokens("DSC_1995.jpg").contains("1995"))
         #expect(FilingEngine.fileTokens("Wedding 2023.jpg").contains("2023"))
+        // A hand-named GoPro video keeps its REAL year token — the old `gopr\w*` stem match
+        // swallowed it, breaking both year filing and "mentions 2023" automation rules.
+        // (Genuine GoPro counters — GOPR2023, GX010023 — never tokenize their digits
+        // separately, so the stem guard has nothing to shed for them.)
+        #expect(FilingEngine.fileTokens("gopro_hawaii_2023.mp4").contains("2023"))
+        #expect(FilingEngine.fileTokens("GoPro_Backup_2023").contains("2023"))
         #expect(FilingEngine.filenameYear(in: FilingEngine.fileTokens("IMG_2023.jpg"),
                                           now: Date(timeIntervalSince1970: 1_720_000_000)) == nil)
     }

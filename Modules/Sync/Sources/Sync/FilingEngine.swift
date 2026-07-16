@@ -564,8 +564,14 @@ public enum FilingEngine {
 
     /// Whether a raw filename stem is a camera/phone sequence name — a known device prefix plus
     /// a 3–6 digit shot counter and nothing else. "Wedding 2023" is NOT one: its year is real.
+    ///
+    /// GoPro prefixes are pinned to the exact shapes the cameras write — GOPR + 4-digit file
+    /// number (GOPR0001.MP4), or GP/GH/GX/GS + 2-digit chapter + 4-digit file number
+    /// (GP010001, GH010001, GX010001, GS010001), no separator. The old `gopr\w*` alternative
+    /// backtracked through arbitrary words, so a hand-named "gopro_hawaii_2023.mp4" counted as
+    /// a camera sequence and its REAL 2023 lost both year filing and "mentions 2023" matching.
     static func isCameraSequenceStem(_ stem: String) -> Bool {
-        stem.range(of: #"^(img|dsc|dscn|dscf|dcim|pxl|mvimg|gopr\w*)[_ -]?\d{3,6}$"#,
+        stem.range(of: #"^(?:(?:img|dsc|dscn|dscf|dcim|pxl|mvimg)[_ -]?\d{3,6}|gopr\d{4}|(?:gp|gh|gx|gs)\d{6})$"#,
                    options: [.regularExpression, .caseInsensitive]) != nil
     }
 
