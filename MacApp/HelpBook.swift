@@ -343,9 +343,9 @@ extension HelpBook.Mood {
     var color: Color {
         switch self {
         case .accent: return .accentColor
-        case .warning: return .orange
-        case .danger: return .red
-        case .success: return .green
+        case .warning: return SemanticColor.warning
+        case .danger: return SemanticColor.error
+        case .success: return SemanticColor.success
         case .neutral: return .secondary
         }
     }

@@ -355,10 +355,12 @@ private struct SyncHistoryRow: View {
     }
 
     private var actionColor: Color {
+        // From the shared semantic table (C3): copy = success-green (accent collided with the
+        // app accent), move = its own purple (orange collided with warning), delete = error.
         switch record.action {
-        case .copy: return .accentColor
-        case .move: return .orange
-        case .delete: return .red
+        case .copy: return SemanticColor.success
+        case .move: return SemanticColor.move
+        case .delete: return SemanticColor.error
         }
     }
 

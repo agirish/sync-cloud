@@ -3,6 +3,20 @@ import AppKit
 import Design
 import Events
 
+/// Dashboard's rendering tint for a log level, drawn from the shared semantic table (C3).
+/// Lives here rather than replacing `LogLevel.color` because Events is a leaf module that
+/// must not depend on Design; non-Dashboard callers keep the original mapping.
+extension LogLevel {
+    var semanticColor: Color {
+        switch self {
+        case .info: return SemanticColor.info
+        case .debug: return .gray
+        case .warning: return SemanticColor.warning
+        case .error: return SemanticColor.error
+        }
+    }
+}
+
 /// Pure filtering for the Activity Log, kept out of the `LogViewer` View so the level filter,
 /// case-insensitive search, and newest-first ordering are unit-testable without `@State`.
 enum LogEntryFilter {
@@ -550,7 +564,7 @@ private struct LogEntryRow: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: entry.level.icon)
                 .font(.caption)
-                .foregroundStyle(entry.level.color)
+                .foregroundStyle(entry.level.semanticColor)
                 .frame(width: 18)
                 .padding(.top, 2)
 
@@ -590,7 +604,7 @@ private struct LogEntryRow: View {
     }
 
     private var levelPill: some View {
-        Pill(.mini, tint: entry.level.color, text: entry.level.rawValue)
+        Pill(.mini, tint: entry.level.semanticColor, text: entry.level.rawValue)
     }
 
     private var timeText: some View {
@@ -651,7 +665,7 @@ private struct LogOperationGroupRow: View {
                         .frame(width: 12)
                     Image(systemName: group.icon)
                         .font(.caption)
-                        .foregroundStyle(group.level.color)
+                        .foregroundStyle(group.level.semanticColor)
                         .frame(width: 18)
                     Text(group.title)
                         .font(.subheadline.weight(.semibold))
