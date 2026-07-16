@@ -466,6 +466,22 @@ struct FileContextMenu: View {
                 Button(action: { onQuickLook(URL(fileURLWithPath: singleNode.id)) }) {
                     Label("Quick Look", systemImage: "doc.viewfinder")
                 }
+                // Materialize a cloud-only placeholder. Works cleanly for iCloud (the one public,
+                // non-blocking download API); for other File Provider providers it fails and we log
+                // a pointer to Finder rather than pretend. Reveal in Finder (above) is the reliable
+                // download path everywhere.
+                if !singleNode.isDirectory, MaterializationStatus.isCloudOnly(atPath: singleNode.id) {
+                    Button {
+                        do {
+                            try MaterializationStatus.download(atPath: singleNode.id)
+                            Logger.shared.info("Requested download of cloud-only file: \(singleNode.id)")
+                        } catch {
+                            Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
+                        }
+                    } label: {
+                        Label("Download", systemImage: "icloud.and.arrow.down")
+                    }
+                }
                 Divider()
                 Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
@@ -564,6 +580,9 @@ struct FileRowView: View {
     let diffStatus: FileDifference.DifferenceType?
     /// Number of differences beneath this node (directories only; 0 elsewhere).
     let containedDiffCount: Int
+    /// Whether this file is a cloud-only placeholder (content not on disk). Detected lazily per row
+    /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears.
+    @State private var isCloudOnly = false
 
     /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
     /// scroll fast, so allocating a formatter per row body would still churn.
@@ -604,6 +623,15 @@ struct FileRowView: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
+            if isCloudOnly {
+                // A dataless placeholder: on the cloud, not on this Mac. A generic cloud (not the
+                // iCloud glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
+                Image(systemName: "cloud")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Cloud-only — content isn't downloaded to this Mac")
+                    .accessibilityLabel("Cloud-only, not downloaded")
+            }
             if let diffStatus {
                 // Shape encodes direction/kind so status is readable without color
                 // (colors match the Differences table in the Differences pane).
@@ -625,6 +653,12 @@ struct FileRowView: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+        .task(id: node.id) {
+            guard !node.isDirectory else { isCloudOnly = false; return }
+            let path = node.id
+            // lstat off the main actor; it's cheap but there's no reason to do syscalls on it.
+            isCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        }
     }
 
     static func badgeHelp(for type: FileDifference.DifferenceType) -> String {
