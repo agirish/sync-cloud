@@ -253,6 +253,8 @@ public struct LogViewer: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .help("Clear search")
+                        .accessibilityLabel("Clear search")
                     }
                 }
                 let chips = LogSearch.chips(searchText)

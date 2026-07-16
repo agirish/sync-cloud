@@ -448,6 +448,11 @@ struct GeneralSettingsTab: View {
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
     @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
     @AppStorage(GeneralSettings.notifyOnBackgroundCompletionKey) private var notifyInBackground: Bool = false
+    /// Whether the system has DENIED notification permission while the toggle is on — the one
+    /// state where the feature looks enabled here but can never fire. Surfaced in the footer
+    /// (mirroring the login-item "Approval needed" hint) and re-checked on toggle and app
+    /// re-activation, since the user flips the real switch over in System Settings.
+    @State private var notificationsDenied = false
 
     var body: some View {
         Form {
@@ -490,11 +495,23 @@ struct GeneralSettingsTab: View {
                 Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
                     .onChange(of: notifyInBackground) { _, enabled in
                         if enabled {
-                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+                            // Capture the result: a denied request used to vanish, leaving the
+                            // toggle on and the user waiting for notifications that never come.
+                            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
+                                Task { @MainActor in notificationsDenied = !granted }
+                            }
+                        } else {
+                            // The hint only matters while the feature is on.
+                            notificationsDenied = false
                         }
                     }
             } footer: {
-                Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn't the active app. Requires notification permission.")
+                if notifyInBackground && notificationsDenied {
+                    Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
+                        .foregroundStyle(.orange)
+                } else {
+                    Text("Shows a system notification when a copy, sync, or verify finishes while SyncCloud isn't the active app. Requires notification permission.")
+                }
             }
 
             Section {
@@ -504,12 +521,27 @@ struct GeneralSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .task { readLoginItemState() }
-        // Approving the login item happens in System Settings, so the footer's "Approval
-        // needed" hint goes stale exactly while this tab is still open. Coming back to the
-        // app re-activates it — re-read so the hint clears without reopening the tab.
+        .task {
+            readLoginItemState()
+            readNotificationAuthorization()
+        }
+        // Approving the login item (and notification permission) happens in System Settings,
+        // so these footers' hints go stale exactly while this tab is still open. Coming back
+        // to the app re-activates it — re-read so the hints clear without reopening the tab.
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             readLoginItemState()
+            readNotificationAuthorization()
+        }
+    }
+
+    /// Reflects the real notification authorization into the footer hint. Only `denied` shows
+    /// the warning: `notDetermined` means the request prompt is still ahead, and provisional/
+    /// authorized both deliver.
+    private func readNotificationAuthorization() {
+        guard notifyInBackground else { return }
+        UNUserNotificationCenter.current().getNotificationSettings { notificationSettings in
+            let denied = notificationSettings.authorizationStatus == .denied
+            Task { @MainActor in notificationsDenied = denied }
         }
     }
 

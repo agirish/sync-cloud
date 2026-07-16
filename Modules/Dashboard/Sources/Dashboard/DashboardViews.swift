@@ -177,6 +177,10 @@ public struct PaneHeader: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(hue.soft, in: Capsule())
+                    // In a narrow pane the provider NAME is the identity anchor — the freshness
+                    // pill (relative time, repeated on both panes) must yield width first, not
+                    // squeeze the name to an ellipsis.
+                    .layoutPriority(1)
                 } else {
                     Image(systemName: "folder")
                         .font(.title2)
