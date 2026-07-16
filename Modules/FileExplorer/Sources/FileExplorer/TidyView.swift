@@ -116,6 +116,8 @@ public struct TidyView: View {
     /// tab switches (and relaunches, via the host's `@AppStorage`).
     @Binding private var lens: TidyLens
     @State private var filter: TidyFilter = .all
+    /// Token search over the duplicate list (`kind:`, size, name); ANDed with `filter`.
+    @State private var dupSearchText: String = ""
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
     /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
@@ -227,7 +229,8 @@ public struct TidyView: View {
     }
 
     private var filteredGroups: [DuplicateGroup] {
-        syncManager.duplicateGroups.filter { filter.matches($0) }
+        let query = DuplicateSearch.parse(dupSearchText)
+        return syncManager.duplicateGroups.filter { filter.matches($0) && query.matches($0) }
     }
     private var hasResults: Bool { !syncManager.duplicateGroups.isEmpty }
     private var recommendedCount: Int {
@@ -511,8 +514,36 @@ public struct TidyView: View {
                 StatPill(count: s.needsReviewCount, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
             }
             Spacer(minLength: 8)
+            dupSearchField
             filterMenu
         }
+    }
+
+    /// Compact token search for the duplicate list — `kind:pdf`, `>5mb`, or a name substring —
+    /// sharing the Compare grammar. Narrows `filteredGroups` on top of the match-type filter.
+    private var dupSearchField: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            TextField("kind:pdf, >5mb…", text: $dupSearchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .frame(maxWidth: 150)
+            if !dupSearchText.isEmpty {
+                Button { dupSearchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.quaternary.opacity(0.5)))
+        .fixedSize()
     }
 
     /// Credits a completed resolve to the session tally and flashes the reclaim pill (H5). Called only

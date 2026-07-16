@@ -13,18 +13,15 @@ enum LogEntryFilter {
     /// Threshold rather than equality is the whole point: someone opening the log after a failure
     /// wants "warnings and errors", which exact-match could never express — picking WARN used to
     /// hide the ERROR they came to see. `nil` shows every level.
-    static func matches(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String) -> [LogEntry] {
-        var result = entries
-
-        if let minimumLevel {
-            result = result.filter { $0.level.severity >= minimumLevel.severity }
+    static func matches(_ entries: [LogEntry], minimumLevel: LogLevel?, search: String, now: Date = Date()) -> [LogEntry] {
+        // The search string may carry `level:`/`since:` tokens (parsed once here); a token-free
+        // string is exactly the legacy case-insensitive message substring. The `minimumLevel`
+        // threshold from the severity chips still applies independently, ANDed with the query.
+        let query = LogSearch.parse(search)
+        return entries.filter { entry in
+            if let minimumLevel, entry.level.severity < minimumLevel.severity { return false }
+            return query.matches(entry, now: now)
         }
-
-        if !search.isEmpty {
-            result = result.filter { $0.message.localizedCaseInsensitiveContains(search) }
-        }
-
-        return result
     }
 
     /// ``matches(_:minimumLevel:search:)`` newest-first — the session list's order (its entries are
@@ -239,7 +236,7 @@ public struct LogViewer: View {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Filter logs...", text: $searchText)
+                TextField("Filter — try level:error, since:1h", text: $searchText)
                     .textFieldStyle(.plain)
                 
                 if !searchText.isEmpty {
