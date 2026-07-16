@@ -7,12 +7,6 @@ import Combine
 /// and the resolve path (mock disk, so we can assert what gets trashed without touching ~/.Trash).
 @Suite struct FileSyncManagerDuplicatesTests {
 
-    private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("TidyTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
 
     private func write(_ url: URL, bytes: Int, fill: UInt8) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -21,7 +15,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesDetectsIdenticalFileEndToEnd() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
 
         // Two identical report.pdf files under different folders; distinct siblings keep the two
@@ -45,7 +39,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesFindsNothingWhenTreeIsUnique() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("one.bin"), bytes: 5000, fill: 0x01)
         try write(root.appendingPathComponent("two.bin"), bytes: 5000, fill: 0x02)  // same size, different bytes
@@ -87,7 +81,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesCountsCandidatesSkippedForSize() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two byte-identical files over the (injected) hash cap: they are size-collision
         // candidates, but hashing skips both — so no group can form, and the scan must SAY so
@@ -118,7 +112,7 @@ import Combine
 
     @MainActor
     @Test func findDuplicatesSkipsAndCountsCloudOnlyCandidatesWithoutReadingThem() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Two identical files "flagged" dataless via the injected seam (a real SF_DATALESS file
         // can't be fabricated), plus a genuinely local identical pair that must still group.
@@ -325,11 +319,11 @@ import Combine
     /// cancelled rescan of a different folder must not relabel the previous results.
     @MainActor
     @Test func duplicateScanRootLabelsResultsNotTheInFlightScan() async throws {
-        let rootA = try makeTempDir()
+        let rootA = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: rootA) }
         try write(rootA.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(rootA.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
-        let rootB = try makeTempDir()
+        let rootB = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
 
         let manager = FileSyncManager()
@@ -348,7 +342,7 @@ import Combine
 
     @MainActor
     @Test func keepSeparatePersistsAcrossRescans() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/report.pdf"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/report.pdf"), bytes: 5000, fill: 0x41)
@@ -376,7 +370,7 @@ import Combine
 
     @MainActor
     @Test func startFindDuplicatesRunsToCompletionViaTask() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)
@@ -404,7 +398,7 @@ import Combine
 
     @MainActor
     @Test func duplicateScanProgressPublishesMonotonicallyThenResets() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // 120 same-size files with pairwise-distinct content: every one is a size-collision
         // hash candidate, so the every-50 progress cadence fires mid-scan (50, 100) as well
@@ -448,7 +442,7 @@ import Combine
 
     @MainActor
     @Test func duplicateScanProgressResetsOnCancel() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         for i in 0..<8 {
             try write(root.appendingPathComponent("f\(i).bin"), bytes: 64, fill: UInt8(i))
@@ -475,7 +469,7 @@ import Combine
     /// epoch guard should have dropped.
     @MainActor
     @Test func cancelMidHashRepublishesNoNumericProgress() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         // Same-size, pairwise-distinct files: every one is a hash candidate, so total == 120.
         for i in 0..<120 {
@@ -520,7 +514,7 @@ import Combine
     // MARK: Overlapping merge
 
     @Test func planMergeCopiesUniqueButNotProvablySharedFiles() async throws {
-        let base = try makeTempDir()
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Redundant")
@@ -579,7 +573,7 @@ import Combine
 
     @MainActor
     @Test func mergeRefusesToTrashARedundantCopyThatChangedMidMerge() async throws {
-        let base = try makeTempDir()
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let redundant = base.appendingPathComponent("Changing")
@@ -619,7 +613,7 @@ import Combine
 
     @MainActor
     @Test func mergeFoldsUniqueFilesThenTrashesRedundant() async throws {
-        let base = try makeTempDir()
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let rName = "Folded-\(UUID().uuidString)"
@@ -767,7 +761,7 @@ import Combine
 
     @MainActor
     @Test func mergeRefusesARedundantNestedInsideTheKeeper() async throws {
-        let base = try makeTempDir()
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Data")
         let nested = keeper.appendingPathComponent("old/Data")   // inside the keeper
@@ -792,7 +786,7 @@ import Combine
 
     @MainActor
     @Test func clearDuplicatesCancelsAnInFlightScan() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("A/x.bin"), bytes: 5000, fill: 0x41)
         try write(root.appendingPathComponent("B/x.bin"), bytes: 5000, fill: 0x41)

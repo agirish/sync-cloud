@@ -8,15 +8,9 @@ import Foundation
 /// exercise it against real files in a temp directory rather than the virtual mock disk.
 @Suite struct FileContentVerifierTests {
 
-    private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("FileContentVerifierTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
 
     @Test func testSha256HexMatchesKnownDigest() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let file = dir.appendingPathComponent("abc.txt")
@@ -28,7 +22,7 @@ import Foundation
     }
 
     @Test func testSha256HexNilForDirectoryAndMissing() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Directory -> nil (guarded before any read).
@@ -38,7 +32,7 @@ import Foundation
     }
 
     @Test func testFilesHaveSameContentTrueForIdenticalBytes() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let a = dir.appendingPathComponent("a.bin")
@@ -50,7 +44,7 @@ import Foundation
     }
 
     @Test func testFilesHaveSameContentFalseForDifferingBytesOfEqualSize() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Same byte length, different content: proves it compares hashes, not sizes.
@@ -66,7 +60,7 @@ import Foundation
     /// link itself (its "size" is the destination-path byte count) while the FileHandle read
     /// follows the link, so without resolving, every symlink came out "Could not verify".
     @Test func testSymlinkedFileVerifiesAgainstTargetContent() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let target = dir.appendingPathComponent("target.bin")
@@ -89,7 +83,7 @@ import Foundation
     // MARK: Classified outcomes (hashOutcome)
 
     @Test func hashOutcomeClassifiesTooLargeDistinctFromUnreadable() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let big = dir.appendingPathComponent("big.bin")
@@ -109,7 +103,7 @@ import Foundation
         // A dataless placeholder can't be fabricated in tests (SF_DATALESS is provider-set), so
         // the decision seam is injected: a file flagged cloud-only must be skipped BEFORE any
         // read — hashing it would force the provider to download the whole file.
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let f = dir.appendingPathComponent("placeholder.bin")
         try Data(repeating: 7, count: 512).write(to: f)
@@ -171,7 +165,7 @@ import Foundation
     @Test func cloudOnlyCheckSeesTheResolvedSymlinkTarget() async throws {
         // The file a symlink would OPEN is its target — that's the path whose dataless flag
         // matters. The seam must receive the resolved path, not the link's own.
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let target = dir.appendingPathComponent("target.bin")
         try Data(repeating: 9, count: 128).write(to: target)
@@ -188,7 +182,7 @@ import Foundation
     }
 
     @Test func sha256HexStillCollapsesEveryNonHashToNil() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let f = dir.appendingPathComponent("f.bin")
         try Data(repeating: 1, count: 64).write(to: f)
@@ -198,7 +192,7 @@ import Foundation
     }
 
     @Test func testFilesHaveSameContentNilWhenEitherSideUnhashable() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "FileContentVerifierTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let file = dir.appendingPathComponent("real.txt")

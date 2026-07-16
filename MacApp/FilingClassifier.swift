@@ -20,24 +20,31 @@ enum OnDeviceFilingClassifier {
     private static let maxSnippetChars = 1_200
 
     /// A retained session kept warm so the first real classification skips the ~cold-start model
-    /// load (measured ~27s cold vs ~5s warm). Set by `prewarm()`.
+    /// load (measured ~27s cold vs ~5s warm). Set by `prewarm()`. @MainActor-isolated: this was a
+    /// `nonisolated(unsafe)` static — an unprotected global mutable that two concurrent prewarm
+    /// calls could race — and nothing here needs it off the main actor (`classify` builds a fresh
+    /// session per file and never reads it).
     #if canImport(FoundationModels)
     @available(macOS 26.0, *)
-    private static var warmSession: LanguageModelSession? {
+    @MainActor private static var warmSession: LanguageModelSession? {
         get { _warmSession as? LanguageModelSession }
         set { _warmSession = newValue }
     }
-    nonisolated(unsafe) private static var _warmSession: AnyObject?
+    @MainActor private static var _warmSession: AnyObject?
     #endif
 
     /// Loads the on-device model in the background so a subsequent scan doesn't pay the cold start.
-    /// Safe to call repeatedly; a no-op when the model isn't available.
+    /// Safe to call repeatedly; a no-op when the model isn't available. Callable from anywhere
+    /// (the manager's prewarm seam is a @Sendable sync closure): the fire-and-forget hop puts the
+    /// session touch on the main actor, where the storage lives.
     static func prewarm() {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
             guard case .available = SystemLanguageModel.default.availability else { return }
-            if warmSession == nil { warmSession = LanguageModelSession() }
-            warmSession?.prewarm()
+            Task { @MainActor in
+                if warmSession == nil { warmSession = LanguageModelSession() }
+                warmSession?.prewarm()
+            }
         }
         #endif
     }

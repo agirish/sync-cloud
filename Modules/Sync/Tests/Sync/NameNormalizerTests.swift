@@ -156,19 +156,13 @@ import Foundation
 
     // MARK: Engine — never overwrite on collision (keep both)
 
-    private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("NameNormTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
     private func write(_ url: URL, bytes: Int = 100) throws {
         try Data(repeating: 0x41, count: bytes).write(to: url)
     }
 
     @MainActor
     @Test func normalizeKeepsBothOnCollisionNeverOverwrites() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "NameNormTest")
         defer { try? FileManager.default.removeItem(at: root) }
 
         // A clean file already occupies the safe name; the risky one (a zero-width space) would

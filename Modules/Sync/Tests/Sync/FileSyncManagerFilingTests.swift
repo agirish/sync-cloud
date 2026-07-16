@@ -9,12 +9,6 @@ final class Flag: @unchecked Sendable { var value = false }
 
 @Suite struct FileSyncManagerFilingTests {
 
-    private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("FilingTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
     private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(repeating: fill, count: bytes).write(to: url)
@@ -22,7 +16,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func findFilingSuggestionsFindsHomesInYourFolders() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)   // existing Vehicles folder
         try write(root.appendingPathComponent("Downloads/Tesla Auto Policy.pdf"))
@@ -42,7 +36,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func applyFilingMovesFileAndCreatesNewFolders() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
@@ -67,7 +61,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func applyRecommendedFilesConfidentOnlyLeavesTheRest() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
@@ -88,7 +82,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func contentExtractorUpgradesFilesWithNoHomeFromTheName() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
@@ -108,7 +102,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func applyingToTheFilesOwnFolderIsANoOpNotARename() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         let srcPath = root.appendingPathComponent("Downloads/report.pdf")
         try write(srcPath)
@@ -130,7 +124,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func batchFilingIsASingleUndo() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let tesla = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
@@ -157,7 +151,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func batchSkipsContentDerivedSuggestions() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/scan0012.pdf")
@@ -177,7 +171,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func readContentsToggleOffSkipsExtraction() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/scan0012.pdf"))
@@ -249,7 +243,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func applyingWithRememberPersistsAReusableRule() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
         let srcPath = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
@@ -284,7 +278,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func rulesAreScopedToTheProviderTheyPointInto() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
 
@@ -362,7 +356,7 @@ final class Flag: @unchecked Sendable { var value = false }
     /// destination DIVERGES from its migrated automation must not add a second candidate.
     @MainActor
     @Test func legacyStoreIsUnconsultedAfterMigration() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Legacy/Tesla/.keep"), bytes: 1)
@@ -392,7 +386,7 @@ final class Flag: @unchecked Sendable { var value = false }
     /// and batch eligibility — so teaching survives the migration without behavior drift.
     @MainActor
     @Test func migratedRuleSteersLikeTheLegacyRule() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/tesla renewal 2025.pdf"))
@@ -428,7 +422,7 @@ final class Flag: @unchecked Sendable { var value = false }
     /// steer this provider's scan — the same scoping the legacy rules had.
     @MainActor
     @Test func automationsAreScopedToTheProviderTheyPointInto() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/tesla thing.pdf"))
 
@@ -500,7 +494,7 @@ final class Flag: @unchecked Sendable { var value = false }
     /// answer. Files no content rule could flip are never read.
     @MainActor
     @Test func scanExtractsSnippetsForContentRulesLikeThePreview() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Inbox/scan0001.pdf"))
         try write(root.appendingPathComponent("Inbox/tesla-note.pdf"))
@@ -550,7 +544,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func classifierVerdictDrivesTheSuggestion() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Family/Divit/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Physician's Report - Divit.pdf"))
@@ -577,7 +571,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
     @MainActor
     @Test func aiToggleOffSkipsTheClassifier() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/mystery.pdf"))
 
@@ -652,12 +646,12 @@ final class Flag: @unchecked Sendable { var value = false }
     /// rescan of a different folder must not relabel the previous results.
     @MainActor
     @Test func filingScanFolderLabelsResultsNotTheInFlightScan() async throws {
-        let root = try makeTempDir()
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Documents/Vehicles/.keep"), bytes: 1)
         try write(root.appendingPathComponent("Downloads/Tesla Policy.pdf"))
         let downloads = root.appendingPathComponent("Downloads")
-        let rootB = try makeTempDir()
+        let rootB = try makeCanonicalTempRoot(prefix: "FilingTest")
         defer { try? FileManager.default.removeItem(at: rootB) }
 
         let manager = FileSyncManager()

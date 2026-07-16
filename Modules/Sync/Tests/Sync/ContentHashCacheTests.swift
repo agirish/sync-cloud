@@ -8,12 +8,6 @@ import Foundation
 /// stored digest without re-reading the bytes" against real temp files.
 @Suite struct ContentHashCacheTests {
 
-    private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("ContentHashCacheTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
 
     // MARK: - Direct cache behavior
 
@@ -62,7 +56,7 @@ import Foundation
     // MARK: - Behavioral proof: a hit serves the stored hash without re-reading bytes
 
     @Test func testCachedHashServedEvenAfterBytesChangeUnderUnchangedKey() async throws {
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "ContentHashCacheTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         // Integer-second mtime round-trips exactly through the filesystem, so the two hash calls
@@ -103,7 +97,7 @@ import Foundation
 
     @Test func testNilCacheMatchesUncachedHashExactly() async throws {
         // The no-cache path must be byte-identical to passing no cache at all.
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "ContentHashCacheTest")
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let file = dir.appendingPathComponent("abc.txt")
