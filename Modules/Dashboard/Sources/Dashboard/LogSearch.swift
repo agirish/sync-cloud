@@ -93,16 +93,16 @@ enum LogSearch {
         return out
     }
 
-    /// Removes the first occurrence of `word` from `raw`, leaving every other word as typed. Backs a
-    /// chip's ✕ button.
+    /// Removes every occurrence of `word` from `raw`, leaving every other word as typed. Backs a
+    /// chip's ✕ button. ALL occurrences, deliberately: chips are keyed by raw text, so with
+    /// `level:warn level:error level:warn` the ✕ on the active warn chip must not just drop the
+    /// FIRST warn (which would leave the effective filter unchanged) — one click clearing every
+    /// duplicate of the word is the honest semantics.
     static func removing(_ raw: String, word: String) -> String {
-        var removed = false
-        var kept: [String] = []
-        for candidate in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
-            if !removed, candidate == word { removed = true; continue }
-            kept.append(candidate)
-        }
-        return kept.joined(separator: " ")
+        raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+            .filter { $0 != word }
+            .joined(separator: " ")
     }
 
     /// "1h" / "30m" / "2d" / "45s" → seconds. Returns nil for anything else, so an unrecognized

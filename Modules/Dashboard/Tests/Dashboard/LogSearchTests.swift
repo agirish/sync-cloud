@@ -104,6 +104,15 @@ import Events
         #expect(LogSearch.removing("dropbox level:error", word: "level:error") == "dropbox")
     }
 
+    @Test func removingDropsEveryOccurrenceOfTheWord() {
+        // Chips are keyed by raw text, so the ✕ must clear ALL duplicates of the word. With
+        // `level:warn level:error level:warn`, removing only the FIRST warn left the last warn
+        // in place — the effective (last-wins) filter didn't change and the ✕ appeared dead.
+        #expect(LogSearch.removing("level:warn level:error level:warn", word: "level:warn") == "level:error")
+        // And the effective query really flips once the duplicates are gone.
+        #expect(LogSearch.parse(LogSearch.removing("level:warn level:error level:warn", word: "level:warn")).level == .error)
+    }
+
     /// Full-grammar characterization: ONE composite query exercising every token family (an
     /// abbreviated `level:`, a `since:`), multi-word free text, and a superseded duplicate-family
     /// token — pinning the parsed query fields AND the chips() output (raw, label, isActive)

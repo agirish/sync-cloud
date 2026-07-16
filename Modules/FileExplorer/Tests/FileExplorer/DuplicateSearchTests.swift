@@ -107,6 +107,14 @@ import Sync
         #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: ">5mb") == "kind:pdf contract")
     }
 
+    @Test func removingDropsEveryOccurrenceOfTheWord() {
+        // Chips are keyed by raw text, so the ✕ must clear ALL duplicates of the word. With
+        // `kind:pdf kind:png kind:pdf`, removing only the FIRST pdf left the last pdf in place —
+        // the effective (last-wins) filter didn't change and the ✕ appeared dead.
+        #expect(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf") == "kind:png")
+        #expect(DuplicateSearch.parse(DuplicateSearch.removing("kind:pdf kind:png kind:pdf", word: "kind:pdf")).kind == "png")
+    }
+
     /// Full-grammar characterization: ONE composite query exercising every token family (`kind:`
     /// twice — the second being the `image` class alias — plus both size comparators), multi-word
     /// free text, and a superseded duplicate-family token — pinning the parsed query fields AND
