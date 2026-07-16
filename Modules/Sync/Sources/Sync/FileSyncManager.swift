@@ -225,10 +225,12 @@ public class FileSyncManager: ObservableObject {
     /// guards re-entry — a second click would re-plan against the half-merged keeper and mint
     /// " 2" junk copies — and drives the Tidy card's disabled/progress state while it runs.
     @Published public internal(set) var mergingGroupIDs: Set<DuplicateGroup.ID> = []
-    /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).
-    public var duplicateIgnoreDefaults: UserDefaults = .standard
-    /// The in-flight Find Duplicates task, so the UI can cancel a long scan.
-    public var duplicateScanTask: Task<Void, Never>?
+    /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard;
+    /// internal — tests reach it via @testable, and nothing outside the module ever did).
+    var duplicateIgnoreDefaults: UserDefaults = .standard
+    /// The in-flight Find Duplicates task. Internal like the other lens tasks — the UI cancels
+    /// through `cancelFindDuplicates()`, never by touching the task.
+    var duplicateScanTask: Task<Void, Never>?
 
     // MARK: Storage Lens — read-only "where does my space go?" (see FileSyncManager+StorageLens.swift)
 
@@ -328,16 +330,19 @@ public class FileSyncManager: ObservableObject {
         get { filingScanLifecycle.root?.path }
         set { filingScanLifecycle.root = newValue.map { URL(fileURLWithPath: $0) } }
     }
-    /// The in-flight Filing scan task, so the UI can cancel it.
-    public var filingScanTask: Task<Void, Never>?
+    /// The in-flight Filing scan task. Internal like the other lens tasks — the UI cancels
+    /// through `cancelFindFilingSuggestions()`, never by touching the task.
+    var filingScanTask: Task<Void, Never>?
     /// On-device content extractor for Filing (file path → entity/keyword tokens), injected by the
     /// app (PDF text / OCR / NaturalLanguage). nil = filename-only (F1). Gated by the read-contents
     /// setting. Runs only on files with no confident home from their name.
     public var filingContentExtractor: (@Sendable (String) async -> Set<String>)?
-    /// Defaults store for the Filing read-contents toggle (injectable so tests don't touch standard).
-    public var filingContentDefaults: UserDefaults = .standard
-    /// Defaults store for remembered filing rules (F3), injectable so tests don't touch standard.
-    public var filingRuleDefaults: UserDefaults = .standard
+    /// Defaults store for the Filing read-contents toggle (injectable so tests don't touch standard;
+    /// internal — tests reach it via @testable, and nothing outside the module ever did).
+    var filingContentDefaults: UserDefaults = .standard
+    /// Defaults store for remembered filing rules (F3), injectable so tests don't touch standard
+    /// (internal — tests reach it via @testable, and nothing outside the module ever did).
+    var filingRuleDefaults: UserDefaults = .standard
     /// Intelligent Filing backend — reasons about the folder taxonomy + file contents to pick a
     /// home (on-device Apple LLM, opt-in cloud), injected by the app. nil = keyword engine only.
     /// Its verdicts override the heuristic guess for files it's confident about.
