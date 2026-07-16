@@ -10,6 +10,10 @@ struct TidyGroupCard: View {
     let isExpanded: Bool
     let providerName: String?
     let scanRoot: String?
+    /// Row measurements per the appearance density setting (H7), injected by the owner (TidyView
+    /// reads the @AppStorage once and passes the resolved metrics down); comfortable is the
+    /// pre-H7 look.
+    let densityMetrics: ListDensityMetrics
     let onToggle: () -> Void
     let onApply: () -> Void
     let onReveal: () -> Void
@@ -27,14 +31,9 @@ struct TidyGroupCard: View {
     var isMerging: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private var accent: Color { TidyMatchStyle.color(group.matchType) }
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
-    /// Row measurements per the appearance density setting (H7); comfortable is the pre-H7 look.
-    private var densityMetrics: ListDensityMetrics {
-        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,8 +82,7 @@ struct TidyGroupCard: View {
                 .font(.system(size: 11, weight: .bold))
         }
         .foregroundStyle(accent)
-        .padding(.horizontal, 9).padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(accent.opacity(0.14)))
+        .pillSurface(.mini, tint: accent)
         .fixedSize()
     }
 
@@ -119,7 +117,7 @@ struct TidyGroupCard: View {
         } else if group.reclaimableBytes > 0 {
             Text("reclaim \(FileSyncManager.formatBytes(group.reclaimableBytes))")
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.green)
+                .foregroundStyle(SemanticColor.success)
                 .fixedSize()
         } else {
             Text("nothing to reclaim")
@@ -232,7 +230,7 @@ struct TidyGroupCard: View {
         case .keeper:
             Image(systemName: "largecircle.fill.circle")
                 .font(.system(size: 15))
-                .foregroundStyle(Color.green)
+                .foregroundStyle(SemanticColor.success)
                 .padding(.top, 1)
                 .accessibilityLabel(TidyKeeperMarker.keeper.accessibilityLabel ?? "")
         case .selectable:
@@ -252,13 +250,13 @@ struct TidyGroupCard: View {
     private func fateChip(_ copy: DuplicateCopy) -> some View {
         Group {
             if copy.isRecommendedKeeper {
-                chip("Keep", systemImage: "checkmark", color: .green)
+                chip("Keep", systemImage: "checkmark", color: SemanticColor.success)
             } else {
                 switch group.matchType {
                 case .identical, .versions:
-                    chip("Move to Trash", systemImage: "trash", color: .red)
+                    chip("Move to Trash", systemImage: "trash", color: SemanticColor.error)
                 case .overlapping:
-                    chip("Fold in", systemImage: "arrow.triangle.merge", color: .orange)
+                    chip("Fold in", systemImage: "arrow.triangle.merge", color: SemanticColor.warning)
                 case .nameOnly:
                     chip("Different", systemImage: "circle.slash", color: .secondary)
                 }
@@ -295,7 +293,7 @@ struct TidyGroupCard: View {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: "info.circle")
                     .font(.system(size: 12))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(SemanticColor.info)
                 Text(text)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -303,7 +301,7 @@ struct TidyGroupCard: View {
             }
             .padding(.horizontal, 11).padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.04)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.04)))
             .padding(.top, 10)
         }
     }

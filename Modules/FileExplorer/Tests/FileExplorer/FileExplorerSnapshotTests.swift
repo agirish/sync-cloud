@@ -1,4 +1,5 @@
 import AppKit
+import Design
 import SwiftUI
 import Testing
 import Sync
@@ -76,6 +77,7 @@ import Sync
         assertViewSnapshot(
             of: TidyGroupCard(
                 group: group, isExpanded: false, providerName: "iCloud Drive", scanRoot: "/d",
+                densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {})
                 .padding(12),
@@ -100,6 +102,7 @@ import Sync
         assertViewSnapshot(
             of: TidyGroupCard(
                 group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
+                densityMetrics: ListDensity.comfortable.metrics,
                 onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
                 onChooseKeeper: { _ in }, onMerge: {})
                 .padding(12),

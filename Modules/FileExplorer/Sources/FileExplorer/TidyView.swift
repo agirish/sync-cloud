@@ -68,8 +68,8 @@ enum TidyMatchStyle {
     }
     static func color(_ type: DuplicateMatchType) -> Color {
         switch type {
-        case .identical: return .green
-        case .overlapping: return .orange
+        case .identical: return SemanticColor.success
+        case .overlapping: return SemanticColor.warning
         case .nameOnly: return .yellow
         case .versions: return .purple
         }
@@ -85,8 +85,8 @@ enum TidyMatchStyle {
     static func filterColor(_ f: TidyFilter) -> Color {
         switch f {
         case .all: return .secondary
-        case .identical: return .green
-        case .overlapping: return .orange
+        case .identical: return SemanticColor.success
+        case .overlapping: return SemanticColor.warning
         case .nameOnly: return .yellow
         case .versions: return .purple
         }
@@ -603,7 +603,7 @@ public struct TidyView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.quaternary.opacity(0.5)))
+        .searchFieldSurface()
         .fixedSize()
     }
 
@@ -775,6 +775,7 @@ public struct TidyView: View {
                         isExpanded: expanded.contains(group.id),
                         providerName: providerName,
                         scanRoot: syncManager.duplicateScanRoot,
+                        densityMetrics: densityMetrics,
                         onToggle: { toggle(group.id) },
                         onApply: { apply(group) },
                         onReveal: { reveal(group) },
@@ -1002,6 +1003,7 @@ public struct TidyView: View {
     private func filingCard(_ suggestion: FilingSuggestion) -> some View {
         FilingSuggestionCard(
             suggestion: suggestion,
+            densityMetrics: densityMetrics,
             onFileHere: { dest in
                 filedThisSession = true
                 Task {

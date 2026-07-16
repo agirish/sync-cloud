@@ -7,6 +7,10 @@ import Design
 /// reason, a confidence chip, and the file/choose/leave actions.
 struct FilingSuggestionCard: View {
     let suggestion: FilingSuggestion
+    /// Row measurements per the appearance density setting (H7/D4), injected by the owner
+    /// (TidyView reads the @AppStorage once and passes the resolved metrics down). Comfortable
+    /// is the pre-density look — its values equal the literals this card used to hard-code.
+    let densityMetrics: ListDensityMetrics
     let onFileHere: (FilingDestination) -> Void
     let onChooseFolder: () -> Void
     let onReveal: () -> Void
@@ -17,13 +21,7 @@ struct FilingSuggestionCard: View {
     var onTryAnother: (() -> Void)? = nil
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
-    /// Row measurements per the appearance density setting (H7/D4); comfortable is the pre-density
-    /// look — its values equal the literals this card used to hard-code.
-    private var densityMetrics: ListDensityMetrics {
-        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
-    }
     /// File-icon side: the pre-density 26pt in comfortable, a tighter 20pt in compact.
     private var iconSize: CGFloat { densityMetrics.showsSecondaryDetail ? 26 : 20 }
 
@@ -46,7 +44,19 @@ struct FilingSuggestionCard: View {
                     // The source and "why" lines are the secondary detail compact hides (D4); the
                     // destination row and the actions still carry what happens and where.
                     if densityMetrics.showsSecondaryDetail { sourceRow }
-                    if let best { destinationRow(best) }
+                    if let best {
+                        if densityMetrics.showsSecondaryDetail {
+                            destinationRow(best)
+                        } else if let rationale = rationale(best) {
+                            // Compact hides the whyRow (which carried the filing rationale for
+                            // VoiceOver) — keep the "why here" reachable on the destination row.
+                            destinationRow(best)
+                                .help(rationale)
+                                .accessibilityValue(rationale)
+                        } else {
+                            destinationRow(best)
+                        }
+                    }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
                     if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
@@ -131,10 +141,13 @@ struct FilingSuggestionCard: View {
                         .font(.system(size: 12, weight: isLeaf ? .semibold : .regular, design: .monospaced))
                         .foregroundStyle(isNew ? hueAccent : (isLeaf ? Color.primary : Color.secondary))
                     if isNew {
+                        // Deliberately NOT a full Pill.mini: its 10pt text and H8/V2 padding
+                        // balloon an 8pt tag inline in a five-crumb breadcrumb. Only the wash
+                        // opacity is unified with the shared pill recipe.
                         Text("NEW")
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
-                            .background(Capsule().fill(hueAccent.opacity(0.16)))
+                            .background(Capsule().fill(hueAccent.opacity(PillVariant.fillOpacity)))
                             .foregroundStyle(hueAccent)
                     }
                 }
@@ -192,6 +205,14 @@ struct FilingSuggestionCard: View {
         Pill(.mini, tint: hueAccent, systemImage: "sparkles", text: "AI suggestion")
     }
 
+    /// The "why here" text the whyRow carries in comfortable density — reused as the compact
+    /// fallback (tooltip + VoiceOver value on the destination row) when the row is hidden.
+    private func rationale(_ dest: FilingDestination) -> String? {
+        if let reason = dest.reasons.first { return reason }
+        if let token = dest.evidenceToken { return "Matched \(token) read from the file" }
+        return nil
+    }
+
     // MARK: G4 — legible content evidence
 
     @ViewBuilder
@@ -200,13 +221,13 @@ struct FilingSuggestionCard: View {
             // Content-derived (F2): the deciding word was read from the file, not its name — the
             // stronger, less-obvious signal. Highlight it so it reads distinctly from a name match.
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 11)).foregroundStyle(.green)
+                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 11)).foregroundStyle(SemanticColor.success)
                 Text("Matched").font(.system(size: 12)).foregroundStyle(.secondary)
                 Text(token)
                     .font(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule(style: .continuous).fill(Color.green.opacity(0.14)))
-                    .foregroundStyle(Color.green)
+                    .background(Capsule(style: .continuous).fill(SemanticColor.success.opacity(0.14)))
+                    .foregroundStyle(SemanticColor.success)
                 Text(evidenceTail(dest)).font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -214,7 +235,7 @@ struct FilingSuggestionCard: View {
             .accessibilityLabel(dest.reasons.first ?? "Matched \(token) read from the file")
         } else if let reason = dest.reasons.first {
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(.blue)
+                Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(SemanticColor.info)
                 Text(reason).font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -244,8 +265,8 @@ struct FilingSuggestionCard: View {
     private var confidenceChip: some View {
         let (text, color, symbol): (String, Color, String)
         switch best?.confidence {
-        case .high?:   (text, color, symbol) = ("High", .green, "checkmark")
-        case .medium?: (text, color, symbol) = ("Medium", .orange, "circle.dashed")
+        case .high?:   (text, color, symbol) = ("High", SemanticColor.success, "checkmark")
+        case .medium?: (text, color, symbol) = ("Medium", SemanticColor.warning, "circle.dashed")
         default:       (text, color, symbol) = ("Pick a home", .secondary, "questionmark")
         }
         return Pill(.mini, tint: color, systemImage: symbol, text: text)

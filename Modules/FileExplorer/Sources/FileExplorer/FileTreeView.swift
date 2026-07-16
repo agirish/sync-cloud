@@ -105,8 +105,14 @@ public struct FileTreeView: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    /// List-density setting (H7), read ONCE here and injected into every row — a per-row
+    /// @AppStorage would register a defaults observer per visible row.
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     private var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
+    private var density: ListDensity {
+        ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
@@ -245,7 +251,8 @@ public struct FileTreeView: View {
             node: node,
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
-            containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0
+            containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
+            density: density
         )
         .tag(node.id)
         .contextMenu {
@@ -581,14 +588,13 @@ struct FileRowView: View {
     /// Whether this file is a cloud-only placeholder (content not on disk). Detected lazily per row
     /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears.
     @State private var isCloudOnly = false
+    /// List-density setting (H7), injected by `FileTreeView` (which reads the @AppStorage once
+    /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
+    /// the row and drops the secondary size/date detail.
+    let density: ListDensity
     /// Bumped when a Download is requested for this file (see `.cloudDownloadRequested`), keying
     /// the short poll that clears the badge once the content lands.
     @State private var downloadWatchToken = 0
-    /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
-    /// tightens the row and drops the secondary size/date detail.
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-
-    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
