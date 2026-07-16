@@ -216,8 +216,14 @@ public struct DifferencesView: View {
         .task(id: displayInputs) {
             let inputs = displayInputs
             if inputs.isReviewing {
+                // Drop the cached rows (the review UI owns the screen; holding thousands of
+                // stale rows costs memory) but do NOT mark them computed: the table isn't
+                // rendered during a review, and on exit the first body beat would otherwise
+                // pair the emptied rows with a set flag — flashing "No differences" until the
+                // detached rebuild below lands. Leaving the flag false makes the exit hold the
+                // same blank-table placeholder as the first load.
                 displayRows = DisplayRows()
-                hasComputedRows = true
+                hasComputedRows = false
                 return
             }
             let rows = await Task.detached(priority: .userInitiated) { () -> DisplayRows in
