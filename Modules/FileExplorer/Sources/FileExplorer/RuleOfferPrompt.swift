@@ -28,16 +28,16 @@ struct RuleOffer: Identifiable {
 enum RuleOfferLogic {
     /// The destination folder as a path relative to the provider root (the rule's template is
     /// provider-relative). Falls back to the folder's leaf name when no root is known or the
-    /// path lies outside it.
+    /// path lies outside it. The boundary math is Sync's `PathBoundary` (the one implementation
+    /// of "inside the root?"); the standardizing pass and the leaf-name fallback stay here —
+    /// they are this call site's policy, not the boundary rule's.
     static func relativeToProviderRoot(_ absolutePath: String, providerRoot: String?) -> String {
         guard let root = providerRoot, !root.isEmpty else {
             return (absolutePath as NSString).lastPathComponent
         }
         let r = (root as NSString).standardizingPath
         let p = (absolutePath as NSString).standardizingPath
-        if p == r { return "" }
-        if p.hasPrefix(r + "/") { return String(p.dropFirst(r.count + 1)) }
-        return (absolutePath as NSString).lastPathComponent
+        return PathBoundary.relativize(p, under: r) ?? (absolutePath as NSString).lastPathComponent
     }
 }
 

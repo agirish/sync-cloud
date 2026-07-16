@@ -956,9 +956,12 @@ struct ContentView: View {
         let providerRoot = tidyProviderRootExpanded
         let keepPath = (keep.path as NSString).expandingTildeInPath
         let deletePath = (delete.path as NSString).expandingTildeInPath
+        // PathBoundary is boundary-safe on "/" ("/a/Docs" never claims "/a/DocsBackup"); a copy
+        // outside the root stays nil and refuses the compare (no fallback — a wrong relative
+        // path would focus a pane on the wrong folder).
         guard !providerRoot.isEmpty,
-              let keepRel = Self.relativePath(of: keepPath, under: providerRoot),
-              let deleteRel = Self.relativePath(of: deletePath, under: providerRoot) else {
+              let keepRel = PathBoundary.relativize(keepPath, under: providerRoot),
+              let deleteRel = PathBoundary.relativize(deletePath, under: providerRoot) else {
             Logger.shared.warning("Compare copies: a copy path sits outside the Tidy provider root — skipping")
             return
         }
@@ -1008,15 +1011,6 @@ struct ContentView: View {
             case .right: rightProviderId = assignment.providerId
             }
         }
-    }
-
-    /// `full` expressed relative to `root` (`""` when they're equal), or nil when `full` is neither
-    /// `root` nor inside it. Boundary-safe on "/" so "/a/Docs" never claims "/a/DocsBackup".
-    static func relativePath(of full: String, under root: String) -> String? {
-        if full == root { return "" }
-        let prefix = root.hasSuffix("/") ? root : root + "/"
-        guard full.hasPrefix(prefix) else { return nil }
-        return String(full.dropFirst(prefix.count))
     }
 
     /// The provider root of the pane a Tidy/Filing action targets (the left rail in single-source;
