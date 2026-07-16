@@ -28,10 +28,15 @@ import Testing
         }
     }
 
-    /// Deterministic, human-readable serialization of the grouping result. `*` marks the keeper.
+    /// Deterministic, human-readable serialization of the grouping result. `*` marks the keeper;
+    /// `?` marks a copy whose content the scan could NOT fully verify (`contentUnverified` — an
+    /// unknown-hash placeholder, or a folder with an unverified descendant), so a change to the
+    /// unverified accounting flips the snapshot too.
     private func snapshot(_ groups: [DuplicateGroup]) -> String {
         groups.map { g in
-            let copies = g.copies.map { "\($0.path)\($0.isRecommendedKeeper ? "*" : "")" }.joined(separator: ", ")
+            let copies = g.copies.map {
+                "\($0.path)\($0.isRecommendedKeeper ? "*" : "")\($0.contentUnverified ? "?" : "")"
+            }.joined(separator: ", ")
             return "\(matchLabel(g.matchType)) \"\(g.name)\" dir=\(g.isDirectory) reclaim=\(g.reclaimableBytes) [\(copies)]"
         }.joined(separator: "\n")
     }
@@ -65,6 +70,40 @@ import Testing
             // versions (the IMG_0001-in-two-year-folders false positive).
             dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
             dir("/root/2023", [file("/root/2023/IMG_0001.jpg", size: 51_000)]),
+            // nameOnly FOLDER group: same folder name, fully disjoint contents — shared fraction 0
+            // is below the overlap threshold, so the pair surfaces as a warning (reclaim 0), never
+            // a removable redundancy.
+            dir("/root/x/Projects", [file("/root/x/Projects/p1.txt")]),
+            dir("/root/y/Projects", [file("/root/y/Projects/p2.txt")]),
+            // Keeper heuristic discrimination: identical file where the ARCHIVE copy is BOTH newer
+            // and shallower — depth and mtime each favor the archive copy, so only the archive
+            // penalty can explain the docs copy winning keeper. (Unique siblings keep the parent
+            // folders from grouping.)
+            dir("/root/Archive", [
+                file("/root/Archive/report.pdf", modified: Date(timeIntervalSince1970: 5_000_000)),
+                file("/root/Archive/arch-only.txt"),
+            ]),
+            dir("/root/docs", [dir("/root/docs/sub", [
+                file("/root/docs/sub/report.pdf", modified: Date(timeIntervalSince1970: 1_000_000)),
+                file("/root/docs/sub/docs-only.txt"),
+            ])]),
+            // Versions keeper heuristic: the ARCHIVE-path copy ("backup" segment) is the NEWEST —
+            // newestIndex must still keep the non-archive copy (a backup tool rewriting mtimes must
+            // not make the backup the recommended keeper).
+            dir("/root/work", [file("/root/work/plan.key", modified: Date(timeIntervalSince1970: 1_000_000))]),
+            dir("/root/backup", [file("/root/backup/plan-final.key", modified: Date(timeIntervalSince1970: 5_000_000))]),
+            // Two placeholder-hash members (marker + same parent — every OTHER versions signal
+            // present): unknown content is not evidence of drift, so NO group may stand up.
+            dir("/root/big", [file("/root/big/huge.mp4"), file("/root/big/huge copy.mp4")]),
+            // One placeholder + only ONE real hash: still not two distinct real contents → no group.
+            dir("/root/mix", [file("/root/mix/draft.docx"), file("/root/mix/draft-v2.docx")]),
+            // A placeholder member RIDES ALONG in a versions group two real hashes justify — it is
+            // carried (marked unverified), it just can't stand a group up by itself.
+            dir("/root/ride", [
+                file("/root/ride/memo.txt", modified: Date(timeIntervalSince1970: 1_000_000)),
+                file("/root/ride/memo-v2.txt", modified: Date(timeIntervalSince1970: 2_000_000)),
+                file("/root/ride/memo copy.txt", modified: Date(timeIntervalSince1970: 1_500_000)),
+            ]),
         ]
         let hashes = [
             "/root/dupdir1/a.txt": "HA", "/root/dupdir1/b.txt": "HB",
@@ -78,26 +117,92 @@ import Testing
             "/root/hasreal/doc.txt": "HR", "/root/hasreal/att.pdf": "HW",
             "/root/vers/deck.pdf": "V1", "/root/vers/deck-final.pdf": "V2", // drifted versions
             "/root/2019/IMG_0001.jpg": "SA", "/root/2023/IMG_0001.jpg": "SB",
+            "/root/x/Projects/p1.txt": "N1", "/root/y/Projects/p2.txt": "N2",
+            "/root/Archive/report.pdf": "HK", "/root/docs/sub/report.pdf": "HK",
+            "/root/Archive/arch-only.txt": "UA", "/root/docs/sub/docs-only.txt": "UD",
+            "/root/work/plan.key": "P1", "/root/backup/plan-final.key": "P2",
+            "/root/big/huge.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge.mp4"),
+            "/root/big/huge copy.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge copy.mp4"),
+            "/root/mix/draft.docx": DuplicateFinder.unknownSignature(forPath: "/root/mix/draft.docx"),
+            "/root/mix/draft-v2.docx": "R1",
+            "/root/ride/memo.txt": "M1", "/root/ride/memo-v2.txt": "M2",
+            "/root/ride/memo copy.txt": DuplicateFinder.unknownSignature(forPath: "/root/ride/memo copy.txt"),
         ]
 
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
 
         // GOLDEN — captured, hand-verified correct, then pinned. Every line is load-bearing:
-        //  · dupdir1 ≡ dupdir2 is the only FOLDER group (their files are covered, not re-grouped);
+        //  · dupdir1 ≡ dupdir2 is the only identical FOLDER group (their files are covered, not
+        //    re-grouped);
         //  · data.txt / doc.txt ARE file groups → withlink≠nolink and hassym≠hasreal, i.e. a folder
         //    with a symlink does NOT falsely group with one holding the real file / no file;
         //  · shared.bin has exactly 2 copies (f1, f2) — the /root/link symlink is excluded, not a 3rd;
-        //  · deck.pdf is the ONLY versions group (marker-justified, newest kept) — the two
-        //    IMG_0001.jpg files (same stem, different parents, no marker) form NO group at all.
+        //  · report.pdf's keeper is the docs/sub copy even though the Archive copy is newer AND
+        //    shallower — the archive-location penalty dominates depth and mtime;
+        //  · Projects is a nameOnly folder group: same name, disjoint contents, reclaim 0;
+        //  · deck.pdf / plan.key / memo.txt are the ONLY versions groups (marker-justified) — the
+        //    two IMG_0001.jpg files (same stem, different parents, no marker) form NO group at all;
+        //  · plan.key's keeper is the /root/work copy even though the /root/backup copy is newer —
+        //    newestIndex applies the same archive penalty first;
+        //  · memo.txt carries an unknown-hash member (memo copy.txt, marked `?`) that RIDES ALONG in
+        //    a group two real hashes justify — while huge.mp4 (two placeholders, marker AND same
+        //    parent) and draft.docx (one placeholder + only one real hash) stand up NO group:
+        //    unknown content is never evidence of drift.
         // To re-bless after an INTENTIONAL behavior change: run, confirm the new grouping is correct,
         // and paste the new value.
         let expected = """
         identical "dupdir1" dir=true reclaim=200000 [/root/dupdir1*, /root/dupdir2]
+        versions "memo.txt" dir=false reclaim=200000 [/root/ride/memo-v2.txt*, /root/ride/memo copy.txt?, /root/ride/memo.txt]
         identical "data.txt" dir=false reclaim=100000 [/root/nolink/data.txt*, /root/withlink/data.txt]
         identical "doc.txt" dir=false reclaim=100000 [/root/hasreal/doc.txt*, /root/hassym/doc.txt]
+        versions "plan.key" dir=false reclaim=100000 [/root/work/plan.key*, /root/backup/plan-final.key]
+        identical "report.pdf" dir=false reclaim=100000 [/root/docs/sub/report.pdf*, /root/Archive/report.pdf]
         identical "shared.bin" dir=false reclaim=100000 [/root/f1/shared.bin*, /root/f2/shared.bin]
         versions "deck.pdf" dir=false reclaim=60000 [/root/vers/deck-final.pdf*, /root/vers/deck.pdf]
+        nameOnly "Projects" dir=true reclaim=0 [/root/x/Projects*, /root/y/Projects]
         """
         #expect(snapshot(groups) == expected)
+    }
+
+    // MARK: Skipped-count summary
+
+    /// Pins the per-reason skip accounting behind `duplicateScanSkips` (`hashFilesCounting`): a
+    /// mixed batch must report EXACTLY how many candidates were skipped over the size cap vs as
+    /// cloud-only placeholders, hash everything else, and never let a skip masquerade as a hash.
+    /// Guards the round-4 "count and surface what the duplicate scan skipped" surface: a change
+    /// that drops a reason, double-counts, or starts hashing cloud-only files flips this.
+    @Test func hashBatchOutcomeCountsSkipsByReason() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-skips-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let small1 = dir.appendingPathComponent("a.txt")
+        let small2 = dir.appendingPathComponent("b.txt")
+        let big = dir.appendingPathComponent("big.bin")
+        let cloud = dir.appendingPathComponent("cloud.txt")
+        try Data(repeating: 0x41, count: 100).write(to: small1)
+        try Data(repeating: 0x41, count: 100).write(to: small2)      // same bytes → same hash
+        try Data(repeating: 0x42, count: 5000).write(to: big)        // over the injected 1000-byte cap
+        try Data(repeating: 0x43, count: 100).write(to: cloud)       // flagged cloud-only via the seam
+
+        let outcome = await FileSyncManager.hashFilesCounting(
+            [small1.path, small2.path, big.path, cloud.path],
+            fileManager: FileManager.default,
+            maxBytesToHash: 1000,
+            isCloudOnly: { $0.hasSuffix("cloud.txt") }
+        )
+
+        #expect(outcome.skippedTooLarge == 1)
+        #expect(outcome.skippedCloudOnly == 1)
+        #expect(outcome.hashes.count == 2)
+        // The two identical small files hashed to the same real content hash — skips returned no hash.
+        #expect(outcome.hashes[small1.path] != nil)
+        #expect(outcome.hashes[small1.path] == outcome.hashes[small2.path])
+        #expect(outcome.hashes[big.path] == nil && outcome.hashes[cloud.path] == nil)
+        // And the public summary type the UI reads sums the same way.
+        let skips = FileSyncManager.DuplicateScanSkips(tooLarge: outcome.skippedTooLarge,
+                                                       cloudOnly: outcome.skippedCloudOnly)
+        #expect(skips.total == 2)
     }
 }
