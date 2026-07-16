@@ -77,6 +77,51 @@ import Testing
         #expect(best.confidence == .medium)
     }
 
+    @Test func cameraSequenceYearIsAShotCounterNotAFilingYear() throws {
+        // IMG_2023.jpg is shot #2023 off a camera, not a 2023 photo — reading its digits as the
+        // filename year filed whole camera rolls into Photos/2023 at high confidence AND batch
+        // eligible (mtime 2024 here). Same for DSC_1995 ("dsc" is not a stopword, so the token
+        // guard alone can't catch it). A real year in a real name ("Wedding 2023") still wins.
+        let taxonomy = [dir("/root/Photos", [])]
+        let loose = [
+            file("/root/Downloads/IMG_2023.jpg", modified: y2024),
+            file("/root/Downloads/DSC_1995.jpg", modified: y2024),
+            file("/root/Downloads/Wedding 2023.jpg", modified: y2024),
+        ]
+        let suggestions = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        #expect(suggestions[0].best?.path == "/root/Photos/2024")   // IMG_2023 → mtime year
+        #expect(suggestions[1].best?.path == "/root/Photos/2024")   // DSC_1995 → mtime year
+        #expect(suggestions[2].best?.path == "/root/Photos/2023")   // Wedding 2023 → filename year
+    }
+
+    @Test func cameraSequenceStemDetectionMatchesDeviceNamesOnly() {
+        #expect(FilingEngine.isCameraSequenceStem("IMG_2023"))
+        #expect(FilingEngine.isCameraSequenceStem("img 2023"))
+        #expect(FilingEngine.isCameraSequenceStem("DSC-1995"))
+        #expect(FilingEngine.isCameraSequenceStem("DSCN0042"))
+        #expect(FilingEngine.isCameraSequenceStem("DSCF123456"))
+        #expect(FilingEngine.isCameraSequenceStem("DCIM0424"))
+        #expect(FilingEngine.isCameraSequenceStem("PXL_0421"))
+        #expect(FilingEngine.isCameraSequenceStem("MVIMG_2020"))
+        #expect(FilingEngine.isCameraSequenceStem("GOPR0042"))
+        #expect(!FilingEngine.isCameraSequenceStem("Wedding 2023"))
+        #expect(!FilingEngine.isCameraSequenceStem("2023"))            // bare year, no device prefix
+        #expect(!FilingEngine.isCameraSequenceStem("IMG_12"))          // counter too short
+        #expect(!FilingEngine.isCameraSequenceStem("IMG_1234567"))     // counter too long
+        #expect(!FilingEngine.isCameraSequenceStem("IMG_2023 edit"))   // trailing words = a real name
+        #expect(!FilingEngine.isCameraSequenceStem("screenshot 2023"))
+    }
+
+    @Test func cameraSequenceTokensDropTheYearShapedCounter() {
+        // The guard lives in fileTokens (the one shared entry point), so the heuristic year,
+        // the automations' {year} template, and mentionsAll matching all agree.
+        #expect(!FilingEngine.fileTokens("IMG_2023.jpg").contains("2023"))
+        #expect(!FilingEngine.fileTokens("DSC_1995.jpg").contains("1995"))
+        #expect(FilingEngine.fileTokens("Wedding 2023.jpg").contains("2023"))
+        #expect(FilingEngine.filenameYear(in: FilingEngine.fileTokens("IMG_2023.jpg"),
+                                          now: Date(timeIntervalSince1970: 1_720_000_000)) == nil)
+    }
+
     @Test func receiptIsFiledByYearUnderExistingReceipts() throws {
         let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
         let loose = [file("/root/Downloads/amazon order 114.pdf", modified: y2024)]

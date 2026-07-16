@@ -547,9 +547,26 @@ public enum FilingEngine {
 
     // MARK: Tokenization
 
-    /// Tokens from a filename (extension stripped).
+    /// Tokens from a filename (extension stripped). Camera-sequence stems (IMG_2023, DSC_1995,
+    /// PXL 0421, GOPR0042) drop their year-shaped digits: the number is a shot counter, not a
+    /// year, and letting it through filed IMG_2023.jpg (shot in 2026) into Photos/2023 — at high
+    /// confidence and batch-eligible. Applied to the RAW stem before tokenization, because the
+    /// tokens alone can't tell IMG_2023 from a genuine "2023" ("img" is a stopword, so both
+    /// reduce to the bare year token). This is the one shared entry point for filename tokens,
+    /// so the heuristic year, the automations' `{year}` template (which derives its filename
+    /// year from these tokens), and `mentionsAll` matching all agree.
     public static func fileTokens(_ fileName: String) -> Set<String> {
-        nameTokens((fileName as NSString).deletingPathExtension)
+        let stem = (fileName as NSString).deletingPathExtension
+        let tokens = nameTokens(stem)
+        guard isCameraSequenceStem(stem) else { return tokens }
+        return tokens.filter { !isYear($0) }
+    }
+
+    /// Whether a raw filename stem is a camera/phone sequence name — a known device prefix plus
+    /// a 3–6 digit shot counter and nothing else. "Wedding 2023" is NOT one: its year is real.
+    static func isCameraSequenceStem(_ stem: String) -> Bool {
+        stem.range(of: #"^(img|dsc|dscn|dscf|dcim|pxl|mvimg|gopr\w*)[_ -]?\d{3,6}$"#,
+                   options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     /// The union of every category vocabulary — the keywords a content extractor should surface
