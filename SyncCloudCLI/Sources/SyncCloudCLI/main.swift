@@ -302,6 +302,17 @@ struct SyncFiles: AsyncParsableCommand {
             let sourceURL = URL(fileURLWithPath: sourcePath)
             var targetURL = URL(fileURLWithPath: targetPath)
 
+            // Match the app's pre-write guard: never write a name the DESTINATION provider forbids
+            // (Dropbox trailing space/period; OneDrive forbidden chars, reserved names, affixes).
+            // The app prompts to sanitize; non-interactively we skip with a clear message, because
+            // writing it would create a local-only file the provider silently never uploads.
+            let targetProvider = diff.action == .copyToRight ? rightProvider : leftProvider
+            if let violation = ProviderNameRules.violation(inRelativePath: diff.relativePath, for: targetProvider.type) {
+                fputs("Skipping \(diff.relativePath): \(violation.reason) \(targetProvider.displayName) would not upload it.\n", stderr)
+                tally.recordSkipped(relativePath: diff.relativePath)
+                continue
+            }
+
             switch resolveCollision(strategy: strategy, targetExists: fm.fileExists(atPath: targetURL.path)) {
             case .skip:
                 tally.recordSkipped(relativePath: diff.relativePath)
