@@ -19,8 +19,12 @@ public enum SelectionSummary {
     /// target that may already be counted in the tree, so adding it would double-count), and a
     /// folder whose children weren't fully walked (`isUnexplored`) can only *undercount* — the
     /// total is therefore a floor, which is the honest thing for a glanceable summary.
+    ///
+    /// The selection is pruned to top-level nodes first: ⌘-clicking a folder AND a file inside it
+    /// selects both, and summing both would count the nested bytes twice. Only the byte math
+    /// dedupes — `text(for:)`'s count stays the raw selection count, matching what's highlighted.
     public static func totalBytes(of nodes: [FileNode]) -> Int {
-        nodes.reduce(0) { $0 + totalBytes(of: $1) }
+        nodes.pruneNestedNodes().reduce(0) { $0 + totalBytes(of: $1) }
     }
 
     static func totalBytes(of node: FileNode) -> Int {

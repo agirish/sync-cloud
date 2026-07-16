@@ -39,6 +39,18 @@ import Foundation
         #expect(SelectionSummary.totalBytes(of: selection) == 300)
     }
 
+    @Test func overlappingSelectionCountsNestedBytesOnce() {
+        // ⌘-click can select a folder AND items inside it; the bytes under the folder must not be
+        // counted again for the nested selections. The COUNT stays the raw selection count.
+        let inner = file("/D/a", 100)
+        let sub = dir("/D/sub", [file("/D/sub/c", 50)])
+        let folder = dir("/D", [inner, file("/D/b", 250), sub])
+        let selection = [folder, inner, sub]
+
+        #expect(SelectionSummary.totalBytes(of: selection) == 400)  // not 400 + 100 + 50
+        #expect(SelectionSummary.text(for: selection).hasPrefix("3 selected · "))
+    }
+
     @Test func textAlwaysShowsCountAndSizeWhenKnown() {
         let withSize = SelectionSummary.text(for: [file("/a", 1000), file("/b", 2000)])
         #expect(withSize.hasPrefix("2 selected · "))
