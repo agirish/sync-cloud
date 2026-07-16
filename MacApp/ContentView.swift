@@ -1629,6 +1629,13 @@ struct ContentView: View {
     /// id onChanges are suppressed (as `compareCopies` does) so the restore can't clear the surviving
     /// Tidy results or reset navigation; then each pane re-focuses its saved folder and rescans.
     private func restoreCompareState(_ saved: SavedCompareState) {
+        // Restoring the comparison changes it out from under any active guided review whose frozen
+        // queue captured the DUPLICATE copies — its copies would still run against those captured
+        // paths while the card relabels directions against the restored panes (exactly the reversed-
+        // direction hazard `endReviewForComparisonChange` exists to prevent). compareCopies ends the
+        // review at entry; the restore must too. The provider-id onChanges (which would otherwise
+        // fire it) are suppressed just below via `pendingSwapProviderChanges`, so end it explicitly.
+        endReviewForComparisonChange()
         if leftProviderId != saved.leftProviderId {
             pendingSwapProviderChanges += 1
             leftProviderId = saved.leftProviderId
@@ -1653,6 +1660,14 @@ struct ContentView: View {
             confirmTitle: "Move to Trash")
         guard ok else { return }
         Task {
+            // Never trash the right copy if the kept LEFT copy is no longer where the review saw it:
+            // an external move/delete during a long side-by-side review would otherwise make this the
+            // last copy. (duplicateReviewActive only compares the pane's focused PATH, not existence.)
+            // Mirrors the keeperStillExists gate the other duplicate-removal paths honor.
+            guard syncManager.fileManager.fileExists(atPath: review.keepPath) else {
+                syncManager.banner = .warning("The left copy is no longer at its scanned location — rescan before trashing the right copy.")
+                return
+            }
             let removed = await syncManager.deleteItems(at: [review.deletePath])
             guard removed > 0 else { return }
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
