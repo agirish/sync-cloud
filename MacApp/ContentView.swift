@@ -405,8 +405,12 @@ struct ContentView: View {
             ) {
                 // Same pane ids, different root underneath: the current trees and
                 // differences were built against the old root, so drop them before the
-                // rescan rather than leaving their stale absolute paths clickable.
-                endReviewForComparisonChange()
+                // rescan rather than leaving their stale absolute paths clickable. The
+                // review teardown goes through the reducer — this handler used to call
+                // endReviewForComparisonChange inline and (like the two shipped bugs the
+                // reducer exists for) forgot to clear the duplicate review, whose keeper/
+                // copy paths live under the edited root.
+                dispatchReview(.comparisonRootEdited)
                 syncManager.invalidateComparisonState()
                 refreshAction()
             }

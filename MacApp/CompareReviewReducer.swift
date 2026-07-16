@@ -18,6 +18,10 @@ enum CompareReviewEvent: Equatable {
     case tabSwitched(toCompare: Bool, fromCompare: Bool)
     /// The user manually switched a pane's provider (a change they chose — don't restore).
     case providerSwitched
+    /// The user edited a pane provider's root path in Settings (the pane ids are unchanged but
+    /// the folders underneath them are not). Like a provider switch: a change the user chose,
+    /// so drop the review without restoring — but every review framed on the old roots must end.
+    case comparisonRootEdited
     /// The user swapped the panes (redefines the comparison — don't restore).
     case panesSwapped
     /// A "Compare copies" hand-off is starting; end any prior review before the new one is set.
@@ -59,9 +63,11 @@ enum CompareReviewReducer {
         let endGuided: [CompareReviewEffect] = state.isGuidedReviewing ? [.endGuidedReview] : []
 
         switch event {
-        case .providerSwitched, .panesSwapped:
+        case .providerSwitched, .comparisonRootEdited, .panesSwapped:
             // The user chose to change the comparison — drop the review WITHOUT restoring (that
             // would fight their choice). Still end any guided review framed on the old panes.
+            // A root edit reaches here too: restoring would re-focus saved relative paths under
+            // roots that no longer exist, and the caller's rescan covers the new roots.
             return endGuided + (state.hasDuplicateReview ? [.clearDuplicateReview] : [])
 
         case .compareCopiesStarted:

@@ -28,6 +28,19 @@ import Testing
         #expect(effects(.panesSwapped, state(review: true)) == [.clearDuplicateReview])
     }
 
+    @Test func rootEditBehavesLikeAProviderSwitch() {
+        // Round-4 regression guard: the settings.enabledProviders onChange used to tear down
+        // inline (endReviewForComparisonChange only) and forgot to clear the duplicate review —
+        // whose keeper/copy paths live under the edited root. The event must drop BOTH reviews,
+        // and must NOT restore (the user chose the edit; the saved relative paths belong to
+        // roots that no longer exist).
+        #expect(effects(.comparisonRootEdited, state(review: true, guided: true)) == [.endGuidedReview, .clearDuplicateReview])
+        #expect(effects(.comparisonRootEdited, state(review: true, guided: false)) == [.clearDuplicateReview])
+        #expect(effects(.comparisonRootEdited, state(review: false, guided: true)) == [.endGuidedReview])
+        #expect(effects(.comparisonRootEdited, state()) == [])
+        #expect(!effects(.comparisonRootEdited, state(review: true, active: true, guided: true)).contains(.restoreCompareState))
+    }
+
     // MARK: Starting a hand-off ends any prior review; the caller sets the new one
 
     @Test func compareCopiesStartOnlyEndsAPriorGuidedReview() {
