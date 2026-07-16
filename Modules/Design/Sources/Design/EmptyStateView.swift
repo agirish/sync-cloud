@@ -23,6 +23,14 @@ public struct EmptyStateView: View {
         }
     }
 
+    /// How much room the state gets. `standard` is the full-tab blank panel; `compact`
+    /// shrinks the icon and tightens spacing for narrow hosts (the Details sidebar, a file
+    /// pane placeholder, the Help sidebar) where the standard layout would crowd its frame.
+    public enum Layout: Sendable {
+        case standard
+        case compact
+    }
+
     private let icon: String
     private let tint: Color
     private let title: String
@@ -30,6 +38,7 @@ public struct EmptyStateView: View {
     private let caption: String?
     private let primary: Action?
     private let secondary: Action?
+    private let layout: Layout
 
     /// - Parameters:
     ///   - icon: SF Symbol name, rendered large and hierarchical in `tint`.
@@ -40,6 +49,7 @@ public struct EmptyStateView: View {
     ///   - caption: The safety contract, set slightly smaller and dimmer than the message.
     ///   - primary: The one prominent next step (large, filled). nil for passive states.
     ///   - secondary: A quieter companion action (regular, bordered).
+    ///   - layout: `standard` for full-tab panels; `compact` for narrow hosts.
     public init(
         icon: String,
         tint: Color = .secondary,
@@ -47,7 +57,8 @@ public struct EmptyStateView: View {
         message: String? = nil,
         caption: String? = nil,
         primary: Action? = nil,
-        secondary: Action? = nil
+        secondary: Action? = nil,
+        layout: Layout = .standard
     ) {
         self.icon = icon
         self.tint = tint
@@ -56,27 +67,30 @@ public struct EmptyStateView: View {
         self.caption = caption
         self.primary = primary
         self.secondary = secondary
+        self.layout = layout
     }
 
+    private var isCompact: Bool { layout == .compact }
+
     public var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: isCompact ? 8 : 12) {
             Image(systemName: icon)
-                .font(.system(size: 40))
+                .font(.system(size: isCompact ? 28 : 40))
                 .foregroundStyle(tint)
                 .symbolRenderingMode(.hierarchical)
             Text(title)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: isCompact ? 13 : 15, weight: .semibold))
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
-                    .font(.system(size: 13))
+                    .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
             }
             if let caption {
                 Text(caption)
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
@@ -88,20 +102,20 @@ public struct EmptyStateView: View {
                             label(for: primary)
                         }
                         .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                        .controlSize(isCompact ? .small : .large)
                     }
                     if let secondary {
                         Button(action: secondary.handler) {
                             label(for: secondary)
                         }
-                        .controlSize(.regular)
+                        .controlSize(isCompact ? .small : .regular)
                     }
                 }
                 .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
+        .padding(isCompact ? 16 : 24)
     }
 
     @ViewBuilder

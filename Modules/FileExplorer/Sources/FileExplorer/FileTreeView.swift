@@ -144,21 +144,18 @@ public struct FileTreeView: View {
                     path: rootPath
                 )
             case .emptyFolder(let hasOnlyHiddenEntries):
-                VStack(spacing: 12) {
-                    Image(systemName: "folder")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                    Text("Folder is empty")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    if hasOnlyHiddenEntries {
-                        Text("It only contains hidden items — use the Hidden toggle to show them.")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                    }
-                }
-                .padding(.horizontal, 24)
+                EmptyStateView(
+                    icon: "folder",
+                    title: "Folder is empty",
+                    caption: hasOnlyHiddenEntries
+                        ? "It only contains hidden items — use the Hidden toggle to show them."
+                        : nil,
+                    layout: .compact
+                )
+                // Hug the content so clicks around the placeholder still reach the pane
+                // list underneath (empty-area context menu, background drop target).
+                .frame(maxWidth: 360)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if !tree.isEmpty && isLoading {
@@ -185,33 +182,19 @@ public struct FileTreeView: View {
     /// warning icon, explanation, optionally the offending path, and an Open Settings button.
     @ViewBuilder
     private func settingsProblemPlaceholder(icon: String, title: String, detail: String, path: String? = nil) -> some View {
-        VStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.largeTitle)
-                .foregroundStyle(.orange)
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-            if let path {
-                Text(path)
-                    .font(.caption)
-                    .monospaced()
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(path)
-            }
-            Text(detail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-            if let onOpenSettings {
-                Button("Open Settings", action: onOpenSettings)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 24)
+        EmptyStateView(
+            icon: icon,
+            tint: SemanticColor.warning,
+            title: title,
+            message: detail,
+            caption: path,
+            secondary: onOpenSettings.map { .init("Open Settings", handler: $0) },
+            layout: .compact
+        )
+        // Hug the content so clicks around the placeholder still reach the pane list
+        // underneath (empty-area context menu, background drop target).
+        .frame(maxWidth: 360)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// The pane's List plus its list-level chrome: empty-area context menu, background drop

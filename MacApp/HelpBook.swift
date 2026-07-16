@@ -487,11 +487,12 @@ struct HelpView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if results.isEmpty {
-                        Text("No topics found")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 8)
+                        EmptyStateView(
+                            icon: "magnifyingglass",
+                            title: "No topics found",
+                            layout: .compact
+                        )
+                        .padding(.top, 8)
                     }
                     ForEach(results, id: \.title) { section in
                         VStack(alignment: .leading, spacing: 2) {
@@ -582,9 +583,11 @@ struct HelpView: View {
             }
         } else {
             // Only reachable if a search leaves the selection off-list; keep it graceful.
-            Text("Choose a topic from the list.")
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            EmptyStateView(
+                icon: "book",
+                title: "Choose a topic from the list.",
+                layout: .compact
+            )
         }
     }
 }

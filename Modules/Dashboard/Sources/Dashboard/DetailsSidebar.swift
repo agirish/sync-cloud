@@ -319,13 +319,12 @@ public struct DetailsSidebar: View {
                         
                         Spacer(minLength: 0)
                     } else {
-                        VStack {
-                            Spacer(minLength: 0)
-                            Text("Select an item in either pane to see its details.")
-                                .foregroundColor(.secondary)
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity)
+                        EmptyStateView(
+                            icon: "info.circle",
+                            title: "No item selected",
+                            message: "Select a file or folder in either pane to see its details here.",
+                            layout: .compact
+                        )
                         .frame(minHeight: 120)
                     }
                 }

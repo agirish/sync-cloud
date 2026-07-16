@@ -370,14 +370,11 @@ private struct SettingsSearchResults: View {
 
     var body: some View {
         if results.isEmpty {
-            VStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tertiary)
-                Text("No settings match your search.")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            EmptyStateView(
+                icon: "magnifyingglass",
+                title: "No settings match your search.",
+                layout: .compact
+            )
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -1381,7 +1378,11 @@ struct TidySpendHistorySheet: View {
             .frame(maxWidth: .infinity).padding(.vertical, 12)
             Divider()
             if entries.isEmpty {
-                Text("No cloud scans yet.").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyStateView(
+                    icon: "cloud",
+                    title: "No cloud scans yet",
+                    layout: .compact
+                )
             } else {
                 List(entries.reversed()) { entry in
                     HStack(spacing: 10) {

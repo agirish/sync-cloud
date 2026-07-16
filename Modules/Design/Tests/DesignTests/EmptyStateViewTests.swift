@@ -43,4 +43,12 @@ import SwiftUI
         _ = EmptyStateView(icon: "doc.text", title: "No log entries yet",
                            message: "Activity shows up here.")
     }
+
+    @Test func viewConstructsCompact() {
+        // The narrow-host shape (Details sidebar, pane placeholders): same slots,
+        // tighter layout.
+        _ = EmptyStateView(icon: "info.circle", title: "No item selected",
+                           message: "Select a file or folder in either pane.",
+                           layout: .compact)
+    }
 }
