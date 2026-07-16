@@ -365,7 +365,10 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             // Even a clean quit must flush: the writer runs at background qos with no implicit
             // flush, so the launch breadcrumb and any late lines from this session could be lost
             // between the last append and process exit if we terminated without draining.
+            // The sync-history writer buffers the same way, so drain it alongside the log —
+            // otherwise the newest run's records silently vanish on quit.
             Logger.shared.flushToDisk()
+            SyncHistoryStore.shared.flushToDisk()
             return .terminateNow
 
         case .allowWithoutWarning(let count):
@@ -373,6 +376,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             // corruption, so record it and force the buffered lines to disk before we quit.
             Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
             Logger.shared.flushToDisk()
+            SyncHistoryStore.shared.flushToDisk()
             return .terminateNow
 
         case .warn(let count):
@@ -387,6 +391,7 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
             if response == .alertSecondButtonReturn {
                 Logger.shared.warning("User chose Quit Anyway with \(count) active file operation(s)")
                 Logger.shared.flushToDisk()
+                SyncHistoryStore.shared.flushToDisk()
                 return .terminateNow
             } else {
                 Logger.shared.info("User chose Wait with \(count) active file operation(s) in progress")
