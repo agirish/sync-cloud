@@ -225,6 +225,52 @@ private func diff(
             for: d, targetRoot: URL(fileURLWithPath: "/right")) == "nested/x")
     }
 
+    /// Edge cases of the round-4 target-path derivation (5f76853): the validated path must be
+    /// the DESTINATION's own spelling for nested and root-level conflicts alike, byte-exact
+    /// through unicode names, and must fall back safely for degenerate roots.
+    @Test func testTargetRelativePathEdgeCases() {
+        func conflict(rel: String, leftPath: String, rightPath: String,
+                      action: FileDifference.SyncAction) -> FileDifference {
+            FileDifference(relativePath: rel, leftItemPath: leftPath, rightItemPath: rightPath,
+                           type: .nameConflict, action: action, description: "test",
+                           leftFileSize: 1, rightFileSize: 1)
+        }
+
+        // NESTED conflict: only the leaf differs invisibly; every ancestor segment must survive.
+        let nested = conflict(rel: "docs/reports/Q1 ",
+                              leftPath: "/left/docs/reports/Q1 ",
+                              rightPath: "/right/docs/reports/Q1",
+                              action: .copyToRight)
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: nested, targetRoot: URL(fileURLWithPath: "/right")) == "docs/reports/Q1")
+
+        // ROOT-LEVEL conflict: a single-segment path reduces to the destination's bare leaf.
+        let rootLevel = conflict(rel: "A ", leftPath: "/left/A ", rightPath: "/right/A",
+                                 action: .copyToRight)
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: rootLevel, targetRoot: URL(fileURLWithPath: "/right")) == "A")
+
+        // UNICODE: multi-scalar characters in the ROOT and the path must strip byte-exactly —
+        // an off-by-one in the prefix drop corrupts the first character of the result.
+        let unicode = conflict(rel: "文件 ", leftPath: "/left/Ünïcode dir/文件 ",
+                               rightPath: "/right/Ünïcode dir/文件",
+                               action: .copyToRight)
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: unicode, targetRoot: URL(fileURLWithPath: "/right/Ünïcode dir")) == "文件")
+
+        // copyToLeft mirrors with a nested path: the LEFT item path is the target.
+        let toLeft = conflict(rel: "docs/Q1", leftPath: "/left/docs/Q1",
+                              rightPath: "/right/docs/Q1 ", action: .copyToLeft)
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: toLeft, targetRoot: URL(fileURLWithPath: "/left")) == "docs/Q1")
+
+        // Degenerate root "/": stripping trailing slashes empties it → safe relativePath fallback
+        // (never a leading-slash "absolute relative" path).
+        let underRoot = conflict(rel: "x ", leftPath: "/x ", rightPath: "/x", action: .copyToRight)
+        #expect(DifferenceProcessing.targetRelativePath(
+            for: underRoot, targetRoot: URL(fileURLWithPath: "/")) == "x ")
+    }
+
     @Test func testStableOutputNames() {
         #expect(DifferenceProcessing.typeString(.missingOnRight) == "missing-on-right")
         #expect(DifferenceProcessing.typeString(.missingOnLeft) == "missing-on-left")

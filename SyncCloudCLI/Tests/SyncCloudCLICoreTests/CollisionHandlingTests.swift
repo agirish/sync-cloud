@@ -112,4 +112,31 @@ import Testing
         let s = syncSummary(tally: tally(copied: 1), strategy: .skip)
         #expect(s.stdoutLines.count == 1)
     }
+
+    /// Golden snapshot of the FULL summary for one mixed run — copies (some replacing, i.e. both
+    /// sync directions updating existing destinations), a collision skip, a name-violation skip,
+    /// AND a failure at once. Pins the exact line order and the per-reason skip headings as one
+    /// block: round 4's 8228e27 split the skip reporting by cause (collision vs name rule), and
+    /// this flips if any heading, count, item indent, ordering, or the stdout/stderr split drifts.
+    @Test func testMixedRunSummarySnapshot() {
+        let s = syncSummary(
+            tally: tally(copied: 3, replaced: 2,
+                         skipped: ["kept.txt", "docs/old.txt"],
+                         nameSkipped: ["Swimming ", "docs/.CON/x.txt"],
+                         failed: 1),
+            strategy: .skip
+        )
+        #expect(s.stdoutLines == [
+            "Sync complete. Copied: 3, Skipped: 4, Failed: 1.",
+            "Replaced 2 existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log).",
+            "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):",
+            "  kept.txt",
+            "  docs/old.txt",
+            "Skipped 2 file(s) (name not allowed by the destination provider; reasons above):",
+            "  Swimming ",
+            "  docs/.CON/x.txt",
+        ])
+        #expect(s.stderrLines == ["1 file(s) failed to sync (errors above); exiting with a non-zero status."])
+        #expect(s.exitNonzero)
+    }
 }
