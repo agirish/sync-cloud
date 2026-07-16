@@ -97,6 +97,20 @@ import Testing
             named: "filtered-no-matches")
     }
 
+    /// The C5 compact layout for narrow hosts (Details sidebar, file-pane placeholder):
+    /// smaller icon, tighter spacing, small-size action button.
+    @Test func emptyStateCompactSidebar() {
+        assertViewSnapshot(
+            of: EmptyStateView(
+                icon: "sidebar.right",
+                title: "Nothing selected",
+                message: "Select a file in either pane to see its details here.",
+                primary: .init("Choose a File") {},
+                layout: .compact),
+            size: CGSize(width: 240, height: 240),
+            named: "compact-sidebar")
+    }
+
     // MARK: ProgressDialog
 
     /// Mid-flight with a long current-item path: the count line, the clamped bar and the

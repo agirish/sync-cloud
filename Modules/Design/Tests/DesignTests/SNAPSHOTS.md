@@ -4,12 +4,13 @@ Image snapshot tests (pointfree-co/swift-snapshot-testing, test-target-only depe
 visual surfaces that regressed silently in past review rounds. Suites live in three packages:
 
 - `Modules/Design` — `DesignSnapshotTests`: TokenChipsRow (active / superseded-dimmed / yellow
-  tint), StatusBadge, EmptyStateView (pre-scan + filtered-empty), ProgressDialog
+  tint), StatusBadge, EmptyStateView (pre-scan + filtered-empty + C5 compact), ProgressDialog
 - `Modules/FileExplorer` — `FileExplorerSnapshotTests`: StatPill variants, treemap tiles
   (AccentLabel light-hue pairing on the amber tile), TidyGroupCard (collapsed versions group +
   expanded identical-folders group with note), ConditionChip wrapping in FlowLayout
 - `Modules/Dashboard` — `DashboardSnapshotTests`: PaneHeader (fresh / stale freshness pill /
-  250 pt narrow truncation), LogViewer severity rows
+  the 400 pt and 250 pt degradation ladder: pill hides, logo drops, name truncates, nav
+  cluster steps down to .mini), LogViewer severity rows
 
 Each scenario renders offscreen through `NSHostingView` in a borderless `NSWindow` at a FIXED
 size, once per appearance (`…-light.png` / `…-dark.png`), and is compared with
