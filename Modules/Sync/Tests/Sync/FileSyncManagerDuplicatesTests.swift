@@ -116,6 +116,27 @@ import Combine
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
     }
 
+    @MainActor
+    @Test func findDuplicatesSkipsAndCountsCloudOnlyCandidatesWithoutReadingThem() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Two identical files "flagged" dataless via the injected seam (a real SF_DATALESS file
+        // can't be fabricated), plus a genuinely local identical pair that must still group.
+        try write(root.appendingPathComponent("A/cloud.mov"), bytes: 6000, fill: 0x43)
+        try write(root.appendingPathComponent("B/cloud.mov"), bytes: 6000, fill: 0x43)
+        try write(root.appendingPathComponent("A/local.pdf"), bytes: 5000, fill: 0x4C)
+        try write(root.appendingPathComponent("B/local.pdf"), bytes: 5000, fill: 0x4C)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root, isCloudOnly: { $0.hasSuffix("cloud.mov") })
+
+        #expect(manager.duplicateScanSkips.cloudOnly == 2)
+        #expect(manager.duplicateScanSkips.tooLarge == 0)
+        // The unhashed cloud pair asserts nothing; the local pair still groups normally.
+        #expect(manager.duplicateGroups.count == 1)
+        #expect(manager.duplicateGroups.first?.name == "local.pdf")
+    }
+
     // MARK: Group builders for state-level tests
 
     private func copy(_ path: String, keeper: Bool, size: Int = 1000) -> DuplicateCopy {

@@ -107,13 +107,15 @@ extension FileSyncManager {
         duplicateScanTask?.cancel()
     }
 
-    /// `maxBytesToHash` is injectable for tests only (a real >100 MB fixture per run would be
-    /// wasteful); production callers use the verifier's default cap.
+    /// `maxBytesToHash` and `isCloudOnly` are injectable for tests only (a real >100 MB fixture
+    /// per run would be wasteful, and a real dataless file can't be fabricated); production
+    /// callers use the verifier's defaults.
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
         fileManager fm: FileManaging? = nil,
-        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash
+        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
@@ -153,7 +155,8 @@ extension FileSyncManager {
         duplicateScanStatus = "Hashing \(total) candidate\(total == 1 ? "" : "s")…"
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
         let hashOutcome = await Self.hashFilesCounting(
-            candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash
+            candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
+            isCloudOnly: isCloudOnly
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
@@ -544,12 +547,14 @@ extension FileSyncManager {
                                 onProgress: onProgress).hashes
     }
 
-    /// ``hashFiles`` plus per-reason skip counts. `maxBytesToHash` is injectable for tests.
+    /// ``hashFiles`` plus per-reason skip counts. `maxBytesToHash` and `isCloudOnly` are
+    /// injectable for tests (a real dataless file can't be fabricated — the flag is provider-set).
     nonisolated static func hashFilesCounting(
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
         maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> HashBatchOutcome {
         guard !paths.isEmpty else { return HashBatchOutcome() }
@@ -561,7 +566,8 @@ extension FileSyncManager {
             func schedule(_ path: String) {
                 group.addTask {
                     (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
-                                                                 maxBytes: maxBytesToHash))
+                                                                 maxBytes: maxBytesToHash,
+                                                                 isCloudOnly: isCloudOnly))
                 }
             }
             let initial = min(maxConcurrent, paths.count)
@@ -570,6 +576,7 @@ extension FileSyncManager {
                 switch outcome {
                 case .hashed(let hash): result.hashes[path] = hash
                 case .skippedTooLarge: result.skippedTooLarge += 1
+                case .skippedCloudOnly: result.skippedCloudOnly += 1
                 case .unverifiable: break
                 }
                 completed += 1

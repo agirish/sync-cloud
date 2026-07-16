@@ -20,6 +20,9 @@ public enum FileContentVerifier {
         case hashed(String)
         /// Skipped without reading: the file exceeds the size cap (`maxBytesToHash`).
         case skippedTooLarge
+        /// Skipped without reading: the file is a cloud-only (dataless) placeholder — opening it
+        /// would force the provider to download the whole file.
+        case skippedCloudOnly
         /// Not hashable: directory, missing, unreadable, or the file changed mid-read.
         case unverifiable
 
@@ -50,12 +53,15 @@ public enum FileContentVerifier {
 
     /// `sha256Hex` with a classified result instead of a collapsed nil. `maxBytes` is injectable
     /// for tests only (creating a real >100 MB fixture per run would be wasteful); production
-    /// callers use the default cap.
+    /// callers use the default cap. `isCloudOnly` is the dataless check consulted before the file
+    /// is opened — a cloud-only placeholder is skipped, never force-downloaded; injectable because
+    /// a real dataless file can't be fabricated in tests (the flag is provider-set).
     public static func hashOutcome(
         filePath path: String,
         fileManager: FileManaging = FileManager.default,
         cache: ContentHashCache? = nil,
-        maxBytes: Int = maxBytesToHash
+        maxBytes: Int = maxBytesToHash,
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
     ) async -> HashOutcome {
         await Task.detached(priority: .utility) { () -> HashOutcome in
             var isDirectory: ObjCBool = false
@@ -85,6 +91,11 @@ public enum FileContentVerifier {
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
                 return .hashed(hit)
             }
+            // Last gate before any byte is read: opening a dataless (cloud-only) placeholder
+            // forces the provider to download the whole file — a metadata scan must never do
+            // that. Checked on the resolved path (the file a symlink would actually open), and
+            // only after the cache: a hit needs no read, and eviction doesn't change content.
+            if isCloudOnly(statPath) { return .skippedCloudOnly }
             guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 

@@ -105,6 +105,45 @@ import Foundation
         #expect(await FileContentVerifier.hashOutcome(filePath: dir.appendingPathComponent("nope").path) == .unverifiable)
     }
 
+    @Test func hashOutcomeSkipsCloudOnlyFilesWithoutOpeningThem() async throws {
+        // A dataless placeholder can't be fabricated in tests (SF_DATALESS is provider-set), so
+        // the decision seam is injected: a file flagged cloud-only must be skipped BEFORE any
+        // read — hashing it would force the provider to download the whole file.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("placeholder.bin")
+        try Data(repeating: 7, count: 512).write(to: f)
+
+        let outcome = await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in true })
+        #expect(outcome == .skippedCloudOnly)
+
+        // Same file, not flagged → hashed normally (the default seam returns false for real
+        // local files, so this also mirrors production behavior on materialized content).
+        let local = await FileContentVerifier.hashOutcome(filePath: f.path, isCloudOnly: { _ in false })
+        #expect(local.hash != nil)
+        let production = await FileContentVerifier.hashOutcome(filePath: f.path)
+        #expect(production == local)
+    }
+
+    @Test func cloudOnlyCheckSeesTheResolvedSymlinkTarget() async throws {
+        // The file a symlink would OPEN is its target — that's the path whose dataless flag
+        // matters. The seam must receive the resolved path, not the link's own.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appendingPathComponent("target.bin")
+        try Data(repeating: 9, count: 128).write(to: target)
+        let link = dir.appendingPathComponent("link.bin")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        let checked = LockedBox<[String]>([])
+        _ = await FileContentVerifier.hashOutcome(filePath: link.path, isCloudOnly: { path in
+            checked.withLock { $0.append(path) }
+            return false
+        })
+        let resolvedTarget = (target.path as NSString).resolvingSymlinksInPath
+        #expect(checked.withLock { $0 } == [resolvedTarget])
+    }
+
     @Test func sha256HexStillCollapsesEveryNonHashToNil() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

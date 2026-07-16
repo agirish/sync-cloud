@@ -12,6 +12,18 @@ func awaitSignal(_ semaphore: DispatchSemaphore, timeout: TimeInterval = 10) asy
     }
 }
 
+/// A tiny lock-guarded box for collecting values out of `@Sendable` callbacks in tests
+/// (e.g. recording the paths a seam closure was consulted with).
+final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func withLock<R>(_ body: (inout Value) -> R) -> R {
+        lock.lock(); defer { lock.unlock() }
+        return body(&value)
+    }
+}
+
 /// Polls a main-actor condition until it holds or the timeout expires, recording a labeled
 /// test failure on timeout. The single shared replacement for the per-suite polling helpers
 /// and the fixed post-operation sleeps that flaked under parallel-suite main-actor
