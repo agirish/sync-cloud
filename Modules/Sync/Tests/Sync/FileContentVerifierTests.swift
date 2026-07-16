@@ -124,7 +124,7 @@ import Foundation
         // hash cap counted as skippedTooLarge — and Tidy's per-reason note told the user to
         // raise the cap when the actual remedy is "download it". A dataless file must classify
         // as cloud-only whatever its size (and still without a single byte read).
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "SyncTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let f = dir.appendingPathComponent("huge-placeholder.bin")
         try Data(repeating: 7, count: 4096).write(to: f)   // over the injected 1000-byte cap
@@ -143,7 +143,7 @@ import Foundation
         // A file hashed while local and since evicted to cloud-only: the cache key (path, mtime,
         // size) still matches — eviction doesn't change content — so the stored digest is
         // returned without a read instead of degrading to a skip.
-        let dir = try makeTempDir()
+        let dir = try makeCanonicalTempRoot(prefix: "SyncTest")
         defer { try? FileManager.default.removeItem(at: dir) }
         let f = dir.appendingPathComponent("evicted.bin")
         try Data(repeating: 3, count: 256).write(to: f)

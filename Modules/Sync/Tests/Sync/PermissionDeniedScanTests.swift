@@ -10,10 +10,7 @@ import Testing
 @Suite struct PermissionDeniedScanTests {
 
     private func makeTempDir() throws -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("PermTest-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
+        try makeCanonicalTempRoot(prefix: "PermTest")
     }
 
     private func write(_ url: URL, text: String) throws {

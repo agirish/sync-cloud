@@ -680,7 +680,7 @@ import Combine
     @Test func concurrentMergeOfTheSameGroupRunsExactlyOnce() async throws {
         // End-to-end double-click: two merge calls race; exactly one runs, and the keeper never
         // gains " 2" junk copies from a second plan drawn against the half-merged keeper.
-        let base = try makeTempDir()
+        let base = try makeCanonicalTempRoot(prefix: "SyncTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
         let rName = "Folded-\(UUID().uuidString)"
