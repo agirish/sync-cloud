@@ -106,4 +106,41 @@ import Sync
         #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: "kind:pdf") == ">5mb contract")
         #expect(DuplicateSearch.removing("kind:pdf >5mb contract", word: ">5mb") == "kind:pdf contract")
     }
+
+    /// Full-grammar characterization: ONE composite query exercising every token family (`kind:`
+    /// twice — the second being the `image` class alias — plus both size comparators), multi-word
+    /// free text, and a superseded duplicate-family token — pinning the parsed query fields AND
+    /// the chips() output (raw, label, isActive) together. This is the parse↔chips contract that
+    /// drifted in round 4 (chips claimed superseded tokens were active while parse ran last-wins,
+    /// b9835ab): any change to tokenization, the alias set, last-wins, size parsing, or chip
+    /// labeling flips this one block.
+    @Test func fullGrammarSnapshotPinsParseAndChipsTogether() {
+        let raw = "kind:JPG >500kb <2mb kind:image draft copy"
+
+        // Parse: last kind wins (jpg is superseded), both comparators land in bytes, the free
+        // words join in order — and the tokens never leak into the name text.
+        let query = DuplicateSearch.parse(raw)
+        #expect(query == DuplicateSearch.Query(kind: "image", sizeAtLeast: 500_000,
+                                               sizeAtMost: 2_000_000, text: "draft copy"))
+
+        // Chips: every recognized token in typed order, raw preserved verbatim for ✕ removal,
+        // sizes formatted the way the app displays them, ONLY the superseded family member
+        // inactive.
+        #expect(DuplicateSearch.chips(raw) == [
+            DuplicateSearch.Chip(raw: "kind:JPG", label: "kind: jpg", isActive: false),
+            DuplicateSearch.Chip(raw: ">500kb", label: "> \(FileSyncManager.formatBytes(500_000))", isActive: true),
+            DuplicateSearch.Chip(raw: "<2mb", label: "< \(FileSyncManager.formatBytes(2_000_000))", isActive: true),
+            DuplicateSearch.Chip(raw: "kind:image", label: "kind: image", isActive: true),
+        ])
+
+        // And the effective query behaves as the active chips read: the kind really is the class
+        // alias (a PNG matches — the superseded kind:JPG must not still filter), the size bounds
+        // apply to the keeper, and the free text still matches the name.
+        #expect(query.matches(group("draft copy.png", keeperSize: 1_000_000)))
+        #expect(query.matches(group("Draft Copy 2.HEIC", keeperSize: 500_000)))
+        #expect(!query.matches(group("draft copy.pdf", keeperSize: 1_000_000)))   // not an image
+        #expect(!query.matches(group("draft copy.png", keeperSize: 400_000)))     // below >500kb
+        #expect(!query.matches(group("draft copy.png", keeperSize: 3_000_000)))   // above <2mb
+        #expect(!query.matches(group("summary.png", keeperSize: 1_000_000)))      // free text fails
+    }
 }

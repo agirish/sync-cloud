@@ -103,4 +103,34 @@ import Events
     @Test func removingLeavesFreeTextWhenNoTokensLeft() {
         #expect(LogSearch.removing("dropbox level:error", word: "level:error") == "dropbox")
     }
+
+    /// Full-grammar characterization: ONE composite query exercising every token family (an
+    /// abbreviated `level:`, a `since:`), multi-word free text, and a superseded duplicate-family
+    /// token — pinning the parsed query fields AND the chips() output (raw, label, isActive)
+    /// together. This is the parse↔chips contract that drifted in round 4 (chips claimed
+    /// superseded tokens were active while parse ran last-wins, b9835ab): any future change to
+    /// tokenization, canonicalization, last-wins, or chip labeling flips this one block.
+    @Test func fullGrammarSnapshotPinsParseAndChipsTogether() {
+        let raw = "level:err since:30m level:WARN disk full"
+
+        // Parse: last level wins (err is superseded), since parses to seconds, the free words
+        // join in order — and the tokens never leak into the text.
+        let query = LogSearch.parse(raw)
+        #expect(query == LogSearch.Query(level: .warning, since: 1800, text: "disk full"))
+
+        // Chips: every recognized token in typed order, raw preserved verbatim for ✕ removal,
+        // labels canonicalized, and ONLY the superseded family member inactive.
+        #expect(LogSearch.chips(raw) == [
+            LogSearch.Chip(raw: "level:err", label: "level: error", isActive: false),
+            LogSearch.Chip(raw: "since:30m", label: "since: 30m", isActive: true),
+            LogSearch.Chip(raw: "level:WARN", label: "level: warn", isActive: true),
+        ])
+
+        // And the effective query really behaves as the active chips read: warning level,
+        // 30-minute window, "disk full" substring.
+        #expect(query.matches(entry(.warning, "Disk full while copying", agoSeconds: 60), now: now))
+        #expect(!query.matches(entry(.error, "Disk full while copying", agoSeconds: 60), now: now))  // superseded level must NOT match
+        #expect(!query.matches(entry(.warning, "Disk full while copying", agoSeconds: 3600), now: now)) // outside since:30m
+        #expect(!query.matches(entry(.warning, "Copy finished", agoSeconds: 60), now: now))              // free text still filters
+    }
 }
