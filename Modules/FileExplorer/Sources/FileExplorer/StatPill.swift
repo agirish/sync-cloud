@@ -16,29 +16,34 @@ struct StatPill: View {
     var trailingSystemImage: String? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(PillVariant.standard.iconFont)
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(color)
-            Text(count.formatted())
-                .font(PillVariant.standard.numberFont)
-                .monospacedDigit()
-                .foregroundStyle(color)
-            Text(label)
-                .font(PillVariant.standard.labelFont)
-                .foregroundStyle(color)
+        Group {
             if let trailingSystemImage {
-                Image(systemName: trailingSystemImage)
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(color.opacity(0.75))
-                    // Cross-fade the right↔left flip instead of a hard swap; runs inside
-                    // whatever withAnimation the toggling button wraps around the state change.
-                    .contentTransition(.symbolEffect(.replace))
+                // Heterogeneous content (count + label + a trailing affordance) composes the
+                // shared surface directly — Pill's documented escape hatch — using Pill's own
+                // 5pt spacing and variant fonts so the two branches render identically.
+                HStack(spacing: 5) {
+                    Image(systemName: systemImage)
+                        .font(PillVariant.standard.iconFont)
+                        .symbolRenderingMode(.hierarchical)
+                    Text(count.formatted())
+                        .font(PillVariant.standard.numberFont)
+                        .monospacedDigit()
+                    Text(label)
+                        .font(PillVariant.standard.labelFont)
+                    Image(systemName: trailingSystemImage)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(color.opacity(0.75))
+                        // Cross-fade the right↔left flip instead of a hard swap; runs inside
+                        // whatever withAnimation the toggling button wraps around the state change.
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .foregroundStyle(color)
+                .pillSurface(.standard, tint: color)
+                .fixedSize()
+            } else {
+                Pill(.standard, tint: color, systemImage: systemImage, count: count, label: label)
             }
         }
-        .pillSurface(.standard, tint: color)
-        .fixedSize()
         // One element, not icon + two texts: VoiceOver reads "7 Differences".
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(count.formatted()) \(label)")

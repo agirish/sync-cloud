@@ -378,10 +378,12 @@ struct AutomationRuleEditor: View {
     }
 
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold))
+        // The app-wide eyebrow spec: caption2 semibold, .textCase uppercase, 0.4 kerning.
+        Text(text)
+            .textCase(.uppercase)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
-            .kerning(0.5)
+            .kerning(0.4)
     }
 
     // MARK: Sub-bindings into a condition's type and value

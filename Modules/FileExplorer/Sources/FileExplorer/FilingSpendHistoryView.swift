@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Design
 
 /// A sheet listing every cloud (Claude) Filing scan with its tokens and estimated cost, plus
 /// lifetime totals and a clear button.
@@ -30,9 +31,13 @@ struct FilingSpendHistoryView: View {
             Divider()
 
             if entries.isEmpty {
-                Text("No cloud scans yet.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Mirrors the Settings twin (TidySpendHistorySheet) so the two spend-history
+                // sheets share one empty state.
+                EmptyStateView(
+                    icon: "cloud",
+                    title: "No cloud scans yet",
+                    layout: .compact
+                )
             } else {
                 List(entries.reversed()) { entry in row(entry) }
             }

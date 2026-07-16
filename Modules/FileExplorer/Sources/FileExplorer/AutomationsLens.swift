@@ -323,22 +323,17 @@ public struct AutomationsLens: View {
     /// The counts at a glance — scanned / would-file / needs-a-look / already-there.
     private func summaryStrip(_ report: AutomationDryRunReport) -> some View {
         HStack(spacing: 8) {
-            statPill("\(report.filesScanned)", "scanned", .secondary)
-            statPill("\(report.wouldFileCount)", "would file", .green)
-            if report.needsAttentionCount > 0 { statPill("\(report.needsAttentionCount)", "need a look", .orange) }
-            if report.alreadyThereCount > 0 { statPill("\(report.alreadyThereCount)", "already there", .secondary) }
+            statPill(report.filesScanned, "scanned", .secondary)
+            statPill(report.wouldFileCount, "would file", SemanticColor.success)
+            if report.needsAttentionCount > 0 { statPill(report.needsAttentionCount, "need a look", SemanticColor.warning) }
+            if report.alreadyThereCount > 0 { statPill(report.alreadyThereCount, "already there", .secondary) }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
     }
 
-    private func statPill(_ number: String, _ label: String, _ color: Color) -> some View {
-        HStack(spacing: 5) {
-            Text(number).font(PillVariant.standard.numberFont).monospacedDigit()
-            Text(label).font(PillVariant.standard.labelFont)
-        }
-        .foregroundStyle(color)
-        .pillSurface(.standard, tint: color)
+    private func statPill(_ count: Int, _ label: String, _ color: Color) -> some View {
+        Pill(.standard, tint: color, count: count, label: label)
     }
 
     private func ruleGroupHeader(_ group: RuleGroup) -> some View {
@@ -425,7 +420,7 @@ public struct AutomationsLens: View {
                 }
                 if isCollision {
                     Text("A file with this name is already there — it’ll be kept as a copy.")
-                        .font(.system(size: 11)).foregroundStyle(.orange)
+                        .font(.system(size: 11)).foregroundStyle(SemanticColor.warning)
                         .multilineTextAlignment(.center)
                 }
                 // Inspection before deciding: Quick Look the file or see it in Finder — the same
@@ -573,11 +568,7 @@ private struct AutomationRuleCard: View {
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(rule.enabled ? .primary : .secondary)
             if !rule.isRunnable {
-                Text("incomplete")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.orange.opacity(0.15)))
+                Pill(.mini, tint: SemanticColor.warning, text: "incomplete")
             }
             Spacer(minLength: 0)
         }
@@ -657,7 +648,7 @@ private struct DestinationPill: View {
         }
         .foregroundStyle(template.isEmpty ? Color.secondary : accent)
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill((template.isEmpty ? Color.primary : accent).opacity(0.10)))
+        .background(Capsule().fill((template.isEmpty ? Color.primary : accent).opacity(PillVariant.fillOpacity)))
     }
 }
 
@@ -736,19 +727,12 @@ private struct AutomationDryRunRowView: View {
     private var verdictChip: some View {
         let (text, color, icon): (String, Color, String) = {
             switch row.verdict {
-            case .wouldFile: return ("Would file", .green, AutomationsGlyph.wouldFile)
-            case .needsAttention: return ("Needs a look", .orange, AutomationsGlyph.needsAttention)
+            case .wouldFile: return ("Would file", SemanticColor.success, AutomationsGlyph.wouldFile)
+            case .needsAttention: return ("Needs a look", SemanticColor.warning, AutomationsGlyph.needsAttention)
             case .alreadyThere: return ("Already there", .secondary, AutomationsGlyph.alreadyThere)
             }
         }()
-        return HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
-            Text(text).font(.system(size: 11, weight: .medium))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(Capsule().fill(color.opacity(0.14)))
-        .fixedSize()
+        return Pill(.mini, tint: color, systemImage: icon, text: text)
     }
 }
 

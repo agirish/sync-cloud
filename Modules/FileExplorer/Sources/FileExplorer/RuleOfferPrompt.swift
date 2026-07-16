@@ -115,7 +115,9 @@ struct RuleOfferPromptView: View {
                             Text(condition.summary)
                                 .font(.system(size: 11, weight: on ? .semibold : .regular))
                                 .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.05)))
+                                // 0.06 matches ConditionChip's quiet-chip wash (the app's one
+                                // unselected-chip treatment).
+                                .background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.06)))
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
                                 .foregroundStyle(on ? accent : Color.secondary)
                         }
