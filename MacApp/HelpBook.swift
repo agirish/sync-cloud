@@ -541,15 +541,19 @@ struct HelpView: View {
 
     private func topicRow(_ topic: HelpBook.Topic) -> some View {
         let isSelected = topic.id == selectedTopicID
+        // Text on the accent fill uses the system's accent-companion color, not hardcoded white:
+        // under a light accent (Yellow) white-on-accent is unreadable, while
+        // alternateSelectedControlTextColor is whatever macOS itself pairs with the accent.
+        let onAccent = Color(nsColor: .alternateSelectedControlTextColor)
         return Button {
             selectedTopicID = topic.id
         } label: {
             HStack(spacing: 9) {
                 Image(systemName: topic.systemImage)
                     .frame(width: 18)
-                    .foregroundStyle(isSelected ? Color.white : .secondary)
+                    .foregroundStyle(isSelected ? onAccent : .secondary)
                 Text(topic.title)
-                    .foregroundStyle(isSelected ? Color.white : .primary)
+                    .foregroundStyle(isSelected ? onAccent : .primary)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }

@@ -391,16 +391,20 @@ public struct LogViewer: View {
         Button {
             selectedLevel = level
         } label: {
+            // Text on the accent fill uses the system's accent-companion color, not hardcoded
+            // white: under a light accent (Yellow) white-on-accent is unreadable, while
+            // alternateSelectedControlTextColor is whatever macOS itself pairs with the accent.
+            let onAccent = Color(nsColor: .alternateSelectedControlTextColor)
             HStack(spacing: 5) {
                 Text(label)
                 Text(count.formatted())
                     .monospacedDigit()
-                    .foregroundStyle(selected ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(.secondary))
+                    .foregroundStyle(selected ? AnyShapeStyle(onAccent.opacity(0.85)) : AnyShapeStyle(.secondary))
             }
             .font(.caption.weight(.medium))
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
-            .foregroundStyle(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
+            .foregroundStyle(selected ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
             .background(
                 Capsule().fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.12)))
             )
