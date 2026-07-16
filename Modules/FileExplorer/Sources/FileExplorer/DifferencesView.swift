@@ -785,10 +785,7 @@ public struct DifferencesView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.quaternary.opacity(0.5))
-        )
+        .searchFieldSurface()
     }
 
     /// The recognized filter words as removable chips (Design's shared `TokenChipsRow`): a human
@@ -1081,11 +1078,26 @@ public struct DifferencesView: View {
 // Each column's content is its own small view so the `Table` builder stays simple enough for
 // the type-checker (a single big Table literal with inline cell closures times out).
 
+private extension View {
+    /// The differences-table cells' density font: subheadline when the table is compact,
+    /// and — crucially — the view returned UNMODIFIED when it isn't. `.font(nil)` is NOT a
+    /// no-op: it clears any font inherited from an ancestor rather than leaving it in place,
+    /// so the shared helper never applies the modifier at all in the comfortable case.
+    @ViewBuilder
+    func compactCellFont(_ isCompact: Bool) -> some View {
+        if isCompact {
+            font(.subheadline)
+        } else {
+            self
+        }
+    }
+}
+
 /// Name column: type glyph, dimmed parent path, then the filename — single line, middle-truncated.
 ///
 /// `compact` shrinks the cell text to subheadline so it fits the compact row height — the
 /// Table doesn't propagate an ambient `.font` into its cells (see `listDensity(_:)` in
-/// Design), so each default-font cell opts in itself.
+/// Design), so each default-font cell opts in itself (via `compactCellFont`).
 private struct DifferenceNameCell: View {
     let difference: FileDifference
     var compact: Bool = false
@@ -1107,7 +1119,7 @@ private struct DifferenceNameCell: View {
         }
         .lineLimit(1)
         .truncationMode(.middle)
-        .font(compact ? .subheadline : nil)
+        .compactCellFont(compact)
         .help(NameDisplay.visiblePath(difference.relativePath))
     }
 }
@@ -1124,7 +1136,7 @@ private struct DifferenceChangeCell: View {
             .foregroundStyle(DifferenceGlyph.color(for: difference.type))
             .lineLimit(1)
             .truncationMode(.tail)
-            .font(compact ? .subheadline : nil)
+            .compactCellFont(compact)
             .help(difference.rolledUpDescription)
     }
 }
@@ -1141,7 +1153,7 @@ private struct DifferenceSizeCell: View {
              ?? "—")
             .monospacedDigit()
             .foregroundStyle(.secondary)
-            .font(compact ? .subheadline : nil)
+            .compactCellFont(compact)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
