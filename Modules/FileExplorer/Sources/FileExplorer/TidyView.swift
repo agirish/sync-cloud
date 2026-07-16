@@ -899,6 +899,8 @@ public struct TidyView: View {
             syncManager: syncManager,
             providerName: providerName,
             destinationRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+            onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
+            onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
             onPreview: onPreviewAutomations
         )
     }

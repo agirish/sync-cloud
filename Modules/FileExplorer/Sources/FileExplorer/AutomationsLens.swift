@@ -80,6 +80,11 @@ public struct AutomationsLens: View {
     /// Kicks off a dry-run preview (host owns the root/provider derivation). nil = all enabled rules,
     /// a rule id = just that rule.
     private let onPreview: (UUID?) -> Void
+    /// Quick Look a matched file (absolute path — the same convention Organize's cards use).
+    /// nil hides the Preview affordances on the dry-run rows and the per-file review.
+    private let onQuickLook: ((String) -> Void)?
+    /// Reveal a matched file in Finder (absolute path). nil hides the Reveal affordances.
+    private let onReveal: ((String) -> Void)?
 
     /// The rule being created or edited in the sheet, if any.
     @State private var editingRule: AutomationRule?
@@ -98,11 +103,15 @@ public struct AutomationsLens: View {
         syncManager: FileSyncManager,
         providerName: String? = nil,
         destinationRoot: URL? = nil,
+        onQuickLook: ((String) -> Void)? = nil,
+        onReveal: ((String) -> Void)? = nil,
         onPreview: @escaping (UUID?) -> Void
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
         self.destinationRoot = destinationRoot
+        self.onQuickLook = onQuickLook
+        self.onReveal = onReveal
         self.onPreview = onPreview
     }
 
@@ -256,7 +265,11 @@ public struct AutomationsLens: View {
                             VStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
                                 ruleGroupHeader(group)
                                 ForEach(group.rows) { row in
-                                    AutomationDryRunRowView(row: row, accent: accent)
+                                    AutomationDryRunRowView(
+                                        row: row, accent: accent,
+                                        onQuickLook: onQuickLook.map { ql in { ql(row.id) } },
+                                        onReveal: onReveal.map { rv in { rv(row.id) } }
+                                    )
                                 }
                             }
                         }
@@ -402,6 +415,24 @@ public struct AutomationsLens: View {
                     Text("A file with this name is already there — it’ll be kept as a copy.")
                         .font(.system(size: 11)).foregroundStyle(.orange)
                         .multilineTextAlignment(.center)
+                }
+                // Inspection before deciding: Quick Look the file or see it in Finder — the same
+                // Preview/Reveal pair Organize's cards offer, since "File or skip?" is exactly the
+                // moment the user needs to check what the file actually is.
+                if onQuickLook != nil || onReveal != nil {
+                    HStack(spacing: 9) {
+                        if let onQuickLook {
+                            Button(action: { onQuickLook(row.id) }) { Label("Preview", systemImage: "eye") }
+                                .controlSize(.small)
+                                .help("Quick Look this file before deciding")
+                        }
+                        if let onReveal {
+                            Button(action: { onReveal(row.id) }) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
+                                .controlSize(.small)
+                                .help("Show this file in Finder")
+                        }
+                    }
+                    .padding(.top, 2)
                 }
             }
             .padding(.horizontal, 22).padding(.vertical, 18)
@@ -613,9 +644,13 @@ private struct DestinationPill: View {
 // MARK: - Dry-run row
 
 /// One matched file in the dry run: icon, name, what would happen, and a verdict chip.
+/// Right-click offers Preview (Quick Look) / Reveal so a match can be inspected before filing —
+/// the same pair Organize's suggestion cards carry.
 private struct AutomationDryRunRowView: View {
     let row: AutomationDryRunRow
     let accent: Color
+    var onQuickLook: (() -> Void)? = nil
+    var onReveal: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -635,6 +670,15 @@ private struct AutomationDryRunRowView: View {
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .contentShape(Rectangle())
+        .contextMenu {
+            if let onQuickLook {
+                Button(action: onQuickLook) { Label("Preview", systemImage: "eye") }
+            }
+            if let onReveal {
+                Button(action: onReveal) { Label("Reveal in Finder", systemImage: RevealGlyph.inFinder) }
+            }
+        }
     }
 
     @ViewBuilder
