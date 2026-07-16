@@ -687,10 +687,12 @@ public struct TidyView: View {
 
     private var filterMenu: some View {
         Menu {
-            // Per-filter counts computed HERE inside the menu content — SwiftUI builds it
-            // lazily on open, so the O(groups) pass runs only when the menu is shown, never on
-            // the summary-row renders that recur per file while a merge publishes progress
-            // (same rationale as the Differences header's filter menu). Counts cover ALL
+            // NOTE: a Menu's content builder is NOT lazy — it's a non-escaping closure that
+            // runs on every render — so this single pass over the groups executes per render,
+            // including the ones a merge's progress publishes trigger. That's accepted: groups
+            // number in the tens-to-hundreds and each check is a flag test, so the pass is
+            // microseconds (unlike the Compare header's counts over up to ~40k differences,
+            // which are memoized in DisplayRows for exactly this reason). Counts cover ALL
             // groups, not the search-narrowed `dupGroups`, so a badge never reads zero for a
             // filter that would reveal rows once picked.
             let counts = Self.filterCounts(syncManager.duplicateGroups)

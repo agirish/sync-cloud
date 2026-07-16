@@ -91,9 +91,17 @@ public struct DifferencesView: View {
     }
 
     /// One filtered + one sorted snapshot of the visible rows (see `displayRows`).
-    private struct DisplayRows {
+    /// @unchecked Sendable for the same reason as DisplayInputs below: every stored property is
+    /// an immutable value snapshot (`DifferenceFilter` is a plain value type that merely lacks
+    /// the public conformance), built on the detached rebuild and handed back whole.
+    private struct DisplayRows: @unchecked Sendable {
         var filtered: [FileDifference] = []
         var sorted: [FileDifference] = []
+        /// Per-filter badge counts over ALL differences (not the filtered rows), riding the same
+        /// detached rebuild as the rows. Menu content builders are NOT lazy — the closure is
+        /// non-escaping and runs on every render of the header — so computing counts inside the
+        /// Menu paid an O(differences) pass per published file during bulk sync.
+        var filterCounts: [DifferenceFilter: Int] = [:]
     }
 
     /// Everything that decides the visible rows, bundled as the `.task(id:)` key so the pass
@@ -221,14 +229,20 @@ public struct DifferencesView: View {
                 // rendered during a review, and on exit the first body beat would otherwise
                 // pair the emptied rows with a set flag — flashing "No differences" until the
                 // detached rebuild below lands. Leaving the flag false makes the exit hold the
-                // same blank-table placeholder as the first load.
-                displayRows = DisplayRows()
+                // same blank-table placeholder as the first load. Filter counts are kept: they
+                // cost six Ints, and clearing them would zero the menu badges for the rebuild
+                // window right after exiting the review.
+                displayRows = DisplayRows(filterCounts: displayRows.filterCounts)
                 hasComputedRows = false
                 return
             }
             let rows = await Task.detached(priority: .userInitiated) { () -> DisplayRows in
                 let filtered = DifferencesQuery.filtered(inputs.differences, filter: inputs.filter, searchText: inputs.searchText)
-                return DisplayRows(filtered: filtered, sorted: filtered.sorted(using: inputs.sortOrder))
+                return DisplayRows(
+                    filtered: filtered,
+                    sorted: filtered.sorted(using: inputs.sortOrder),
+                    filterCounts: DifferencesQuery.counts(inputs.differences)
+                )
             }.value
             guard !Task.isCancelled else { return }
             displayRows = rows
@@ -317,11 +331,12 @@ public struct DifferencesView: View {
         }
         Spacer()
         Menu {
-            // Per-filter counts, tallied in one pass. Computed HERE inside the menu content —
-            // SwiftUI builds this lazily on open, so the O(differences) pass runs only when the
-            // menu is shown, never on the header renders that recur per file during a bulk sync.
-            // (Only reached in non-review mode: this Menu isn't built when a review is active.)
-            let filterCounts = DifferencesQuery.counts(syncManager.differences)
+            // Per-filter counts come from the DisplayRows cache: they're tallied in the same
+            // detached rebuild as the rows, so the header renders that recur per file during a
+            // bulk sync read six cached Ints instead of re-tallying O(differences). (A Menu's
+            // content builder is NOT lazy — it's a non-escaping closure that runs on every
+            // render — so computing the counts here was an every-render cost, not on-open.)
+            let filterCounts = displayRows.filterCounts
             // A Picker inside a Menu gets the native menu check column; a per-row
             // checkmark-in-icon-slot Label only fakes it (and leaves the slot empty
             // on unselected rows). Same pattern as the main toolbar's Sort menu.
