@@ -333,9 +333,9 @@ private enum StorageSection: Hashable {
     }
     var tint: Color {
         switch self {
-        case .largest: return .blue
-        case .stale: return .orange
-        case .reclaim: return .green
+        case .largest: return SemanticColor.info
+        case .stale: return SemanticColor.warning
+        case .reclaim: return SemanticColor.success
         }
     }
     var title: String {

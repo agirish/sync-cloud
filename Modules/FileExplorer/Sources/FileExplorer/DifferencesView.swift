@@ -268,7 +268,7 @@ public struct DifferencesView: View {
             StatPill(
                 count: syncManager.differences.count,
                 label: "Differences",
-                color: .orange,
+                color: SemanticColor.warning,
                 systemImage: "exclamationmark.triangle",
                 // Totals expand to the pill's right and collapse back left; the chevron
                 // points the way the next click will send them, and is withheld pre-scan
@@ -1170,7 +1170,7 @@ private struct ReviewStatusCell: View {
                 switch outcome {
                 case .copied:
                     Label(session.isMove ? "Moved" : "Copied", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(SemanticColor.success)
                 case .skipped:
                     Label("Skipped", systemImage: "minus.circle")
                         .foregroundStyle(.secondary)

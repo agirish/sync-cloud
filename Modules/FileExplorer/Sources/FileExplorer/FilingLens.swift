@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Design
 
 // MARK: - Filing glyph vocabulary
 
@@ -40,8 +41,8 @@ enum FilingConfidenceTier: String, CaseIterable, Identifiable {
     /// (green / orange / secondary).
     var color: Color {
         switch self {
-        case .high:   return .green
-        case .medium: return .orange
+        case .high:   return SemanticColor.success
+        case .medium: return SemanticColor.warning
         case .low:    return .secondary
         }
     }

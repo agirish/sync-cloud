@@ -1,6 +1,7 @@
 import SwiftUI
 import Sync
 import Events
+import Design
 
 /// The docked review card shown above the differences table during an inline review session:
 /// what the current item is, what the copy would replace (sizes, dates, deltas, warnings), and
@@ -55,7 +56,7 @@ struct ReviewCardView: View {
             headerRow(item: item, model: model)
             factsRow(model: model)
             if let warningText = model.warningText {
-                statusRow(warningText, systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                statusRow(warningText, systemImage: "exclamationmark.triangle.fill", tint: SemanticColor.warning)
             }
             if let verdict = session.verdict(for: item.id) {
                 verdictRow(verdict)
@@ -173,7 +174,7 @@ struct ReviewCardView: View {
                         .help(model.destinationLabel ?? "")
                 }
                 if let deltaText = model.deltaText {
-                    let tint: Color = model.sourceIsOlder ? .orange : .green
+                    let tint: Color = model.sourceIsOlder ? SemanticColor.warning : SemanticColor.success
                     Text(deltaText)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(tint)
@@ -199,9 +200,9 @@ struct ReviewCardView: View {
     private func verdictRow(_ verdict: ReviewSession.VerifyVerdict) -> some View {
         switch verdict {
         case .identical:
-            statusRow("Contents verified identical — only the dates differ.", systemImage: "checkmark.seal.fill", tint: .green)
+            statusRow("Contents verified identical — only the dates differ.", systemImage: "checkmark.seal.fill", tint: SemanticColor.success)
         case .differed:
-            statusRow("Contents differ — this is a real change.", systemImage: "exclamationmark.triangle.fill", tint: .orange)
+            statusRow("Contents differ — this is a real change.", systemImage: "exclamationmark.triangle.fill", tint: SemanticColor.warning)
         case .unverifiable:
             statusRow("Couldn't verify (a side was unreadable or too large to hash).", systemImage: "questionmark.circle", tint: .secondary)
         }

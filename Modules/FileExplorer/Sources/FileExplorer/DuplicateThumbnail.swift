@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import QuickLookThumbnailing
+import Design
 
 /// Async QuickLook content thumbnails for duplicate copies. The duplicate card already names each
 /// copy, marks the keeper, and shows a fate chip — but every copy wore the same file-type icon, so
@@ -90,15 +91,16 @@ struct DuplicateThumbnailView: View {
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isKeeper ? Color.green.opacity(0.65) : Color.primary.opacity(0.12),
+                    .strokeBorder(isKeeper ? SemanticColor.success.opacity(0.65) : Color.primary.opacity(0.12),
                                   lineWidth: isKeeper ? 1.5 : 0.8)
             )
             .overlay(alignment: .bottomTrailing) {
                 if isKeeper {
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 15))
-                        .foregroundStyle(.green)
-                        .background(Circle().fill(.white).padding(2))
+                        .foregroundStyle(SemanticColor.success)
+                        // Adaptive knockout disc: hard-coded white glowed in dark mode.
+                        .background(Circle().fill(Color(nsColor: .windowBackgroundColor)).padding(2))
                         .offset(x: 4, y: 4)
                 }
             }
@@ -109,7 +111,7 @@ struct DuplicateThumbnailView: View {
 
             Text(isKeeper ? "keeper" : "duplicate")
                 .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(isKeeper ? AnyShapeStyle(.green) : AnyShapeStyle(.tertiary))
+                .foregroundStyle(isKeeper ? AnyShapeStyle(SemanticColor.success) : AnyShapeStyle(.tertiary))
         }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.14)) { isHovering = hovering }
