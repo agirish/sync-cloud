@@ -67,9 +67,15 @@ import Testing
                 file("/root/vers/deck-final.pdf", size: 70_000, modified: Date(timeIntervalSince1970: 2_000_000)),
             ]),
             // Same stem+ext, DIFFERENT parents, NO marker on either name — must NOT group as
-            // versions (the IMG_0001-in-two-year-folders false positive).
+            // versions (the IMG_0001-in-two-year-folders false positive). The marker on
+            // "/2023/IMG_0001 copy.jpg" vouches ONLY for its own parent: the /2023 pair groups,
+            // and the unrelated /2019 shot must never be pulled in (round-5 MAJOR — one marker
+            // used to license the whole cross-folder stem bucket).
             dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
-            dir("/root/2023", [file("/root/2023/IMG_0001.jpg", size: 51_000)]),
+            dir("/root/2023", [
+                file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
+                file("/root/2023/IMG_0001 copy.jpg", size: 52_000, modified: Date(timeIntervalSince1970: 1_000_000)),
+            ]),
             // nameOnly FOLDER group: same folder name, fully disjoint contents — shared fraction 0
             // is below the overlap threshold, so the pair surfaces as a warning (reclaim 0), never
             // a removable redundancy.
@@ -89,8 +95,9 @@ import Testing
             ])]),
             // Versions keeper heuristic: the ARCHIVE-path copy ("backup" segment) is the NEWEST —
             // newestIndex must still keep the non-archive copy (a backup tool rewriting mtimes must
-            // not make the backup the recommended keeper).
-            dir("/root/work", [file("/root/work/plan.key", modified: Date(timeIntervalSince1970: 1_000_000))]),
+            // not make the backup the recommended keeper). Both names carry markers so the
+            // cross-folder pair still groups under the marker-vouches-for-its-parent rule.
+            dir("/root/work", [file("/root/work/plan-draft.key", modified: Date(timeIntervalSince1970: 1_000_000))]),
             dir("/root/backup", [file("/root/backup/plan-final.key", modified: Date(timeIntervalSince1970: 5_000_000))]),
             // Two placeholder-hash members (marker + same parent — every OTHER versions signal
             // present): unknown content is not evidence of drift, so NO group may stand up.
@@ -117,10 +124,11 @@ import Testing
             "/root/hasreal/doc.txt": "HR", "/root/hasreal/att.pdf": "HW",
             "/root/vers/deck.pdf": "V1", "/root/vers/deck-final.pdf": "V2", // drifted versions
             "/root/2019/IMG_0001.jpg": "SA", "/root/2023/IMG_0001.jpg": "SB",
+            "/root/2023/IMG_0001 copy.jpg": "SB2",
             "/root/x/Projects/p1.txt": "N1", "/root/y/Projects/p2.txt": "N2",
             "/root/Archive/report.pdf": "HK", "/root/docs/sub/report.pdf": "HK",
             "/root/Archive/arch-only.txt": "UA", "/root/docs/sub/docs-only.txt": "UD",
-            "/root/work/plan.key": "P1", "/root/backup/plan-final.key": "P2",
+            "/root/work/plan-draft.key": "P1", "/root/backup/plan-final.key": "P2",
             "/root/big/huge.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge.mp4"),
             "/root/big/huge copy.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge copy.mp4"),
             "/root/mix/draft.docx": DuplicateFinder.unknownSignature(forPath: "/root/mix/draft.docx"),
@@ -140,10 +148,12 @@ import Testing
         //  · report.pdf's keeper is the docs/sub copy even though the Archive copy is newer AND
         //    shallower — the archive-location penalty dominates depth and mtime;
         //  · Projects is a nameOnly folder group: same name, disjoint contents, reclaim 0;
-        //  · deck.pdf / plan.key / memo.txt are the ONLY versions groups (marker-justified) — the
-        //    two IMG_0001.jpg files (same stem, different parents, no marker) form NO group at all;
+        //  · deck.pdf / plan.key / memo.txt / img_0001.jpg are the ONLY versions groups
+        //    (marker-justified), and img_0001.jpg holds EXACTLY the two /root/2023 files — the
+        //    marker on "IMG_0001 copy.jpg" vouches for its own parent only, so the unrelated
+        //    /root/2019 shot never joins (and stays in no group at all);
         //  · plan.key's keeper is the /root/work copy even though the /root/backup copy is newer —
-        //    newestIndex applies the same archive penalty first;
+        //    newestIndex applies the archive penalty first;
         //  · memo.txt carries an unknown-hash member (memo copy.txt, marked `?`) that RIDES ALONG in
         //    a group two real hashes justify — while huge.mp4 (two placeholders, marker AND same
         //    parent) and draft.docx (one placeholder + only one real hash) stand up NO group:
@@ -155,10 +165,11 @@ import Testing
         versions "memo.txt" dir=false reclaim=200000 [/root/ride/memo-v2.txt*, /root/ride/memo copy.txt?, /root/ride/memo.txt]
         identical "data.txt" dir=false reclaim=100000 [/root/nolink/data.txt*, /root/withlink/data.txt]
         identical "doc.txt" dir=false reclaim=100000 [/root/hasreal/doc.txt*, /root/hassym/doc.txt]
-        versions "plan.key" dir=false reclaim=100000 [/root/work/plan.key*, /root/backup/plan-final.key]
+        versions "plan.key" dir=false reclaim=100000 [/root/work/plan-draft.key*, /root/backup/plan-final.key]
         identical "report.pdf" dir=false reclaim=100000 [/root/docs/sub/report.pdf*, /root/Archive/report.pdf]
         identical "shared.bin" dir=false reclaim=100000 [/root/f1/shared.bin*, /root/f2/shared.bin]
         versions "deck.pdf" dir=false reclaim=60000 [/root/vers/deck-final.pdf*, /root/vers/deck.pdf]
+        versions "img_0001.jpg" dir=false reclaim=52000 [/root/2023/IMG_0001.jpg*, /root/2023/IMG_0001 copy.jpg]
         nameOnly "Projects" dir=true reclaim=0 [/root/x/Projects*, /root/y/Projects]
         """
         #expect(snapshot(groups) == expected)

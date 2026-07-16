@@ -268,25 +268,76 @@ import Testing
         #expect(groups.isEmpty)
     }
 
-    @Test func markeredVersionsAcrossDifferentFoldersStillGroup() {
-        // A real version marker justifies the group even across folders: "report copy.pdf" is
-        // evidence someone duplicated report.pdf, wherever the copy now lives.
+    @Test func markeredVersionsAcrossDifferentFoldersGroupOnlyMarkeredMembers() {
+        // Marker-bearing names group even across folders: "report copy.pdf" and "report-v2.pdf"
+        // both carry evidence of being versions of the same document, wherever they now live.
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
         let tree = [
-            dir("/root/Docs", [file("/root/Docs/report.pdf", size: 9000, modified: new),
+            dir("/root/Docs", [file("/root/Docs/report-v2.pdf", size: 9000, modified: new),
                                file("/root/Docs/d-only.txt", size: 8192)]),
             dir("/root/Desktop", [file("/root/Desktop/report copy.pdf", size: 8800, modified: old),
                                   file("/root/Desktop/k-only.txt", size: 8192)]),
         ]
         let hashes = [
-            "/root/Docs/report.pdf": "R1", "/root/Desktop/report copy.pdf": "R2",
+            "/root/Docs/report-v2.pdf": "R1", "/root/Desktop/report copy.pdf": "R2",
             "/root/Docs/d-only.txt": "D", "/root/Desktop/k-only.txt": "K",
         ]
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
         #expect(groups.count == 1)
         #expect(groups[0].matchType == .versions)
-        #expect(groups[0].keeper.path == "/root/Docs/report.pdf")   // newest
+        #expect(groups[0].keeper.path == "/root/Docs/report-v2.pdf")   // newest
+    }
+
+    @Test func crossFolderMarkerDoesNotLicenseUnmarkedMembersInOtherFolders() {
+        // The round-5 MAJOR: one marker in a cross-folder stem bucket must not vouch for the
+        // whole bucket. "/2023/IMG_0001 copy.jpg" is evidence someone duplicated the IMG_0001.jpg
+        // NEXT TO IT — not that /2019/IMG_0001.jpg (an unrelated shot that shares the name only
+        // because cameras count from IMG_0001) is a version of either. Grouping all three would
+        // recommend trashing the unique 2019 photo.
+        let tree = [
+            dir("/root/2023", [
+                file("/root/2023/IMG_0001.jpg", size: 51_000, modified: Date(timeIntervalSince1970: 2_000_000)),
+                file("/root/2023/IMG_0001 copy.jpg", size: 52_000, modified: Date(timeIntervalSince1970: 1_000_000)),
+            ]),
+            dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
+        ]
+        let hashes = [
+            "/root/2023/IMG_0001.jpg": "SHOT-B",
+            "/root/2023/IMG_0001 copy.jpg": "SHOT-B2",
+            "/root/2019/IMG_0001.jpg": "SHOT-A",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups[0].matchType == .versions)
+        // Only the marker-bearer and its same-parent sibling; the 2019 shot never joins.
+        #expect(Set(groups[0].copies.map(\.path)) ==
+                ["/root/2023/IMG_0001.jpg", "/root/2023/IMG_0001 copy.jpg"])
+        #expect(!groups[0].recommendedRemovalPaths.contains("/root/2019/IMG_0001.jpg"))
+    }
+
+    @Test func unmarkedCrossFolderMemberNeverSuppliesTheDriftEvidence() {
+        // The excluded member's hash must not count as "distinct real contents": here the two
+        // same-parent members are byte-identical (already claimed by the identical pass), so no
+        // versions group may ride on the excluded cross-folder file's differing hash.
+        let tree = [
+            dir("/root/2023", [
+                file("/root/2023/IMG_0002.jpg", size: 51_000),
+                file("/root/2023/IMG_0002 copy.jpg", size: 51_000),
+            ]),
+            dir("/root/2019", [file("/root/2019/IMG_0002.jpg", size: 50_000)]),
+        ]
+        let hashes = [
+            "/root/2023/IMG_0002.jpg": "SAME",
+            "/root/2023/IMG_0002 copy.jpg": "SAME",
+            "/root/2019/IMG_0002.jpg": "OTHER",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        if case .identical = groups[0].matchType {} else {
+            Issue.record("expected the same-parent pair to stay an identical group, got \(groups[0].matchType)")
+        }
+        #expect(!groups.contains { $0.copies.contains { $0.path == "/root/2019/IMG_0002.jpg" } })
     }
 
     @Test func unknownHashPlaceholdersAreNotEvidenceOfVersionDrift() {
@@ -352,23 +403,24 @@ import Testing
     @Test func versionsKeeperAvoidsArchiveLocationEvenWhenNewest() {
         // A backup tool rewrote the archived copy last — mtime alone would crown it the keeper
         // and recommend trashing the working copy. Archive-like locations are penalized first,
-        // exactly as in chooseKeeper.
+        // exactly as in chooseKeeper. (Both names carry markers: a cross-folder member joins a
+        // versions group only on its own marker.)
         let old = Date(timeIntervalSince1970: 1_000_000)
         let new = Date(timeIntervalSince1970: 2_000_000)
         let tree = [
-            dir("/root/Docs", [file("/root/Docs/deck.pdf", size: 9000, modified: old),
+            dir("/root/Docs", [file("/root/Docs/deck-v1.pdf", size: 9000, modified: old),
                                file("/root/Docs/d-only.txt", size: 8192)]),
             dir("/root/Backups", [file("/root/Backups/deck-final.pdf", size: 9500, modified: new),
                                   file("/root/Backups/b-only.txt", size: 8192)]),
         ]
         let hashes = [
-            "/root/Docs/deck.pdf": "D1", "/root/Backups/deck-final.pdf": "D2",
+            "/root/Docs/deck-v1.pdf": "D1", "/root/Backups/deck-final.pdf": "D2",
             "/root/Docs/d-only.txt": "U1", "/root/Backups/b-only.txt": "U2",
         ]
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
         #expect(groups.count == 1)
         #expect(groups[0].matchType == .versions)
-        #expect(groups[0].keeper.path == "/root/Docs/deck.pdf")
+        #expect(groups[0].keeper.path == "/root/Docs/deck-v1.pdf")
     }
 
     @Test func hasVersionMarkerDetectsStrippedMarkersOnly() {

@@ -630,16 +630,35 @@ public enum DuplicateFinder {
         }
 
         var groups: [DuplicateGroup] = []
-        for members in buckets.values where members.count >= 2 {
+        for bucket in buckets.values where bucket.count >= 2 {
             // A shared stem alone is weak evidence: unrelated same-named files routinely live in
             // different folders (/2019/IMG_0001.jpg vs /2023/IMG_0001.jpg, ClientA/invoice.pdf vs
             // ClientB/invoice.pdf) and must NOT form a "versions" group — its recommendation would
             // trash a unique file. Require a real version signal: at least one member whose name
             // carried a stripped marker (" (1)", "copy", "-v2", "final", …), or every member in the
             // SAME folder (same-stem siblings that differ only by case/whitespace normalization).
-            let hasMarker = members.contains { hasVersionMarker($0.name) }
-            let sameParent = Set(members.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
-            guard hasMarker || sameParent else { continue }
+            //
+            // A marker vouches ONLY for its own name and for the members sharing its parent
+            // directory — "IMG_0001 copy.jpg" is evidence someone duplicated the IMG_0001.jpg
+            // NEXT TO IT, not that a same-stem file in a different folder is a version of either.
+            // Licensing the whole cross-folder stem bucket off one marker would group
+            // /2023/IMG_0001.jpg + "/2023/IMG_0001 copy.jpg" + /2019/IMG_0001.jpg and recommend
+            // trashing the unrelated 2019 photo. So cross-folder members join only on their OWN
+            // marker (or by sharing a marker-bearer's parent); the rest of the bucket is dropped.
+            let sameParent = Set(bucket.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
+            let members: [NodeInfo]
+            if sameParent {
+                members = bucket   // same-stem siblings: the round-4 same-parent path, unchanged
+            } else {
+                let markerParents = Set(bucket.filter { hasVersionMarker($0.name) }
+                    .map { ($0.path as NSString).deletingLastPathComponent })
+                guard !markerParents.isEmpty else { continue }
+                members = bucket.filter {
+                    hasVersionMarker($0.name)
+                        || markerParents.contains(($0.path as NSString).deletingLastPathComponent)
+                }
+            }
+            guard members.count >= 2 else { continue }
             // Only PROVEN drift: at least two distinct REAL contents (identical bytes were already
             // grouped). Placeholder ("u:" unknown) and missing signatures are not evidence of
             // difference — two byte-identical files that were merely too large (or cloud-only) to
