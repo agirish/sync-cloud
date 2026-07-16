@@ -143,44 +143,16 @@ public struct PaneHeader: View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 if let provider = provider {
-                    // UX H2: the provider's brand hue tints its name and washes softly behind
-                    // the logo, so the two panes are distinguishable at a glance (and visibly
-                    // *matching* when both panes show the same provider). Buttons and
-                    // selection states keep the user's accent color.
-                    let hue = ProviderHue.classify(provider.displayName)
-                    // The provider name is now a dropdown (the Left/Right sidebar is gone). The logo
-                    // stays a plain image OUTSIDE the menu — a resizable image inside a Menu label
-                    // balloons to its native size under the menu's fixedSize — and only the tinted
-                    // name + chevron is the menu trigger.
-                    HStack(spacing: 10) {
-                        Image(provider.imageName)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 28, height: 28)
-                        ProviderMenu(
-                            providers: providers,
-                            currentId: provider.id,
-                            onSelect: onSelectProvider,
-                            onManage: onManageProviders
-                        ) {
-                            Text(provider.displayName)
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(hue.tint)
-                                // A long custom provider name must truncate, not wrap the
-                                // header taller in a narrow pane.
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .contentShape(Rectangle())
-                        }
-                        .help("Switch this pane's cloud provider")
+                    // In a narrow pane the provider NAME is the identity anchor: with the whole
+                    // capsule at the row's highest layoutPriority it is offered width before the
+                    // freshness pill and before the nav cluster's full-size variant, so under
+                    // constraint the pill yields first, then the name middle-truncates, and only
+                    // then (below the logo variant's readable floor) the logo drops.
+                    ViewThatFits(in: .horizontal) {
+                        providerCapsule(provider, showsLogo: true)
+                        providerCapsule(provider, showsLogo: false)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(hue.soft, in: Capsule())
-                    // In a narrow pane the provider NAME is the identity anchor — the freshness
-                    // pill (relative time, repeated on both panes) must yield width first, not
-                    // squeeze the name to an ellipsis.
-                    .layoutPriority(1)
+                    .layoutPriority(2)
                 } else {
                     Image(systemName: "folder")
                         .font(.title2)
@@ -191,69 +163,21 @@ public struct PaneHeader: View {
                 }
                 Spacer(minLength: 0)
 
-                freshnessPill
-
-                HStack(spacing: 6) {
-                    if let onCollapse {
-                        Button(action: onCollapse) {
-                            Image(systemName: "sidebar.left")
-                        }
-                        .help("Collapse the source pane")
+                if lastScanDate != nil {
+                    // The pill YIELDS FIRST (round-5 intent): all-or-nothing instead of
+                    // compressing to a bare dot. fixedSize makes the pill rigid so ViewThatFits
+                    // is a real binary choice — a truncating pill would always "fit" and never
+                    // hand its width back to the provider name. Priority 1 keeps it above the
+                    // Spacer in layout order (otherwise the HStack splits leftover width between
+                    // them and the pill hides even in a wide pane) but below the name's 2.
+                    ViewThatFits(in: .horizontal) {
+                        freshnessPill.fixedSize()
+                        Color.clear.frame(width: 0, height: 0)
                     }
-
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                    }
-                    .disabled(!canGoBack)
-                    .help("Go back to this pane's previous folder")
-
-                    Button(action: onForward) {
-                        Image(systemName: "chevron.right")
-                    }
-                    .disabled(!canGoForward)
-                    .help("Go forward to this pane's next folder")
-
-                    if let onRefresh {
-                        // Scan/refresh moved off the titlebar to here, next to the nav controls; the
-                        // arrow spins while a scan runs (reduced-motion is honored automatically).
-                        Button(action: onRefresh) {
-                            Image(systemName: "arrow.clockwise")
-                                .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
-                        }
-                        .disabled(isRefreshing)
-                        .help("Scan for changes")
-                    }
-
-                    // Sort moved out of the titlebar (its file-action neighbors are now the pane's
-                    // contextual action bar); it lives per-pane, driving the shared sort order.
-                    Menu {
-                        Picker("Sort By", selection: $sortOption) {
-                            ForEach(SortOption.allCases, id: \.self) { option in
-                                Text(option.rawValue).tag(option)
-                            }
-                        }
-                        .pickerStyle(.inline)
-                        .labelsHidden()
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                    }
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .help("Choose how items are sorted")
-
-                    // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
-                    // mirrors the state: open when hidden files are shown, slashed when filtered.
-                    Button {
-                        showHiddenFiles.toggle()
-                    } label: {
-                        Image(systemName: showHiddenFiles ? "eye" : "eye.slash")
-                    }
-                    .help(showHiddenFiles
-                          ? "Hidden files are visible — click to hide them"
-                          : "Hidden files are hidden — click to show them")
+                    .layoutPriority(1)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+
+                navCluster
             }
             PaneBreadcrumb(
                 rootPath: rootPath,
@@ -267,5 +191,123 @@ public struct PaneHeader: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
+    }
+
+    /// The brand-tinted provider capsule (UX H2: the hue tints the name and washes softly behind
+    /// the logo so the two panes are distinguishable — and visibly matching — at a glance; buttons
+    /// and selection states keep the user's accent color). The name + chevron is the menu trigger;
+    /// the logo stays a plain image OUTSIDE the menu label (a resizable image inside one balloons
+    /// to its native size). ViewThatFits compares each variant's IDEAL width against the offer,
+    /// so the logo variant wins only while the full name fits alongside it; once the name would
+    /// have to give up characters, the logo yields first and the logo-less variant truncates the
+    /// name as far as an ellipsis — the name is the identity anchor, the logo is decoration.
+    private func providerCapsule(_ provider: CloudProvider, showsLogo: Bool) -> some View {
+        let hue = ProviderHue.classify(provider.displayName)
+        return HStack(spacing: 10) {
+            if showsLogo {
+                Image(provider.imageName)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 28, height: 28)
+            }
+            ProviderMenu(
+                providers: providers,
+                currentId: provider.id,
+                onSelect: onSelectProvider,
+                onManage: onManageProviders
+            ) {
+                Text(provider.displayName)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(hue.tint)
+                    // A long custom provider name must truncate, not wrap the
+                    // header taller in a narrow pane. Middle truncation is the intent, but the
+                    // menu style's AppKit-backed label ignores the preference and elides the
+                    // tail (verified in the 250/400 pt snapshots; setting the environment value
+                    // on the Menu itself changes nothing either) — the load-bearing part is
+                    // that the name truncates at all instead of ballooning the row.
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .contentShape(Rectangle())
+            }
+            .help("Switch this pane's cloud provider")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(hue.soft, in: Capsule())
+    }
+
+    /// This pane's navigation/action buttons. Rendered through ViewThatFits so that at the
+    /// narrowest pane widths (the split clamps panes at 250 pt, where small-size controls plus
+    /// the provider capsule physically exceed the row) the cluster steps down to `.mini`
+    /// controls instead of overflowing the pane's trailing edge — every control stays present
+    /// and clickable, nothing is pushed out of view.
+    private var navCluster: some View {
+        ViewThatFits(in: .horizontal) {
+            navClusterContent.controlSize(.small)
+            navClusterContent.controlSize(.mini)
+        }
+    }
+
+    private var navClusterContent: some View {
+        HStack(spacing: 6) {
+            if let onCollapse {
+                Button(action: onCollapse) {
+                    Image(systemName: "sidebar.left")
+                }
+                .help("Collapse the source pane")
+            }
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(!canGoBack)
+            .help("Go back to this pane's previous folder")
+
+            Button(action: onForward) {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!canGoForward)
+            .help("Go forward to this pane's next folder")
+
+            if let onRefresh {
+                // Scan/refresh moved off the titlebar to here, next to the nav controls; the
+                // arrow spins while a scan runs (reduced-motion is honored automatically).
+                Button(action: onRefresh) {
+                    Image(systemName: "arrow.clockwise")
+                        .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
+                }
+                .disabled(isRefreshing)
+                .help("Scan for changes")
+            }
+
+            // Sort moved out of the titlebar (its file-action neighbors are now the pane's
+            // contextual action bar); it lives per-pane, driving the shared sort order.
+            Menu {
+                Picker("Sort By", selection: $sortOption) {
+                    ForEach(SortOption.allCases, id: \.self) { option in
+                        Text(option.rawValue).tag(option)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+            }
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Choose how items are sorted")
+
+            // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
+            // mirrors the state: open when hidden files are shown, slashed when filtered.
+            Button {
+                showHiddenFiles.toggle()
+            } label: {
+                Image(systemName: showHiddenFiles ? "eye" : "eye.slash")
+            }
+            .help(showHiddenFiles
+                  ? "Hidden files are visible — click to hide them"
+                  : "Hidden files are hidden — click to show them")
+        }
+        .buttonStyle(.bordered)
     }
 }

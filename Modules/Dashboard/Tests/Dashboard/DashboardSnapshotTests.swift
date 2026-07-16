@@ -34,11 +34,12 @@ import Events
             named: "stale")
     }
 
-    /// The burned edge case: a long custom provider name in a 250 pt pane. Pins CURRENT
-    /// behavior: the header never wraps taller, but the Menu label's fixedSize means the
-    /// long name does NOT middle-truncate — the nav cluster overflows the pane's trailing
-    /// edge instead (the canvas clips it, leading-aligned, exactly as a pane would). If the
-    /// intended truncation ever starts working, this reference is the one to re-record.
+    /// The burned edge case: a long custom provider name at the split clamp's 250 pt pane
+    /// minimum. Pins the full degradation ladder: the freshness pill hides entirely, the
+    /// logo drops, the name middle-truncates inside its capsule, and the nav cluster steps
+    /// down to .mini controls — every control fully visible, nothing pushed past the pane's
+    /// trailing edge (the pre-fix Menu fixedSize ballooned the name and shoved the nav
+    /// cluster out of view).
     @Test func paneHeaderNarrow250LongProviderName() {
         assertViewSnapshot(
             of: Self.header(
@@ -46,6 +47,19 @@ import Events
                 lastScan: Date()),
             size: CGSize(width: 250, height: 92),
             named: "narrow-250")
+    }
+
+    /// The ladder's middle rung, 400 pt with the long name: the logo variant still fits (the
+    /// name keeps its readable floor and middle-truncates), the freshness pill has already
+    /// yielded, and the nav cluster is on its .mini fallback — the name is the identity
+    /// anchor, so it outranks both the pill and full-size controls.
+    @Test func paneHeaderMid400LongProviderName() {
+        assertViewSnapshot(
+            of: Self.header(
+                providerName: "Marketing Team Shared Archive Drive",
+                lastScan: Date()),
+            size: CGSize(width: 400, height: 92),
+            named: "mid-400")
     }
 
     // MARK: LogViewer rows

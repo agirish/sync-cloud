@@ -51,6 +51,13 @@ public struct ProviderMenu<LabelContent: View>: View {
         .menuStyle(.borderlessButton)
         // Keep the native trailing menu indicator — it places the chevron correctly for the
         // borderless style (a custom one plus `.menuIndicator(.hidden)` mis-rendered under it).
-        .fixedSize()
+        //
+        // fixedSize is VERTICAL-ONLY: a fully fixedSize menu ignores the width proposal, so a
+        // long custom provider name ballooned the label past the pane edge and pushed the pane
+        // header's nav cluster out of view (the label's truncating Text was never offered a
+        // constrained width to truncate against). Left flexible, the menu hugs its label at its
+        // ideal width and only compresses — truncating the label — when the pane is narrower
+        // than the header's content.
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
