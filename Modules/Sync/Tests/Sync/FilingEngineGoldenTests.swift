@@ -46,6 +46,7 @@ import Testing
             dir("/root/Documents", [dir("/root/Documents/Vehicles", [dir("/root/Documents/Vehicles/Tesla")])]),
             dir("/root/Photos"),
             dir("/root/Finance"),
+            dir("/root/Receipts"),
             // Two same-year folders: a bare year must not stand up a confident, batch-eligible home.
             dir("/root/Archive", [dir("/root/Archive/2024")]),
             dir("/root/Projects", [dir("/root/Projects/2024")]),
@@ -53,24 +54,61 @@ import Testing
         let loose = [
             file("/root/Downloads/tesla registration card.pdf"),   // name matches an existing folder
             file("/root/Downloads/IMG_2831.HEIC"),                  // photo → Photos/<year>
+            file("/root/Downloads/Screen Shot 2024-11-02.png"),     // screenshot rides the photo rule
             file("/root/Downloads/1099-INT 2024.pdf"),             // tax doc, filename year == mtime year
             // Filename year ≠ mtime year: the filename's 2023 must win the year segment (every
             // other fixture's years coincide, which is exactly how the mtime-only bug hid).
             file("/root/Downloads/1099-INT 2023.pdf"),
+            // ZERO filename years → the year segment falls back to the 2024 mtime.
+            file("/root/Downloads/1099-INT.pdf"),
+            // MULTIPLE filename year tokens (a range names no single year) → mtime fallback too.
+            file("/root/Downloads/2021-2022 tax summary.pdf"),
+            // Receipt with an existing top-level Receipts folder → high, filed by (mtime) year.
+            file("/root/Downloads/amazon order receipt.pdf"),
+            // Statement, no Statements/Bank folder → Finance/<filename year>; a second category
+            // pinning that the filename's year outranks the mtime year.
+            file("/root/Downloads/chase statement 2023.pdf"),
+            // Vehicle + insurance for a brand WITHOUT an existing folder → new segments under the
+            // Vehicles anchor.
+            file("/root/Downloads/honda geico insurance.pdf"),
             file("/root/Downloads/2024-overview.pdf"),             // ONLY a year token → no confident home
             file("/root/Downloads/blorf.xyz"),                     // no signal at all
+            // No name signal, but a content token ("invoice", read from the file) finds a home:
+            // capped to medium and NEVER batch-eligible — content is a weaker signal.
+            file("/root/Downloads/scan0001.pdf"),
+        ]
+        let contentTokens: [String: Set<String>] = [
+            "/root/Downloads/scan0001.pdf": ["invoice"],
         ]
 
-        let suggestions = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        let suggestions = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy,
+                                               providerRoot: "/root", contentTokens: contentTokens)
 
-        // GOLDEN — captured, hand-verified, pinned. Re-bless only after confirming an intentional
-        // change to the filing heuristic is correct.
+        // GOLDEN — captured, hand-verified, pinned. Load-bearing classes:
+        //  · 1099-INT 2023 files into Taxes/2023 (filename year) while 1099-INT.pdf (no year) and
+        //    "2021-2022 tax summary" (a RANGE names no single year) both fall back to the 2024
+        //    mtime — the whole filenameYear contract of 87f1e2f in one block;
+        //  · chase statement 2023 pins the same filename-year-wins rule in a second category;
+        //  · amazon order receipt hits the HIGH path (existing Receipts folder); honda geico
+        //    insurance builds new Honda/Insurance segments under the existing Vehicles anchor;
+        //  · Screen Shot …png rides the photo rule into Photos/<year>;
+        //  · scan0001.pdf finds a home ONLY via a content token: medium-capped, marked `content`,
+        //    and NOT batch — a content match must never join the blind batch;
+        //  · 2024-overview (bare year) and blorf.xyz still have no confident home.
+        // Re-bless only after confirming an intentional change to the filing heuristic is correct.
         let expected = """
         1099-INT 2023.pdf -> /root/Documents/Taxes/2023 [medium, batch]
         1099-INT 2024.pdf -> /root/Documents/Taxes/2024 [medium, batch]
+        1099-INT.pdf -> /root/Documents/Taxes/2024 [medium, batch]
+        2021-2022 tax summary.pdf -> /root/Documents/Taxes/2024 [medium, batch]
         2024-overview.pdf -> (no confident home)
         IMG_2831.HEIC -> /root/Photos/2024 [high, batch]
+        Screen Shot 2024-11-02.png -> /root/Photos/2024 [high, batch]
+        amazon order receipt.pdf -> /root/Receipts/2024 [high, batch]
         blorf.xyz -> (no confident home)
+        chase statement 2023.pdf -> /root/Finance/2023 [medium, batch]
+        honda geico insurance.pdf -> /root/Documents/Vehicles/Honda/Insurance [medium, batch]
+        scan0001.pdf -> /root/Receipts/2024 [medium, content]
         tesla registration card.pdf -> /root/Documents/Vehicles/Tesla [high, batch]
         """
         #expect(snapshot(suggestions) == expected)
