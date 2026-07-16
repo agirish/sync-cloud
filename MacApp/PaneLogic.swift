@@ -254,4 +254,30 @@ enum PaneLogic {
     static func inspectorDragWidth(base: Double, translation: CGFloat) -> Double {
         min(max(base - Double(translation), inspectorMinWidth), inspectorMaxWidth)
     }
+
+    /// Whether the kept LEFT copy of a duplicate review is still where — AND what — the scan
+    /// saw it, mirroring the engine's `keeperStillExists` gate (FileSyncManager+Duplicates)
+    /// that every other duplicate-removal path honors: existence, plus for FILES a byte-size
+    /// comparison against the scan snapshot. An in-place edit or replacement changes the size,
+    /// and the "redundant" right copy is then no longer provably identical to the keeper —
+    /// trashing it could trash the last copy of the original content. Folders keep the
+    /// existence-only check (a folder's stat size isn't its recursive content size).
+    ///
+    /// `statSucceeded: false` (the attributes read threw) refuses for a file, exactly like the
+    /// engine's failed-attributes guard; `currentSize` nil with a successful stat (never happens
+    /// on the real FS) falls back to the existence check rather than over-refuse — also like
+    /// the engine.
+    static func duplicateKeeperMatchesScan(
+        exists: Bool,
+        isDirectory: Bool,
+        statSucceeded: Bool,
+        currentSize: Int?,
+        scannedSize: Int
+    ) -> Bool {
+        guard exists else { return false }
+        guard !isDirectory else { return true }
+        guard statSucceeded else { return false }
+        if let currentSize, currentSize != scannedSize { return false }
+        return true
+    }
 }

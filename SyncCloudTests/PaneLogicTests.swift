@@ -404,4 +404,45 @@ import Sync
             #expect(steps.contains(.endProviderBootstrapGuard) != first)
         }
     }
+
+    // MARK: - Duplicate-review keeper gate (trashRightCopy)
+
+    @Test func testKeeperGateRefusesMissingKeeper() {
+        // Gone entirely: refuse whether it was a file or a folder.
+        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+            exists: false, isDirectory: false, statSucceeded: false, currentSize: nil, scannedSize: 100))
+        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+            exists: false, isDirectory: true, statSucceeded: false, currentSize: nil, scannedSize: 100))
+    }
+
+    @Test func testKeeperGateRefusesDriftedFileSize() {
+        // Round-4 fix: trashRightCopy used to check existence only, while the engine's
+        // keeperStillExists also compares the file's current byte size against the scan
+        // snapshot — an in-place edit or replacement means the right copy is no longer
+        // provably identical to the keeper, so trashing it could trash the last copy of
+        // the original content.
+        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 555, scannedSize: 100))
+        #expect(PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: 100, scannedSize: 100))
+    }
+
+    @Test func testKeeperGateFolderIsExistenceOnly() {
+        // A folder's stat size isn't its recursive content size (the engine's carve-out),
+        // so folders never size-refuse — existence decides.
+        #expect(PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: true, statSucceeded: true, currentSize: 555, scannedSize: 100))
+        #expect(PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: true, statSucceeded: false, currentSize: nil, scannedSize: 100))
+    }
+
+    @Test func testKeeperGateStatEdgeCasesMatchEngine() {
+        // A failed attributes read refuses for a file (engine: `guard let attrs ... else
+        // { return false }`); a successful stat with no size value falls back to the
+        // existence check rather than over-refuse (engine: `if let currentSize`).
+        #expect(!PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: false, currentSize: nil, scannedSize: 100))
+        #expect(PaneLogic.duplicateKeeperMatchesScan(
+            exists: true, isDirectory: false, statSucceeded: true, currentSize: nil, scannedSize: 100))
+    }
 }

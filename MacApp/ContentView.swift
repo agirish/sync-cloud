@@ -973,6 +973,7 @@ struct ContentView: View {
         syncManager.focusOn(relativePath: deleteRel, isLeft: false)
         duplicateReview = DuplicateCompareContext(
             groupName: keep.name, keepPath: keepPath, deletePath: deletePath,
+            keepIsDirectory: keep.isDirectory, keepScannedSize: keep.size,
             keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
@@ -1689,12 +1690,24 @@ struct ContentView: View {
             confirmTitle: "Move to Trash")
         guard ok else { return }
         Task {
-            // Never trash the right copy if the kept LEFT copy is no longer where the review saw it:
-            // an external move/delete during a long side-by-side review would otherwise make this the
-            // last copy. (duplicateReviewActive only compares the pane's focused PATH, not existence.)
-            // Mirrors the keeperStillExists gate the other duplicate-removal paths honor.
-            guard syncManager.fileManager.fileExists(atPath: review.keepPath) else {
-                syncManager.banner = .warning("The left copy is no longer at its scanned location — rescan before trashing the right copy.")
+            // Never trash the right copy if the kept LEFT copy is no longer where — and WHAT — the
+            // review saw it: an external move/delete during a long side-by-side review would
+            // otherwise make this the last copy, and an in-place edit/replacement means the right
+            // copy is no longer provably identical to the keeper. (duplicateReviewActive only
+            // compares the pane's focused PATH, not existence or content.) Mirrors the FULL
+            // keeperStillExists gate the other duplicate-removal paths honor — existence plus, for
+            // files, byte size vs the scan snapshot — via PaneLogic.duplicateKeeperMatchesScan.
+            let fm = syncManager.fileManager
+            let attrs = try? fm.attributesOfItem(atPath: review.keepPath)
+            let currentSize = (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int)
+            guard PaneLogic.duplicateKeeperMatchesScan(
+                exists: fm.fileExists(atPath: review.keepPath),
+                isDirectory: review.keepIsDirectory,
+                statSucceeded: attrs != nil,
+                currentSize: currentSize,
+                scannedSize: review.keepScannedSize
+            ) else {
+                syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")
                 return
             }
             let removed = await syncManager.deleteItems(at: [review.deletePath])
@@ -1717,6 +1730,12 @@ struct DuplicateCompareContext: Equatable {
     let groupName: String
     let keepPath: String
     let deletePath: String
+    /// Whether the keeper is a folder, and its byte size as the duplicate scan measured it.
+    /// Carried so "Trash right copy" can apply the engine's full `keeperStillExists` semantics
+    /// (existence + file byte-size vs the scan snapshot) via
+    /// `PaneLogic.duplicateKeeperMatchesScan`, not just an existence check.
+    let keepIsDirectory: Bool
+    let keepScannedSize: Int
     /// The two copies as provider-root-relative paths — used to re-focus the panes when the user
     /// returns to Compare after a Tidy detour reset the shared left pane to the rail's root.
     let keeperRelativePath: String
