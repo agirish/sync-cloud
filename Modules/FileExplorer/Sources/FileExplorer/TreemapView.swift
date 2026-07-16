@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Sync
 import Design
 
@@ -14,8 +15,25 @@ struct TreemapView: View {
         LiquidGlassHue.blue, .teal, .purple, .amber, .coral, .green, .indigo, .rose, .cyan, .slate
     ].map { $0.accentColor }
 
+    /// Per-tile label colors, chosen by each palette entry's luminance: hardcoded white was
+    /// ~2.1–2.7:1 on the light hues (amber, cyan, …), so those tiles get near-black text while
+    /// the dark hues keep white. The palette is fixed sRGB values, so this is computed once.
+    private static let labelPalette: [Color] = palette.map { fill in
+        guard let rgb = NSColor(fill).usingColorSpace(.sRGB) else { return .white }
+        return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+            ? Color.black.opacity(0.85)
+            : .white
+    }
+
     private func color(for index: Int, node: TreemapNode) -> Color {
         node.name == "Other" ? Color.secondary : Self.palette[index % Self.palette.count]
+    }
+
+    /// "Other" fills with `Color.secondary`, which tracks the appearance — `.primary` tracks it
+    /// the same way (dark text on the light-mode gray, light text on the dark-mode gray), where a
+    /// fixed choice would be wrong in one appearance.
+    private func labelColor(for index: Int, node: TreemapNode) -> Color {
+        node.name == "Other" ? .primary : Self.labelPalette[index % Self.labelPalette.count]
     }
 
     var body: some View {
@@ -26,7 +44,7 @@ struct TreemapView: View {
             HStack(spacing: spacing) {
                 ForEach(Array(nodes.enumerated()), id: \.offset) { idx, node in
                     let width = available * CGFloat(node.bytes) / CGFloat(total)
-                    tile(node, color: color(for: idx, node: node), width: width)
+                    tile(node, color: color(for: idx, node: node), label: labelColor(for: idx, node: node), width: width)
                 }
             }
         }
@@ -34,7 +52,7 @@ struct TreemapView: View {
     }
 
     @ViewBuilder
-    private func tile(_ node: TreemapNode, color: Color, width: CGFloat) -> some View {
+    private func tile(_ node: TreemapNode, color: Color, label: Color, width: CGFloat) -> some View {
         // Never let a real (nonzero) area collapse to nothing — a hairline still shows it exists.
         let clamped = max(width, 3)
         RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -53,7 +71,7 @@ struct TreemapView: View {
                                 .opacity(0.92)
                         }
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(label)
                     .shadow(color: .black.opacity(0.25), radius: 1, y: 0.5)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 6)

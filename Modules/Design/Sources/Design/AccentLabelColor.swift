@@ -14,12 +14,12 @@ public enum AccentLabel {
     /// Whether a fill with the given sRGB components needs dark text: true when white text on it
     /// would fall below ~3:1 contrast (WCAG large-text minimum). White-on-fill contrast is
     /// (1.0 + 0.05) / (L + 0.05), which crosses 3:1 at L = 0.30.
-    static func prefersDarkText(red: CGFloat, green: CGFloat, blue: CGFloat) -> Bool {
+    public static func prefersDarkText(red: CGFloat, green: CGFloat, blue: CGFloat) -> Bool {
         relativeLuminance(red: red, green: green, blue: blue) > 0.30
     }
 
     /// WCAG relative luminance of sRGB components (linearized, Rec. 709 weights).
-    static func relativeLuminance(red: CGFloat, green: CGFloat, blue: CGFloat) -> CGFloat {
+    public static func relativeLuminance(red: CGFloat, green: CGFloat, blue: CGFloat) -> CGFloat {
         func linear(_ component: CGFloat) -> CGFloat {
             component <= 0.03928 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
         }
@@ -29,7 +29,7 @@ public enum AccentLabel {
     /// The current pairing for `NSColor.controlAccentColor`. Resolved on every call — never cached
     /// at launch — so a System Settings accent change picks up the right pairing on the app's next
     /// render (the system triggers one when the accent changes).
-    static var currentPrefersDarkText: Bool {
+    public static var currentPrefersDarkText: Bool {
         guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return false }
         return prefersDarkText(red: accent.redComponent, green: accent.greenComponent, blue: accent.blueComponent)
     }
