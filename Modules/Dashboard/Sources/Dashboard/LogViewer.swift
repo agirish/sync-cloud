@@ -590,13 +590,7 @@ private struct LogEntryRow: View {
     }
 
     private var levelPill: some View {
-        Text(entry.level.rawValue)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(entry.level.color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(entry.level.color.opacity(0.15))
-            .clipShape(Capsule())
+        Pill(.mini, tint: entry.level.color, text: entry.level.rawValue)
     }
 
     private var timeText: some View {

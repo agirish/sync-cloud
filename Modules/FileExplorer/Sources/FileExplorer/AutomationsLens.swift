@@ -334,12 +334,11 @@ public struct AutomationsLens: View {
 
     private func statPill(_ number: String, _ label: String, _ color: Color) -> some View {
         HStack(spacing: 5) {
-            Text(number).font(.system(size: 12.5, weight: .bold)).monospacedDigit()
-            Text(label).font(.system(size: 11))
+            Text(number).font(PillVariant.standard.numberFont).monospacedDigit()
+            Text(label).font(PillVariant.standard.labelFont)
         }
-        .foregroundStyle(color == .secondary ? Color.secondary : color)
-        .padding(.horizontal, 9).padding(.vertical, 3)
-        .background(Capsule().fill((color == .secondary ? Color.primary : color).opacity(0.10)))
+        .foregroundStyle(color)
+        .pillSurface(.standard, tint: color)
     }
 
     private func ruleGroupHeader(_ group: RuleGroup) -> some View {
@@ -350,10 +349,9 @@ public struct AutomationsLens: View {
             Text(group.name.isEmpty ? "Untitled rule" : group.name)
                 .font(.system(size: 11.5, weight: .semibold))
             Text("\(group.rows.count)")
-                .font(.system(size: 10, weight: .semibold)).monospacedDigit()
+                .font(PillVariant.mini.numberFont).monospacedDigit()
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .background(Capsule().fill(Color.primary.opacity(0.07)))
+                .pillSurface(.mini, tint: .secondary)
             Spacer(minLength: 0)
         }
         .padding(.leading, 2)

@@ -188,23 +188,11 @@ struct FilingSuggestionCard: View {
     }
 
     private var rememberedBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "memories").font(.system(size: 9, weight: .semibold))
-            Text("Remembered").font(.system(size: 9.5, weight: .bold))
-        }
-        .foregroundStyle(hueAccent)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(Capsule(style: .continuous).fill(hueAccent.opacity(0.14)))
+        Pill(.mini, tint: hueAccent, systemImage: "memories", text: "Remembered")
     }
 
     private var aiBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "sparkles").font(.system(size: 9, weight: .semibold))
-            Text("AI suggestion").font(.system(size: 9.5, weight: .bold))
-        }
-        .foregroundStyle(hueAccent)
-        .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(Capsule(style: .continuous).fill(hueAccent.opacity(0.14)))
+        Pill(.mini, tint: hueAccent, systemImage: "sparkles", text: "AI suggestion")
     }
 
     // MARK: G4 — legible content evidence
@@ -263,14 +251,7 @@ struct FilingSuggestionCard: View {
         case .medium?: (text, color, symbol) = ("Medium", .orange, "circle.dashed")
         default:       (text, color, symbol) = ("Pick a home", .secondary, "questionmark")
         }
-        return HStack(spacing: 5) {
-            Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
-            Text(text).font(.system(size: 11, weight: .semibold))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 9).padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(color.opacity(0.14)))
-        .fixedSize()
+        return Pill(.mini, tint: color, systemImage: symbol, text: text)
     }
 
     @ViewBuilder

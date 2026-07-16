@@ -20,7 +20,7 @@ public struct StatusBadge: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background((isValid ? Color.green : Color.red).opacity(0.12))
+        .background((isValid ? Color.green : Color.red).opacity(PillVariant.fillOpacity))
         .clipShape(Capsule())
     }
 }

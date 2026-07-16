@@ -324,13 +324,7 @@ private struct SyncHistoryRow: View {
     }
 
     private var actionPill: some View {
-        Text(record.action.label)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(actionColor)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(actionColor.opacity(0.15))
-            .clipShape(Capsule())
+        Pill(.mini, tint: actionColor, text: record.action.label)
     }
 
     private func directionText(_ direction: String) -> some View {

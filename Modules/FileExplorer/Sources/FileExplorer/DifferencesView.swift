@@ -429,21 +429,16 @@ public struct DifferencesView: View {
     /// session-level actions (finish the rest in bulk, or exit).
     @ViewBuilder
     private func reviewHeaderControls(_ session: ReviewSession) -> some View {
-        // Mockup-style position pill: dot + "Reviewing N of M" (reads as a sentence, unlike
-        // StatPill's count-first layout).
         HStack(spacing: 6) {
             Circle()
                 .fill(glassHue.accentColor)
                 .frame(width: 7, height: 7)
             Text("Reviewing \(session.position) of \(session.total)")
-                .font(.system(size: 12, weight: .semibold))
+                .font(PillVariant.standard.numberFont)
                 .monospacedDigit()
                 .foregroundStyle(glassHue.accentColor)
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(glassHue.accentColor.opacity(0.10)))
-        .overlay(Capsule(style: .continuous).strokeBorder(glassHue.accentColor.opacity(0.45), lineWidth: 0.5))
+        .pillSurface(.standard, tint: glassHue.accentColor)
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Reviewing \(session.position) of \(session.total)")
@@ -1178,16 +1173,14 @@ private struct DifferenceDirectionCell: View {
         let isQuiet = difference.action == bulkDirection && !isHovered
         HStack(spacing: 4) {
             Image(systemName: toRight ? "arrow.right" : "arrow.left")
-                .font(.caption2.weight(.bold))
+                .font(PillVariant.mini.iconFont)
             Text(toRight ? paneNames.right : paneNames.left)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(.caption.weight(.medium))
+        .font(PillVariant.mini.labelFont)
         .foregroundStyle(isQuiet ? AnyShapeStyle(.tertiary) : AnyShapeStyle(tint))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
-        .background(Capsule(style: .continuous).fill(tint.opacity(isQuiet ? 0 : 0.15)))
+        .pillSurface(.mini, tint: tint, showsFill: !isQuiet)
         .onHover { isHovered = $0 }
     }
 }

@@ -330,8 +330,7 @@ public struct TidyView: View {
                 }
                 .help("Switch which cloud you're tidying")
             }
-            .padding(.horizontal, 8).padding(.vertical, 3)
-            .background(Color.primary.opacity(0.06), in: Capsule())
+            .pillSurface(.mini, tint: .secondary)
             if let folder = scanTargetFolder, !folder.isEmpty {
                 Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                 Text((folder as NSString).lastPathComponent)
@@ -1231,10 +1230,10 @@ private struct ReclaimPill: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "internaldrive")
-                .font(.system(size: 11, weight: .bold))
+                .font(PillVariant.standard.iconFont)
                 .symbolRenderingMode(.hierarchical)
             Text("\(FileSyncManager.formatBytes(reclaimableBytes)) reclaimable")
-                .font(.system(size: 12, weight: .semibold))
+                .font(PillVariant.standard.numberFont)
                 .monospacedDigit()
                 // Numeric roll is kept even under Reduce motion (an acceptable content transition).
                 .contentTransition(.numericText())
@@ -1247,10 +1246,15 @@ private struct ReclaimPill: View {
             }
         }
         .foregroundStyle(Color.green)
-        .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(Color.green.opacity(0.14 + 0.30 * glow)))
+        // The standard pill surface, inlined so the glow can ride on top of the shared base
+        // values: at rest (glow == 0) this is exactly `pillSurface(.standard)`.
+        .padding(.horizontal, PillVariant.standard.horizontalPadding)
+        .padding(.vertical, PillVariant.standard.verticalPadding)
+        .background(Capsule(style: .continuous)
+            .fill(Color.green.opacity(PillVariant.fillOpacity + 0.30 * glow)))
         .overlay(Capsule(style: .continuous)
-            .strokeBorder(Color.green.opacity(0.45 + 0.45 * glow), lineWidth: 0.5 + glow))
+            .strokeBorder(Color.green.opacity(PillVariant.strokeOpacity + 0.45 * glow),
+                          lineWidth: PillVariant.strokeWidth + glow))
         .shadow(color: Color.green.opacity(0.55 * glow), radius: 7 * glow)
         .fixedSize()
         // Roll the numbers whenever they change (both the count-down and the count-up caption).

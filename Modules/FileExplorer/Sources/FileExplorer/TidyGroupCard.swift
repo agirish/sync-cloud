@@ -274,14 +274,7 @@ struct TidyGroupCard: View {
     }
 
     private func chip(_ text: String, systemImage: String, color: Color) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: systemImage).font(.system(size: 10, weight: .semibold))
-            Text(text).font(.system(size: 11, weight: .semibold))
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 9).padding(.vertical, 3)
-        .background(Capsule(style: .continuous).fill(color.opacity(0.14)))
-        .fixedSize()
+        Pill(.mini, tint: color, systemImage: systemImage, text: text)
     }
 
     private func metaLine(_ copy: DuplicateCopy) -> String {

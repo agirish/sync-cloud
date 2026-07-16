@@ -1,7 +1,10 @@
 import SwiftUI
+import Design
 
 /// A compact count chip for the differences header: an SF Symbol, the count, and a short
 /// label, with the whole capsule tinted so the actionable number stands out.
+/// The look is entirely Design's standard `PillVariant` (C1); this wrapper only owns the
+/// icon + count + label arrangement and the optional trailing affordance.
 struct StatPill: View {
     let count: Int
     let label: String
@@ -15,15 +18,15 @@ struct StatPill: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 11, weight: .bold))
+                .font(PillVariant.standard.iconFont)
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(color)
             Text(count.formatted())
-                .font(.system(size: 12, weight: .semibold))
+                .font(PillVariant.standard.numberFont)
                 .monospacedDigit()
                 .foregroundStyle(color)
             Text(label)
-                .font(.system(size: 11))
+                .font(PillVariant.standard.labelFont)
                 .foregroundStyle(color)
             if let trailingSystemImage {
                 Image(systemName: trailingSystemImage)
@@ -34,16 +37,7 @@ struct StatPill: View {
                     .contentTransition(.symbolEffect(.replace))
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(color.opacity(0.14))
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .strokeBorder(color.opacity(0.45), lineWidth: 0.5)
-        )
+        .pillSurface(.standard, tint: color)
         .fixedSize()
         // One element, not icon + two texts: VoiceOver reads "7 Differences".
         .accessibilityElement(children: .ignore)
