@@ -55,8 +55,17 @@ extension FileSyncManager {
         let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
-        // 2. Analyze (pure, no disk). Date() is captured here so staleness is measured from now.
-        let report = StorageLensAnalyzer.analyze(tree: tree, now: Date(), options: options)
+        // 2. Analyze (pure, no disk) — DETACHED, like the hashing phase of the duplicate scan:
+        // the analyzer walks the whole tree, which on a 40k-node provider blocked the main actor
+        // for the full pass. Only the @Published writes below happen back on the main actor.
+        // Staleness guard: a newer build cancels this task (startBuildStorageLens), so the
+        // isCancelled check after the hop plays the role duplicateScanEpoch plays for the
+        // duplicate scan's unstructured progress hops — a stale report can never land after a
+        // newer build started. Date() is captured before the hop so staleness is measured from now.
+        let now = Date()
+        let report = await Task.detached(priority: .userInitiated) {
+            StorageLensAnalyzer.analyze(tree: tree, now: now, options: options)
+        }.value
         if Task.isCancelled { return }
 
         // Published with the results, not at build start: the root labels what's on screen, and a

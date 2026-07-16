@@ -46,7 +46,15 @@ extension FileSyncManager {
 
         let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
-        let risky = NameNormalizer.scan(nodes: tree, provider: provider)
+        // Detect (pure, no disk) — DETACHED: the detector flattens and rule-checks the whole
+        // tree, which on a large provider blocked the main actor for the full pass. Only the
+        // @Published writes below happen back on the main actor. Staleness guard: a newer scan
+        // cancels this task (startNameScan), so the isCancelled check after the hop keeps a
+        // stale result from landing after a newer scan started (the duplicate scan uses
+        // duplicateScanEpoch for the same job on its unstructured progress hops).
+        let risky = await Task.detached(priority: .userInitiated) {
+            NameNormalizer.scan(nodes: tree, provider: provider)
+        }.value
         if Task.isCancelled { return }
 
         riskyNames = risky
