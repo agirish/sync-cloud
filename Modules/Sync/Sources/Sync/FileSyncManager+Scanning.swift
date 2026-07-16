@@ -455,6 +455,7 @@ extension FileSyncManager {
             self.lastRightProviderType = request.right.type
             // The provider pair the destination name check attributes transfer targets to.
             self.lastScanProviders = (request.left, request.right)
+            self.lastScanDate = Date()
             self.verifiedSameDifferenceIds.removeAll()
             // A fresh scan regenerates every row's id, so a "copy verified-identical left→right"
             // offer built from the previous scan now references superseded differences — drop it

@@ -55,6 +55,12 @@ public class FileSyncManager: ObservableObject {
     /// on provider changes and swapped in `swapPanes`.
     var lastScanProviders: (left: CloudProvider, right: CloudProvider)?
 
+    /// When the most recent comparison scan completed, for the pane header's freshness pill. nil
+    /// until a scan lands and whenever the comparison state is invalidated (provider change), so a
+    /// stale timestamp never outlives the diff it describes. A swap keeps it (same scan, sides
+    /// traded). Published so the header re-renders as scans land.
+    @Published public internal(set) var lastScanDate: Date?
+
     /// Confirms permanently deleting items that could not be moved to Trash (e.g. network volumes).
     /// Defaults to `false` so an unwired manager never destroys data; the app wires an
     /// NSAlert-backed confirmation at construction.

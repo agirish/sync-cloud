@@ -151,6 +151,7 @@ extension FileSyncManager {
         verifiedIdenticalForCopy = nil
         lastRightProviderType = nil
         lastScanProviders = nil
+        lastScanDate = nil
         if hasScanned { hasScanned = false }
 
         // A filter pass that snapshotted state before this clear may still publish after it.

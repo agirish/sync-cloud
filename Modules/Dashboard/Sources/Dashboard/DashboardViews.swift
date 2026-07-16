@@ -38,6 +38,9 @@ public struct PaneHeader: View {
     public let onRefresh: (() -> Void)?
     /// Spins the refresh glyph while a scan is running.
     public let isRefreshing: Bool
+    /// When the current comparison last scanned, driving the "Scanned N ago" freshness pill.
+    /// nil hides it (no scan yet, or the comparison state was invalidated).
+    public let lastScanDate: Date?
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -49,6 +52,42 @@ public struct PaneHeader: View {
     }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
+    }
+
+    /// "Scanned N ago" pill: green while fresh, amber once the diff may be out of date. It ticks on
+    /// its own so the age stays honest without a scan, and — when a refresh handler exists — tapping
+    /// it re-scans (same action as the adjacent Scan button). Hidden until the first scan lands.
+    @ViewBuilder
+    private var freshnessPill: some View {
+        if let lastScanDate {
+            TimelineView(.periodic(from: Date(), by: 30)) { context in
+                let freshness = ScanFreshness.describe(scanDate: lastScanDate, now: context.date)
+                let tint = freshness.isStale ? Color.orange : Color.secondary
+                let label = HStack(spacing: 5) {
+                    Circle()
+                        .fill(freshness.isStale ? Color.orange : Color.green)
+                        .frame(width: 5, height: 5)
+                    Text(freshness.text)
+                    if freshness.isStale {
+                        Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .semibold))
+                    }
+                }
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(tint.opacity(freshness.isStale ? 0.14 : 0.1), in: Capsule())
+
+                if let onRefresh {
+                    Button(action: onRefresh) { label }
+                        .buttonStyle(.plain)
+                        .help(freshness.isStale
+                              ? "This comparison may be out of date — click to re-scan"
+                              : "\(freshness.text) — click to re-scan")
+                } else {
+                    label.help(freshness.text)
+                }
+            }
+        }
     }
 
     public init(
@@ -69,6 +108,7 @@ public struct PaneHeader: View {
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
+        lastScanDate: Date? = nil,
         showHiddenFiles: Binding<Bool>
     ) {
         self.title = title
@@ -88,6 +128,7 @@ public struct PaneHeader: View {
         self.onCollapse = onCollapse
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
+        self.lastScanDate = lastScanDate
         self._showHiddenFiles = showHiddenFiles
     }
 
@@ -134,6 +175,8 @@ public struct PaneHeader: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
+
+                freshnessPill
 
                 HStack(spacing: 6) {
                     if let onCollapse {

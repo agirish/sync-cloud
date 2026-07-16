@@ -1125,6 +1125,9 @@ struct ContentView: View {
                     : nil,
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanning,
+                // The freshness pill reflects the two-pane comparison scan, so it's only meaningful
+                // on the Compare panes — not the single-source Tidy rail.
+                lastScanDate: layoutMode == .compare ? syncManager.lastScanDate : nil,
                 showHiddenFiles: $syncManager.showHiddenFiles
             )
             treeView(pane)
