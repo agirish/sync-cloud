@@ -258,16 +258,11 @@ struct FirstRunOverlay: View {
     }
 
     private var closeButton: some View {
-        Button { onDismiss(dontShowAgain) } label: {
-            Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        .keyboardShortcut(.cancelAction)
-        .padding(10)
-        .help("Skip")
-        .accessibilityLabel("Skip")
+        CloseButton { onDismiss(dontShowAgain) }
+            .keyboardShortcut(.cancelAction)
+            .padding(4)
+            .help("Skip")
+            .accessibilityLabel("Skip")
     }
 }
 

@@ -62,13 +62,8 @@ struct OperationBannerView: View {
                     .accessibilityLabel("Undo this operation")
                 }
 
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close notification")
+                CloseButton(action: onClose)
+                    .accessibilityLabel("Close notification")
             }
 
             if showsCountdown {

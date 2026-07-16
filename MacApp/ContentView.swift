@@ -1190,12 +1190,9 @@ struct ContentView: View {
                     .foregroundStyle(.secondary)
                 Text("Info").font(.system(size: 12, weight: .semibold))
                 Spacer(minLength: 0)
-                Button {
+                CloseButton {
                     withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
-                } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
                 .help("Hide the inspector")
             }
             .padding(.horizontal, 12).padding(.vertical, 8)

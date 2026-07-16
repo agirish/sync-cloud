@@ -140,17 +140,10 @@ public struct SettingsView: View {
                 Text("Settings")
                     .font(.headline)
                 Spacer()
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                // Escape closes the overlay even when focus is elsewhere in the card.
-                .keyboardShortcut(.cancelAction)
-                .help("Close settings")
+                CloseButton(action: onClose)
+                    // Escape closes the overlay even when focus is elsewhere in the card.
+                    .keyboardShortcut(.cancelAction)
+                    .help("Close settings")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -234,14 +227,7 @@ public struct SettingsView: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .textBackgroundColor).opacity(0.5))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.secondary.opacity(0.25), lineWidth: 1)
-        )
+        .searchFieldSurface()
     }
 }
 

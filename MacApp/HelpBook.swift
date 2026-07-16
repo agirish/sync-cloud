@@ -466,15 +466,10 @@ struct HelpView: View {
             Text("SyncCloud Help")
                 .font(.headline)
             Spacer()
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .help("Close Help")
-            .accessibilityLabel("Close Help")
+            CloseButton(action: onClose)
+                .keyboardShortcut(.cancelAction)
+                .help("Close Help")
+                .accessibilityLabel("Close Help")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -536,7 +531,7 @@ struct HelpView: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .searchFieldSurface()
     }
 
     private func topicRow(_ topic: HelpBook.Topic) -> some View {
