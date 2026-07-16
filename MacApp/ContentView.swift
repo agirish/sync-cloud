@@ -1225,27 +1225,26 @@ struct ContentView: View {
     /// The drag reads `.global`, NOT the default `.local`, coordinate space: this handle slides left
     /// as the inspector widens, so in its own moving frame `translation` feeds back on itself and
     /// collapses to ~0 once layout catches up — the panes' splits dodge the same trap by reading a
-    /// fixed coordinate space. Global translation is the cursor's real delta, independent of the
-    /// handle's position, so the resize stays smooth instead of stuttering.
+    /// fixed coordinate space (the rule is documented on the shared `ResizeHandle`). Global
+    /// translation is the cursor's real delta, independent of the handle's position, so the resize
+    /// stays smooth instead of stuttering.
     private var inspectorResizeHandle: some View {
         Divider()
             .overlay {
-                Color.clear
-                    .frame(width: 10)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .pointerStyle(.columnResize)
-                    .gesture(
-                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                            .onChanged { value in
-                                inspectorDragWidth = PaneLogic.inspectorDragWidth(
-                                    base: inspectorWidth, translation: value.translation.width)
-                            }
-                            .onEnded { _ in
-                                if let w = inspectorDragWidth { inspectorWidth = w }
-                                inspectorDragWidth = nil
-                            }
-                    )
+                ResizeHandle(
+                    axis: .horizontal,
+                    thickness: 10,
+                    minimumDistance: 1,
+                    coordinateSpace: .global,
+                    onDrag: { value in
+                        inspectorDragWidth = PaneLogic.inspectorDragWidth(
+                            base: inspectorWidth, translation: value.translation.width)
+                    },
+                    onCommit: {
+                        if let w = inspectorDragWidth { inspectorWidth = w }
+                        inspectorDragWidth = nil
+                    }
+                )
             }
     }
 

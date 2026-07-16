@@ -75,29 +75,24 @@ extension ContentView {
         }
     }
 
-    /// Invisible 12pt-wide drag handle centered on the pane boundary. The drag reads the cursor's
-    /// absolute x within the pane row (a fixed coordinate space) rather than accumulating
-    /// translation on the moving handle — so it stays smooth — and persists `paneSplitFraction`
-    /// only on release.
+    /// Invisible 12pt-wide drag handle centered on the pane boundary (the shared `ResizeHandle`).
+    /// The drag reads the cursor's absolute x within the pane row (a fixed coordinate space) via
+    /// `PaneLogic`'s clamp math and persists `paneSplitFraction` only on release.
     @ViewBuilder
     private func paneResizeHandle(totalWidth: CGFloat, minFraction: Double) -> some View {
-        Color.clear
-            .frame(width: 12)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .pointerStyle(.columnResize)
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.paneRowSpace))
-                    .onChanged { value in
-                        guard totalWidth > 0 else { return }
-                        let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
-                        paneDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: 1 - minFraction)
-                    }
-                    .onEnded { _ in
-                        if let f = paneDragFraction { paneSplitFraction = f }
-                        paneDragFraction = nil
-                    }
-            )
+        ResizeHandle(
+            axis: .horizontal,
+            coordinateSpace: .named(Self.paneRowSpace),
+            onDrag: { value in
+                guard totalWidth > 0 else { return }
+                let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
+                paneDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: 1 - minFraction)
+            },
+            onCommit: {
+                if let f = paneDragFraction { paneSplitFraction = f }
+                paneDragFraction = nil
+            }
+        )
     }
 
     /// The panes stacked over the bottom workspace, with a draggable — but invisible — horizontal
@@ -218,23 +213,19 @@ extension ContentView {
     /// the rail fraction and reads the rail-row coordinate space.
     @ViewBuilder
     private func railResizeHandle(totalWidth: CGFloat, lower: Double, upper: Double) -> some View {
-        Color.clear
-            .frame(width: 12)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .pointerStyle(.columnResize)
-            .gesture(
-                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.railRowSpace))
-                    .onChanged { value in
-                        guard totalWidth > 0, lower <= upper else { return }
-                        let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
-                        railDragFraction = PaneLogic.clampedFraction(f, lower: lower, upper: upper)
-                    }
-                    .onEnded { _ in
-                        if let f = railDragFraction { railFraction = f }
-                        railDragFraction = nil
-                    }
-            )
+        ResizeHandle(
+            axis: .horizontal,
+            coordinateSpace: .named(Self.railRowSpace),
+            onDrag: { value in
+                guard totalWidth > 0, lower <= upper else { return }
+                let f = PaneLogic.horizontalDragFraction(locationX: value.location.x, totalWidth: totalWidth)
+                railDragFraction = PaneLogic.clampedFraction(f, lower: lower, upper: upper)
+            },
+            onCommit: {
+                if let f = railDragFraction { railFraction = f }
+                railDragFraction = nil
+            }
+        )
     }
 
     /// The invisible, draggable horizontal divider between the panes and the bottom workspace.
@@ -245,22 +236,19 @@ extension ContentView {
         Rectangle()
             .fill(Color.clear)
             .overlay {
-                Color.clear
-                    .frame(height: 12)
-                    .contentShape(Rectangle())
-                    .pointerStyle(.rowResize)
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.verticalStackSpace))
-                            .onChanged { value in
-                                guard panesHeight > 0 else { return }
-                                let f = PaneLogic.verticalDragFraction(locationY: value.location.y, panesHeight: panesHeight)
-                                verticalDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: maxFraction)
-                            }
-                            .onEnded { _ in
-                                if let f = verticalDragFraction { bottomPaneFraction = f }
-                                verticalDragFraction = nil
-                            }
-                    )
+                ResizeHandle(
+                    axis: .vertical,
+                    coordinateSpace: .named(Self.verticalStackSpace),
+                    onDrag: { value in
+                        guard panesHeight > 0 else { return }
+                        let f = PaneLogic.verticalDragFraction(locationY: value.location.y, panesHeight: panesHeight)
+                        verticalDragFraction = PaneLogic.clampedFraction(f, lower: minFraction, upper: maxFraction)
+                    },
+                    onCommit: {
+                        if let f = verticalDragFraction { bottomPaneFraction = f }
+                        verticalDragFraction = nil
+                    }
+                )
             }
     }
 }
