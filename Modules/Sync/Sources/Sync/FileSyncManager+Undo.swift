@@ -6,6 +6,12 @@ extension FileSyncManager {
     // MARK: - Undo/Redo Native Registration Stack
     
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
+    /// `CopyItemState` enriched with the copied item's byte size as stat'ed when the undo was
+    /// registered (nil for directories, or when the size couldn't be read). The undo handler
+    /// refuses to trash a destination whose current size no longer matches — the item is no
+    /// longer the copy the undo was registered for (replaced or edited since), mirroring the
+    /// "still the same item?" drift guards the move- and delete-undos already carry.
+    typealias CopyUndoItemState = (source: URL, destination: URL, overwritten: URL?, destinationSize: Int?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
     /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
     /// holds its backup. Only items that actually reached the Trash are represented — a delete
@@ -64,9 +70,10 @@ extension FileSyncManager {
     }
 
     /// Surfaces a copy-undo permanent delete that failed after the user confirmed it. The copied
-    /// item survives on disk, so no state is changed: its `overwritten` backup must stay where it
-    /// is (restoring it would collide with the survivor), and the already-resolved redo params
-    /// remain valid — a later redo simply replaces the surviving item.
+    /// item survives on disk, so its `overwritten` backup must stay where it is (restoring it
+    /// would collide with the survivor), and the caller leaves the item OUT of the redo params —
+    /// they are resolved after the removal loop from only the copies actually undone, so a later
+    /// redo skips the survivor instead of re-copying over it.
     nonisolated static func reportUndoRemoveFailure(
         of destination: URL,
         actionName: String,
@@ -79,6 +86,52 @@ extension FileSyncManager {
             Logger.shared.error(logMessage)
             target.banner = .warning("Undo couldn't remove \"\(name)\" — it is still on disk")
         }
+    }
+
+    /// Surfaces a copy-undo that was REFUSED because the item at the copy destination is no
+    /// longer the copy the undo was registered for — its byte size drifted, so it was replaced
+    /// or edited since. Trashing it would destroy work the undo was never asked to reverse; the
+    /// item is left in place, its `overwritten` backup stays in the Trash, and the caller keeps
+    /// the item out of the redo params (a refused item must never be redone).
+    nonisolated static func reportUndoRefusedChangedItem(
+        of destination: URL,
+        actionName: String,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): REFUSED to remove \"\(name)\" at \(destination.path) — the item's size changed since the copy, so it is no longer the copied item; leaving it in place"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo left \"\(name)\" in place — it changed since the copy")
+        }
+    }
+
+    /// Surfaces a TRANSIENT trash failure during an undo (the item is busy/locked or momentarily
+    /// permission-blocked — see `isTransientTrashFailure`). Such failures must stay retryable:
+    /// escalating them to the permanent-delete prompt could destroy a file that a retry would
+    /// have moved to the Trash recoverably. The item stays on disk and out of the redo params.
+    nonisolated static func reportUndoTransientTrashFailure(
+        of destination: URL,
+        actionName: String,
+        error: Error,
+        on target: FileSyncManager
+    ) async {
+        let name = destination.lastPathComponent
+        let logMessage = "Undo (\(actionName)): couldn't move \"\(name)\" at \(destination.path) to the Trash — transient failure, left in place for a retry instead of escalating to a permanent delete (\(error.localizedDescription))"
+        await MainActor.run {
+            Logger.shared.error(logMessage)
+            target.banner = .warning("Undo couldn't remove \"\(name)\" — it looks busy; try again")
+        }
+    }
+
+    /// The byte size of the regular FILE at `url`, or nil for directories, missing, or
+    /// unstatable items. Directories deliberately return nil so the copy-undo drift guard
+    /// applies size comparison to files only — a folder's stat size isn't its content size
+    /// (the same reasoning as the duplicate keeper gate's folder carve-out).
+    nonisolated static func fileSizeSnapshot(at url: URL, fileManager fm: FileManaging) -> Int? {
+        guard let attrs = try? fm.attributesOfItem(atPath: url.path) else { return nil }
+        if (attrs[.type] as? FileAttributeType) == .typeDirectory { return nil }
+        return (attrs[.size] as? NSNumber)?.intValue ?? (attrs[.size] as? Int)
     }
 
     /// Outcome of putting an undo's displaced `.overwritten` backup back at the destination.
@@ -119,9 +172,16 @@ extension FileSyncManager {
     /// the items in a pre-resolved `AsyncValueResolver` so the resolver-based form below stays
     /// the single implementation. The resolver forms remain for the undo/redo chain, where the
     /// next state genuinely resolves later (inside the queued file operation).
+    /// Snapshots each copied item's byte size HERE, at registration time (a cheap synchronous
+    /// metadata stat, same trade as deleteItems' history records), so the undo handler can
+    /// refuse to trash a destination that is no longer the item this copy produced.
     func registerCopyUndo(items: [CopyItemState], actionName: String, fileManager fm: FileManaging = FileManager.default) {
-        let resolver = AsyncValueResolver<[CopyItemState]>()
-        Task { await resolver.resolve(items) }
+        let enriched: [CopyUndoItemState] = items.map { item in
+            (source: item.source, destination: item.destination, overwritten: item.overwritten,
+             destinationSize: FileSyncManager.fileSizeSnapshot(at: item.destination, fileManager: fm))
+        }
+        let resolver = AsyncValueResolver<[CopyUndoItemState]>()
+        Task { await resolver.resolve(enriched) }
         registerCopyUndo(stateResolver: resolver, actionName: actionName, fileManager: fm)
     }
 
@@ -144,7 +204,7 @@ extension FileSyncManager {
         registerRestoreItems(stateResolver: resolver, actionName: actionName, fileManager: fm)
     }
 
-    func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyUndoItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         let confirmPermanentDelete = permanentDeleteConfirmer
         undoManager?.registerUndo(withTarget: self) { target in
@@ -167,16 +227,36 @@ extension FileSyncManager {
                         // redoing it would re-copy over the survivor. `redoParamResolver` MUST be
                         // resolved on every exit (including the declined-confirmation early return) or
                         // a later redo would await it forever.
-                        var trashFailures: [CopyItemState] = []
+                        var trashFailures: [CopyUndoItemState] = []
                         var removed = 0
                         var restored = 0
                         var restoreFailures = 0
+                        var leftInPlace = 0
                         var undoneCopies: [(source: URL, destination: URL)] = []
                         for item in items {
+                            // "Still the same item?" drift guard (mirrors the move-undo's occupied
+                            // check and the delete-undo's occupant refusal): if the destination's
+                            // byte size no longer matches the registration-time snapshot, the item
+                            // was replaced or edited since the copy — refuse to trash it, and keep
+                            // it out of the redo params.
+                            if let expected = item.destinationSize,
+                               FileSyncManager.fileSizeSnapshot(at: item.destination, fileManager: fm) != expected {
+                                leftInPlace += 1
+                                await FileSyncManager.reportUndoRefusedChangedItem(of: item.destination, actionName: actionName, on: target)
+                                continue
+                            }
                             do {
                                 try fm.trashItem(at: item.destination, resultingItemURL: nil)
                             } catch {
-                                trashFailures.append(item)
+                                // A transiently busy/locked item stays retryable — never escalate
+                                // it to the permanent-delete prompt (same distinction deleteItems
+                                // applies): a retry may well trash it recoverably.
+                                if FileSyncManager.isTransientTrashFailure(error) {
+                                    leftInPlace += 1
+                                    await FileSyncManager.reportUndoTransientTrashFailure(of: item.destination, actionName: actionName, error: error, on: target)
+                                } else {
+                                    trashFailures.append(item)
+                                }
                                 continue
                             }
                             removed += 1
@@ -217,7 +297,7 @@ extension FileSyncManager {
                         }
 
                         await redoParamResolver.resolve(undoneCopies)
-                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s)")
+                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
                 }
             }
         }
@@ -229,21 +309,24 @@ extension FileSyncManager {
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let nextUndoStateResolver = AsyncValueResolver<[CopyItemState]>()
+            let nextUndoStateResolver = AsyncValueResolver<[CopyUndoItemState]>()
             target.registerCopyUndo(stateResolver: nextUndoStateResolver, actionName: actionName, fileManager: fm)
 
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let params = await paramResolver.get()
-                        var nextState: [CopyItemState] = []
+                        var nextState: [CopyUndoItemState] = []
                         var redoFailures = 0
 
                         for param in params {
                             try? fm.createDirectory(at: param.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
                             do {
                                 let trashed = try FileSyncManager.safeCopyItem(at: param.source, to: param.destination, fileManager: fm)
-                                nextState.append((source: param.source, destination: param.destination, overwritten: trashed))
+                                // Re-snapshot the size of the item this redo just produced — the
+                                // next undo must guard against drift from THIS copy, not the first.
+                                nextState.append((source: param.source, destination: param.destination, overwritten: trashed,
+                                                  destinationSize: FileSyncManager.fileSizeSnapshot(at: param.destination, fileManager: fm)))
                             } catch {
                                 // A failed re-copy must stay out of the next undo state: undoing
                                 // a phantom copy would prompt to permanently delete a file that
@@ -394,6 +477,14 @@ extension FileSyncManager {
                 do {
                     try fm.trashItem(at: url, resultingItemURL: nil)
                 } catch {
+                    // A transiently busy/locked folder stays retryable — same distinction as
+                    // deleteItems and the copy-undo: escalating a momentary EBUSY/EACCES to the
+                    // permanent-delete prompt could permanently destroy a folder (and whatever
+                    // the user has put in it since) that a retry would have trashed recoverably.
+                    if FileSyncManager.isTransientTrashFailure(error) {
+                        await FileSyncManager.reportUndoTransientTrashFailure(of: url, actionName: "New Folder", error: error, on: target)
+                        return
+                    }
                     // The folder was created empty, but the user may have filled it since —
                     // permanent removal gets the same confirmation as everywhere else.
                     let confirmed = await MainActor.run { confirmPermanentDelete([url.lastPathComponent]) }

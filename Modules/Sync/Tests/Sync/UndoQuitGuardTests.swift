@@ -46,11 +46,12 @@ import Foundation
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
         mockFM.virtualDisk["/dst/copied.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
 
-        let resolver = AsyncValueResolver<[FileSyncManager.CopyItemState]>()
+        let resolver = AsyncValueResolver<[FileSyncManager.CopyUndoItemState]>()
         await resolver.resolve([(
             source: URL(fileURLWithPath: "/src/copied.txt"),
             destination: URL(fileURLWithPath: "/dst/copied.txt"),
-            overwritten: nil
+            overwritten: nil,
+            destinationSize: nil
         )])
         manager.registerCopyUndo(stateResolver: resolver, actionName: "Sync copied.txt", fileManager: mockFM)
         #expect(manager.activeFileOperationsCount == 0)
