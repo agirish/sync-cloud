@@ -22,11 +22,16 @@ public struct ProgressDialog: View {
                     Text(progress.localizedDescription ?? "Processing…")
                         .font(.headline)
                     Spacer()
+                    // The ✕ cancels (same action as the Cancel button below), but its glyph reads
+                    // as a harmless "close" — label it honestly so hover and accessibility say
+                    // what a click actually does. Visuals deliberately unchanged.
                     Button(action: { progress.cancel() }) {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .help("Cancel operation")
+                    .accessibilityLabel("Cancel operation")
                 }
 
                 // Progress bar (value-based to avoid duplicate labels). Clamped to 0...1:
