@@ -611,6 +611,15 @@ public enum DuplicateFinder {
 
         var groups: [DuplicateGroup] = []
         for members in buckets.values where members.count >= 2 {
+            // A shared stem alone is weak evidence: unrelated same-named files routinely live in
+            // different folders (/2019/IMG_0001.jpg vs /2023/IMG_0001.jpg, ClientA/invoice.pdf vs
+            // ClientB/invoice.pdf) and must NOT form a "versions" group — its recommendation would
+            // trash a unique file. Require a real version signal: at least one member whose name
+            // carried a stripped marker (" (1)", "copy", "-v2", "final", …), or every member in the
+            // SAME folder (same-stem siblings that differ only by case/whitespace normalization).
+            let hasMarker = members.contains { hasVersionMarker($0.name) }
+            let sameParent = Set(members.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
+            guard hasMarker || sameParent else { continue }
             // Only real drift: at least two distinct contents (identical bytes were already grouped).
             let distinctHashes = Set(members.compactMap { $0.signature })
             guard distinctHashes.count >= 2 || members.contains(where: { $0.signature == nil }) else { continue }
@@ -749,5 +758,17 @@ public enum DuplicateFinder {
         stem = stem.trimmingCharacters(in: .whitespaces)
         guard !stem.isEmpty else { return nil }
         return (stem, ext)
+    }
+
+    /// True when ``versionStem(_:)`` actually stripped a version/copy marker from the name — i.e.
+    /// the name itself carries evidence of being a version ("report copy.pdf", "deck-final.key"),
+    /// as opposed to merely sharing a stem with another file. Case/whitespace normalization alone
+    /// does not count as a marker.
+    static func hasVersionMarker(_ name: String) -> Bool {
+        guard let (stem, _) = versionStem(name) else { return false }
+        let plain = ((name as NSString).deletingPathExtension as String)
+            .lowercased()
+            .trimmingCharacters(in: .whitespaces)
+        return stem != plain
     }
 }

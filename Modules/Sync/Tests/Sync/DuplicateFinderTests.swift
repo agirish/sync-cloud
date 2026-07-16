@@ -234,6 +234,70 @@ import Testing
         #expect(g.reclaimableBytes == 5000)
     }
 
+    @Test func sameNameInDifferentFoldersWithoutMarkersIsNotVersions() {
+        // Two unrelated camera shots that happen to share a name because both cameras count from
+        // IMG_0001 — different folders, different bytes, NO version marker on either name. Grouping
+        // them as "versions" would recommend trashing a unique photo.
+        let tree = [
+            dir("/root/2019", [file("/root/2019/IMG_0001.jpg", size: 50_000)]),
+            dir("/root/2023", [file("/root/2023/IMG_0001.jpg", size: 60_000)]),
+        ]
+        let hashes = [
+            "/root/2019/IMG_0001.jpg": "SHOT-A",
+            "/root/2023/IMG_0001.jpg": "SHOT-B",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.isEmpty)
+    }
+
+    @Test func sameDocNameAcrossClientFoldersIsNotVersions() {
+        // ClientA/invoice.pdf and ClientB/invoice.pdf are two different invoices, not versions of
+        // one document. Unique siblings keep the parents from grouping at the folder level.
+        let tree = [
+            dir("/root/ClientA", [file("/root/ClientA/invoice.pdf", size: 9000),
+                                  file("/root/ClientA/a-notes.txt", size: 8192)]),
+            dir("/root/ClientB", [file("/root/ClientB/invoice.pdf", size: 9500),
+                                  file("/root/ClientB/b-notes.txt", size: 8192)]),
+        ]
+        let hashes = [
+            "/root/ClientA/invoice.pdf": "INV-A", "/root/ClientB/invoice.pdf": "INV-B",
+            "/root/ClientA/a-notes.txt": "NA", "/root/ClientB/b-notes.txt": "NB",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.contains { $0.matchType == .versions })
+        #expect(groups.isEmpty)
+    }
+
+    @Test func markeredVersionsAcrossDifferentFoldersStillGroup() {
+        // A real version marker justifies the group even across folders: "report copy.pdf" is
+        // evidence someone duplicated report.pdf, wherever the copy now lives.
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Docs", [file("/root/Docs/report.pdf", size: 9000, modified: new),
+                               file("/root/Docs/d-only.txt", size: 8192)]),
+            dir("/root/Desktop", [file("/root/Desktop/report copy.pdf", size: 8800, modified: old),
+                                  file("/root/Desktop/k-only.txt", size: 8192)]),
+        ]
+        let hashes = [
+            "/root/Docs/report.pdf": "R1", "/root/Desktop/report copy.pdf": "R2",
+            "/root/Docs/d-only.txt": "D", "/root/Desktop/k-only.txt": "K",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups[0].matchType == .versions)
+        #expect(groups[0].keeper.path == "/root/Docs/report.pdf")   // newest
+    }
+
+    @Test func hasVersionMarkerDetectsStrippedMarkersOnly() {
+        #expect(DuplicateFinder.hasVersionMarker("Q3 Report (1).docx"))
+        #expect(DuplicateFinder.hasVersionMarker("plan copy.key"))
+        #expect(DuplicateFinder.hasVersionMarker("deck-final.pdf"))
+        #expect(!DuplicateFinder.hasVersionMarker("IMG_0001.jpg"))
+        #expect(!DuplicateFinder.hasVersionMarker("invoice.pdf"))
+        #expect(!DuplicateFinder.hasVersionMarker("Report.PDF"))   // case alone is not a marker
+    }
+
     @Test func identicalCopiesAreNotVersions() {
         // Same stem AND identical bytes → identical group, not a version group.
         let tree = [
