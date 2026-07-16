@@ -222,10 +222,29 @@ public enum AutomationEvaluator {
         providerName: String?,
         now: Date
     ) -> DestinationResolution {
+        // An absolute destination is a LITERAL folder path (it only ever comes from a migrated or
+        // learned rule that filed into a real folder) — no token expansion, so a legacy folder
+        // whose name happens to contain braces can never be misread as an unresolvable template.
+        if template.hasPrefix("/") {
+            let cleaned = template
+                .split(separator: "/", omittingEmptySubsequences: true)
+                .map(String.init)
+                .filter { $0 != "." && $0 != ".." }
+                .joined(separator: "/")
+            return .resolved("/" + cleaned)
+        }
+
         var result = template
         let cal = Calendar(identifier: .gregorian)
 
+        // {year} prefers the year the FILENAME names over the modification date, exactly like the
+        // Organize engine (round 4): a 2023 tax form downloaded in 2024 belongs in Taxes/2023 —
+        // mtime is merely when the bytes last changed. Rule matches are batch-eligible, so a
+        // wrong-year {year} would blind-file into the wrong folder.
         func year() -> String? {
+            if let named = FilingEngine.filenameYear(in: FilingEngine.fileTokens(facts.name), now: now) {
+                return named
+            }
             guard let d = facts.modificationDate else { return nil }
             return String(cal.component(.year, from: d))
         }
@@ -255,16 +274,14 @@ public enum AutomationEvaluator {
             return .unresolved(token: String(result[open...close]))
         }
 
-        // Clean into a safe path: drop empty / "." / ".." segments so a stray slash or an escape
-        // attempt can't produce a weird destination in the preview. An absolute template keeps its
-        // leading slash so callers can tell it apart from a provider-relative one.
-        let isAbsolute = result.hasPrefix("/")
+        // Clean into a safe provider-relative path: drop empty / "." / ".." segments so a stray
+        // slash or an escape attempt can't produce a weird destination in the preview.
         let cleaned = result
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
             .filter { $0 != "." && $0 != ".." }
             .joined(separator: "/")
-        return .resolved(isAbsolute ? "/" + cleaned : cleaned)
+        return .resolved(cleaned)
     }
 
     // MARK: Absolute destinations (migrated F3 rules)

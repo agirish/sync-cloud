@@ -52,7 +52,9 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
     case .contentContains(let term): return "“\(term.isEmpty ? "…" : term)”"
     case .mentionsAll(let tokens):
         let cleaned = tokens.filter { !$0.isEmpty }
-        return cleaned.isEmpty ? "mentions …" : "mentions " + cleaned.joined(separator: " + ")
+        guard !cleaned.isEmpty else { return "mentions …" }
+        let shown = cleaned.prefix(3).joined(separator: " + ")
+        return "mentions " + shown + (cleaned.count > 3 ? " +\(cleaned.count - 3)" : "")
     }
 }
 
@@ -422,6 +424,7 @@ public struct AutomationsLens: View {
                 .keyboardShortcut(.return, modifiers: [])
             }
             Button("Cancel", action: cancelFiling)
+                .keyboardShortcut(.cancelAction)
                 .controlSize(.small)
                 .padding(.top, 2)
             Text("Filing moves real files into \(provider). The whole run undoes with ⌘Z.")
@@ -578,7 +581,10 @@ private struct ConditionChip: View {
         HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 9.5, weight: .semibold))
             Text(text).font(.system(size: 10.5, weight: .medium))
+                .lineLimit(1).truncationMode(.middle)
         }
+        .frame(maxWidth: 320, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .foregroundStyle(.secondary)
         .padding(.horizontal, 7).padding(.vertical, 3)
         .background(Capsule().fill(Color.primary.opacity(0.06)))

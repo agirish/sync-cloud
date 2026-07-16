@@ -98,30 +98,34 @@ struct AutomationRuleEditor: View {
             enabled: wasEnabled,
             matchMode: matchMode,
             conditions: rows.map { Self.canonicalized($0.condition) },
-            destinationTemplate: Self.normalizedDestination(destination)
+            destinationTemplate: destination.trimmingCharacters(in: .whitespaces)
         )
     }
 
     /// Save-time canonicalization: a `mentionsAll` row's free-typed words become the exact tokens
     /// the engine matches with (`FilingEngine.nameTokens` — lowercased, stopwords and bare numbers
     /// dropped, sorted). Editing keeps the raw text; only the saved rule is canonical, so an entry
-    /// like "Tesla-Model-3" can never save in a form that silently never fires.
-    private static func canonicalized(_ condition: AutomationCondition) -> AutomationCondition {
+    /// like "Tesla-Model-3" can never save in a form that silently never fires. `internal` so tests
+    /// can pin it.
+    nonisolated static func canonicalized(_ condition: AutomationCondition) -> AutomationCondition {
         guard case .mentionsAll(let tokens) = condition else { return condition }
         return .mentionsAll(FilingEngine.nameTokens(tokens.joined(separator: " ")).sorted())
     }
 
-    /// A destination is provider-relative; a leading slash is almost always a typo for one — strip
-    /// it unless that absolute folder really exists on disk (then it's a migrated absolute rule
-    /// being re-saved, which must keep its meaning).
-    private static func normalizedDestination(_ template: String) -> String {
-        let trimmed = template.trimmingCharacters(in: .whitespaces)
-        guard trimmed.hasPrefix("/") else { return trimmed }
-        var isDirectory: ObjCBool = false
-        if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory), isDirectory.boolValue {
-            return trimmed
-        }
-        return String(trimmed.drop { $0 == "/" })
+    /// A `mentionsAll` row whose visible text canonicalizes to NOTHING (all stopwords / bare
+    /// numbers / 1-char fragments). Saving it would silently drop the condition — and in an
+    /// all-of rule that *broadens* the rule to whatever the other conditions match — so Save is
+    /// blocked and the row explains itself instead. `internal` so tests can pin it.
+    nonisolated static func isUnmatchableMentions(_ condition: AutomationCondition) -> Bool {
+        guard case .mentionsAll(let tokens) = condition else { return false }
+        let hasVisibleText = tokens.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard hasVisibleText else { return false }   // a blank row is plain "incomplete", not a trap
+        if case .mentionsAll(let canonical) = Self.canonicalized(condition) { return canonical.isEmpty }
+        return false
+    }
+
+    private var hasUnmatchableMentionsRow: Bool {
+        rows.contains { Self.isUnmatchableMentions($0.condition) }
     }
 
     var body: some View {
@@ -242,9 +246,16 @@ struct AutomationRuleEditor: View {
             TextField("invoice", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
         case .mentionsAll:
-            TextField("tesla, insurance", text: tokensBinding(condition))
-                .textFieldStyle(.roundedBorder).controlSize(.small)
-                .help("The file must mention every word — in its name or its text. Separate with commas.")
+            VStack(alignment: .leading, spacing: 3) {
+                TextField("tesla, insurance", text: tokensBinding(condition))
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                    .help("The file must mention every word — in its name or its text. Separate with commas.")
+                if Self.isUnmatchableMentions(condition.wrappedValue) {
+                    Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
+                        .font(.system(size: 10.5)).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         case .kindIs:
             Picker("", selection: kindBinding(condition)) {
                 ForEach(FileKind.allCases) { Text($0.label).tag($0) }
@@ -291,9 +302,17 @@ struct AutomationRuleEditor: View {
             TextField("Documents/Invoices/{year}", text: $destination)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12, design: .monospaced))
-            Text("Relative to the provider root\(browseRoot.map { " (\($0.lastPathComponent))" } ?? ""). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
+            // The caption states which of the two destination forms the field currently holds, so
+            // a leading slash is a visible choice, never a silent reinterpretation.
+            if destination.trimmingCharacters(in: .whitespaces).hasPrefix("/") {
+                Text("An absolute folder path (starts with “/”) — this rule only acts in the provider that contains that folder. Remove the leading slash to make it relative to the provider root instead.")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("Relative to the provider root\(browseRoot.map { " (\($0.lastPathComponent))" } ?? ""). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -425,9 +444,11 @@ struct AutomationRuleEditor: View {
         )
     }
 
-    /// Comma-separated round-trip for a `mentionsAll` row. Splitting keeps an empty trailing entry
-    /// so a just-typed comma survives the get/set cycle; canonicalization (lowercase, stopwords,
-    /// tokenizer splits) happens once, at save (see `canonicalized`), never while typing.
+    /// Free-text round-trip for a `mentionsAll` row. While editing, the WHOLE field is held as a
+    /// single element so get(set(text)) == text — no per-keystroke splitting or trimming, which
+    /// would eat spaces as they're typed and yank the caret. Canonicalization (tokenizer splits,
+    /// lowercase, stopwords) happens once, at save (see `canonicalized`); a stored canonical array
+    /// displays back as its comma-joined form.
     private func tokensBinding(_ condition: Binding<AutomationCondition>) -> Binding<String> {
         Binding(
             get: {
@@ -436,9 +457,7 @@ struct AutomationRuleEditor: View {
             },
             set: { newValue in
                 guard case .mentionsAll = condition.wrappedValue else { return }
-                let parts = newValue.split(separator: ",", omittingEmptySubsequences: false)
-                    .map { $0.trimmingCharacters(in: .whitespaces) }
-                condition.wrappedValue = .mentionsAll(parts)
+                condition.wrappedValue = .mentionsAll([newValue])
             }
         )
     }

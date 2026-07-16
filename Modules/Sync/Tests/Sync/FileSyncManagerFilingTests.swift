@@ -305,29 +305,28 @@ final class Flag: @unchecked Sendable { var value = false }
         let manager = manager(withRuleSuite: suite)
         defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
 
-        // A destination inside the provider root stores provider-relative (portable).
+        // A learned rule stores the ABSOLUTE folder it filed into — the same provider scoping the
+        // legacy remembered rules had, so it can never batch-file into another provider.
         let rule = manager.rememberAutomationRule(fileName: "Tesla Policy.pdf",
-                                                  destinationPath: "/p/Vehicles/Tesla", providerRoot: "/p")
+                                                  destinationPath: "/p/Vehicles/Tesla")
         #expect(rule?.conditions == [.mentionsAll(["tesla"])])
-        #expect(rule?.destinationTemplate == "Vehicles/Tesla")
+        #expect(rule?.destinationTemplate == "/p/Vehicles/Tesla")
         #expect(rule?.enabled == true)
         #expect(manager.automationRules.count == 1)
 
         // A nameless file (IMG_0007 → no usable tokens) yields nothing to key on — nothing learned.
-        #expect(manager.rememberAutomationRule(fileName: "IMG_0007.pdf",
-                                               destinationPath: "/p/Misc", providerRoot: "/p") == nil)
+        #expect(manager.rememberAutomationRule(fileName: "IMG_0007.pdf", destinationPath: "/p/Misc") == nil)
         #expect(manager.automationRules.count == 1)
 
-        // Re-teaching the same trigger replaces the destination rather than duplicating.
+        // Re-teaching the same trigger replaces the destination rather than duplicating,
+        // without touching an unrelated rule.
+        manager.upsertAutomationRule(AutomationRule(name: "Other", conditions: [.kindIs(.pdf)],
+                                                    destinationTemplate: "Docs"))
         let retaught = manager.rememberAutomationRule(fileName: "Tesla Card.pdf",
-                                                      destinationPath: "/p/Cars/Tesla", providerRoot: "/p")
-        #expect(retaught?.destinationTemplate == "Cars/Tesla")
-        #expect(manager.automationRules.count == 1)
-
-        // A destination outside the known root stays absolute (pinned to where that folder lives).
-        let outside = manager.rememberAutomationRule(fileName: "Geico Bill.pdf",
-                                                     destinationPath: "/elsewhere/Geico", providerRoot: "/p")
-        #expect(outside?.destinationTemplate == "/elsewhere/Geico")
+                                                      destinationPath: "/p/Cars/Tesla")
+        #expect(retaught?.destinationTemplate == "/p/Cars/Tesla")
+        #expect(manager.automationRules.count == 2)
+        #expect(manager.automationRules.contains { $0.name == "Other" })
     }
 
     @MainActor
@@ -339,26 +338,53 @@ final class Flag: @unchecked Sendable { var value = false }
         manager.filingRules = [
             FilingRule(tokens: ["tesla"], destinationPath: "/p/Cars/Tesla"),
             FilingRule(tokens: ["geico"], destinationPath: "/p/Insurance/Geico", enabled: false),
-            FilingRule(tokens: ["acme"], destinationPath: "/elsewhere/Acme"),
         ]
 
-        manager.migrateFilingRulesToAutomations(providerRoots: [URL(fileURLWithPath: "/p")])
+        manager.migrateFilingRulesToAutomations()
 
         let migrated = manager.automationRules
-        #expect(migrated.count == 3)
+        #expect(migrated.count == 2)
         let tesla = migrated.first { $0.conditions == [.mentionsAll(["tesla"])] }
-        #expect(tesla?.destinationTemplate == "Cars/Tesla")
+        // The destination stays ABSOLUTE — the exact provider scoping the legacy rule had.
+        #expect(tesla?.destinationTemplate == "/p/Cars/Tesla")
         #expect(tesla?.enabled == true)
         #expect(tesla?.name == "Tesla")
         // Disabled state survives the migration.
         #expect(migrated.first { $0.conditions == [.mentionsAll(["geico"])] }?.enabled == false)
-        // A destination outside every known root stays absolute.
-        #expect(migrated.first { $0.conditions == [.mentionsAll(["acme"])] }?.destinationTemplate == "/elsewhere/Acme")
         // The legacy store is left in place as a backup…
-        #expect(manager.filingRules.count == 3)
+        #expect(manager.filingRules.count == 2)
         // …and the migration is one-shot: re-running adds nothing.
-        manager.migrateFilingRulesToAutomations(providerRoots: [URL(fileURLWithPath: "/p")])
-        #expect(manager.automationRules.count == 3)
+        manager.migrateFilingRulesToAutomations()
+        #expect(manager.automationRules.count == 2)
+    }
+
+    /// Once the migration flag is set, the legacy store is truly unconsulted: a legacy rule whose
+    /// destination DIVERGES from its migrated automation must not add a second candidate.
+    @MainActor
+    @Test func legacyStoreIsUnconsultedAfterMigration() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Archive/Tesla/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Legacy/Tesla/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/tesla renewal.pdf"))
+
+        let suite = "PostFlag-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        manager.filingRules = [FilingRule(tokens: ["tesla"],
+                                          destinationPath: root.appendingPathComponent("Legacy/Tesla").path)]
+        manager.migrateFilingRulesToAutomations()
+        // Re-point the automation somewhere else; the legacy store still holds Legacy/Tesla.
+        var rule = manager.automationRules[0]
+        rule.destinationTemplate = root.appendingPathComponent("Archive/Tesla").path
+        manager.upsertAutomationRule(rule)
+
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+        let s = manager.filingSuggestions.first { $0.fileName.hasPrefix("tesla") }
+        #expect(s?.best?.path == root.appendingPathComponent("Archive/Tesla").path)
+        // Legacy/Tesla may still surface as a plain taxonomy candidate (the folder exists and
+        // shares a token) — what must NOT happen is the legacy RULE steering it as remembered.
+        #expect(!(s?.candidates.contains { $0.remembered && $0.path.hasSuffix("Legacy/Tesla") } ?? true))
     }
 
     /// The provable-preservation pin for the unification: a legacy remembered rule and its migrated
@@ -386,7 +412,7 @@ final class Flag: @unchecked Sendable { var value = false }
         defer { migratedManager.filingRuleDefaults.removePersistentDomain(forName: migratedSuite) }
         migratedManager.filingRules = [FilingRule(tokens: ["tesla"],
                                                   destinationPath: root.appendingPathComponent("Archive/Tesla").path)]
-        migratedManager.migrateFilingRulesToAutomations(providerRoots: [root])
+        migratedManager.migrateFilingRulesToAutomations()
         await migratedManager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let fromMigrated = migratedManager.filingSuggestions.first { $0.fileName.hasPrefix("tesla renewal") }
 
@@ -415,6 +441,91 @@ final class Flag: @unchecked Sendable { var value = false }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         let s = manager.filingSuggestions.first { $0.fileName == "tesla thing.pdf" }
         #expect(!(s?.candidates.contains { $0.remembered } ?? false))
+    }
+
+    /// An authored automation (kind-based, relative destination with a {provider} token) steers the
+    /// scan: name/metadata-derived, so high confidence and batch-eligible; the token resolves from
+    /// the scan's provider name — and stays inert when no provider name is known.
+    @Test func authoredAutomationSteersWithProviderToken() {
+        let file = FileNode(id: "/p/Inbox/report.pdf", name: "report.pdf", isDirectory: false,
+                            children: nil, modificationDate: Date(), fileSize: 5000)
+        let rule = AutomationRule(name: "PDFs", conditions: [.kindIs(.pdf)],
+                                  destinationTemplate: "Filed/{provider}")
+
+        let steered = FilingEngine.suggest(looseFiles: [file], taxonomy: [], providerRoot: "/p",
+                                           automations: [rule], providerName: "iCloud")
+        #expect(steered.first?.best?.path == "/p/Filed/iCloud")
+        #expect(steered.first?.best?.remembered == true)
+        #expect(steered.first?.best?.confidence == .high)
+        #expect(steered.first?.isBatchEligible == true)
+
+        // {provider} with no provider name → the rule can't resolve, so it steers nothing.
+        let unresolved = FilingEngine.suggest(looseFiles: [file], taxonomy: [], providerRoot: "/p",
+                                              automations: [rule], providerName: nil)
+        #expect(!(unresolved.first?.candidates.contains { $0.remembered } ?? false))
+    }
+
+    /// A rule whose match rests only on the file's CONTENT is capped to medium and kept out of the
+    /// blind batch — the same cap every content-derived signal gets.
+    @Test func contentOnlyRuleMatchIsMediumAndNotBatchEligible() {
+        let file = FileNode(id: "/p/Inbox/scan0042.pdf", name: "scan0042.pdf", isDirectory: false,
+                            children: nil, modificationDate: Date(), fileSize: 5000)
+        let rule = AutomationRule(name: "Geico", conditions: [.mentionsAll(["geico"])],
+                                  destinationTemplate: "/p/Insurance/Geico")
+
+        let steered = FilingEngine.suggest(looseFiles: [file], taxonomy: [], providerRoot: "/p",
+                                           contentTokens: [file.id: ["geico", "policy"]],
+                                           automations: [rule])
+        #expect(steered.first?.best?.path == "/p/Insurance/Geico")
+        #expect(steered.first?.best?.confidence == .medium)
+        #expect(steered.first?.best?.fromContent == true)
+        #expect(steered.first?.isBatchEligible == false)
+
+        // Legacy parity for the learned shape: a MIXED match (one trigger word in the name) counts
+        // as name-derived — high confidence and batch-eligible, exactly as F3 behaved.
+        let mixedRule = AutomationRule(name: "Acme", conditions: [.mentionsAll(["acme", "invoice"])],
+                                       destinationTemplate: "/p/Acme")
+        let mixedFile = FileNode(id: "/p/Inbox/acme-2025.pdf", name: "acme-2025.pdf", isDirectory: false,
+                                 children: nil, modificationDate: Date(), fileSize: 5000)
+        let mixed = FilingEngine.suggest(looseFiles: [mixedFile], taxonomy: [], providerRoot: "/p",
+                                         contentTokens: [mixedFile.id: ["invoice"]],
+                                         automations: [mixedRule])
+        #expect(mixed.first?.best?.confidence == .high)
+        #expect(mixed.first?.best?.fromContent == false)
+        #expect(mixed.first?.isBatchEligible == true)
+    }
+
+    /// The Organize scan reads a file's text for content rules with the same gating the preview
+    /// uses, so a rule that matches a file in the lens matches it in the scan — one rule, one
+    /// answer. Files no content rule could flip are never read.
+    @MainActor
+    @Test func scanExtractsSnippetsForContentRulesLikeThePreview() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Inbox/scan0001.pdf"))
+        try write(root.appendingPathComponent("Inbox/tesla-note.pdf"))
+
+        let suite = "SnippetParity-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        manager.upsertAutomationRule(AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
+                                                    destinationTemplate: root.appendingPathComponent("Home/Lease").path))
+
+        // "lease" is a generic word the sparse entity extractor would never surface — only the
+        // raw text knows it. The name-matched file must NOT be read (its rule outcome can't flip).
+        let read = ReadPaths()
+        manager.filingSnippetExtractor = { path in
+            await read.record(path)
+            return path.hasSuffix("scan0001.pdf") ? "lease agreement for unit 4" : nil
+        }
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Inbox"), providerRoot: root)
+
+        let steered = manager.filingSuggestions.first { $0.fileName == "scan0001.pdf" }
+        #expect(steered?.best?.path == root.appendingPathComponent("Home/Lease").path)
+        #expect(steered?.best?.remembered == true)
+        #expect(steered?.best?.fromContent == true)
+        let paths = await read.paths
+        #expect(paths.contains { $0.hasSuffix("scan0001.pdf") })
     }
 
     @MainActor
@@ -562,4 +673,11 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(manager.filingScanFolder == downloads.path, "the label must still match the on-screen results")
         #expect(manager.filingSuggestions.map(\.id) == suggestionsBefore)
     }
+}
+
+
+/// Records which paths a stubbed snippet extractor was asked to read, across Sendable closures.
+private actor ReadPaths {
+    private(set) var paths: [String] = []
+    func record(_ path: String) { paths.append(path) }
 }

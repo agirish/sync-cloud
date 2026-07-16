@@ -942,8 +942,7 @@ public struct TidyView: View {
     /// (returns nil) still just dismisses — no misleading "learned" banner, nothing to review.
     private func rememberOverride(_ prompt: PendingRememberPrompt) {
         if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
-                                                         destinationPath: prompt.destinationPath,
-                                                         providerRoot: automationDestinationRoot) {
+                                                         destinationPath: prompt.destinationPath) {
             let folderName = (prompt.destinationPath as NSString).lastPathComponent
             syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
             reviewingAutomationRule = rule
@@ -1192,6 +1191,7 @@ public struct TidyView: View {
             // Only prompt to remember an override when the file actually MOVED — no point learning a
             // rule from filing a file into the folder it already sits in (`.notNeeded`).
             if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
+                pendingRuleOffer = nil   // a stale offer would otherwise hide the fresh teach prompt
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
                                                               destinationPath: url.path)
             }

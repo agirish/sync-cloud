@@ -233,11 +233,35 @@ import Testing
         #expect(!AutomationRule(name: "r", conditions: [.kindIs(.pdf)], destinationTemplate: "X").requiresContent)
     }
 
+    @Test func yearTokenPrefersTheFilenameYearOverMtime() {
+        // A 2023 form downloaded in 2024 belongs in Taxes/2023 (round 4's rule, now shared here) —
+        // rule matches are batch-eligible, so a wrong-year {year} would blind-file wrongly.
+        #expect(AutomationEvaluator.resolveDestination("Taxes/{year}", for: facts("2023-tax-form.pdf", modified: now),
+                                                       providerName: nil, now: now) == .resolved("Taxes/2023"))
+        // No (single) filename year → mtime decides, as before.
+        #expect(AutomationEvaluator.resolveDestination("Taxes/{year}", for: facts("tax-form.pdf", modified: now),
+                                                       providerName: nil, now: now) == .resolved("Taxes/2024"))
+        // Two plausible years name no single year — mtime decides (same rule as the Organize engine).
+        #expect(AutomationEvaluator.resolveDestination("Taxes/{year}", for: facts("2021-2022 report.pdf", modified: now),
+                                                       providerName: nil, now: now) == .resolved("Taxes/2024"))
+    }
+
+    @Test func absoluteDestinationsAreLiteralPaths() {
+        // An absolute destination is a real folder path from a migrated/learned rule — braces in a
+        // folder name are literal, never a token to resolve (or trip over).
+        #expect(AutomationEvaluator.resolveDestination("/p/Docs/{drafts}", for: facts("a.pdf", modified: now),
+                                                       providerName: nil, now: now) == .resolved("/p/Docs/{drafts}"))
+        // Relative templates still resolve (and flag) tokens as before.
+        #expect(AutomationEvaluator.resolveDestination("Docs/{drafts}", for: facts("a.pdf", modified: now),
+                                                       providerName: nil, now: now) == .unresolved(token: "{drafts}"))
+    }
+
     @Test func ruleCodableRoundTrips() throws {
         let rule = AutomationRule(
             name: "Invoices", enabled: false, matchMode: .any,
             conditions: [.folderNamed("Downloads"), .kindIs(.pdf), .largerThanMB(2),
-                         .untouchedForDays(30), .contentContains("invoice"), .nameMatches("*.pdf")],
+                         .untouchedForDays(30), .contentContains("invoice"), .nameMatches("*.pdf"),
+                         .mentionsAll(["insurance", "tesla"])],
             destinationTemplate: "Documents/Invoices/{year}"
         )
         let data = try JSONEncoder().encode([rule])

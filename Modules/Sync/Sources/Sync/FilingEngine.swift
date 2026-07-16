@@ -132,6 +132,9 @@ public enum FilingEngine {
     ///   matches a file steers its suggestion exactly like a remembered rule: user-taught, so it
     ///   ranks ahead of the heuristics (capped to medium when the match needed the file's content).
     /// - Parameter providerName: Resolves `{provider}` in an automation's destination template.
+    /// - Parameter automationSnippets: Per-file lowercased text excerpts, extracted up front for the
+    ///   files where a content-reading automation could match — the SAME text the Automations
+    ///   preview evaluates, so a rule gives one answer on both surfaces.
     /// - Parameter now: Injectable clock for the automations' date conditions and `{year}` tokens.
     /// - Parameter rejectedByFile: Per-file absolute folder paths the user has rejected — dropped
     ///   from that file's candidates so a "no, not there" is never re-suggested.
@@ -143,6 +146,7 @@ public enum FilingEngine {
         rules: [FilingRule] = [],
         automations: [AutomationRule] = [],
         providerName: String? = nil,
+        automationSnippets: [String: String] = [:],
         now: Date = Date(),
         rejectedByFile: [String: Set<String>] = [:],
         options: FilingOptions = .init()
@@ -173,6 +177,7 @@ public enum FilingEngine {
             candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
                                                contentTokens: content, existingPaths: existingPaths)
             candidates += automationCandidates(automations: automations, file: file, contentTokens: content,
+                                               snippet: automationSnippets[file.id],
                                                providerRoot: providerRoot, providerName: providerName,
                                                existingPaths: existingPaths, now: now)
             candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
@@ -325,23 +330,16 @@ public enum FilingEngine {
     /// keeps it out of the blind batch apply). A rule whose destination resolves outside this
     /// provider is inert here, exactly like the old provider-scoped remembered rules.
     private static func automationCandidates(
-        automations: [AutomationRule], file: FileNode, contentTokens: Set<String>,
+        automations: [AutomationRule], file: FileNode, contentTokens: Set<String>, snippet: String?,
         providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date
     ) -> [FilingDestination] {
         guard !automations.isEmpty else { return [] }
-        let parentPath = (file.id as NSString).deletingLastPathComponent
-        let facts = AutomationFileFacts(
-            path: file.id, name: file.name,
-            parentFolderName: (parentPath as NSString).lastPathComponent,
-            parentPath: parentPath,
-            sizeBytes: file.fileSize ?? 0,
-            modificationDate: file.modificationDate,
-            isDirectory: file.isDirectory,
-            contentTokens: contentTokens)
+        let facts = automationFacts(for: file, contentTokens: contentTokens, snippet: snippet)
         // The same facts with the content stripped — a rule that only matches WITH content is a
         // content-derived signal (medium confidence, "read from the file" note, no blind batch).
         var nameOnlyFacts = facts
         nameOnlyFacts.contentTokens = []
+        nameOnlyFacts.snippet = nil
 
         var out: [FilingDestination] = []
         for rule in automations where rule.enabled && rule.isRunnable {
@@ -349,7 +347,7 @@ public enum FilingEngine {
             guard case .resolved(let resolved) = AutomationEvaluator.resolveDestination(
                 rule.destinationTemplate, for: facts, providerName: providerName, now: now) else { continue }
             guard let destination = AutomationEvaluator.absoluteDestination(resolved, providerRoot: providerRoot) else { continue }
-            let fromContent = !AutomationEvaluator.matches(rule, nameOnlyFacts, now: now)
+            let fromContent = ruleMatchIsContentDerived(rule, facts: facts, nameOnlyFacts: nameOnlyFacts, now: now)
             let label = rule.name.trimmingCharacters(in: .whitespaces)
             let shown = label.isEmpty ? rule.summary : label
             let reason = fromContent
@@ -363,6 +361,39 @@ public enum FilingEngine {
                 fromContent: fromContent, remembered: true))
         }
         return out
+    }
+
+    /// The evaluator facts for a loose file in an Organize scan. Shared with the manager's
+    /// content-gating pass so both build identical inputs. `snippet` (when a content-reading rule
+    /// warranted extracting it) also supplies the content tokens, tokenized exactly as the
+    /// Automations preview tokenizes its excerpt — one rule, one answer on both surfaces.
+    static func automationFacts(for file: FileNode, contentTokens: Set<String> = [],
+                                snippet: String? = nil) -> AutomationFileFacts {
+        let parentPath = (file.id as NSString).deletingLastPathComponent
+        return AutomationFileFacts(
+            path: file.id, name: file.name,
+            parentFolderName: (parentPath as NSString).lastPathComponent,
+            parentPath: parentPath,
+            sizeBytes: file.fileSize ?? 0,
+            modificationDate: file.modificationDate,
+            isDirectory: file.isDirectory,
+            snippet: snippet,
+            contentTokens: snippet.map { nameTokens($0) } ?? contentTokens)
+    }
+
+    /// Whether a matched rule's evidence is content-derived — which caps it to medium and keeps it
+    /// out of the blind batch. For the learned single-`mentionsAll` shape this is the EXACT test
+    /// the legacy remembered rules used (content-derived only when NO trigger word is in the
+    /// filename), so a migrated rule keeps its batch behavior; a general multi-condition rule is
+    /// content-derived whenever it would not match on the name/metadata alone (conservative).
+    private static func ruleMatchIsContentDerived(
+        _ rule: AutomationRule, facts: AutomationFileFacts, nameOnlyFacts: AutomationFileFacts, now: Date
+    ) -> Bool {
+        if rule.conditions.count == 1, case .mentionsAll(let tokens) = rule.conditions[0] {
+            let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
+            return trigger.isDisjoint(with: facts.nameTokens) && !trigger.isDisjoint(with: facts.contentTokens)
+        }
+        return !AutomationEvaluator.matches(rule, nameOnlyFacts, now: now)
     }
 
     /// The trailing segments of an absolute path that don't yet exist (would be recreated on apply);

@@ -320,13 +320,10 @@ struct ContentView: View {
                     Task { @MainActor in
                         await settings.discoverProviders()
                         // One-time: convert the legacy remembered filing rules (F3) into
-                        // automations, relativizing each destination against the provider that
-                        // contains it. Runs here because this is the first moment the discovered
-                        // provider roots are known; the flag makes re-runs no-ops.
-                        syncManager.migrateFilingRulesToAutomations(
-                            providerRoots: settings.availableProviders.map {
-                                URL(fileURLWithPath: ($0.path as NSString).expandingTildeInPath)
-                            })
+                        // automations. Destinations stay absolute — the same provider scoping
+                        // the legacy rules had — so nothing needs the provider list; the flag
+                        // makes re-runs no-ops.
+                        syncManager.migrateFilingRulesToAutomations()
                         applyProviderSelection(preferDistinctPair: true)
                         syncManager.ignoredItemsStore?.activate(
                             pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))

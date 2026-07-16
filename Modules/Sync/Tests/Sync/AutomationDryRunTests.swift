@@ -2,8 +2,9 @@ import Foundation
 import Testing
 @testable import Sync
 
-/// Exercises the manager's preview end-to-end over a real temp folder: it walks, evaluates on-device,
-/// produces verdicts — and, being preview-only, never moves or creates anything.
+/// Exercises the manager's automation runs end-to-end over a real temp folder: the dry-run preview
+/// (walks, evaluates on-device, produces verdicts, moves nothing) and phase B, which files the
+/// approved rows for real.
 @Suite @MainActor struct AutomationDryRunTests {
 
     // Mid-2024, mid-day UTC — stable year across timezones.
@@ -215,5 +216,99 @@ import Testing
         let outcome = await m.applyAutomationFiling(rows: report.rows)
         #expect(outcome.filed == 0)
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent("scan.pdf").path))
+    }
+
+    // MARK: Mentions rules & content reading
+
+    @Test func mentionsRuleMatchesByNameWithoutReadingContent() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("Tesla Policy.pdf", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                           destinationTemplate: "Cars/Tesla")
+        ])
+        // A name-decided match must NOT pay for text extraction (the outcome can't change).
+        let flag = Flag()
+        m.filingSnippetExtractor = { _ in flag.value = true; return "irrelevant" }
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.count == 1)
+        #expect(report.rows.first?.verdict == .wouldFile(destination: "Cars/Tesla"))
+        #expect(!flag.value)
+    }
+
+    @Test func mentionsRuleMatchesViaExtractedText() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("scan0042.pdf", in: dir, modified: now)
+        try write("photo.jpg", in: dir, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
+                           destinationTemplate: "Home/Lease")
+        ])
+        m.filingSnippetExtractor = { path in
+            path.hasSuffix("scan0042.pdf") ? "LEASE agreement for unit 4" : nil
+        }
+        await m.runAutomationDryRun(root: dir, providerName: nil, now: now)
+
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.count == 1)
+        #expect(report.rows.first?.fileName == "scan0042.pdf")
+        #expect(report.rows.first?.verdict == .wouldFile(destination: "Home/Lease"))
+    }
+
+    // MARK: Absolute destinations (learned/migrated rules)
+
+    @Test func absoluteRuleInsideTheProviderPreviewsWithARelativeLabel() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let inbox = dir.appendingPathComponent("Inbox")
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        try write("tesla note.pdf", in: inbox, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                           destinationTemplate: dir.appendingPathComponent("Cars/Tesla").path)
+        ])
+        await m.runAutomationDryRun(root: inbox, destinationRoot: dir, providerName: "iCloud", now: now)
+
+        let report = try #require(m.automationDryRun)
+        #expect(report.rows.count == 1)
+        // The absolute in-provider destination previews under its provider-relative label…
+        #expect(report.rows.first?.verdict == .wouldFile(destination: "Cars/Tesla"))
+        // …and resolves to the absolute folder for the real move.
+        #expect(report.rows.first?.destinationDir?.path == dir.appendingPathComponent("Cars/Tesla").path)
+    }
+
+    @Test func absoluteRuleAlreadyThereAndOutsideProviderRules() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        let cars = dir.appendingPathComponent("Cars/Tesla")
+        try FileManager.default.createDirectory(at: cars, withIntermediateDirectories: true)
+        try write("tesla note.pdf", in: cars, modified: now)
+        let m = makeManager(rules: [
+            AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                           destinationTemplate: cars.path),
+            AutomationRule(name: "Elsewhere", conditions: [.mentionsAll(["tesla"])],
+                           destinationTemplate: "/AnotherProvider/Cars")
+        ])
+        await m.runAutomationDryRun(root: cars, destinationRoot: dir, providerName: nil, now: now)
+
+        let report = try #require(m.automationDryRun)
+        // The in-provider rule sees the file already home; the other-provider rule was filtered
+        // out entirely (it must not claim the file).
+        #expect(report.rows.count == 1)
+        #expect(report.rows.first?.verdict == .alreadyThere)
+    }
+
+    @Test func singleRulePreviewOfAProviderInertRuleExplainsItself() async throws {
+        let dir = try tempDir(); defer { try? FileManager.default.removeItem(at: dir) }
+        try write("tesla note.pdf", in: dir, modified: now)
+        let inert = AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                                   destinationTemplate: "/AnotherProvider/Cars/Tesla")
+        let m = makeManager(rules: [inert])
+        await m.runAutomationDryRun(root: dir, providerName: "iCloud", only: inert.id, now: now)
+
+        // No silent empty report — the user is told the rule can't act in this provider.
+        #expect(m.automationDryRun == nil)
+        #expect(m.banner?.severity == .warning)
+        #expect(m.banner?.message.contains("outside") == true)
     }
 }

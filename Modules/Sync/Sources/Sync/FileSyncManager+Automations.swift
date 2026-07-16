@@ -116,15 +116,28 @@ extension FileSyncManager {
         let destinationAnchor = destinationRoot ?? root
         // A single-rule preview (only != nil) runs even if that rule is toggled off, so a rule can be
         // tested before enabling it; "preview all" (only == nil) uses just the enabled rules.
-        // A rule with an ABSOLUTE destination (migrated from F3) that points outside this provider
-        // is inert here — filtered up front so it can't claim a file another rule would handle.
-        let anchorPath = destinationAnchor.standardizedFileURL.path
+        // A rule with an ABSOLUTE destination (a learned/migrated rule) that points outside this
+        // provider is inert here — filtered up front so it can't claim a file another rule would
+        // handle. Compared on raw paths, the same strings the legacy provider scoping compared.
+        let anchorPath = destinationAnchor.path
+        func isInert(_ rule: AutomationRule) -> Bool {
+            rule.destinationTemplate.hasPrefix("/")
+                && AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil
+        }
+        // Previewing exactly one provider-inert rule must SAY so — a silent empty report reads as
+        // "the conditions match nothing", which is the wrong diagnosis.
+        if let only, let rule = automationRules.first(where: { $0.id == only }), isInert(rule) {
+            let name = rule.name.isEmpty ? "This rule" : "“\(rule.name)”"
+            banner = .warning("\(name) files into a folder outside \(providerName ?? "this provider"), so it can't act here.")
+            Logger.shared.info("Automations preview skipped: rule “\(rule.name)” is scoped to \(rule.destinationTemplate), outside \(anchorPath)")
+            return
+        }
+        let inertCount = automationRules.filter { $0.isRunnable && $0.enabled && isInert($0) }.count
+        if only == nil, inertCount > 0 {
+            Logger.shared.info("Automations preview: \(inertCount) rule(s) scoped to another provider were skipped")
+        }
         let rules = automationRules.filter { rule in
-            guard rule.isRunnable else { return false }
-            if rule.destinationTemplate.hasPrefix("/"),
-               AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil {
-                return false
-            }
+            guard rule.isRunnable, !isInert(rule) else { return false }
             return only == nil ? rule.enabled : rule.id == only
         }
 
