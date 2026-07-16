@@ -93,7 +93,7 @@ import Testing
             "Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
         #expect(s.stdoutLines.contains("  kept.txt"))
         #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (name not allowed by the destination provider; reasons above):"))
+            "Skipped 1 file(s) (name not allowed by the destination provider; per-file reasons on stderr):"))
         #expect(s.stdoutLines.contains("  Swimming "))
         #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
         #expect(!s.exitNonzero)
@@ -105,7 +105,7 @@ import Testing
         let s = syncSummary(tally: tally(copied: 2, nameSkipped: ["a b "]), strategy: .replace)
         #expect(!s.stdoutLines.joined().contains("destination already existed"))
         #expect(s.stdoutLines.contains(
-            "Skipped 1 file(s) (name not allowed by the destination provider; reasons above):"))
+            "Skipped 1 file(s) (name not allowed by the destination provider; per-file reasons on stderr):"))
     }
 
     @Test func testNoSkipExplanationWhenNothingSkipped() {
@@ -132,7 +132,7 @@ import Testing
             "Skipped 2 file(s) (existing files left untouched; use --strategy replace to update them):",
             "  kept.txt",
             "  docs/old.txt",
-            "Skipped 2 file(s) (name not allowed by the destination provider; reasons above):",
+            "Skipped 2 file(s) (name not allowed by the destination provider; per-file reasons on stderr):",
             "  Swimming ",
             "  docs/.CON/x.txt",
         ])

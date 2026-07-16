@@ -107,7 +107,10 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
     }
     let nameSkips = tally.skippedItems.filter { $0.reason == .nameViolation }
     if !nameSkips.isEmpty {
-        out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider; reasons above):")
+        // The per-file "Skipping <path>: <rule> …" lines are printed by the sync loop as it
+        // goes — on STDERR. This summary lands on stdout, so "reasons above" was wrong for
+        // anyone piping or redirecting one of the streams; point at stderr explicitly.
+        out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider; per-file reasons on stderr):")
         out.append(contentsOf: nameSkips.map { "  \($0.relativePath)" })
     }
     var err: [String] = []
