@@ -136,6 +136,125 @@ import Testing
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
 
+    // MARK: Scan ROOT denied (the round-5 fix covered subdirectories only)
+
+    @Test func buildTreeReturnsTheRootMarkedUnexploredWhenTheRootItselfIsDenied() async throws {
+        guard !runningAsRoot else { return }
+        let base = try makeTempDir()
+        try write(base.appendingPathComponent("secret.txt"), text: "hidden")
+        try chmod(base, 0o000)
+        defer {
+            try? chmod(base, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let tree = await FileSyncManager.buildTree(url: base, sortOption: .name, maxDepth: nil)
+
+        // Never a bare [] — that read as an authoritatively EMPTY root downstream. The root
+        // itself comes back as a single unexplored node, same shape as any capped directory.
+        let rootNode = try #require(tree.first)
+        #expect(tree.count == 1)
+        #expect(rootNode.id == base.path)
+        #expect(rootNode.isDirectory)
+        #expect(rootNode.isUnexplored == true)
+        #expect(rootNode.children?.isEmpty == true)
+    }
+
+    @Test func getFilesInDirectoryRecordsARootLevelFailureWhenTheRootIsDenied() throws {
+        guard !runningAsRoot else { return }
+        let base = try makeTempDir()
+        try write(base.appendingPathComponent("secret.txt"), text: "hidden")
+        try chmod(base, 0o000)
+        defer {
+            try? chmod(base, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let info = try FileDiffEngine.getFilesInDirectory(base)
+
+        // The root has no parent listing to have minted an entry; the failure is recorded
+        // under the root key ("") so the diff knows the WHOLE side is unknown, not empty.
+        let rootInfo = try #require(info[""])
+        #expect(rootInfo.isDirectory)
+        #expect(rootInfo.isUnexplored)
+        #expect(info["secret.txt"] == nil)   // contents were unreadable
+    }
+
+    @Test func unreadableRootOnOneSideProducesNoMissingRowsAtAll() throws {
+        guard !runningAsRoot else { return }
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(leftBase.appendingPathComponent("doc.txt"), text: "content")
+        try write(leftBase.appendingPathComponent("sub/deep.txt"), text: "content")
+        try chmod(rightBase, 0o000)
+        defer {
+            try? chmod(rightBase, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        // The right side's ENTIRE view is unknown — nothing may surface as actionable Missing.
+        #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
+    }
+
+    @Test func unreadableRootOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
+        guard !runningAsRoot else { return }
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(rightBase.appendingPathComponent("doc.txt"), text: "content")
+        try chmod(leftBase, 0o000)
+        defer {
+            try? chmod(leftBase, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
+    }
+
+    @Test func warmTreeBranchSuppressesRootLevelPhantomRowsToo() {
+        // The warm branch's root marker: buildTree hands back [root node, unexplored] when the
+        // root listing failed; filesInfo(fromTree:) must turn that into the root-key ("")
+        // record, and computeDifferences must suppress the whole side on it — matching the
+        // cold branch's answer for the same denied root.
+        let leftNodes = [
+            FileNode(id: "/L/doc.txt", name: "doc.txt", isDirectory: false, fileSize: 100),
+        ]
+        let rightNodes = [
+            FileNode(id: "/R", name: "R", isDirectory: true, children: [], isUnexplored: true),
+        ]
+        let leftInfo = FileDiffEngine.filesInfo(fromTree: leftNodes, basePath: "/L")
+        let rightInfo = FileDiffEngine.filesInfo(fromTree: rightNodes, basePath: "/R")
+        #expect(rightInfo[""]?.isUnexplored == true)
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: "/L", type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: "/R", type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: URL(fileURLWithPath: "/L"),
+            right: right, rightURL: URL(fileURLWithPath: "/R"),
+            leftFilesInfo: leftInfo, rightFilesInfo: rightInfo)
+
+        #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
+    }
+
     // MARK: Warm/cold agreement
 
     @Test func warmTreeBranchSuppressesTheSamePhantomRows() {

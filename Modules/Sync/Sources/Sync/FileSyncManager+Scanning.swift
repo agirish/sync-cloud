@@ -176,6 +176,14 @@ extension FileSyncManager {
     /// `rawTreeGeneration`, which invalidates any off-main resort snapshot in flight —
     /// this tree was built with the current sort option already applied.
     func adoptRawTree(_ tree: [FileNode], isLeft: Bool, focusPath: String) {
+        // An unreadable-root walk comes back as the root itself marked unexplored (see
+        // `buildTree`), so the cache and the diff know the contents are UNKNOWN rather than
+        // empty. The pane must not render the focused folder nested inside itself, though —
+        // unwrap the marker and show the folder empty, exactly as before the marker existed.
+        var tree = tree
+        if tree.count == 1, let only = tree.first, only.isUnexplored == true, only.id == focusPath {
+            tree = []
+        }
         rawTreeGeneration += 1
         if isLeft {
             rawLeftTree = tree
@@ -499,6 +507,8 @@ extension FileSyncManager {
     /// capped directories come back with `children: []` and `isUnexplored: true` — present and
     /// expandable-looking, but never mistakable for a genuinely empty folder — and nil means
     /// unlimited (subject to the cycle guard and hard depth cap, which mark the same way).
+    /// A root that cannot be LISTED at all (permission denied) comes back as `[root node]`
+    /// marked unexplored — never a bare `[]`, which would read as authoritatively empty.
     ///
     /// On the real filesystem an unlimited walk fans sibling directory subtrees out across
     /// cores at the first two levels that have siblings (`TreeBuilder.maxFanLevel`, bounded
@@ -844,11 +854,19 @@ extension FileSyncManager {
             // (Removed per-node logging)
 
             let rootListing = builder.childURLs(of: url)
-            // The walk root itself has no node to mark unexplored (only its children are
-            // returned), so an unreadable root can only be logged — the tree comes back empty
-            // either way, and the scan-level consumers treat the root as authoritative.
+            // The walk returns the root's CHILDREN, so an unreadable ROOT has no child node to
+            // carry the unexplored marker — a bare [] read downstream as an authoritatively
+            // empty tree, and the diff minted phantom actionable Missing rows for everything
+            // the other side holds (the per-subdirectory marking above never fires for the
+            // root itself). Return the root as a single unexplored node instead: the diff
+            // (via `filesInfo(fromTree:)`), duplicates, and storage all treat it like any
+            // other directory whose contents are unknown, and `adoptRawTree` unwraps the
+            // marker so the panes still render the folder as empty rather than showing it
+            // nested inside itself.
             if rootListing.listingFailed {
                 builder.unreadableLog.note(url.path)
+                let s = builder.stat(at: url) ?? TreeBuilder.ItemStat(isDirectory: true)
+                return [builder.cappedNode(url, s)]
             }
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.

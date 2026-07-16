@@ -82,6 +82,19 @@ public struct FileDiffEngine {
                     // cap): computeDifferences must not read the absent children as "missing".
                     isUnexplored: node.isDirectory && node.isUnexplored == true
                 )
+            } else if node.isDirectory, node.isUnexplored == true {
+                // The walk ROOT itself, marked unexplored: `buildTree` returns the root as a
+                // single unexplored node when its own listing failed (permission denied), so
+                // this side's ENTIRE view is unknown — not empty. Record it under the root key
+                // ("") that `computeDifferences` reads to suppress whole-side Missing rows,
+                // mirroring what `getFilesInDirectory` records on the cold (disk-walk) branch.
+                result[""] = FileInfo(
+                    url: URL(fileURLWithPath: node.id),
+                    modificationDate: node.modificationDate,
+                    fileSize: node.fileSize,
+                    isDirectory: true,
+                    isUnexplored: true
+                )
             }
             for child in node.children ?? [] {
                 add(child)
@@ -170,9 +183,12 @@ public struct FileDiffEngine {
                 var rel = failedURL.path
                 if rel.hasPrefix(basePath) { rel = String(rel.dropFirst(basePath.count)) }
                 if rel.hasPrefix("/") { rel.removeFirst() }
-                if !rel.isEmpty {
-                    unreadableDirKeys.insert(prefix.isEmpty ? rel : prefix + "/" + rel)
-                }
+                // An empty `rel` means the failed directory IS this walk's root: the scan root
+                // itself on the outermost walk (recorded under the root key ""), or a symlinked
+                // directory on a manual descent (whose keyPath is `prefix`). Dropping it — as
+                // this used to — left the whole side reading as authoritatively empty, and the
+                // diff minted phantom Missing rows for everything the other side holds.
+                unreadableDirKeys.insert(rel.isEmpty ? prefix : (prefix.isEmpty ? rel : prefix + "/" + rel))
                 return true
             }
             guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys,
@@ -291,6 +307,13 @@ public struct FileDiffEngine {
                                        fileSize: info.fileSize, isDirectory: true, isUnexplored: true)
             }
         }
+        // The scan root itself has no parent listing to have minted an entry, so an unreadable
+        // root gets a synthetic one under the root key (""). `computeDifferences` reads it to
+        // suppress Missing rows for the WHOLE side — this side's entire view is unknown.
+        if unreadableDirKeys.contains(""), result[""] == nil {
+            result[""] = FileInfo(url: url, modificationDate: nil, fileSize: nil,
+                                  isDirectory: true, isUnexplored: true)
+        }
 
         if unreadableCount > 0 {
             let count = unreadableCount
@@ -338,6 +361,16 @@ public struct FileDiffEngine {
         dateToleranceSeconds: TimeInterval = 1
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
+        // A root-level record (the "" key, minted by `getFilesInDirectory` on the cold branch
+        // and `filesInfo(fromTree:)` on the warm one) marked unexplored means the scan ROOT
+        // itself could not be listed: that side's ENTIRE view is unknown, so no Missing row
+        // may be minted against it — the whole-side counterpart of the per-directory
+        // suppression below. The record is popped either way so the root key never
+        // participates in the passes as an ordinary entry.
+        var leftFilesInfo = leftFilesInfo
+        var rightFilesInfo = rightFilesInfo
+        let leftRootUnreadable = leftFilesInfo.removeValue(forKey: "")?.isUnexplored == true
+        let rightRootUnreadable = rightFilesInfo.removeValue(forKey: "")?.isUnexplored == true
         // Directories whose contents could not be LISTED on one side (permission denied — see
         // `FileInfo.isUnexplored`). An item that exists under such a directory on the OTHER side
         // is not "missing" here: this side's view is unknown, and an actionable Missing row would
@@ -577,8 +610,10 @@ public struct FileDiffEngine {
                     ))
                 }
             } else {
-                // Present on the left, absent from the right map — but if it sits under a
-                // directory the RIGHT side couldn't list, "absent" is unknowable, not missing.
+                // Present on the left, absent from the right map — but if the RIGHT root (or a
+                // right-side ancestor directory) couldn't be listed, "absent" is unknowable,
+                // not missing.
+                if rightRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredRightDirs) != nil { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
@@ -602,8 +637,9 @@ public struct FileDiffEngine {
             if leftFilesInfo[relativePath] == nil
                 && !caseVariantMatchedRightKeys.contains(relativePath)
                 && !nearNameMatchedRightKeys.contains(relativePath) {
-                // Mirror of pass 1: under a directory the LEFT side couldn't list, absence on
-                // the left is unknowable — no phantom Missing row.
+                // Mirror of pass 1: with the LEFT root (or a left-side ancestor directory)
+                // unlistable, absence on the left is unknowable — no phantom Missing row.
+                if leftRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredLeftDirs) != nil { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
