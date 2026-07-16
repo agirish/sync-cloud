@@ -182,6 +182,14 @@ public struct AutomationsLens: View {
                                 rule: rule,
                                 accent: accent,
                                 canPreview: rule.isRunnable && destinationRoot != nil,
+                                // The disabled Preview button's tooltip must name the REAL blocker: a
+                                // complete rule with no focused provider folder doesn't need "a
+                                // condition and destination" — it needs a folder to preview over.
+                                previewHelp: !rule.isRunnable
+                                    ? "Give the rule a condition and destination to preview it"
+                                    : destinationRoot == nil
+                                    ? "Focus a provider folder first — the preview runs over the focused folder"
+                                    : "Preview just this rule over the focused folder",
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
                                 onPreview: { runPreview(only: rule.id) },
                                 onEdit: { editingRule = rule },
@@ -217,7 +225,11 @@ public struct AutomationsLens: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(runnableRuleCount == 0 || destinationRoot == nil)
-                .help(runnableRuleCount == 0
+                // Name the ACTUAL blocker: with no provider root there is nothing to preview over,
+                // and telling the user to add conditions to already-complete rules is a dead end.
+                .help(destinationRoot == nil
+                      ? "Focus a provider folder first — the preview runs over the focused folder."
+                      : runnableRuleCount == 0
                       ? "Add a rule with a condition and a destination to preview it."
                       : "Dry-run the enabled rules over the focused folder in \(provider). A preview — nothing moves until you confirm.")
         }
@@ -497,6 +509,9 @@ private struct AutomationRuleCard: View {
     let rule: AutomationRule
     let accent: Color
     let canPreview: Bool
+    /// The Preview button's tooltip — names the real blocker when disabled (host computes it,
+    /// since only the host knows whether a provider folder is focused).
+    let previewHelp: String
     let onToggle: (Bool) -> Void
     let onPreview: () -> Void
     let onEdit: () -> Void
@@ -506,12 +521,13 @@ private struct AutomationRuleCard: View {
     /// captured closure — the latter trips Swift 6's `@Sendable`-setter check on `Binding(set:)`.
     @State private var isEnabled: Bool
 
-    init(rule: AutomationRule, accent: Color, canPreview: Bool,
+    init(rule: AutomationRule, accent: Color, canPreview: Bool, previewHelp: String,
          onToggle: @escaping (Bool) -> Void, onPreview: @escaping () -> Void,
          onEdit: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.rule = rule
         self.accent = accent
         self.canPreview = canPreview
+        self.previewHelp = previewHelp
         self.onToggle = onToggle
         self.onPreview = onPreview
         self.onEdit = onEdit
@@ -527,6 +543,9 @@ private struct AutomationRuleCard: View {
                 .toggleStyle(.switch)
                 .controlSize(.mini)
                 .labelsHidden()
+                // labelsHidden leaves VoiceOver announcing a bare switch in a card full of
+                // switches — name whose rule this one enables.
+                .accessibilityLabel("Rule \(rule.name.isEmpty ? "Untitled rule" : rule.name) enabled")
                 .padding(.top, 1)
                 .onChange(of: isEnabled) { _, newValue in onToggle(newValue) }
                 .onChange(of: rule.enabled) { _, newValue in
@@ -589,8 +608,7 @@ private struct AutomationRuleCard: View {
         HStack(spacing: 2) {
             Button(action: onPreview) { Image(systemName: AutomationsGlyph.preview) }
                 .disabled(!canPreview)
-                .help(canPreview ? "Preview just this rule over the focused folder"
-                                 : "Give the rule a condition and destination to preview it")
+                .help(previewHelp)
             Button(action: onEdit) { Image(systemName: "pencil") }
                 .help("Edit this rule")
             Button(action: onDelete) { Image(systemName: "trash") }
@@ -612,7 +630,7 @@ private struct ConditionChip: View {
         HStack(spacing: 4) {
             Image(systemName: icon).font(.system(size: 9.5, weight: .semibold))
             Text(text).font(.system(size: 10.5, weight: .medium))
-                .lineLimit(1).truncationMode(.middle)
+                .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 320, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -726,42 +744,58 @@ private struct AutomationDryRunRowView: View {
 // MARK: - Flow layout
 
 /// A minimal wrapping layout: places children left-to-right, breaking to a new line when the next
-/// child won't fit. Used for a rule's condition chips so they wrap inside the card.
+/// child won't fit. Used for a rule's condition chips so they wrap inside the card. Each child's
+/// width is clamped to the container's, so one over-wide chip (a long `mentions` phrase) is
+/// proposed the container width — its truncating Text elides — instead of drawing past the card
+/// border. The geometry lives in ``FlowLayoutMath`` so it's testable without Layout subviews.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
     var lineSpacing: CGFloat = 6
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let maxWidth = proposal.width ?? .infinity
+        FlowLayoutMath.place(sizes: subviews.map { $0.sizeThatFits(.unspecified) },
+                             maxWidth: proposal.width ?? .infinity,
+                             spacing: spacing, lineSpacing: lineSpacing).total
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let placements = FlowLayoutMath.place(sizes: subviews.map { $0.sizeThatFits(.unspecified) },
+                                              maxWidth: bounds.width,
+                                              spacing: spacing, lineSpacing: lineSpacing).placements
+        for (subview, placement) in zip(subviews, placements) {
+            subview.place(at: CGPoint(x: bounds.minX + placement.origin.x,
+                                      y: bounds.minY + placement.origin.y),
+                          anchor: .topLeading, proposal: ProposedViewSize(placement.size))
+        }
+    }
+}
+
+/// The pure line-breaking math behind ``FlowLayout``: given the children's ideal sizes, computes
+/// where each lands and the total footprint. Every width is clamped to `maxWidth` up front, so an
+/// over-wide child can never be placed (or proposed a size) past the container's trailing edge.
+enum FlowLayoutMath {
+    struct Placement: Equatable {
+        let origin: CGPoint
+        let size: CGSize
+    }
+
+    static func place(
+        sizes: [CGSize], maxWidth: CGFloat, spacing: CGFloat, lineSpacing: CGFloat
+    ) -> (placements: [Placement], total: CGSize) {
+        var placements: [Placement] = []
         var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, widest: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+        for ideal in sizes {
+            let size = CGSize(width: min(ideal.width, maxWidth), height: ideal.height)
             if x > 0, x + size.width > maxWidth {
                 y += lineHeight + lineSpacing
                 x = 0
                 lineHeight = 0
             }
+            placements.append(Placement(origin: CGPoint(x: x, y: y), size: size))
             x += size.width + spacing
             lineHeight = max(lineHeight, size.height)
             widest = max(widest, x - spacing)
         }
-        return CGSize(width: min(widest, maxWidth), height: y + lineHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let maxWidth = bounds.width
-        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
-        for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
-            if x > 0, x + size.width > maxWidth {
-                y += lineHeight + lineSpacing
-                x = 0
-                lineHeight = 0
-            }
-            subview.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
-                          anchor: .topLeading, proposal: ProposedViewSize(size))
-            x += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-        }
+        return (placements, CGSize(width: min(widest, maxWidth), height: y + lineHeight))
     }
 }
