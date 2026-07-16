@@ -99,6 +99,11 @@ import Testing
             // cross-folder pair still groups under the marker-vouches-for-its-parent rule.
             dir("/root/work", [file("/root/work/plan-draft.key", modified: Date(timeIntervalSince1970: 1_000_000))]),
             dir("/root/backup", [file("/root/backup/plan-final.key", modified: Date(timeIntervalSince1970: 5_000_000))]),
+            // Versions keeper vs TRANSIENT locations: the newest revision sits in Downloads —
+            // unlike backup/archive, a transient-download location must NOT be penalized, so the
+            // Downloads copy stays the keeper and the stale Documents copy is the one trashed.
+            dir("/root/Documents", [file("/root/Documents/budget copy.xlsx", size: 55_000, modified: Date(timeIntervalSince1970: 1_000_000))]),
+            dir("/root/Downloads", [file("/root/Downloads/budget-v2.xlsx", size: 56_000, modified: Date(timeIntervalSince1970: 2_000_000))]),
             // Two placeholder-hash members (marker + same parent — every OTHER versions signal
             // present): unknown content is not evidence of drift, so NO group may stand up.
             dir("/root/big", [file("/root/big/huge.mp4"), file("/root/big/huge copy.mp4")]),
@@ -129,6 +134,7 @@ import Testing
             "/root/Archive/report.pdf": "HK", "/root/docs/sub/report.pdf": "HK",
             "/root/Archive/arch-only.txt": "UA", "/root/docs/sub/docs-only.txt": "UD",
             "/root/work/plan-draft.key": "P1", "/root/backup/plan-final.key": "P2",
+            "/root/Documents/budget copy.xlsx": "BG1", "/root/Downloads/budget-v2.xlsx": "BG2",
             "/root/big/huge.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge.mp4"),
             "/root/big/huge copy.mp4": DuplicateFinder.unknownSignature(forPath: "/root/big/huge copy.mp4"),
             "/root/mix/draft.docx": DuplicateFinder.unknownSignature(forPath: "/root/mix/draft.docx"),
@@ -153,7 +159,9 @@ import Testing
         //    marker on "IMG_0001 copy.jpg" vouches for its own parent only, so the unrelated
         //    /root/2019 shot never joins (and stays in no group at all);
         //  · plan.key's keeper is the /root/work copy even though the /root/backup copy is newer —
-        //    newestIndex applies the archive penalty first;
+        //    newestIndex applies the archive penalty first — while budget.xlsx keeps the NEWER
+        //    Downloads revision: transient-download locations are not penalized for a versions
+        //    keeper (trashing the Downloads copy would lose the only copy of the new bytes);
         //  · memo.txt carries an unknown-hash member (memo copy.txt, marked `?`) that RIDES ALONG in
         //    a group two real hashes justify — while huge.mp4 (two placeholders, marker AND same
         //    parent) and draft.docx (one placeholder + only one real hash) stand up NO group:
@@ -169,6 +177,7 @@ import Testing
         identical "report.pdf" dir=false reclaim=100000 [/root/docs/sub/report.pdf*, /root/Archive/report.pdf]
         identical "shared.bin" dir=false reclaim=100000 [/root/f1/shared.bin*, /root/f2/shared.bin]
         versions "deck.pdf" dir=false reclaim=60000 [/root/vers/deck-final.pdf*, /root/vers/deck.pdf]
+        versions "budget.xlsx" dir=false reclaim=55000 [/root/Downloads/budget-v2.xlsx*, /root/Documents/budget copy.xlsx]
         versions "img_0001.jpg" dir=false reclaim=52000 [/root/2023/IMG_0001.jpg*, /root/2023/IMG_0001 copy.jpg]
         nameOnly "Projects" dir=true reclaim=0 [/root/x/Projects*, /root/y/Projects]
         """

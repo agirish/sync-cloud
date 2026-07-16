@@ -720,14 +720,33 @@ public enum DuplicateFinder {
         return segs.reduce(0) { $0 + (archiveSegments.contains($1) ? 1 : 0) }
     }
 
-    /// Picks the versions keeper: least "archive-like" location first (same weighting as
-    /// ``chooseKeeper`` — a backup/Archive copy must not be recommended as the one to keep even
-    /// when its mtime is newest, e.g. because a backup tool rewrote it), then the most recently
-    /// modified, then the shallowest path.
-    private static func newestIndex(_ infos: [NodeInfo]) -> Int {
+    /// The location penalty for a VERSIONS keeper. Unlike ``archiveSegments`` (used for
+    /// identical groups, where every copy holds the same bytes and the penalty only picks the
+    /// canonical HOME), this list holds only true archive/backup/trash segments. Versions
+    /// groups' copies hold DIFFERENT bytes and the recommendation trashes the non-keepers — a
+    /// just-downloaded newest revision legitimately sits in Downloads (or tmp/cache), and
+    /// penalizing those transient locations recommended keeping the STALE Documents copy and
+    /// trashing the only copy of the new content. Archive/backup stay penalized: there a
+    /// backup tool's mtime rewrite really does crown the wrong copy.
+    private static let versionsStaleLocationSegments: Set<String> = [
+        "archive", "archives", "old", "backup", "backups", "trash", ".trash"
+    ]
+
+    private static func versionsStaleLocationPenalty(_ path: String) -> Int {
+        let segs = path.split(separator: "/").map { $0.lowercased() }
+        return segs.reduce(0) { $0 + (versionsStaleLocationSegments.contains($1) ? 1 : 0) }
+    }
+
+    /// Picks the versions keeper: least "stale" location first (archive/backup/trash only — a
+    /// backup copy must not be recommended as the one to keep even when its mtime is newest,
+    /// e.g. because a backup tool rewrote it; but a Downloads/tmp copy may well BE the newest
+    /// revision), then the most recently modified, then the shallowest path.
+    /// Internal (not private) so tests can pin the keeper choice directly.
+    static func newestIndex(_ infos: [NodeInfo]) -> Int {
         var best = 0
         for i in 1..<infos.count {
-            let pi = archivePenalty(infos[i].path), pb = archivePenalty(infos[best].path)
+            let pi = versionsStaleLocationPenalty(infos[i].path)
+            let pb = versionsStaleLocationPenalty(infos[best].path)
             if pi != pb {
                 if pi < pb { best = i }
                 continue

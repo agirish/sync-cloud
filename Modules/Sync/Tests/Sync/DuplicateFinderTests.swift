@@ -423,6 +423,54 @@ import Testing
         #expect(groups[0].keeper.path == "/root/Docs/deck-v1.pdf")
     }
 
+    @Test func versionsKeeperDoesNotPenalizeTransientDownloadLocations() {
+        // The newest revision of a drifted document routinely sits in Downloads (just saved from
+        // mail/browser) — penalizing "downloads" like an archive recommended keeping the STALE
+        // Documents copy and trashing the only copy of the new content. Only true archive/backup/
+        // trash segments may demote a versions keeper. Exercises newestIndex directly with the
+        // round-5 scenario: Documents/report.pdf (old) vs Downloads/report-v2.pdf (new, differs).
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        func info(_ path: String, modified: Date, hash: String) -> DuplicateFinder.NodeInfo {
+            DuplicateFinder.NodeInfo(path: path, name: (path as NSString).lastPathComponent,
+                                     isDirectory: false, size: 9000, itemCount: 1,
+                                     modificationDate: modified, depth: 1,
+                                     signature: hash, contentHashes: [hash])
+        }
+        let members = [
+            info("/root/Documents/report.pdf", modified: old, hash: "R-OLD"),
+            info("/root/Downloads/report-v2.pdf", modified: new, hash: "R-NEW"),
+        ]
+        #expect(DuplicateFinder.newestIndex(members) == 1)   // the Downloads copy IS the newest
+
+        // A true backup location still loses even when newest — the trimmed set keeps that pin.
+        let backup = [
+            info("/root/Documents/report.pdf", modified: old, hash: "R-OLD"),
+            info("/root/Backups/report-v2.pdf", modified: new, hash: "R-NEW"),
+        ]
+        #expect(DuplicateFinder.newestIndex(backup) == 0)
+    }
+
+    @Test func versionsGroupKeepsNewestRevisionSittingInDownloads() {
+        // End-to-end: a marker-bearing pair across Documents/Downloads must recommend keeping
+        // the newer Downloads revision, not the stale Documents copy.
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Documents", [file("/root/Documents/budget copy.xlsx", size: 9000, modified: old)]),
+            dir("/root/Downloads", [file("/root/Downloads/budget-v2.xlsx", size: 9500, modified: new)]),
+        ]
+        let hashes = [
+            "/root/Documents/budget copy.xlsx": "B1",
+            "/root/Downloads/budget-v2.xlsx": "B2",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups[0].matchType == .versions)
+        #expect(groups[0].keeper.path == "/root/Downloads/budget-v2.xlsx")
+        #expect(groups[0].recommendedRemovalPaths == ["/root/Documents/budget copy.xlsx"])
+    }
+
     @Test func hasVersionMarkerDetectsStrippedMarkersOnly() {
         #expect(DuplicateFinder.hasVersionMarker("Q3 Report (1).docx"))
         #expect(DuplicateFinder.hasVersionMarker("plan copy.key"))
