@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path
@@ -321,6 +322,39 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(retaught?.destinationTemplate == "/p/Cars/Tesla")
         #expect(manager.automationRules.count == 2)
         #expect(manager.automationRules.contains { $0.name == "Other" })
+    }
+
+    /// Value-unchanged guard: `setAutomationRule` with the already-stored value must be a no-op —
+    /// no re-persist, and (the observable pin) no duplicate "enabled/disabled" audit-log line. The
+    /// card's Toggle only fires on a real flip today, but this is the public seam any future
+    /// external mutator would call, and it must not double-log.
+    @MainActor
+    @Test func settingAnUnchangedEnabledStateDoesNotDoubleLog() async {
+        let suite = "SetRuleNoOp-\(UUID().uuidString)"
+        let manager = manager(withRuleSuite: suite)
+        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+
+        let rule = AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
+                                  destinationTemplate: "Cars/Tesla")
+        manager.upsertAutomationRule(rule)
+
+        // Awaiting a fresh log task first guarantees everything enqueued before it is visible.
+        func logCount(_ message: String) async -> Int {
+            await Logger.shared.debug("set-rule no-op flush marker").value
+            return Logger.shared.entries.filter { $0.message == message }.count
+        }
+        let disabledLine = "Automation rule disabled: “Tesla”"
+        let baseline = await logCount(disabledLine)
+
+        // A real flip logs exactly once…
+        manager.setAutomationRule(id: rule.id, enabled: false)
+        #expect(manager.automationRules.first?.enabled == false)
+        #expect(await logCount(disabledLine) == baseline + 1)
+
+        // …and repeating the same value changes nothing and logs nothing.
+        manager.setAutomationRule(id: rule.id, enabled: false)
+        #expect(manager.automationRules.first?.enabled == false)
+        #expect(await logCount(disabledLine) == baseline + 1)
     }
 
     @MainActor

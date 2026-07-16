@@ -57,10 +57,14 @@ extension FileSyncManager {
         if let removed { Logger.shared.info("Automation rule deleted: “\(removed.name)”") }
     }
 
-    /// Enables/disables a rule (kept, not deleted) and persists.
+    /// Enables/disables a rule (kept, not deleted) and persists. A no-op when the stored value
+    /// already matches: today the card's Toggle only fires on a real flip, but this method is the
+    /// public seam any future caller (CLI, sync-from-elsewhere) would use, and a value-unchanged
+    /// call must not re-persist or write a duplicate "enabled/disabled" line to the audit log.
     public func setAutomationRule(id: UUID, enabled: Bool) {
         ensureAutomationRulesLoaded()
         guard let idx = automationRules.firstIndex(where: { $0.id == id }) else { return }
+        guard automationRules[idx].enabled != enabled else { return }
         automationRules[idx].enabled = enabled
         persistedAutomationRules = automationRules
         Logger.shared.info("Automation rule \(enabled ? "enabled" : "disabled"): “\(automationRules[idx].name)”")
