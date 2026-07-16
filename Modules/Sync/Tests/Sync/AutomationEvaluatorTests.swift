@@ -61,6 +61,13 @@ import Testing
         #expect(!AutomationEvaluator.matches(.largerThanMB(100), facts("small", size: 50_000_000), now: now))
     }
 
+    @Test func sizeThresholdDoesNotOverflowOnAnAbsurdValue() {
+        // A 13+ digit MB value would trap on `mb * bytesPerMB`. It must not crash, and an
+        // unreachable threshold matches nothing (no real file is that large).
+        #expect(!AutomationEvaluator.matches(.largerThanMB(9_999_999_999_999), facts("big", size: Int.max / 2), now: now))
+        #expect(!AutomationEvaluator.matches(.largerThanMB(.max), facts("big", size: Int.max / 2), now: now))
+    }
+
     @Test func untouchedForDaysUsesModificationDate() {
         let old = now.addingTimeInterval(-400 * 86_400)
         let fresh = now.addingTimeInterval(-10 * 86_400)

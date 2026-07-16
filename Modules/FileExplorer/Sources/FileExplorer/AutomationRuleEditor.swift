@@ -379,7 +379,9 @@ struct AutomationRuleEditor: View {
             },
             set: { newValue in
                 switch condition.wrappedValue {
-                case .largerThanMB: condition.wrappedValue = .largerThanMB(max(0, newValue))
+                // Clamp the high end too, so `mb * bytesPerMB` in the evaluator can never overflow
+                // (1_000_000 = bytesPerMB); a 13+ digit paste would otherwise reach the multiply.
+                case .largerThanMB: condition.wrappedValue = .largerThanMB(min(max(0, newValue), Int.max / 1_000_000))
                 case .untouchedForDays: condition.wrappedValue = .untouchedForDays(max(0, newValue))
                 default: break
                 }

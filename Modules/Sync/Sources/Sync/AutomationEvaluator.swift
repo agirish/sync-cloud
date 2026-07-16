@@ -146,7 +146,10 @@ public enum AutomationEvaluator {
         case .kindIs(let kind):
             return kind.matches(fileExtension: facts.fileExtension)
         case .largerThanMB(let mb):
-            return facts.sizeBytes > mb * bytesPerMB
+            // Overflow-safe: an absurd MB value (a 13+ digit paste) would trap on `mb * bytesPerMB`.
+            // An overflowing threshold is larger than any real file, so nothing matches.
+            let (threshold, overflow) = mb.multipliedReportingOverflow(by: bytesPerMB)
+            return !overflow && facts.sizeBytes > threshold
         case .untouchedForDays(let days):
             guard let modified = facts.modificationDate else { return false }
             return now.timeIntervalSince(modified) >= Double(days) * 86_400
