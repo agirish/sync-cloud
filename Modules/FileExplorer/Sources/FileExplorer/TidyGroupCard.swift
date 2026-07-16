@@ -20,6 +20,11 @@ struct TidyGroupCard: View {
     /// chosen redundant copy on the right (the delete candidate). Only surfaced for folder groups;
     /// `var` with a default so the memberwise init keeps it optional for existing call sites/tests.
     var onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in }
+    /// True while this group's merge is in flight (`FileSyncManager.mergingGroupIDs`): the merge
+    /// button becomes an inert "Merging…" indicator and the card's destructive actions disable —
+    /// a second click mid-merge would re-plan against the half-merged keeper and mint " 2"
+    /// copies. `var` with a default so existing call sites/tests are unaffected.
+    var isMerging: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
@@ -348,12 +353,23 @@ struct TidyGroupCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .disabled(isMerging)
             } else if group.matchType.kind == .overlapping {
                 Button(action: onMerge) {
-                    Label("Merge into keeper", systemImage: "arrow.triangle.merge")
+                    if isMerging {
+                        Label {
+                            Text("Merging…")
+                        } icon: {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                    } else {
+                        Label("Merge into keeper", systemImage: "arrow.triangle.merge")
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .disabled(isMerging)
             }
             // Folder groups can be inspected side by side before deciding — identical/overlapping/
             // name-only are all directories. File "Versions" groups have the thumbnail strip instead.
@@ -369,6 +385,7 @@ struct TidyGroupCard: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
+            .disabled(isMerging)   // would drop the group from the list mid-merge
         }
         .padding(.top, 12)
         .padding(.bottom, 4)

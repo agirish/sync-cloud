@@ -311,6 +311,17 @@ extension FileSyncManager {
     @discardableResult
     public func mergeDuplicateGroup(_ group: DuplicateGroup) async -> Bool {
         guard case .overlapping = group.matchType else { return false }
+        // Re-entry guard, independent of any UI disabling: a merge runs for minutes, and a second
+        // call for the same group would re-plan against the half-merged keeper — every unique
+        // file already folded in now "exists" at its destination, so the second pass would mint
+        // " 2" junk copies of all of them. Claimed synchronously on the main actor BEFORE the
+        // first suspension point, so two rapid clicks can never both pass.
+        guard !mergingGroupIDs.contains(group.id) else {
+            Logger.shared.info("Tidy merge: “\(group.name)” is already merging — duplicate request dropped")
+            return false
+        }
+        mergingGroupIDs.insert(group.id)
+        defer { mergingGroupIDs.remove(group.id) }
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): the merge copies into the keeper while Verify All may be hashing it.
         guard !isVerifyAllRunning else {
@@ -322,16 +333,39 @@ extension FileSyncManager {
             banner = .warning("“\(group.keeper.name)” is no longer at its scanned location — rescan before merging.")
             return false
         }
+        // Progress for the minutes-long run, published the way Verify All does it: an NSProgress
+        // on `activeProgress` drives the app-wide ProgressDialog overlay (bar, per-file line,
+        // Cancel). One unit per redundant copy; the current file name rides along as the
+        // additional description from inside the copy loop.
+        let progress = Progress(totalUnitCount: Int64(group.redundantCopies.count))
+        progress.localizedDescription = "Merging “\(group.name)”"
+        progress.isCancellable = true
+        activeProgress = progress
+        defer {
+            // Clear only if still ours: a queued operation may have published its own by now.
+            if activeProgress === progress { activeProgress = nil }
+        }
         let keeperPath = group.keeper.path
         let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
         var totalFolded = 0
         var allTrashed = true
+        var cancelled = false
         // Copies refused at the trash step because their contents changed after the plan was
         // snapshotted — surfaced with a drift-specific warning below, like the keeper drift.
         var driftedCopies: [String] = []
 
         for redundant in group.redundantCopies {
+            // Honor the dialog's Cancel between copies: whatever already landed is undoable and
+            // a retry skips it; the remaining copies stay listed. Nothing is ever trashed for a
+            // copy whose fold didn't complete.
+            if progress.isCancelled {
+                cancelled = true
+                allTrashed = false
+                break
+            }
+            progress.localizedAdditionalDescription = redundant.name
+            defer { progress.completedUnitCount += 1 }
             // Already gone (e.g. from a prior partial merge/retry) — treat as done, don't fail.
             guard fm.fileExists(atPath: redundant.path) else { continue }
             // Defensive: never merge a copy that contains, or is contained by, the keeper. The
@@ -348,13 +382,23 @@ extension FileSyncManager {
             // case-insensitive keeper volume (same reason as the bulk sync path).
             let keeperCaseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: keeperURL)
             let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
+            let progressRef = ProgressRef(progress)   // NSProgress is thread-safe; the ref is the Sendable wrapper
 
-            let outcome: (copied: [CopyItemState], failed: Bool) = await enqueueFileOperation {
+            let outcome: (copied: [CopyItemState], failed: Bool, cancelled: Bool) = await enqueueFileOperation {
                 func reservedKey(_ path: String) -> String { keeperCaseSensitive ? path : path.lowercased() }
                 var copied: [CopyItemState] = []
                 var failed = false
+                var cancelledMidCopy = false
                 var reserved = Set<String>()
                 for step in plan.steps {
+                    // Per-file progress + Cancel between files: already-copied files stay
+                    // (registered for undo below); the copy whose fold is incomplete is
+                    // never trashed.
+                    if progressRef.progress.isCancelled {
+                        cancelledMidCopy = true
+                        break
+                    }
+                    progressRef.progress.localizedAdditionalDescription = step.src.lastPathComponent
                     do {
                         try FileSyncManager.ensureParentDirectoryExists(for: step.dst, fileManager: fm)
                         var dst = step.dst
@@ -372,12 +416,18 @@ extension FileSyncManager {
                         break
                     }
                 }
-                return (copied, failed)
+                return (copied, failed, cancelledMidCopy)
             }
 
             if !outcome.copied.isEmpty {
                 registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm)
                 totalFolded += outcome.copied.count
+            }
+            if outcome.cancelled {
+                // Fold incomplete — this copy must not be trashed; stop here, keep the group.
+                cancelled = true
+                allTrashed = false
+                break
             }
             if outcome.failed {
                 // Leave the redundant copy in place so nothing is trashed after a partial copy;
@@ -410,7 +460,9 @@ extension FileSyncManager {
         // and no error surfaced — otherwise keep the group (retry skips what already landed) and
         // never show a false "Merged" banner over an orphaned folder.
         guard allTrashed, currentError == nil else {
-            if let drifted = driftedCopies.first {
+            if cancelled {
+                banner = .warning("Merge of “\(group.name)” cancelled — unfinished copies were left in place. Everything already merged is undoable with ⌘Z; the group stays listed and a retry skips what landed.")
+            } else if let drifted = driftedCopies.first {
                 banner = .warning("“\(drifted)” changed since it was scanned — it was left in place. Rescan before merging.")
             } else if totalFolded > 0 {
                 banner = .warning("Merged part of “\(group.name)” — some copies were left in place. Review and retry.")

@@ -654,6 +654,92 @@ import Combine
     }
 
     @MainActor
+    @Test func mergeDropsASecondCallForAGroupAlreadyMerging() async throws {
+        // The guard must live in the manager, not the UI: a second call for an in-flight group
+        // is dropped before it can re-plan against the half-merged keeper (and mint " 2" copies).
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        mockFM.virtualDisk["/base/K"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["kfile"])
+        mockFM.virtualDisk["/base/K/kfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: ["rfile"])
+        mockFM.virtualDisk["/base/R/rfile"] = MockFileManager.FileStub(isDirectory: false, attributes: [.size: 5000], contents: nil)
+
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        manager.duplicateGroups = [group]
+        manager.mergingGroupIDs.insert(group.id)   // simulate the in-flight first merge
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(mockFM.trashedPaths.isEmpty, "the dropped call must not touch the disk")
+        #expect(manager.duplicateGroups.count == 1)
+        #expect(manager.mergingGroupIDs.contains(group.id),
+                "the dropped call must not clear the real merge's in-flight marker")
+    }
+
+    @MainActor
+    @Test func concurrentMergeOfTheSameGroupRunsExactlyOnce() async throws {
+        // End-to-end double-click: two merge calls race; exactly one runs, and the keeper never
+        // gains " 2" junk copies from a second plan drawn against the half-merged keeper.
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let rName = "Folded-\(UUID().uuidString)"
+        let redundant = base.appendingPathComponent(rName)
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(redundant.appendingPathComponent("redundant-only.txt"), bytes: 5000, fill: 0x52)
+        defer {
+            let trashed = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash/\(rName)")
+            try? FileManager.default.removeItem(at: trashed)
+        }
+
+        let manager = FileSyncManager()
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant.path, name: rName, isDirectory: true, size: 10000, itemCount: 2,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        async let first = manager.mergeDuplicateGroup(group)
+        async let second = manager.mergeDuplicateGroup(group)
+        let (a, b) = await (first, second)
+
+        #expect(a != b, "exactly one of the two racing calls may run (\(a), \(b))")
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("redundant-only.txt").path))
+        #expect(!FileManager.default.fileExists(atPath: keeper.appendingPathComponent("redundant-only 2.txt").path),
+                "the dropped call must not re-fold already-folded files as \" 2\" copies")
+        #expect(manager.mergingGroupIDs.isEmpty, "the in-flight marker clears when the merge ends")
+    }
+
+    @MainActor
+    @Test func mergeClearsInFlightMarkerOnEveryRefusalPath() async throws {
+        // Even a merge that refuses early (vanished keeper) must not leave the group marked
+        // as merging — that would permanently disable its card.
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        mockFM.virtualDisk["/base/R"] = MockFileManager.FileStub(isDirectory: true, attributes: nil, contents: [])
+        let k = DuplicateCopy(id: "/base/K", name: "K", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 1, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: "/base/R", name: "R", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 1, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "K",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 2500)
+        manager.duplicateGroups = [group]
+
+        _ = await manager.mergeDuplicateGroup(group)
+
+        #expect(manager.mergingGroupIDs.isEmpty)
+    }
+
+    @MainActor
     @Test func mergeKeepsGroupAndAvoidsFalseSuccessWhenTrashFails() async throws {
         let mockFM = MockFileManager()
         mockFM.shouldFailTrash = true                        // Trash-less volume

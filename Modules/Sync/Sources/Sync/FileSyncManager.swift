@@ -202,6 +202,11 @@ public class FileSyncManager: ObservableObject {
     /// `duplicateGroups` publishes so observers of the results always read a matching value;
     /// reset by `clearDuplicates`.
     @Published public internal(set) var duplicateScanSkips = DuplicateScanSkips()
+    /// IDs of duplicate groups whose merge is currently in flight. A merge can run for minutes
+    /// (it re-hashes the keeper, copies unique files, then trashes the folded copy); this both
+    /// guards re-entry — a second click would re-plan against the half-merged keeper and mint
+    /// " 2" junk copies — and drives the Tidy card's disabled/progress state while it runs.
+    @Published public internal(set) var mergingGroupIDs: Set<DuplicateGroup.ID> = []
     /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).
     public var duplicateIgnoreDefaults: UserDefaults = .standard
     /// The in-flight Find Duplicates task, so the UI can cancel a long scan.

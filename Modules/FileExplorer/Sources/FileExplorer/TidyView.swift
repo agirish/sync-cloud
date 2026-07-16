@@ -781,7 +781,8 @@ public struct TidyView: View {
                         onKeepSeparate: { syncManager.keepDuplicateGroupSeparate(group) },
                         onChooseKeeper: { syncManager.setKeeper(for: group.id, to: $0) },
                         onMerge: { merge(group) },
-                        onCompareCopies: { keep, delete in onCompareCopies(keep, delete) }
+                        onCompareCopies: { keep, delete in onCompareCopies(keep, delete) },
+                        isMerging: syncManager.mergingGroupIDs.contains(group.id)
                     )
                     .transition(cardRemoval)
                 }
@@ -1270,6 +1271,10 @@ public struct TidyView: View {
     }
 
     private func merge(_ group: DuplicateGroup) {
+        // Belt over the manager's own re-entry guard: don't even raise the confirm dialog for a
+        // group whose merge is already in flight (the button disables, but the state can flip
+        // between the click and this handler).
+        guard !syncManager.mergingGroupIDs.contains(group.id) else { return }
         let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
         let many = group.redundantCopies.count != 1
         let ok = NativeAlerts.confirmDestructive(
