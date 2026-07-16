@@ -233,9 +233,23 @@ public struct TidyView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
+    /// The duplicate groups after the match-type filter AND the token search. Parses the query and
+    /// walks every group, so it's resolved ONCE per render in `lensBody` and passed down — the
+    /// summary "N of M", the empty-check, the list's ForEach, and its animation key all read the
+    /// same resolved array instead of re-filtering per call site.
     private var filteredGroups: [DuplicateGroup] {
         let query = DuplicateSearch.parse(dupSearchText)
         return syncManager.duplicateGroups.filter { filter.matches($0) && query.matches($0) }
+    }
+
+    /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups (the menu
+    /// used to run a full filter per TidyFilter case on every render).
+    private static func filterCounts(_ groups: [DuplicateGroup]) -> [TidyFilter: Int] {
+        var counts = Dictionary(uniqueKeysWithValues: TidyFilter.allCases.map { ($0, 0) })
+        for group in groups {
+            for f in TidyFilter.allCases where f.matches(group) { counts[f, default: 0] += 1 }
+        }
+        return counts
     }
     private var hasResults: Bool { !syncManager.duplicateGroups.isEmpty }
     private var recommendedCount: Int {
@@ -347,12 +361,17 @@ public struct TidyView: View {
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
                 )
             } else {
+                // Resolve the duplicate search+filter ONCE per render and hand the result down —
+                // `filteredGroups` parses the query and walks all groups, and it used to be
+                // re-evaluated at four call sites per render (summary count, empty-check, ForEach,
+                // animation key).
+                let dupGroups = lens == .duplicates ? filteredGroups : []
                 VStack(spacing: 8) {
                     // Only show the toolbar card when it actually has something (a results summary or
                     // batch action). In the intro / scanning / clean states it would otherwise render
                     // as an empty bar — the lens picker that used to fill it now lives in the top strip.
-                    if toolbarHasContent { toolbarCard }
-                    contentCard
+                    if toolbarHasContent { toolbarCard(dupGroups: dupGroups) }
+                    contentCard(dupGroups: dupGroups)
                 }
                 .padding(LiquidGlass.cardGutter)
             }
@@ -377,7 +396,7 @@ public struct TidyView: View {
 
     // MARK: Toolbar card
 
-    private var toolbarCard: some View {
+    private func toolbarCard(dupGroups: [DuplicateGroup]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Spacer(minLength: 0)
@@ -391,7 +410,7 @@ public struct TidyView: View {
                 }
             }
             if lens == .duplicates, hasResults {
-                summaryRow
+                summaryRow(dupGroups: dupGroups)
                 dupSearchAccessories
             } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
                 // The Filing scan publishes its suggestions once, at the very end, so results are
@@ -525,7 +544,7 @@ public struct TidyView: View {
         }
     }
 
-    private var summaryRow: some View {
+    private func summaryRow(dupGroups: [DuplicateGroup]) -> some View {
         let s = syncManager.duplicateSummary
         return HStack(spacing: 8) {
             scannedFolderChip(syncManager.duplicateScanRoot)
@@ -551,13 +570,13 @@ public struct TidyView: View {
             // "N of M" whenever the search/filter narrows the list (same affordance as Compare's
             // search), so a shortened list is visibly a filtered view, not the whole result.
             if filter != .all || !dupSearchText.isEmpty {
-                Text("\(filteredGroups.count) of \(syncManager.duplicateGroups.count)")
+                Text("\(dupGroups.count) of \(syncManager.duplicateGroups.count)")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
             }
             dupSearchField
-            filterMenu
+            filterMenu(counts: Self.filterCounts(syncManager.duplicateGroups))
         }
     }
 
@@ -688,11 +707,11 @@ public struct TidyView: View {
         reclaimFlashToken &+= 1
     }
 
-    private var filterMenu: some View {
+    private func filterMenu(counts: [TidyFilter: Int]) -> some View {
         Menu {
             Picker("Filter", selection: $filter) {
                 ForEach(TidyFilter.allCases) { f in
-                    Text("\(f.label) (\(count(for: f)))").tag(f)
+                    Text("\(f.label) (\(counts[f] ?? 0))").tag(f)
                 }
             }
             .pickerStyle(.inline)
@@ -703,10 +722,6 @@ public struct TidyView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-    }
-
-    private func count(for f: TidyFilter) -> Int {
-        syncManager.duplicateGroups.filter { f.matches($0) }.count
     }
 
     private var applyAllButton: some View {
@@ -721,10 +736,10 @@ public struct TidyView: View {
     // MARK: Content card
 
     @ViewBuilder
-    private var contentCard: some View {
+    private func contentCard(dupGroups: [DuplicateGroup]) -> some View {
         VStack(spacing: 0) {
             switch lens {
-            case .duplicates: duplicatesContent
+            case .duplicates: duplicatesContent(dupGroups: dupGroups)
             case .rename: renameContent
             case .filing: filingContent
             case .automations: automationsContent
@@ -736,17 +751,17 @@ public struct TidyView: View {
     }
 
     @ViewBuilder
-    private var duplicatesContent: some View {
+    private func duplicatesContent(dupGroups: [DuplicateGroup]) -> some View {
         if syncManager.isFindingDuplicates {
             scanningState
         } else if !syncManager.hasFoundDuplicates {
             introState
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
-        } else if filteredGroups.isEmpty {
+        } else if dupGroups.isEmpty {
             noMatchesState
         } else {
-            groupList
+            groupList(dupGroups: dupGroups)
         }
     }
 
@@ -766,10 +781,10 @@ public struct TidyView: View {
         )
     }
 
-    private var groupList: some View {
+    private func groupList(dupGroups: [DuplicateGroup]) -> some View {
         ScrollView {
             LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                ForEach(filteredGroups) { group in
+                ForEach(dupGroups) { group in
                     TidyGroupCard(
                         group: group,
                         isExpanded: expanded.contains(group.id),
@@ -791,7 +806,7 @@ public struct TidyView: View {
             // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
             // the visible id list so only membership changes animate — expand/collapse and keeper
             // picks (which don't change the id set) stay instant.
-            .animation(listSettle, value: filteredGroups.map(\.id))
+            .animation(listSettle, value: dupGroups.map(\.id))
         }
         .scrollContentBackground(.hidden)
     }
@@ -856,9 +871,20 @@ public struct TidyView: View {
             // filing the last loose file — the card that triggered it is already gone. The rule offer
             // (after a "File here") takes precedence over the legacy override "Remember" prompt.
             if let offer = pendingRuleOffer {
-                ruleOfferPrompt(offer)
+                RuleOfferPromptView(
+                    offer: offer,
+                    accent: glassHue.accentColor,
+                    conditionChoice: $ruleConditionChoice,
+                    onSave: { saveProposedRule(offer) },
+                    onNotNow: { pendingRuleOffer = nil }
+                )
             } else if let prompt = pendingRememberPrompt {
-                rememberOverridePrompt(prompt)
+                RememberOverridePromptView(
+                    prompt: prompt,
+                    accent: glassHue.accentColor,
+                    onRemember: { rememberOverride(prompt) },
+                    onNotNow: { pendingRememberPrompt = nil }
+                )
             }
             Group {
                 if syncManager.isSuggestingFiles {
@@ -905,40 +931,6 @@ public struct TidyView: View {
         )
     }
 
-    /// G2 — "Remember this for files like it?" The correction the user just made (filing into a
-    /// folder that wasn't the suggestion) is the strongest training signal, so surface it as a
-    /// visible, one-tap prompt rather than F3's easy-to-miss NSOpenPanel checkbox.
-    private func rememberOverridePrompt(_ prompt: PendingRememberPrompt) -> some View {
-        let folderName = (prompt.destinationPath as NSString).lastPathComponent
-        return HStack(spacing: 10) {
-            Image(systemName: "memories")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(glassHue.accentColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Remember this for files like “\(prompt.fileName)”?")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(1).truncationMode(.middle)
-                Text("File future matches into “\(folderName)” automatically — you’ll review it next; manage it anytime under Automations.")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Spacer(minLength: 8)
-            Button("Not now") { pendingRememberPrompt = nil }
-                .controlSize(.small)
-            Button("Remember") { rememberOverride(prompt) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(glassHue.accentColor.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(glassHue.accentColor.opacity(0.28), lineWidth: 1))
-        .padding(.horizontal, 12).padding(.top, 12)
-        .transition(.move(edge: .top).combined(with: .opacity))
-    }
-
     /// Learns the correction as an automation (a "mentions" rule), dismisses the prompt, and opens
     /// the learned rule for review so it can be adjusted while it's fresh. `rememberAutomationRule`
     /// is gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
@@ -958,7 +950,7 @@ public struct TidyView: View {
     /// After the user files a loose file, propose an editable Automation rule for files like it —
     /// the deterministic, learn-by-example complement to the AI backend.
     private func offerRule(fileName: String, destinationPath: String) {
-        let rel = relativeToProviderRoot(destinationPath)
+        let rel = RuleOfferLogic.relativeToProviderRoot(destinationPath, providerRoot: automationDestinationRoot)
         guard let proposal = AutomationRuleProposer.propose(fileName: fileName, destinationRelativePath: rel) else { return }
         pendingRememberPrompt = nil   // the new offer supersedes the legacy override prompt
         ruleConditionChoice = proposal.defaultCondition
@@ -974,64 +966,6 @@ public struct TidyView: View {
         syncManager.banner = .success("Rule saved — files matching “\(rule.name)” go to \(rule.destinationTemplate)")
         pendingRuleOffer = nil
         reviewingAutomationRule = rule
-    }
-
-    /// The destination folder as a path relative to the provider root (the rule's template is
-    /// provider-relative).
-    private func relativeToProviderRoot(_ absolutePath: String) -> String {
-        guard let root = automationDestinationRoot, !root.isEmpty else {
-            return (absolutePath as NSString).lastPathComponent
-        }
-        let r = (root as NSString).standardizingPath
-        let p = (absolutePath as NSString).standardizingPath
-        if p == r { return "" }
-        if p.hasPrefix(r + "/") { return String(p.dropFirst(r.count + 1)) }
-        return (absolutePath as NSString).lastPathComponent
-    }
-
-    /// The inline "Save a rule?" offer after a filing move: the proposed match condition with a
-    /// compact picker (name / content / kind) and the destination; Save creates an Automation.
-    private func ruleOfferPrompt(_ offer: RuleOffer) -> some View {
-        let conditions = [offer.proposal.defaultCondition] + offer.proposal.alternatives
-        return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(glassHue.accentColor)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Filed “\(offer.fileName)” → \(offer.proposal.destinationTemplate). Save a rule?")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .lineLimit(2).truncationMode(.middle)
-                HStack(spacing: 6) {
-                    Text("Match:").font(.system(size: 11)).foregroundStyle(.secondary)
-                    ForEach(conditions, id: \.self) { condition in
-                        let on = (ruleConditionChoice == condition)
-                        Button { ruleConditionChoice = condition } label: {
-                            Text(condition.summary)
-                                .font(.system(size: 10.5, weight: on ? .semibold : .regular))
-                                .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(Capsule().fill(on ? glassHue.accentColor.opacity(0.18) : Color.primary.opacity(0.05)))
-                                .overlay(Capsule().strokeBorder(on ? glassHue.accentColor.opacity(0.5) : Color.clear, lineWidth: 0.5))
-                                .foregroundStyle(on ? glassHue.accentColor : Color.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            Spacer(minLength: 8)
-            VStack(spacing: 5) {
-                Button("Save rule") { saveProposedRule(offer) }
-                    .buttonStyle(.borderedProminent).controlSize(.small)
-                Button("Not now") { pendingRuleOffer = nil }
-                    .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(glassHue.accentColor.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .strokeBorder(glassHue.accentColor.opacity(0.28), lineWidth: 1))
-        .padding(.horizontal, 12).padding(.top, 12)
-        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var filingList: some View {
@@ -1296,22 +1230,6 @@ public struct TidyView: View {
     private func displayPath(_ path: String) -> String {
         (path as NSString).abbreviatingWithTildeInPath
     }
-}
-
-/// One pending "remember this override?" prompt (G2) — the loose file just filed and the folder it
-/// went into, enough to seed an F3 rule. Identifiable so the inline prompt can animate in and out.
-private struct PendingRememberPrompt: Identifiable {
-    let id = UUID()
-    let fileName: String
-    let destinationPath: String
-}
-
-/// One pending "save a rule?" offer — the file just filed and the proposed Automation for files like
-/// it. Identifiable so the inline prompt animates in and out.
-private struct RuleOffer: Identifiable {
-    let id = UUID()
-    let fileName: String
-    let proposal: AutomationRuleProposer.Proposal
 }
 
 // MARK: - Reclaim pill (H5)
