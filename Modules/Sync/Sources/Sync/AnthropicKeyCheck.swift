@@ -1,5 +1,19 @@
 import Foundation
 
+/// Minimal async HTTP seam so network-touching helpers (the key check) are testable against a
+/// fake transport. The only conformance outside tests is `URLSession`.
+public protocol HTTPTransport: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: HTTPTransport {
+    /// Exact-signature witness — the stock `data(for:delegate:)`'s defaulted delegate parameter
+    /// keeps it from satisfying the requirement directly.
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await data(for: request, delegate: nil)
+    }
+}
+
 /// Validates an Anthropic API key with a single free, zero-token request (`GET /v1/models`) — so the
 /// user can confirm the key works before relying on it during a scan. Lives in Sync (Foundation
 /// only) so Settings can call it without importing the app.
@@ -14,7 +28,7 @@ public enum AnthropicKeyCheck {
 
     private static let modelsEndpoint = "https://api.anthropic.com/v1/models"
 
-    public static func validate(_ key: String) async -> Result {
+    public static func validate(_ key: String, transport: HTTPTransport = URLSession.shared) async -> Result {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .invalid("No key entered.") }
         guard let url = URL(string: modelsEndpoint) else { return .failed("Bad URL.") }
@@ -26,7 +40,7 @@ public enum AnthropicKeyCheck {
         request.setValue(CloudFilingProtocol.apiVersion, forHTTPHeaderField: "anthropic-version")
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await transport.data(for: request)
             guard let http = response as? HTTPURLResponse else { return .failed("No response.") }
             switch http.statusCode {
             case 200, 429:            // 429 = authenticated but rate-limited → the key is valid

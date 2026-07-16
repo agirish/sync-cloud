@@ -15,33 +15,36 @@ public enum AnthropicKeychain {
     }
 
     /// Stores (or replaces) the key. An empty string deletes it.
-    public static func store(_ key: String) {
+    public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { delete(); return }
+        guard !trimmed.isEmpty else { delete(from: store); return }
         let data = Data(trimmed.utf8)
         var query = baseQuery()
-        SecItemDelete(query as CFDictionary)   // idempotent replace
+        store.delete(query)   // idempotent replace
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(query as CFDictionary, nil)
+        store.add(query)
     }
 
     /// The stored key, or nil when none is set.
-    public static func read() -> String? {
+    public static func read(from store: KeychainStore = SecItemKeychainStore()) -> String? {
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        let (status, result) = store.copyMatching(query)
+        guard status == errSecSuccess,
               let data = result as? Data, let key = String(data: data, encoding: .utf8),
               !key.isEmpty else { return nil }
         return key
     }
 
-    public static func delete() {
-        SecItemDelete(baseQuery() as CFDictionary)
+    public static func delete(from store: KeychainStore = SecItemKeychainStore()) {
+        store.delete(baseQuery())
     }
 
     /// True when a non-empty key is stored.
-    public static var hasKey: Bool { read() != nil }
+    public static var hasKey: Bool { hasKey(in: SecItemKeychainStore()) }
+
+    /// `hasKey` against an injected store (the testable spelling of the property above).
+    public static func hasKey(in store: KeychainStore) -> Bool { read(from: store) != nil }
 }
