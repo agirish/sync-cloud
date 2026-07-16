@@ -7,6 +7,10 @@ extension FileSyncManager {
     
     typealias CopyItemState = (source: URL, destination: URL, overwritten: URL?)
     typealias MoveItemState = (from: URL, to: URL, overwritten: URL?)
+    /// One deleted item awaiting a possible undo-restore: where it lived, and where the Trash
+    /// holds its backup. Only items that actually reached the Trash are represented — a delete
+    /// that fell through to a permanent remove has nothing to restore.
+    typealias RestoreItemState = (original: URL, trashedBackup: URL)
 
     /// Error raised when an undo/restore would land on a location that a different item has taken
     /// since the original operation — reported instead of silently overwriting the occupant.
@@ -129,11 +133,15 @@ extension FileSyncManager {
     }
 
     /// Pre-resolved convenience; see `registerCopyUndo(items:actionName:fileManager:)`.
-    /// `trashedItems[i]` is the Trash location of `urls[i]` (nil when it wasn't trashed).
+    /// `trashedItems[i]` is the Trash location of `urls[i]` (nil when it wasn't trashed —
+    /// such items have no backup to restore, so they're dropped from the undo state here).
     func registerRestoreItems(urls: [URL], trashedItems: [URL?], actionName: String, fileManager fm: FileManaging = FileManager.default) {
-        let resolver = AsyncValueResolver<[URL?]>()
-        Task { await resolver.resolve(trashedItems) }
-        registerRestoreItems(urls: urls, trashResolver: resolver, actionName: actionName, fileManager: fm)
+        let items: [RestoreItemState] = zip(urls, trashedItems).compactMap { original, trashed in
+            trashed.map { (original: original, trashedBackup: $0) }
+        }
+        let resolver = AsyncValueResolver<[RestoreItemState]>()
+        Task { await resolver.resolve(items) }
+        registerRestoreItems(stateResolver: resolver, actionName: actionName, fileManager: fm)
     }
 
     func registerCopyUndo(stateResolver: AsyncValueResolver<[CopyItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
@@ -417,31 +425,33 @@ extension FileSyncManager {
         undoManager?.setActionName("New Folder")
     }
     
-    /// Registers the REDO of a delete: the handler re-trashes `urls`. Its only caller is the
+    /// Registers the REDO of a delete: the handler re-trashes the URLs its paired undo actually
+    /// restored — `urlsResolver` is resolved by that undo AFTER its restore loop, from only the
+    /// successful restores, so a REFUSED restore (a different item occupied the original path)
+    /// can never put the unrelated occupant on the redo's trash list. Its only caller is the
     /// delete-undo handler in `registerRestoreItems`, so the audit label is always "Redo".
-    func registerTrashItems(urls: [URL], actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    func registerTrashItems(urlsResolver: AsyncValueResolver<[URL]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Redo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            let nextResolver = AsyncValueResolver<[URL?]>()
-            target.registerRestoreItems(urls: urls, trashResolver: nextResolver, actionName: actionName, fileManager: fm)
-            
+            let nextResolver = AsyncValueResolver<[RestoreItemState]>()
+            target.registerRestoreItems(stateResolver: nextResolver, actionName: actionName, fileManager: fm)
+
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let fmLocal = fm
-                        var trashedItems: [URL?] = []
+                        let urls = await urlsResolver.get()
+                        var trashedItems: [RestoreItemState] = []
                         for url in urls {
                             var t: NSURL?
                             if fmLocal.fileExists(atPath: url.path), (try? fmLocal.trashItem(at: url, resultingItemURL: &t)) != nil, let trashed = t as? URL {
-                                trashedItems.append(trashed)
-                            } else {
-                                trashedItems.append(nil)
+                                trashedItems.append((original: url, trashedBackup: trashed))
                             }
                         }
                         await nextResolver.resolve(trashedItems)
-                        logger.info("Redo (\(actionName)): trashed \(trashedItems.compactMap { $0 }.count) of \(urls.count) item(s)")
+                        logger.info("Redo (\(actionName)): trashed \(trashedItems.count) of \(urls.count) item(s)")
                 }
             }
         }
@@ -449,40 +459,49 @@ extension FileSyncManager {
     }
 
     /// Registers the UNDO of a delete: the handler restores each item from its Trash location.
-    func registerRestoreItems(urls: [URL], trashResolver: AsyncValueResolver<[URL?]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
+    /// The redo it registers re-trashes ONLY what this undo actually restored — the redo URL list
+    /// is resolved AFTER the restore loop (mirroring `registerMoveUndo`, "a refused item must
+    /// never be in redoParams"): a restore refused because a DIFFERENT item took the original
+    /// path leaves that occupant in place, and a redo that blindly re-trashed the full original
+    /// URL list would trash it.
+    func registerRestoreItems(stateResolver: AsyncValueResolver<[RestoreItemState]>, actionName: String, fileManager fm: FileManaging = FileManager.default) {
         invalidateUndoableBanner()
         undoManager?.registerUndo(withTarget: self) { target in
             Logger.shared.info("User triggered Undo: \(actionName)")
             let logger = Logger.shared // captured on the main actor; its methods are nonisolated
-            target.registerTrashItems(urls: urls, actionName: actionName, fileManager: fm)
-            
+            let redoURLResolver = AsyncValueResolver<[URL]>()
+            target.registerTrashItems(urlsResolver: redoURLResolver, actionName: actionName, fileManager: fm)
+
             target.preCountFileOperation()
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
-                    let trashedItems = await trashResolver.get()
+                    let items = await stateResolver.get()
                     var restored = 0
                     var restoreFailures = 0
-                    for (idx, targetURL) in urls.enumerated() {
-                        if let trashedURL = trashedItems[idx] {
-                            try? fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-                            if fm.fileExists(atPath: targetURL.path) {
-                                // A different item now occupies the deleted item's location. Restoring
-                                // from Trash here would silently replace-and-Trash it (untracked by
-                                // Redo). Refuse and report; the item stays in the Trash, recoverable.
+                    var restoredURLs: [URL] = []
+                    for item in items {
+                        try? fm.createDirectory(at: item.original.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        if fm.fileExists(atPath: item.original.path) {
+                            // A different item now occupies the deleted item's location. Restoring
+                            // from Trash here would silently replace-and-Trash it (untracked by
+                            // Redo). Refuse and report; the item stays in the Trash, recoverable —
+                            // and stays OUT of redoURLs, so a redo can't trash the occupant either.
+                            restoreFailures += 1
+                            await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
+                        } else {
+                            do {
+                                _ = try FileSyncManager.safeMoveItem(at: item.trashedBackup, to: item.original, fileManager: fm)
+                                restored += 1
+                                // Only a restore that actually happened is redoable.
+                                restoredURLs.append(item.original)
+                            } catch {
                                 restoreFailures += 1
-                                await FileSyncManager.reportUndoRestoreFailure(of: targetURL, from: trashedURL, actionName: actionName, error: FileSyncManager.restoreTargetOccupiedError, on: target)
-                            } else {
-                                do {
-                                    _ = try FileSyncManager.safeMoveItem(at: trashedURL, to: targetURL, fileManager: fm)
-                                    restored += 1
-                                } catch {
-                                    restoreFailures += 1
-                                    await FileSyncManager.reportUndoRestoreFailure(of: targetURL, from: trashedURL, actionName: actionName, error: error, on: target)
-                                }
+                                await FileSyncManager.reportUndoRestoreFailure(of: item.original, from: item.trashedBackup, actionName: actionName, error: error, on: target)
                             }
                         }
                     }
-                    logger.info("Undo (\(actionName)): restored \(restored) of \(urls.count) deleted item(s) from Trash, \(restoreFailures) restore failure(s)")
+                    await redoURLResolver.resolve(restoredURLs)
+                    logger.info("Undo (\(actionName)): restored \(restored) of \(items.count) deleted item(s) from Trash, \(restoreFailures) restore failure(s)")
                 }
             }
         }
