@@ -553,7 +553,8 @@ public struct LogViewer: View {
 }
 
 /// An atomic row view rendering a single LogEntry with color-coded severity icons.
-private struct LogEntryRow: View {
+/// Internal (not private) so the snapshot tests can pin the severity color/icon pairings.
+struct LogEntryRow: View {
     let entry: LogEntry
     /// List-density setting (H7): comfortable keeps the two-line pill/time-over-message layout
     /// exactly; compact collapses to a single truncating baseline row and drops the Location tail.

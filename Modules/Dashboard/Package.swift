@@ -12,7 +12,10 @@ let package = Package(
         .package(path: "../Events"),
         .package(path: "../FileExplorer"),
         .package(path: "../Settings"),
-        .package(path: "../Design")
+        .package(path: "../Design"),
+        // Test-only: visual snapshot regression net. The library product below does NOT
+        // depend on it — only the test target links SnapshotTesting.
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0")
     ],
     targets: [
         .target(
@@ -20,7 +23,10 @@ let package = Package(
             dependencies: ["Sync", "Events", "FileExplorer", "Settings", "Design"]),
         .testTarget(
             name: "DashboardTests",
-            dependencies: ["Dashboard", "Sync", "Events", "Design"],
+            dependencies: [
+                "Dashboard", "Sync", "Events", "Design",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+            ],
             path: "Tests/Dashboard")
     ]
 )

@@ -44,9 +44,19 @@ import Settings
         manager.clipboardIsCut = true
         
         handler.pasteItems([node], toPath: dstDir.path, isCut: true)
-        await waitForOperationsToFinish(manager)
-        
+
+        // pasteItems spawns a Task. `waitForOperationsToFinish` alone is racy here: it polls a
+        // counter whose 0 means both "not started yet" and "finished", so when the main actor is
+        // contended (e.g. the snapshot suite rendering offscreen in a parallel test run) the
+        // spawned Task can start only after the counter-wait has already returned. Wait for the
+        // operation's observable outcome first — the same pattern the moveItems test uses.
         let movedFile = dstDir.appendingPathComponent(node.name)
+        for _ in 0..<200 where !(FileManager.default.fileExists(atPath: movedFile.path)
+                                 && manager.clipboardNodes.isEmpty) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        await waitForOperationsToFinish(manager)
+
         #expect(FileManager.default.fileExists(atPath: movedFile.path))
         #expect(!FileManager.default.fileExists(atPath: srcFile.path))
         #expect(manager.clipboardNodes.isEmpty)
