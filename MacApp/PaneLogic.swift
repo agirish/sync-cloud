@@ -3,6 +3,56 @@ import FileExplorer
 import Foundation
 import Sync
 
+/// The @AppStorage provider-id writes needed to repoint the Compare panes at target providers,
+/// plus how many of ContentView's id `onChange` handlers those writes will fire.
+///
+/// Every programmatic pane retarget (pane swap, `compareCopies`, `restoreCompareState`) must
+/// suppress the id onChanges its writes trigger — otherwise the handlers clear the Tidy results
+/// and reset navigation, sabotaging the retarget. The suppression protocol is a hand-counted
+/// contract: exactly one `pendingSwapProviderChanges` unit per id that ACTUALLY changes (SwiftUI's
+/// `onChange` never fires for an equal-value write), or the counter strands and silently swallows
+/// the user's next real provider switches. This plan is that count made pure: the writers apply
+/// `assignments` and seed the counter with `suppressCount`, so the two can't drift.
+struct ProviderPinPlan: Equatable {
+    enum Side: Equatable {
+        case left
+        case right
+    }
+
+    /// One id write that really changes the stored value (an equal-value write is omitted —
+    /// it neither fires an onChange nor needs suppressing).
+    struct Assignment: Equatable {
+        let side: Side
+        let providerId: String
+    }
+
+    /// The id writes to perform, left before right (matching the historical write order of
+    /// every call site).
+    let assignments: [Assignment]
+
+    /// How many id onChanges the assignments will fire — one per real change. This is what the
+    /// writer adds to `pendingSwapProviderChanges` BEFORE applying the assignments.
+    var suppressCount: Int { assignments.count }
+
+    /// Plans the retarget from the panes' current @AppStorage ids to the target ids, keeping
+    /// only the writes that change something.
+    static func make(
+        currentLeft: String,
+        currentRight: String,
+        targetLeft: String,
+        targetRight: String
+    ) -> ProviderPinPlan {
+        var assignments: [Assignment] = []
+        if currentLeft != targetLeft {
+            assignments.append(Assignment(side: .left, providerId: targetLeft))
+        }
+        if currentRight != targetRight {
+            assignments.append(Assignment(side: .right, providerId: targetRight))
+        }
+        return ProviderPinPlan(assignments: assignments)
+    }
+}
+
 /// Pure pane-related decision rules extracted from ContentView and its pane delegates so
 /// they are unit-testable (the views delegate here and keep only state plumbing).
 enum PaneLogic {

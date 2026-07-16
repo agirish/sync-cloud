@@ -668,12 +668,16 @@ struct ContentView: View {
             rightProviderId: rightProviderId
         )
         // Both ids change together (unless the panes already share a provider, in which case
-        // neither onChange fires) — seed the suppression counter accordingly.
-        if leftProviderId != rightProviderId {
-            pendingSwapProviderChanges = 2
+        // the plan is empty and neither onChange fires) — seed the suppression counter with the
+        // plan's exact change count. `=` rather than `+=`, preserving the swap's historical
+        // reset semantics.
+        let plan = ProviderPinPlan.make(
+            currentLeft: leftProviderId, currentRight: rightProviderId,
+            targetLeft: swapped.leftProviderId, targetRight: swapped.rightProviderId)
+        if !plan.assignments.isEmpty {
+            pendingSwapProviderChanges = plan.suppressCount
         }
-        leftProviderId = swapped.leftProviderId
-        rightProviderId = swapped.rightProviderId
+        applyProviderPinAssignments(plan)
         refreshAction()
     }
 
@@ -972,14 +976,11 @@ struct ContentView: View {
 
         // Suppress the id onChange for each id that actually changes, so neither clears the Tidy
         // duplicate results nor resets the focus applied just below.
-        if leftProviderId != providerId {
-            pendingSwapProviderChanges += 1
-            leftProviderId = providerId
-        }
-        if rightProviderId != providerId {
-            pendingSwapProviderChanges += 1
-            rightProviderId = providerId
-        }
+        let plan = ProviderPinPlan.make(
+            currentLeft: leftProviderId, currentRight: rightProviderId,
+            targetLeft: providerId, targetRight: providerId)
+        pendingSwapProviderChanges += plan.suppressCount
+        applyProviderPinAssignments(plan)
         // The suppression above also skips resetNavigation's comparison invalidation, so drop the
         // OLD comparison's differences here — they carry absolute paths for roots the panes are
         // about to stop showing, and would stay actionable until the re-diff lands. Targeted so
@@ -995,6 +996,18 @@ struct ContentView: View {
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
         selectedBottomTab = .differences
         refreshAction()
+    }
+
+    /// Applies a `ProviderPinPlan`'s id writes, left before right. The caller must seed
+    /// `pendingSwapProviderChanges` with `plan.suppressCount` FIRST — the plan contains only
+    /// writes that really change an id, so each one fires exactly one onChange to suppress.
+    private func applyProviderPinAssignments(_ plan: ProviderPinPlan) {
+        for assignment in plan.assignments {
+            switch assignment.side {
+            case .left: leftProviderId = assignment.providerId
+            case .right: rightProviderId = assignment.providerId
+            }
+        }
     }
 
     /// `full` expressed relative to `root` (`""` when they're equal), or nil when `full` is neither
@@ -1679,14 +1692,11 @@ struct ContentView: View {
     /// Ending any active guided review is the reducer's job (it always pairs `.endGuidedReview` with
     /// `.restoreCompareState`), so it is deliberately NOT done here.
     private func restoreCompareState(_ saved: SavedCompareState) {
-        if leftProviderId != saved.leftProviderId {
-            pendingSwapProviderChanges += 1
-            leftProviderId = saved.leftProviderId
-        }
-        if rightProviderId != saved.rightProviderId {
-            pendingSwapProviderChanges += 1
-            rightProviderId = saved.rightProviderId
-        }
+        let plan = ProviderPinPlan.make(
+            currentLeft: leftProviderId, currentRight: rightProviderId,
+            targetLeft: saved.leftProviderId, targetRight: saved.rightProviderId)
+        pendingSwapProviderChanges += plan.suppressCount
+        applyProviderPinAssignments(plan)
         // Same targeted invalidation as compareCopies: the review's diff of the two copies must
         // not stay actionable while the restored panes' trees load (the suppression above skips
         // the full reset that would normally clear it — and would also wipe the Tidy results).
