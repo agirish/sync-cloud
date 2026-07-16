@@ -523,6 +523,28 @@ extension FileSyncManager {
                 /// Metadata re-fetched from a symlink's target (type keys stay on the link).
                 let symlinkTargetKeySet: Set<URLResourceKey>
 
+                /// Once-per-scan logging for unreadable (permission-denied) directories. A shared
+                /// reference across the fan-out's branch copies of the (value-type) builder; the
+                /// lock makes the "log only the first" decision race-free. Per-directory logging
+                /// would spam a scan of a subtree with thousands of denied entries.
+                final class UnreadableListingLog: @unchecked Sendable {
+                    private let lock = NSLock()
+                    private var logged = false
+                    func note(_ path: String) {
+                        lock.lock()
+                        let first = !logged
+                        logged = true
+                        lock.unlock()
+                        guard first else { return }
+                        // Hop to the main actor for the logger, same as the walk's other
+                        // detached-context log sites.
+                        Task { @MainActor in
+                            Logger.shared.warning("Scan: could not list “\(path)” (permission denied or unreadable) — shown as unexplored, not empty; further unreadable directories in this scan are not logged individually")
+                        }
+                    }
+                }
+                let unreadableLog = UnreadableListingLog()
+
                 init(fileManager: FileManaging, sortOption: SortOption, maxDepth: Int?) {
                     self.fileManager = fileManager
                     self.sortOption = sortOption
@@ -588,7 +610,12 @@ extension FileSyncManager {
                 /// Immediate children of a directory. For the real filesystem this batch-prefetches
                 /// child metadata in a single call; for injected mocks it reconstructs child URLs from
                 /// the enumerator names exactly as before.
-                func childURLs(of dirURL: URL) -> [URL] {
+                ///
+                /// `listingFailed` is true when the directory could not be LISTED at all (permission
+                /// denied, I/O error) as opposed to being legitimately empty. Both used to come back
+                /// as a bare `[]`, so a permission-denied directory cached as a plain empty node and
+                /// the diff minted phantom actionable "Missing" rows for its (invisible) contents.
+                func childURLs(of dirURL: URL) -> (urls: [URL], listingFailed: Bool) {
                     if let realFm = fileManager as? FileManager {
                         // Fast path: one call prefetches every child's metadata so buildNode's
                         // resourceValues are cache hits. The URL-based API does not traverse a
@@ -596,7 +623,7 @@ extension FileSyncManager {
                         // symlinks, as the tree always has) when it yields nothing.
                         if let prefetched = try? realFm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: metadataKeys, options: []) {
                             if !prefetched.isEmpty {
-                                return prefetched
+                                return (prefetched, false)
                             }
                             // An empty result is either a genuinely empty directory or a symlinked
                             // directory the URL-based API refused to traverse. Only the symlink case
@@ -605,19 +632,24 @@ extension FileSyncManager {
                             // cheaper than a second directory listing.
                             let isSymlink = (try? dirURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) ?? false
                             if !isSymlink {
-                                return prefetched
+                                return (prefetched, false)
                             }
                         }
-                        let names = (try? realFm.contentsOfDirectory(atPath: dirURL.path)) ?? []
-                        return names.map { dirURL.appendingPathComponent($0) }
+                        do {
+                            let names = try realFm.contentsOfDirectory(atPath: dirURL.path)
+                            return (names.map { dirURL.appendingPathComponent($0) }, false)
+                        } catch {
+                            return ([], true)
+                        }
                     } else {
                         var urls: [URL] = []
-                        if let enumerator = fileManager.enumerator(at: dirURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) {
-                            for case let u as URL in enumerator {
-                                urls.append(dirURL.appendingPathComponent(u.lastPathComponent))
-                            }
+                        guard let enumerator = fileManager.enumerator(at: dirURL, includingPropertiesForKeys: nil, options: [.skipsSubdirectoryDescendants], errorHandler: nil) else {
+                            return ([], true)
                         }
-                        return urls
+                        for case let u as URL in enumerator {
+                            urls.append(dirURL.appendingPathComponent(u.lastPathComponent))
+                        }
+                        return (urls, false)
                     }
                 }
 
@@ -723,7 +755,16 @@ extension FileSyncManager {
                     }
                     var branchVisited = visited
                     branchVisited.insert(identity)
-                    var children = await walkChildren(childURLs(of: fullURL), depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
+                    let listing = childURLs(of: fullURL)
+                    // A directory whose LISTING failed (permission denied, I/O error) is not an
+                    // empty directory: mark it unexplored — the same shape as the depth cap — so
+                    // cache consumers and the diff never mistake "couldn't look" for "empty" and
+                    // mint phantom Missing rows for contents nobody could see.
+                    if listing.listingFailed {
+                        unreadableLog.note(fullURL.path)
+                        return cappedNode(fullURL, s)
+                    }
+                    var children = await walkChildren(listing.urls, depth: depth + 1, fanLevel: fanLevel, visited: branchVisited)
                     children = FileSyncManager.sortLevel(nodes: children, by: sortOption)
                     return folderNode(fullURL, s, children: children)
                 }
@@ -802,11 +843,17 @@ extension FileSyncManager {
             // Batch logging to avoid MainActor overhead in recursion
             // (Removed per-node logging)
 
-            let rootChildURLs = builder.childURLs(of: url)
+            let rootListing = builder.childURLs(of: url)
+            // The walk root itself has no node to mark unexplored (only its children are
+            // returned), so an unreadable root can only be logged — the tree comes back empty
+            // either way, and the scan-level consumers treat the root as authoritative.
+            if rootListing.listingFailed {
+                builder.unreadableLog.note(url.path)
+            }
             // Seed the walk root's identity so a symlink pointing back at the root is
             // recognized as a cycle immediately.
             let visited: Set<TreeBuilder.DirectoryIdentity> = [builder.directoryIdentity(of: url)]
-            var rootChildren = await builder.walkChildren(rootChildURLs, depth: 1, fanLevel: 0, visited: visited)
+            var rootChildren = await builder.walkChildren(rootListing.urls, depth: 1, fanLevel: 0, visited: visited)
             rootChildren = FileSyncManager.sortLevel(nodes: rootChildren, by: sortOption)
             return rootChildren
         }

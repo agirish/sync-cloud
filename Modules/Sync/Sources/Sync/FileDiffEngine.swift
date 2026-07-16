@@ -15,6 +15,22 @@ public struct FileDiffEngine {
         public let fileSize: Int?
         /// True if the item is a directory.
         public let isDirectory: Bool
+        /// True for a directory whose contents could NOT be listed (permission denied, I/O
+        /// error) — this side's view of what's inside is UNKNOWN, not empty. The diff must not
+        /// mint "Missing" rows for the other side's contents of such a directory: accepting one
+        /// would copy files into a folder nobody can read (or worse, "restore" content that was
+        /// never gone). Mirrors `FileNode.isUnexplored` so the warm (tree) and cold (disk walk)
+        /// scan branches agree.
+        public let isUnexplored: Bool
+
+        public init(url: URL, modificationDate: Date?, fileSize: Int?, isDirectory: Bool,
+                    isUnexplored: Bool = false) {
+            self.url = url
+            self.modificationDate = modificationDate
+            self.fileSize = fileSize
+            self.isDirectory = isDirectory
+            self.isUnexplored = isUnexplored
+        }
     }
 
     private static func resolveTypeMismatch(
@@ -61,7 +77,10 @@ public struct FileDiffEngine {
                     url: URL(fileURLWithPath: node.id),
                     modificationDate: node.modificationDate,
                     fileSize: node.fileSize,
-                    isDirectory: node.isDirectory
+                    isDirectory: node.isDirectory,
+                    // Carry the walk's "couldn't look inside" marker (permission denied, cycle
+                    // cap): computeDifferences must not read the absent children as "missing".
+                    isUnexplored: node.isDirectory && node.isUnexplored == true
                 )
             }
             for child in node.children ?? [] {
@@ -91,6 +110,12 @@ public struct FileDiffEngine {
         var unreadableCount = 0
         var unreadableSamples: [String] = []
         let maxIndividuallyLogged = 3
+        // Relative keys of directories the enumerator could not descend into (permission
+        // denied): their entries are re-marked `isUnexplored` after the walk, so the diff knows
+        // this side's view of their contents is UNKNOWN — not empty. Without this the cold
+        // (disk-walk) branch silently skipped the subtree and the other side's files showed up
+        // as phantom actionable "Missing" rows.
+        var unreadableDirKeys = Set<String>()
 
         /// Stable identity of the directory a URL ultimately refers to (through symlinks), for
         /// the symlink-descent cycle guard below — the disk-walk counterpart of the tree walk's
@@ -119,9 +144,6 @@ public struct FileDiffEngine {
         let symlinkDepthCap = 64   // mirrors TreeBuilder.hardDepthCap, bounding pathological symlink fan-out
 
         func walk(_ rootURL: URL, prefix: String, branchVisited: Set<String>) throws {
-            guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys, options: []) else {
-                return
-            }
             var basePath = rootURL.path
             if fileManager is FileManager {
                 // The real enumerator yields canonical, symlink-resolved URLs (/private/var/...), so a
@@ -132,6 +154,30 @@ public struct FileDiffEngine {
                 if let canonicalPath = try? rootURL.resourceValues(forKeys: [.canonicalPathKey]).canonicalPath {
                     basePath = canonicalPath
                 }
+            }
+
+            // The error handler fires when the enumerator cannot descend into a directory
+            // (permission denied) or read an entry. A nil handler silently SKIPPED the subtree —
+            // the cold branch's counterpart of the tree walk's unexplored marking — so record the
+            // failure into the same aggregation the per-entry catch feeds, and remember the
+            // directory so its map entry is re-marked unexplored after the walk. Returning true
+            // keeps the rest of the walk going: one locked folder must not abort the whole scan.
+            let recordUnreadable: (URL, Error) -> Bool = { failedURL, error in
+                unreadableCount += 1
+                if unreadableSamples.count < maxIndividuallyLogged {
+                    unreadableSamples.append("Error enumerating \(failedURL): \(error)")
+                }
+                var rel = failedURL.path
+                if rel.hasPrefix(basePath) { rel = String(rel.dropFirst(basePath.count)) }
+                if rel.hasPrefix("/") { rel.removeFirst() }
+                if !rel.isEmpty {
+                    unreadableDirKeys.insert(prefix.isEmpty ? rel : prefix + "/" + rel)
+                }
+                return true
+            }
+            guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: keys,
+                                                          options: [], errorHandler: recordUnreadable) else {
+                return
             }
 
             for case let fileURL as URL in enumerator {
@@ -237,6 +283,15 @@ public struct FileDiffEngine {
 
         try walk(url, prefix: "", branchVisited: [canonicalIdentity(url)])
 
+        // Re-mark the directories whose descent failed: their entry was added while listing the
+        // (readable) parent, but what's inside is unknown, not absent.
+        for key in unreadableDirKeys {
+            if let info = result[key], info.isDirectory, !info.isUnexplored {
+                result[key] = FileInfo(url: info.url, modificationDate: info.modificationDate,
+                                       fileSize: info.fileSize, isDirectory: true, isUnexplored: true)
+            }
+        }
+
         if unreadableCount > 0 {
             let count = unreadableCount
             let samples = unreadableSamples
@@ -283,6 +338,17 @@ public struct FileDiffEngine {
         dateToleranceSeconds: TimeInterval = 1
     ) -> [FileDifference] {
         var diffs: [FileDifference] = []
+        // Directories whose contents could not be LISTED on one side (permission denied — see
+        // `FileInfo.isUnexplored`). An item that exists under such a directory on the OTHER side
+        // is not "missing" here: this side's view is unknown, and an actionable Missing row would
+        // offer to copy into (or "restore" from) a folder nobody could read. Rows under these
+        // ancestors are suppressed in both passes below.
+        let unexploredLeftDirs = Set(leftFilesInfo.compactMap { key, info in
+            info.isDirectory && info.isUnexplored ? key : nil
+        })
+        let unexploredRightDirs = Set(rightFilesInfo.compactMap { key, info in
+            info.isDirectory && info.isUnexplored ? key : nil
+        })
         // Folders that exist on one side only, per direction. Their descendants are collapsed
         // into the folder's own entry below (a folder copy is recursive, so the descendants
         // carry no independent action).
@@ -511,6 +577,9 @@ public struct FileDiffEngine {
                     ))
                 }
             } else {
+                // Present on the left, absent from the right map — but if it sits under a
+                // directory the RIGHT side couldn't list, "absent" is unknowable, not missing.
+                if topMostAncestor(of: relativePath, in: unexploredRightDirs) != nil { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
                 let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
@@ -533,6 +602,9 @@ public struct FileDiffEngine {
             if leftFilesInfo[relativePath] == nil
                 && !caseVariantMatchedRightKeys.contains(relativePath)
                 && !nearNameMatchedRightKeys.contains(relativePath) {
+                // Mirror of pass 1: under a directory the LEFT side couldn't list, absence on
+                // the left is unknowable — no phantom Missing row.
+                if topMostAncestor(of: relativePath, in: unexploredLeftDirs) != nil { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(

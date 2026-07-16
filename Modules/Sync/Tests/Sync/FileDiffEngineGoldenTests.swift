@@ -17,8 +17,10 @@ import Testing
     private let d1 = Date(timeIntervalSince1970: 1_600_000_000)
     private var d2: Date { d1.addingTimeInterval(10_000) }   // well beyond the 1s tolerance
 
-    private func info(_ absPath: String, size: Int?, date: Date?, isDir: Bool = false) -> FileDiffEngine.FileInfo {
-        FileDiffEngine.FileInfo(url: URL(fileURLWithPath: absPath), modificationDate: date, fileSize: size, isDirectory: isDir)
+    private func info(_ absPath: String, size: Int?, date: Date?, isDir: Bool = false,
+                      unexplored: Bool = false) -> FileDiffEngine.FileInfo {
+        FileDiffEngine.FileInfo(url: URL(fileURLWithPath: absPath), modificationDate: date, fileSize: size,
+                                isDirectory: isDir, isUnexplored: unexplored)
     }
 
     private func typeLabel(_ t: FileDifference.DifferenceType) -> String {
@@ -70,6 +72,10 @@ import Testing
             "mixdir/child.txt":   info("/left/mixdir/child.txt", size: 100, date: d1),
             // Type mismatch where the RIGHT side (a file) is newer beyond tolerance → date wins.
             "mixnewer":           info("/left/mixnewer", size: nil, date: d1, isDir: true),
+            // Present on both sides, but the RIGHT copy could not be LISTED (permission denied):
+            // this file's absence over there is unknowable, so NO row may appear for it.
+            "lockeddir":          info("/left/lockeddir", size: nil, date: d1, isDir: true),
+            "lockeddir/inside.txt": info("/left/lockeddir/inside.txt", size: 100, date: d1),
         ]
         let rightInfo: [String: FileDiffEngine.FileInfo] = [
             "onlyright.txt":      info("/right/onlyright.txt", size: 100, date: d1),
@@ -81,6 +87,7 @@ import Testing
             "pasttolerance.txt":  info("/right/pasttolerance.txt", size: 100, date: d1.addingTimeInterval(2)),
             "mixdir":             info("/right/mixdir", size: 60, date: d1),
             "mixnewer":           info("/right/mixnewer", size: 60, date: d2),
+            "lockeddir":          info("/right/lockeddir", size: nil, date: d1, isDir: true, unexplored: true),
         ]
 
         let diffs = FileDiffEngine.computeDifferences(
@@ -97,7 +104,10 @@ import Testing
         //    is `> tolerance`, not `>=`; pasttolerance.txt (2s) does;
         //  · mixdir (dir vs file, dates equal) defaults to the folder side (→R) and collapses the
         //    dir side's child into the row (encl=1); mixnewer (right file newer past tolerance)
-        //    goes ←L — the date outranks the folder default. Both surface as `differs` rows.
+        //    goes ←L — the date outranks the folder default. Both surface as `differs` rows;
+        //  · lockeddir (unlistable on the right, `isUnexplored`) contributes NO rows at all — not
+        //    for itself and not for lockeddir/inside.txt, whose absence on the right is unknowable
+        //    (a phantom Missing row would offer to copy into a folder nobody can read).
         // Re-bless only after confirming an intentional change is correct.
         let expected = """
         diffsize.txt | differs | →R | L=/left/diffsize.txt | R=/right/diffsize.txt | sz=100/200 | Sizes differ
