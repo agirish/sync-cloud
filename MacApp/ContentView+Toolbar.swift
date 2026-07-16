@@ -72,7 +72,7 @@ extension ContentView {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         HStack(spacing: 8) {
-            Text("\(selectionNodes.count) selected")
+            Text(SelectionSummary.text(for: selectionNodes))
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .fixedSize()
