@@ -683,6 +683,7 @@ public struct DifferencesView: View {
     /// else is a plain path substring, exactly as before.
     private func searchField(filteredCount: Int) -> some View {
         let tokens = DifferenceSearch.parse(searchText).tokens
+        let chips = DifferenceSearch.chips(searchText)
         return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 TextField("Search — try kind:pdf, >10mb, only:left", text: $searchText)
@@ -711,8 +712,8 @@ public struct DifferencesView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if !tokens.isEmpty {
-                tokenChips(tokens)
+            if !chips.isEmpty {
+                tokenChips(chips)
             }
             if searchFocused {
                 suggestionRow(active: tokens)
@@ -726,16 +727,20 @@ public struct DifferencesView: View {
         )
     }
 
-    /// The parsed filter tokens as removable chips: a human reading of the query, each with an ✕
-    /// that edits it back out of the raw text.
-    private func tokenChips(_ tokens: [DifferenceSearch.Token]) -> some View {
+    /// The recognized filter words as removable chips: a human reading of the query, each with an ✕
+    /// that edits its exact word back out of the raw text. A chip superseded by a later same-family
+    /// word (`kind:` parses last-wins) renders dimmed, so the chips read as the query the filter
+    /// actually runs — mirroring the Tidy search's chips.
+    private func tokenChips(_ chips: [DifferenceSearch.Chip]) -> some View {
         HStack(spacing: 6) {
-            ForEach(Array(tokens.enumerated()), id: \.offset) { _, token in
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                let tint = chip.isActive ? glassHue.accentColor : Color.secondary
                 HStack(spacing: 4) {
-                    Text(tokenLabel(token))
+                    Text(tokenLabel(chip.token))
                         .font(.caption.monospaced())
+                        .strikethrough(!chip.isActive)
                     Button {
-                        searchText = DifferenceSearch.removingToken(token, from: searchText)
+                        searchText = DifferenceSearch.removing(searchText, word: chip.raw)
                     } label: {
                         // 8 pt glyph, padded hit target (negative padding restores the chip's
                         // visual size) — the bare glyph was a misclick magnet.
@@ -745,13 +750,14 @@ public struct DifferencesView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(-6)
-                    .accessibilityLabel("Remove filter \(tokenLabel(token))")
+                    .accessibilityLabel("Remove filter \(tokenLabel(chip.token))")
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
-                .foregroundStyle(glassHue.accentColor)
-                .background(Capsule().fill(glassHue.accentColor.opacity(0.16)))
-                .overlay(Capsule().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.5))
+                .foregroundStyle(tint)
+                .background(Capsule().fill(tint.opacity(chip.isActive ? 0.16 : 0.08)))
+                .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
+                .help(chip.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
             }
             Spacer(minLength: 0)
         }
@@ -879,21 +885,29 @@ public struct DifferencesView: View {
 
     // MARK: Empty state
 
-    /// The table's blank overlay, on the app's unified empty-state template (H3). Passive —
-    /// the fix (clear the search, widen the filter) is right above in the header.
+    /// The table's blank overlay, on the app's unified empty-state template (H3). The filtered-to-
+    /// empty branches offer one click out (mirroring Tidy's "Clear Filters") instead of a blank
+    /// table that reads like there are no differences.
     @ViewBuilder
     private var emptyState: some View {
         if !searchText.isEmpty {
             EmptyStateView(
                 icon: "magnifyingglass",
                 title: "No matches",
-                message: "No differences match “\(searchText)”."
+                message: "No differences match “\(searchText)”.",
+                primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                    searchText = ""
+                    selectedFilter = .all
+                }
             )
         } else if selectedFilter != .all {
             EmptyStateView(
                 icon: "line.3.horizontal.decrease.circle",
                 title: "No matches",
-                message: "No items match the current filter."
+                message: "No items match the current filter.",
+                primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                    selectedFilter = .all
+                }
             )
         } else {
             EmptyStateView(

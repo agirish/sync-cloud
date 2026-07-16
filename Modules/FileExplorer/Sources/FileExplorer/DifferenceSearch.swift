@@ -5,7 +5,9 @@ import Sync
 /// and matches a `FileDifference` against them. Pure, so every rule is unit-testable.
 ///
 /// Grammar (any word not recognized as a token is free text, matched as a substring of the path):
-///   - `kind:<ext>`     — file extension, e.g. `kind:pdf`
+///   - `kind:<ext>`     — file extension, e.g. `kind:pdf`, or a class alias (`kind:image`);
+///                        LAST-WINS when repeated — two extensions can never both match one path,
+///                        so conjunction would be a guaranteed dead-end
 ///   - `>N` / `<N`      — size at least / at most N, unit b/kb/mb/gb (SI 1000-base, matching the
 ///                        displayed sizes); a bare number is bytes, e.g. `>10mb`, `<500kb`
 ///   - `only:left` / `only:right` — items present on only that side
@@ -36,12 +38,26 @@ enum DifferenceSearch {
         }
     }
 
+    /// Class aliases for `kind:` — a single word matching a fixed extension set, shared with the
+    /// Tidy ▸ Duplicates search so `kind:image` means the same thing on every surface. Deliberately
+    /// tiny: one alias, fixed list, everything else stays an exact extension match.
+    static let kindClasses: [String: Set<String>] = [
+        "image": ["jpg", "jpeg", "png", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"],
+    ]
+
     static func parse(_ raw: String) -> Query {
         let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         var tokens: [Token] = []
         var freeWords: [String] = []
         for word in words {
             if let token = parseToken(word) {
+                // `kind:` is last-wins (like Tidy/Log families): a path has ONE extension, so two
+                // conjunctive kind: tokens can never both match — the earlier one is dropped rather
+                // than turning the query into a guaranteed-empty dead-end. Size bounds and only:
+                // stay conjunctive; those combinations are legitimate (ranges).
+                if case .kind = token {
+                    tokens.removeAll { if case .kind = $0 { return true } else { return false } }
+                }
                 tokens.append(token)
             } else {
                 freeWords.append(word)
@@ -52,19 +68,45 @@ enum DifferenceSearch {
         return Query(tokens: tokens, freeText: freeText)
     }
 
-    /// Removes the first word that parses to `token` from a raw query, leaving every other word as
-    /// the user typed it. Backs a chip's ✕ button.
-    static func removingToken(_ token: Token, from raw: String) -> String {
-        var removed = false
-        var kept: [String] = []
+    // MARK: Chips (UI)
+
+    /// A recognized filter word paired with its token, so the Compare search field can render
+    /// removable chips. `raw` is the exact word typed, so a chip's ✕ removes precisely that word.
+    struct Chip: Equatable {
+        var raw: String
+        var token: Token
+        /// Whether this chip is part of the effective query. `parse` is last-wins for the `kind:`
+        /// family, so when kind: appears twice only the LAST word filters anything; earlier ones
+        /// render dimmed so the chips read as the query the filter actually runs.
+        var isActive: Bool = true
+    }
+
+    /// Every recognized token word in `raw`, in typed order, as display chips. Free text is
+    /// excluded. Within the `kind:` family only the last occurrence is `isActive` — matching
+    /// `parse`'s last-wins semantics; size and only: chips are always active (conjunctive).
+    static func chips(_ raw: String) -> [Chip] {
+        var out: [Chip] = []
+        var lastKindIndex: Int?
         for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
-            if !removed, parseToken(word) == token {
-                removed = true
-                continue
+            guard let token = parseToken(word) else { continue }
+            if case .kind = token {
+                if let previous = lastKindIndex { out[previous].isActive = false }
+                lastKindIndex = out.count
             }
-            kept.append(word)
+            out.append(Chip(raw: word, token: token))
         }
-        return kept.joined(separator: " ")
+        return out
+    }
+
+    /// Removes every occurrence of `word` from `raw`, leaving every other word as the user typed
+    /// it. Backs a chip's ✕ button. ALL occurrences, deliberately: chips are keyed by their raw
+    /// text, so with `kind:pdf ... kind:pdf` one ✕ clearing both duplicates is the honest
+    /// semantics — removing only the first would leave the filter visibly unchanged.
+    static func removing(_ raw: String, word: String) -> String {
+        raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+            .filter { $0 != word }
+            .joined(separator: " ")
     }
 
     // MARK: Matching
@@ -72,7 +114,11 @@ enum DifferenceSearch {
     private static func matches(_ token: Token, _ difference: FileDifference) -> Bool {
         switch token {
         case .kind(let ext):
-            return (difference.relativePath as NSString).pathExtension.lowercased() == ext
+            let fileExtension = (difference.relativePath as NSString).pathExtension.lowercased()
+            if let classExtensions = kindClasses[ext] {
+                return classExtensions.contains(fileExtension)
+            }
+            return fileExtension == ext
         case .sizeAtLeast(let bytes):
             guard let size = difference.displaySize else { return false }
             return size >= bytes

@@ -33,11 +33,9 @@ enum DuplicateSearch {
 
     /// Class aliases for `kind:` — a single word matching a fixed extension set, so the "Images"
     /// suggestion can honestly mean images (it used to insert `kind:jpg`, silently excluding PNGs,
-    /// HEICs, …). Deliberately tiny: one alias, fixed list, everything else stays an exact
-    /// extension match.
-    static let kindClasses: [String: Set<String>] = [
-        "image": ["jpg", "jpeg", "png", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"],
-    ]
+    /// HEICs, …). The table lives on `DifferenceSearch` (the shared grammar base, like `parseSize`)
+    /// so Compare's `kind:image` means exactly the same thing.
+    static let kindClasses: [String: Set<String>] = DifferenceSearch.kindClasses
 
     static func parse(_ raw: String) -> Query {
         let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
