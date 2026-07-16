@@ -575,7 +575,7 @@ public struct TidyView: View {
                     .foregroundStyle(.secondary)
             }
             dupSearchField
-            filterMenu(counts: Self.filterCounts(syncManager.duplicateGroups))
+            filterMenu
         }
     }
 
@@ -685,8 +685,15 @@ public struct TidyView: View {
         reclaimFlashToken &+= 1
     }
 
-    private func filterMenu(counts: [TidyFilter: Int]) -> some View {
+    private var filterMenu: some View {
         Menu {
+            // Per-filter counts computed HERE inside the menu content — SwiftUI builds it
+            // lazily on open, so the O(groups) pass runs only when the menu is shown, never on
+            // the summary-row renders that recur per file while a merge publishes progress
+            // (same rationale as the Differences header's filter menu). Counts cover ALL
+            // groups, not the search-narrowed `dupGroups`, so a badge never reads zero for a
+            // filter that would reveal rows once picked.
+            let counts = Self.filterCounts(syncManager.duplicateGroups)
             Picker("Filter", selection: $filter) {
                 ForEach(TidyFilter.allCases) { f in
                     Text("\(f.label) (\(counts[f] ?? 0))").tag(f)
