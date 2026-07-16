@@ -1,5 +1,17 @@
 import SwiftUI
 
+// Which card is which — the four card/surface modifiers at a glance:
+//
+// - `lensCard`          — a content card INSIDE a lens (a duplicate group, a filing
+//                         suggestion, an automation rule row). Defined here.
+// - `surfaceCard`       — a pane's whole surface when the workspace is in Cards mode.
+// - `bottomSectionCard` — the bottom-workspace section container, styled per `SurfaceStyle`.
+// - `glassCardStyle`    — floating overlay chrome (dialogs, popover-like panels).
+//
+// Testing note: recipe modifiers (lensCard, searchFieldSurface, CloseButton) are
+// deliberately NOT pinned by tests — they are one-liner compositions whose look is easiest
+// to verify visually and cheap to change. Token TYPES (PillVariant, ListDensityMetrics,
+// SemanticColor) are pinned, because their constants fan out into many call sites.
 public extension View {
     /// The one lens-card recipe (C2): every card in the bottom-workspace lenses (duplicate
     /// groups, filing suggestions, risky names, automation rules, dry-run rows, the filing

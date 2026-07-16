@@ -27,7 +27,7 @@ public struct ProgressDialog: View {
                     // what a click actually does. Visuals deliberately unchanged.
                     Button(action: { progress.cancel() }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
                     .help("Cancel operation")
@@ -43,7 +43,7 @@ public struct ProgressDialog: View {
                 // Single count line, e.g. "3,336 of 7,363"
                 Text(formattedCount(completed: completed, total: total))
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                 // Optional: current file name when set
                 if let additional = progress.localizedAdditionalDescription, !additional.isEmpty {

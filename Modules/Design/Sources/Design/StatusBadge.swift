@@ -8,19 +8,23 @@ public struct StatusBadge: View {
         self.isValid = isValid
     }
     
+    /// Valid/invalid are meanings, not styles — paint them from the shared semantic table
+    /// (C3) so "valid" here can never drift from "success" elsewhere.
+    private var color: Color { isValid ? SemanticColor.success : SemanticColor.error }
+
     public var body: some View {
         HStack(spacing: 5) {
             Circle()
-                .fill(isValid ? Color.green : Color.red)
+                .fill(color)
                 .frame(width: 6, height: 6)
             
             Text(isValid ? "Valid path" : "Invalid path")
                 .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(isValid ? .green : .red)
+                .foregroundStyle(color)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background((isValid ? Color.green : Color.red).opacity(PillVariant.fillOpacity))
+        .background(color.opacity(PillVariant.fillOpacity))
         .clipShape(Capsule())
     }
 }

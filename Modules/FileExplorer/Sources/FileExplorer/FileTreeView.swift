@@ -187,7 +187,7 @@ public struct FileTreeView: View {
             tint: SemanticColor.warning,
             title: title,
             message: detail,
-            caption: path,
+            path: path,
             secondary: onOpenSettings.map { .init("Open Settings", handler: $0) },
             layout: .compact
         )

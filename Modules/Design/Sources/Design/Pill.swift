@@ -10,7 +10,7 @@ import SwiftUI
 /// `Pill` covers the common icon + one-run-of-text case; heterogeneous content (menus, dots,
 /// count + label pairs) composes the same surface via `pillSurface(_:tint:)` plus the variant's
 /// font constants. A "neutral" mini is simply `tint: .secondary`.
-public enum PillVariant: Equatable, CaseIterable, Sendable {
+public enum PillVariant: Equatable, Sendable {
     case standard
     case mini
 
@@ -68,6 +68,8 @@ public struct Pill: View {
     private let systemImage: String?
     private let text: String
     private let isNumeric: Bool
+    /// Trailing word(s) after a numeric `text` — the "Differences" of "7 Differences".
+    private let label: String?
 
     public init(_ variant: PillVariant, tint: Color, systemImage: String? = nil,
                 text: String, isNumeric: Bool = false) {
@@ -76,6 +78,20 @@ public struct Pill: View {
         self.systemImage = systemImage
         self.text = text
         self.isNumeric = isNumeric
+        self.label = nil
+    }
+
+    /// The count + label shape ("7 Differences"): the number set in `numberFont` with
+    /// monospaced digits so counts don't jiggle, the label in `labelFont` — the pairing
+    /// the header stat pills hand-assemble today.
+    public init(_ variant: PillVariant, tint: Color, systemImage: String? = nil,
+                count: Int, label: String) {
+        self.variant = variant
+        self.tint = tint
+        self.systemImage = systemImage
+        self.text = count.formatted()
+        self.isNumeric = true
+        self.label = label
     }
 
     public var body: some View {
@@ -86,6 +102,10 @@ public struct Pill: View {
                     .symbolRenderingMode(.hierarchical)
             }
             textView
+            if let label {
+                Text(label)
+                    .font(variant.labelFont)
+            }
         }
         .foregroundStyle(tint)
         .pillSurface(variant, tint: tint)

@@ -35,6 +35,7 @@ public struct EmptyStateView: View {
     private let tint: Color
     private let title: String
     private let message: String?
+    private let path: String?
     private let caption: String?
     private let primary: Action?
     private let secondary: Action?
@@ -46,6 +47,8 @@ public struct EmptyStateView: View {
     ///     secondary = neutral).
     ///   - title: One short line naming the state.
     ///   - message: The job explanation — what this state means and what a scan would do.
+    ///   - path: A file-system path detail (the missing root, the offending folder) —
+    ///     rendered monospaced on one line, middle-truncated with the full path on hover.
     ///   - caption: The safety contract, set slightly smaller and dimmer than the message.
     ///   - primary: The one prominent next step (large, filled). nil for passive states.
     ///   - secondary: A quieter companion action (regular, bordered).
@@ -55,6 +58,7 @@ public struct EmptyStateView: View {
         tint: Color = .secondary,
         title: String,
         message: String? = nil,
+        path: String? = nil,
         caption: String? = nil,
         primary: Action? = nil,
         secondary: Action? = nil,
@@ -64,6 +68,7 @@ public struct EmptyStateView: View {
         self.tint = tint
         self.title = title
         self.message = message
+        self.path = path
         self.caption = caption
         self.primary = primary
         self.secondary = secondary
@@ -86,6 +91,18 @@ public struct EmptyStateView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+            }
+            if let path {
+                // Paths get their own slot instead of riding in `caption`: a caption wraps
+                // and centers (fine for prose, unreadable for a long path), while a path
+                // needs single-line middle truncation with the full value on hover.
+                Text(path)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
                     .frame(maxWidth: 440)
             }
             if let caption {
