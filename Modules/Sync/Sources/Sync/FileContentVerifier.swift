@@ -81,7 +81,6 @@ public enum FileContentVerifier {
                   let size = (attributes[.size] as? NSNumber)?.intValue else {
                 return .unverifiable
             }
-            guard size <= maxBytes else { return .skippedTooLarge }
             // Build the cache key from the same resolved stat. mtime comes from the attributes we
             // already read, so this adds a dictionary lookup, not a syscall. When mtime is
             // unavailable the file is hashed normally but never cached (no stable key).
@@ -91,11 +90,17 @@ public enum FileContentVerifier {
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
                 return .hashed(hit)
             }
-            // Last gate before any byte is read: opening a dataless (cloud-only) placeholder
-            // forces the provider to download the whole file — a metadata scan must never do
-            // that. Checked on the resolved path (the file a symlink would actually open), and
-            // only after the cache: a hit needs no read, and eviction doesn't change content.
+            // The dataless check comes BEFORE the size cap: a cloud-only placeholder is skipped
+            // as cloud-only whatever its byte count, so the per-reason skip split callers surface
+            // (Tidy's note) stays honest — a dataless 4 GB video is "not downloaded", not "too
+            // large to hash", and the two remedies differ (download it vs raise the cap). The
+            // check is an lstat-cheap flag read, and it must precede any byte being read anyway:
+            // opening a dataless placeholder forces the provider to download the whole file — a
+            // metadata scan must never do that. Checked on the resolved path (the file a symlink
+            // would actually open), and only after the cache: a hit needs no read, and eviction
+            // doesn't change content.
             if isCloudOnly(statPath) { return .skippedCloudOnly }
+            guard size <= maxBytes else { return .skippedTooLarge }
             guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 
