@@ -121,7 +121,7 @@ struct RenameLens: View {
         return HStack(spacing: 10) {
             Image(systemName: NameNormalizeGlyph.risky)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(SemanticColor.warning)
             Text("\(count) risky name\(count == 1 ? "" : "s") found")
                 .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
@@ -174,9 +174,17 @@ private struct RiskyNameCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     // The location and reason lines are the secondary detail compact hides (D4);
                     // the rename row still shows the risky name (markers included) and its fix.
-                    if densityMetrics.showsSecondaryDetail { locationRow }
-                    renameRow
-                    if densityMetrics.showsSecondaryDetail { reasonRow }
+                    if densityMetrics.showsSecondaryDetail {
+                        locationRow
+                        renameRow
+                        reasonRow
+                    } else {
+                        // Compact drops the visible reason line — keep the "why is this risky"
+                        // reachable: a tooltip on the rename row, and the same text for VoiceOver.
+                        renameRow
+                            .help(risky.reason)
+                            .accessibilityValue(risky.reason)
+                    }
                 }
                 Spacer(minLength: 8)
             }
@@ -204,7 +212,7 @@ private struct RiskyNameCard: View {
                 .foregroundStyle(.tertiary)
             Text(risky.sanitizedName)
                 .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.green)
+                .foregroundStyle(SemanticColor.success)
                 .lineLimit(1).truncationMode(.middle)
         }
     }
@@ -281,7 +289,7 @@ private struct InvisibleMarkedName: View {
 
     private func marker(_ glyph: String) -> some View {
         Text(glyph)
-            .foregroundStyle(.orange)
-            .background(Color.orange.opacity(0.16))
+            .foregroundStyle(SemanticColor.warning)
+            .background(SemanticColor.warning.opacity(0.16))
     }
 }
