@@ -86,8 +86,17 @@ public struct LogEntry: Identifiable, Sendable {
     
     /// Shared timestamp formatter. Reused instead of reallocated per log line (DateFormatter is
     /// expensive to create and is thread-safe for formatting).
+    ///
+    /// Locale and calendar are pinned (en_US_POSIX + Gregorian, matching `LogGrouping.keyFormatter`)
+    /// because this formatter also PARSES history lines back out of `~/sync-cloud.log`: with the
+    /// user's locale/calendar, a system set to e.g. the Islamic calendar would render and round-trip
+    /// Gregorian dates as years like 1448/2587, silently mis-dating every parsed history entry.
+    /// The timezone deliberately stays local — the file's existing lines are local-time, and
+    /// changing it would break continuity with them.
     private static let timestampFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
         return formatter
     }()

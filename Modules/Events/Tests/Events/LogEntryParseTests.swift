@@ -53,6 +53,35 @@ import Foundation
         #expect(parsed?.message == "")
     }
 
+    @Test func testHostileLocaleTimestampIsNotMisdated() {
+        // A timestamp rendered with non-ASCII digits (as an ar-locale DateFormatter would
+        // emit). ICU maps any Unicode decimal digits during parsing, so under the pinned
+        // en_US_POSIX + Gregorian formatter this parses — but to the CORRECT Gregorian local
+        // date, never a mis-dated one. Before the locale/calendar pin, the user's calendar
+        // leaked into parsing and Islamic-calendar round-trips produced years like 1448/2587.
+        let parsed = LogEntry.parse("[٢٠٢٦-٠٧-١٣ ٢٢:١٣:٣١.٠٠٠] [INFO] hostile digits")
+        var expected = DateComponents()
+        expected.year = 2026; expected.month = 7; expected.day = 13
+        expected.hour = 22; expected.minute = 13; expected.second = 31
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        let expectedDate = gregorian.date(from: expected)
+        #expect(parsed == nil || parsed?.timestamp == expectedDate)
+    }
+
+    @Test func testCanonicalTimestampParsesAsGregorianLocalTime() {
+        // Pin the interpretation of a canonical line: the digits are Gregorian year/month/day
+        // in LOCAL time (existing log files are local-time), regardless of the machine's
+        // locale or calendar setting.
+        let parsed = LogEntry.parse("[2026-07-13 22:13:31.000] [INFO] pinned date")
+        var expected = DateComponents()
+        expected.year = 2026; expected.month = 7; expected.day = 13
+        expected.hour = 22; expected.minute = 13; expected.second = 31
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = .current
+        #expect(parsed?.timestamp == gregorian.date(from: expected))
+    }
+
     @Test func testMalformedLinesReturnNil() {
         #expect(LogEntry.parse("") == nil)
         #expect(LogEntry.parse("just some text") == nil)
