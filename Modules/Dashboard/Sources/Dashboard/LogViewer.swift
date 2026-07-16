@@ -218,6 +218,7 @@ public struct LogViewer: View {
                     Image(systemName: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(filtered.isEmpty)
                 .help("Copy the \(filtered.count) shown \(filtered.count == 1 ? "entry" : "entries") to the clipboard")
 
@@ -225,6 +226,7 @@ public struct LogViewer: View {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 .disabled(logger.entries.isEmpty)
                 .help("Clear Logs")
 
@@ -232,6 +234,7 @@ public struct LogViewer: View {
                     Image(systemName: "doc.text")
                 }
                 .buttonStyle(.bordered)
+                .controlSize(.small)
                 .help("Open in Console/TextEdit")
             }
             .padding(.horizontal, 20)

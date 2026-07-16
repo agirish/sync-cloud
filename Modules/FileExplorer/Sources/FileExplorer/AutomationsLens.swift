@@ -612,9 +612,9 @@ private struct AutomationRuleCard: View {
                 .help(previewHelp)
             Button(action: onEdit) { Image(systemName: "pencil") }
                 .help("Edit this rule")
-            Button(action: onDelete) { Image(systemName: "trash") }
+            Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
                 .help("Delete this rule")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(SemanticColor.error)
         }
         .buttonStyle(.borderless)
         .padding(.top, 1)

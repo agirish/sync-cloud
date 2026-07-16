@@ -119,6 +119,7 @@ public struct SyncHistoryView: View {
                 Label("Undo Last Run", systemImage: "arrow.uturn.backward")
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(store.records.isEmpty)
             .help("Reverse the most recent sync run")
 
@@ -138,6 +139,7 @@ public struct SyncHistoryView: View {
                 Image(systemName: "trash")
             }
             .buttonStyle(.bordered)
+            .controlSize(.small)
             .disabled(store.records.isEmpty)
             .help("Clear all history")
         }
