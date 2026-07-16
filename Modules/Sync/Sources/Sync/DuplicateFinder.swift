@@ -292,6 +292,22 @@ public struct DuplicateFinderOptions: Sendable {
 /// the logic is fully testable without disk. Mirrors ``FileDiffEngine`` (stateless statics).
 public enum DuplicateFinder {
 
+    /// Prefix of the per-path placeholder signature the scan assigns to files it could NOT hash
+    /// (over the size cap, unreadable, cloud-only). Placeholders keep folder signatures computable
+    /// — a unique value can never falsely MATCH — but they are not content identity: they must
+    /// never count as evidence that two files' contents DIFFER either.
+    public static let unknownSignaturePrefix = "u:"
+
+    /// Builds the placeholder signature for a file whose content identity is unknown.
+    public static func unknownSignature(forPath path: String) -> String {
+        unknownSignaturePrefix + path
+    }
+
+    /// Whether a signature is an unknown-content placeholder rather than a real content hash.
+    public static func isUnknownSignature(_ signature: String) -> Bool {
+        signature.hasPrefix(unknownSignaturePrefix)
+    }
+
     // Internal per-node rollup computed bottom-up from the tree.
     struct NodeInfo {
         let path: String
@@ -620,9 +636,13 @@ public enum DuplicateFinder {
             let hasMarker = members.contains { hasVersionMarker($0.name) }
             let sameParent = Set(members.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
             guard hasMarker || sameParent else { continue }
-            // Only real drift: at least two distinct contents (identical bytes were already grouped).
-            let distinctHashes = Set(members.compactMap { $0.signature })
-            guard distinctHashes.count >= 2 || members.contains(where: { $0.signature == nil }) else { continue }
+            // Only PROVEN drift: at least two distinct REAL contents (identical bytes were already
+            // grouped). Placeholder ("u:" unknown) and missing signatures are not evidence of
+            // difference — two byte-identical files that were merely too large (or cloud-only) to
+            // hash must not be claimed as drifted versions. Unknown-hash members may ride along in
+            // a group that real hashes justify, but can never stand one up by themselves.
+            let realHashes = Set(members.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
+            guard realHashes.count >= 2 else { continue }
 
             // Keeper = the newest version.
             let keeperIdx = newestIndex(members)
@@ -677,9 +697,18 @@ public enum DuplicateFinder {
         return segs.reduce(0) { $0 + (archiveSegments.contains($1) ? 1 : 0) }
     }
 
+    /// Picks the versions keeper: least "archive-like" location first (same weighting as
+    /// ``chooseKeeper`` — a backup/Archive copy must not be recommended as the one to keep even
+    /// when its mtime is newest, e.g. because a backup tool rewrote it), then the most recently
+    /// modified, then the shallowest path.
     private static func newestIndex(_ infos: [NodeInfo]) -> Int {
         var best = 0
         for i in 1..<infos.count {
+            let pi = archivePenalty(infos[i].path), pb = archivePenalty(infos[best].path)
+            if pi != pb {
+                if pi < pb { best = i }
+                continue
+            }
             let di = infos[i].modificationDate ?? .distantPast
             let db = infos[best].modificationDate ?? .distantPast
             if di > db || (di == db && infos[i].depth < infos[best].depth) { best = i }

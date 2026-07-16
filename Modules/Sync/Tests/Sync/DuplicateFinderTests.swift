@@ -289,6 +289,85 @@ import Testing
         #expect(groups[0].keeper.path == "/root/Docs/report.pdf")   // newest
     }
 
+    @Test func unknownHashPlaceholdersAreNotEvidenceOfVersionDrift() {
+        // Two byte-identical files too large to hash get per-path "u:" placeholder signatures.
+        // Placeholders are unique by construction, so counting them as distinct contents would
+        // claim drift between files that may be identical — they must never stand up a group.
+        let tree = [
+            dir("/root/Movies", [
+                file("/root/Movies/trip.mp4", size: 500_000),
+                file("/root/Movies/trip copy.mp4", size: 500_000),
+            ])
+        ]
+        let hashes = [
+            "/root/Movies/trip.mp4": DuplicateFinder.unknownSignature(forPath: "/root/Movies/trip.mp4"),
+            "/root/Movies/trip copy.mp4": DuplicateFinder.unknownSignature(forPath: "/root/Movies/trip copy.mp4"),
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.contains { $0.matchType == .versions })
+    }
+
+    @Test func oneRealHashPlusUnknownIsNotVersionDrift() {
+        // Drift needs two distinct REAL contents; one known hash and one unknown proves nothing.
+        let tree = [
+            dir("/root/Docs", [
+                file("/root/Docs/plan.key", size: 9000),
+                file("/root/Docs/plan copy.key", size: 500_000),
+            ])
+        ]
+        let hashes = [
+            "/root/Docs/plan.key": "H1",
+            "/root/Docs/plan copy.key": DuplicateFinder.unknownSignature(forPath: "/root/Docs/plan copy.key"),
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.contains { $0.matchType == .versions })
+    }
+
+    @Test func unknownMemberRidesAlongWhenRealDriftExists() {
+        // Two distinct real hashes justify the group; the unhashable third member is included
+        // (it shares the stem and a marker) rather than silently dropped.
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Docs", [
+                file("/root/Docs/deck.key", size: 9000, modified: old),
+                file("/root/Docs/deck copy.key", size: 9500, modified: new),
+                file("/root/Docs/deck copy 2.key", size: 500_000, modified: old),
+            ])
+        ]
+        let hashes = [
+            "/root/Docs/deck.key": "H1",
+            "/root/Docs/deck copy.key": "H2",
+            "/root/Docs/deck copy 2.key": DuplicateFinder.unknownSignature(forPath: "/root/Docs/deck copy 2.key"),
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups[0].matchType == .versions)
+        #expect(groups[0].copies.count == 3)
+    }
+
+    @Test func versionsKeeperAvoidsArchiveLocationEvenWhenNewest() {
+        // A backup tool rewrote the archived copy last — mtime alone would crown it the keeper
+        // and recommend trashing the working copy. Archive-like locations are penalized first,
+        // exactly as in chooseKeeper.
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Docs", [file("/root/Docs/deck.pdf", size: 9000, modified: old),
+                               file("/root/Docs/d-only.txt", size: 8192)]),
+            dir("/root/Backups", [file("/root/Backups/deck-final.pdf", size: 9500, modified: new),
+                                  file("/root/Backups/b-only.txt", size: 8192)]),
+        ]
+        let hashes = [
+            "/root/Docs/deck.pdf": "D1", "/root/Backups/deck-final.pdf": "D2",
+            "/root/Docs/d-only.txt": "U1", "/root/Backups/b-only.txt": "U2",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(groups.count == 1)
+        #expect(groups[0].matchType == .versions)
+        #expect(groups[0].keeper.path == "/root/Docs/deck.pdf")
+    }
+
     @Test func hasVersionMarkerDetectsStrippedMarkersOnly() {
         #expect(DuplicateFinder.hasVersionMarker("Q3 Report (1).docx"))
         #expect(DuplicateFinder.hasVersionMarker("plan copy.key"))

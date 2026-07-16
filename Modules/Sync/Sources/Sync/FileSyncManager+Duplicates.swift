@@ -121,7 +121,7 @@ extension FileSyncManager {
         var fileHashes: [String: String] = [:]
         fileHashes.reserveCapacity(allFiles.count)
         for f in allFiles {
-            fileHashes[f.id] = realHashes[f.id] ?? ("u:" + f.id)
+            fileHashes[f.id] = realHashes[f.id] ?? DuplicateFinder.unknownSignature(forPath: f.id)
         }
 
         // 3. Group (pure), then drop anything the user has kept separate.
