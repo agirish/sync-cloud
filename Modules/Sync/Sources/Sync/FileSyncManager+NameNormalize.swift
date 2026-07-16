@@ -39,6 +39,17 @@ extension FileSyncManager {
 
         let tree = await Self.buildTree(url: root, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
+        // A permission-denied root comes back as a single root-identity unexplored marker (same
+        // shape adoptRawTree unwraps). Feeding it to the detector would flag the unreadable root
+        // ITSELF as a rename candidate — and "Fix all" would rename a folder we can't even list
+        // (a rename only needs parent-write), dangling the pane focus and anything aimed at the
+        // old path. An unreadable root has no scannable names: publish the honest empty result.
+        if tree.count == 1, let only = tree.first, only.isUnexplored == true, only.id == root.path {
+            riskyNames = []
+            completeScan(\.nameScanLifecycle, root: root)
+            Logger.shared.warning("Name normalizer: could not read \(root.lastPathComponent) — permission denied; no names scanned")
+            return
+        }
         // Detect (pure, no disk) — DETACHED: the detector flattens and rule-checks the whole
         // tree, which on a large provider blocked the main actor for the full pass. Only the
         // @Published writes below happen back on the main actor. Staleness guard: a newer scan

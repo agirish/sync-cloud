@@ -283,4 +283,33 @@ import Testing
 
         #expect(diffs.isEmpty, "phantom rows: \(diffs.map(\.relativePath))")
     }
+
+    // MARK: Name scan (Rename lens)
+
+    /// Round-7 fix: the denied-root marker node must never become a rename candidate. Before,
+    /// the marker flowed into `NameNormalizer.scan`'s flatten (which emits every node), so a
+    /// risky-named unreadable root appeared in the Rename lens — and "Fix all" would rename a
+    /// folder we can't even list (a rename only needs parent-write), dangling the pane focus.
+    @MainActor
+    @Test func nameScanOfAPermissionDeniedRootYieldsNoCandidates() async throws {
+        guard !runningAsRoot else { return }
+        let base = try makeTempDir()
+        // The root's own name is cloud-risky (trailing space) — exactly the shape that would
+        // have been flagged and batch-renamed before the fix.
+        let lockedRoot = base.appendingPathComponent("Locked ")
+        try write(lockedRoot.appendingPathComponent("secret.txt"), text: "hidden")
+        try chmod(lockedRoot, 0o000)
+        defer {
+            try? chmod(lockedRoot, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let manager = FileSyncManager()
+        await manager.scanNames(root: lockedRoot, provider: .dropBox)
+
+        #expect(manager.riskyNames.isEmpty,
+                "an unreadable root must not offer itself for renaming: \(manager.riskyNames.map(\.currentName))")
+        // The scan still completes honestly (root labels the empty result, no stale prior state).
+        #expect(manager.nameScanLifecycle.hasCompleted)
+    }
 }
