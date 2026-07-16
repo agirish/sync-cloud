@@ -108,13 +108,34 @@ public struct LogViewer: View {
     /// Compare's search.
     @FocusState private var searchFocused: Bool
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    /// The glass hue, so the accent-tinted chrome (token chips, the selected severity chip)
+    /// matches the hue every other window passes to the same components — Tidy hands this exact
+    /// tint to `TokenChipsRow`; the Log window used to hardcode `Color.accentColor` instead.
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
     /// tightens the row spacing so more log lines fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
-    private var densityMetrics: ListDensityMetrics {
-        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
+
+    private var hueAccent: Color { glassHue.accentColor }
+
+    /// Text/glyph color that stays legible on a `hueAccent` fill. `Color.onAccentLabel` pairs
+    /// with the *system* accent, but the selected chip now fills with the glass hue — so the
+    /// pairing is computed from the hue's own sRGB luminance (the TreemapView approach). The
+    /// `.none` hue fills with the system accent, where `onAccentLabel` is exactly right.
+    private var onHueAccent: Color {
+        guard glassHue != .none, let rgb = NSColor(hueAccent).usingColorSpace(.sRGB) else {
+            return .onAccentLabel
+        }
+        return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+            ? Color.black.opacity(0.85)
+            : .white
     }
+
+    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    private var densityMetrics: ListDensityMetrics { density.metrics }
 
     /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first). nil until the
     /// user asks for history via "Show older history"; an empty array means the log holds nothing
@@ -327,7 +348,7 @@ public struct LogViewer: View {
         HStack(spacing: 6) {
             TokenChipsRow(
                 items: chips.map { TokenChipsRow.Item(label: $0.label, word: $0.raw, isActive: $0.isActive) },
-                tint: Color.accentColor,
+                tint: hueAccent,
                 onRemove: { word in searchText = LogSearch.removing(searchText, word: word) }
             )
             Spacer(minLength: 0)
@@ -394,11 +415,11 @@ public struct LogViewer: View {
         Button {
             selectedLevel = level
         } label: {
-            // Text on the accent fill uses Design's luminance-derived pairing, not hardcoded
+            // Text on the accent fill uses a luminance-derived pairing, not hardcoded
             // white and NOT alternateSelectedControlTextColor: AppKit returns white for that
             // under EVERY accent (it pairs with the darkened selection fill, not the raw accent
             // this capsule fills with), so under Yellow it was still white-on-yellow (~1.6:1).
-            let onAccent = Color.onAccentLabel
+            let onAccent = onHueAccent
             HStack(spacing: 5) {
                 Text(label)
                 Text(count.formatted())
@@ -410,7 +431,9 @@ public struct LogViewer: View {
             .padding(.vertical, 4)
             .foregroundStyle(selected ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
             .background(
-                Capsule().fill(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.12)))
+                // Selected fills with the glass hue (the accent every other window's chips use);
+                // unselected wears the canonical badge wash (`PillVariant.fillOpacity`).
+                Capsule().fill(selected ? AnyShapeStyle(hueAccent) : AnyShapeStyle(Color.secondary.opacity(PillVariant.fillOpacity)))
             )
             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: selected ? 0 : 0.5))
             .contentShape(Capsule())
@@ -431,9 +454,9 @@ public struct LogViewer: View {
             ForEach(section.items) { item in
                 switch item {
                 case .entry(let entry):
-                    LogEntryRow(entry: entry)
+                    LogEntryRow(entry: entry, density: density)
                 case .group(let group):
-                    LogOperationGroupRow(group: group)
+                    LogOperationGroupRow(group: group, density: density)
                 }
             }
         }
@@ -556,11 +579,11 @@ public struct LogViewer: View {
 /// Internal (not private) so the snapshot tests can pin the severity color/icon pairings.
 struct LogEntryRow: View {
     let entry: LogEntry
-    /// List-density setting (H7): comfortable keeps the two-line pill/time-over-message layout
-    /// exactly; compact collapses to a single truncating baseline row and drops the Location tail.
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-
-    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+    /// List-density setting (H7), passed down by the parent (which already reads the defaults
+    /// key) instead of a per-row `@AppStorage` — one storage observer per window, not per row.
+    /// Comfortable keeps the two-line pill/time-over-message layout exactly; compact collapses
+    /// to a single truncating baseline row and drops the Location tail.
+    var density: ListDensity = .comfortable
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
@@ -654,6 +677,9 @@ private struct LogDayHeader: View {
 /// keeps the run's highest severity color so a failure inside a run is never hidden.
 private struct LogOperationGroupRow: View {
     let group: LogGrouping.OperationGroup
+    /// Passed down by LogViewer (see `LogEntryRow.density`); also forwarded to the expanded
+    /// per-file child rows.
+    var density: ListDensity = .comfortable
     @State private var expanded = false
 
     var body: some View {
@@ -673,13 +699,9 @@ private struct LogOperationGroupRow: View {
                         .frame(width: 18)
                     Text(group.title)
                         .font(.subheadline.weight(.semibold))
-                    Text(group.count.formatted())
-                        .font(.caption2.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.14), in: Capsule())
+                    // The folded run's entry count — Design's neutral mini pill, not a
+                    // hand-rolled capsule, so the badge matches every other count badge.
+                    Pill(.mini, tint: .secondary, text: group.count.formatted(), isNumeric: true)
                     Spacer(minLength: 8)
                     Text(Self.timeString(group.timestamp))
                         .font(.caption2)
@@ -691,12 +713,14 @@ private struct LogOperationGroupRow: View {
 
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(group.children) { LogEntryRow(entry: $0) }
+                    ForEach(group.children) { LogEntryRow(entry: $0, density: density) }
                 }
                 .padding(.leading, 22)
             }
         }
-        .padding(.vertical, 4)
+        // The header follows the density setting like its child rows already did (clamped so
+        // comfortable keeps the original 4pt; compact drops to the flat-row 2pt).
+        .padding(.vertical, min(4, density.metrics.flatRowVerticalPadding))
         .padding(.horizontal, 8)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.secondary.opacity(0.06)))
         .accessibilityElement(children: .contain)

@@ -34,9 +34,9 @@ public struct SyncHistoryView: View {
     /// tightens the row spacing so more history records fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
-    private var densityMetrics: ListDensityMetrics {
-        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
-    }
+    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+
+    private var densityMetrics: ListDensityMetrics { density.metrics }
 
     /// A coarse relative date window — enough for "what did I do recently" without a full date
     /// picker. Resolves to a lower bound at render time (upper bound is always "now").
@@ -180,7 +180,7 @@ public struct SyncHistoryView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
                 ForEach(filtered) { record in
-                    SyncHistoryRow(record: record)
+                    SyncHistoryRow(record: record, density: density)
                 }
             }
             .padding(16)
@@ -245,12 +245,12 @@ public struct SyncHistoryView: View {
 /// time, the source→destination paths, and the size — kept honest and readable.
 private struct SyncHistoryRow: View {
     let record: SyncHistoryRecord
-    /// List-density setting (H7): comfortable keeps the two-line pill/meta-over-path layout
-    /// exactly; compact collapses to a single baseline row where the path middle-truncates
-    /// (it stays visible — the path IS the record).
-    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-
-    private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
+    /// List-density setting (H7), passed down by SyncHistoryView (which already reads the
+    /// defaults key) instead of a per-row `@AppStorage` — one storage observer per window, not
+    /// per row. Comfortable keeps the two-line pill/meta-over-path layout exactly; compact
+    /// collapses to a single baseline row where the path middle-truncates (it stays visible —
+    /// the path IS the record).
+    let density: ListDensity
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 

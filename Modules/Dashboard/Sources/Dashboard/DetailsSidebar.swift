@@ -289,7 +289,7 @@ public struct DetailsSidebar: View {
                                 if isShowingFocusedFolderFallback {
                                     Text("— focused folder")
                                         .font(.caption)
-                                        .foregroundColor(.secondary)
+                                        .foregroundStyle(.secondary)
                                         .fixedSize()
                                 }
                             }
@@ -439,7 +439,7 @@ public struct DetailsSidebar: View {
     private func metadataRow(label: String, value: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
                 .frame(width: 80, alignment: .trailing)
             
             // Allow text to wrap across multiple lines

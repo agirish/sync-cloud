@@ -72,7 +72,7 @@ struct PaneBreadcrumb: View {
                         }
                     } label: {
                         Image(systemName: "ellipsis")
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.secondary)
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
@@ -105,7 +105,7 @@ struct PaneBreadcrumb: View {
         } label: {
             // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
             Image(systemName: PaneGlyph.linkBothPanes)
-                .foregroundColor(linkBothPanes ? hueAccent : .secondary)
+                .foregroundStyle(linkBothPanes ? hueAccent : .secondary)
         }
         .buttonStyle(.plain)
         .help(linkBothPanes
@@ -124,7 +124,7 @@ struct PaneBreadcrumb: View {
         Button(name) { navigate(to: relativePath, isCurrent: isCurrent) }
             .buttonStyle(.plain)
             .fontWeight(isCurrent ? .medium : .regular)
-            .foregroundColor(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
+            .foregroundStyle(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
             .lineLimit(1)
             .truncationMode(.middle)
             .help(crumbHelp(isCurrent: isCurrent, helpPath: helpPath))
