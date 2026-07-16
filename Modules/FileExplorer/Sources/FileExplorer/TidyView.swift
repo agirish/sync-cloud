@@ -301,9 +301,13 @@ public struct TidyView: View {
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
-        // counts the current results' work (H5).
+        // counts the current results' work (H5). The search resets too: a query typed against the
+        // previous results silently pre-filtering (or hiding) the new scan's groups is a dead end.
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
-            if isScanning { reclaim.reset() }
+            if isScanning {
+                reclaim.reset()
+                dupSearchText = ""
+            }
         }
     }
 
@@ -551,6 +555,14 @@ public struct TidyView: View {
                 StatPill(count: s.needsReviewCount, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
             }
             Spacer(minLength: 8)
+            // "N of M" whenever the search/filter narrows the list (same affordance as Compare's
+            // search), so a shortened list is visibly a filtered view, not the whole result.
+            if filter != .all || !dupSearchText.isEmpty {
+                Text("\(filteredGroups.count) of \(syncManager.duplicateGroups.count)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
             dupSearchField
             filterMenu
         }
@@ -594,22 +606,32 @@ public struct TidyView: View {
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
                 ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                    // A chip superseded by a later same-family word (parse is last-wins) renders
+                    // dimmed, so the chips read as the query the filter actually runs.
+                    let tint = chip.isActive ? glassHue.accentColor : Color.secondary
                     HStack(spacing: 4) {
                         Text(chip.label)
                             .font(.caption.monospaced())
+                            .strikethrough(!chip.isActive)
                         Button {
                             dupSearchText = DuplicateSearch.removing(dupSearchText, word: chip.raw)
                         } label: {
+                            // 8 pt glyph, padded hit target (negative padding restores the chip's
+                            // visual size) — the bare glyph was a misclick magnet.
                             Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                                .padding(6)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
+                        .padding(-6)
                         .accessibilityLabel("Remove filter \(chip.label)")
                     }
                     .padding(.horizontal, 7)
                     .padding(.vertical, 2)
-                    .foregroundStyle(glassHue.accentColor)
-                    .background(Capsule().fill(glassHue.accentColor.opacity(0.16)))
-                    .overlay(Capsule().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.5))
+                    .foregroundStyle(tint)
+                    .background(Capsule().fill(tint.opacity(chip.isActive ? 0.16 : 0.08)))
+                    .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
+                    .help(chip.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
                 }
                 if dupSearchFocused {
                     dupSuggestions(active: chips)
@@ -649,7 +671,9 @@ public struct TidyView: View {
 
     private static let dupSuggestionCandidates: [(label: String, raw: String)] = [
         ("PDFs", "kind:pdf"),
-        ("Images", "kind:jpg"),
+        // `kind:image` is a class alias (see DuplicateSearch.kindClasses), so "Images" honestly
+        // means images — the old `kind:jpg` silently excluded PNGs, HEICs, ….
+        ("Images", "kind:image"),
         ("> 10 MB", ">10mb"),
     ]
 
@@ -726,9 +750,27 @@ public struct TidyView: View {
             introState
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
+        } else if filteredGroups.isEmpty {
+            noMatchesState
         } else {
             groupList
         }
+    }
+
+    /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): groups exist,
+    /// but the search/filter hide them all — name the cause and offer one click out, instead of a
+    /// blank list that reads like there are no duplicates.
+    private var noMatchesState: some View {
+        let total = syncManager.duplicateGroups.count
+        return EmptyStateView(
+            icon: "line.3.horizontal.decrease.circle",
+            title: "No groups match",
+            message: "The current search and filter hide all \(total) duplicate \(total == 1 ? "group" : "groups"). Clear them to see the results again.",
+            primary: .init("Clear Filters", systemImage: "xmark.circle") {
+                dupSearchText = ""
+                filter = .all
+            }
+        )
     }
 
     private var groupList: some View {

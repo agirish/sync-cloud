@@ -63,18 +63,30 @@ enum LogSearch {
     struct Chip: Equatable {
         var raw: String
         var label: String
+        /// Whether this chip is part of the effective query. `parse` is last-wins within a family
+        /// (level/since are single-valued), so when the same family appears twice only the LAST
+        /// word filters anything; earlier ones render dimmed so the chips read as the query the
+        /// filter actually runs. Their ✕ still removes the superseded word exactly.
+        var isActive: Bool = true
     }
 
     /// The `level:`/`since:` words in `raw`, in order, as display chips. Free text is excluded, so the
-    /// chips are exactly the active structured filters.
+    /// chips are exactly the active structured filters. Within each family only the last occurrence is
+    /// `isActive` — matching `parse`'s last-wins semantics.
     static func chips(_ raw: String) -> [Chip] {
         var out: [Chip] = []
+        var lastLevelIndex: Int?
+        var lastSinceIndex: Int?
         for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
             if let level = parseLevel(word) {
                 // Canonical level name (matches the log's own [WARN]/[ERROR] vocabulary) regardless of
                 // the abbreviation typed (`level:err`, `level:warn`).
+                if let previous = lastLevelIndex { out[previous].isActive = false }
+                lastLevelIndex = out.count
                 out.append(Chip(raw: word, label: "level: \(level.rawValue.lowercased())"))
             } else if parseSince(word) != nil {
+                if let previous = lastSinceIndex { out[previous].isActive = false }
+                lastSinceIndex = out.count
                 out.append(Chip(raw: word, label: "since: \(word.lowercased().dropFirst("since:".count))"))
             }
         }

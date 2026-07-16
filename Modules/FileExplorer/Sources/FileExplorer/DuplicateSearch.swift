@@ -15,7 +15,14 @@ enum DuplicateSearch {
         var text: String
 
         func matches(_ group: DuplicateGroup) -> Bool {
-            if let kind, (group.name as NSString).pathExtension.lowercased() != kind { return false }
+            if let kind {
+                let ext = (group.name as NSString).pathExtension.lowercased()
+                if let classExtensions = DuplicateSearch.kindClasses[kind] {
+                    if !classExtensions.contains(ext) { return false }
+                } else if ext != kind {
+                    return false
+                }
+            }
             let size = group.keeper.size
             if let sizeAtLeast, size < sizeAtLeast { return false }
             if let sizeAtMost, size > sizeAtMost { return false }
@@ -23,6 +30,14 @@ enum DuplicateSearch {
             return group.name.range(of: text, options: .caseInsensitive) != nil
         }
     }
+
+    /// Class aliases for `kind:` — a single word matching a fixed extension set, so the "Images"
+    /// suggestion can honestly mean images (it used to insert `kind:jpg`, silently excluding PNGs,
+    /// HEICs, …). Deliberately tiny: one alias, fixed list, everything else stays an exact
+    /// extension match.
+    static let kindClasses: [String: Set<String>] = [
+        "image": ["jpg", "jpeg", "png", "gif", "heic", "heif", "tiff", "tif", "bmp", "webp"],
+    ]
 
     static func parse(_ raw: String) -> Query {
         let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
@@ -57,21 +72,33 @@ enum DuplicateSearch {
     struct Chip: Equatable {
         var raw: String
         var label: String
+        /// Whether this chip is part of the effective query. `parse` is last-wins within a family
+        /// (kind / `>` / `<` are each single-valued), so when a family appears twice only the LAST
+        /// word filters anything; earlier ones render dimmed so the chips read as the query the
+        /// filter actually runs. Their ✕ still removes the superseded word exactly.
+        var isActive: Bool = true
     }
 
     /// The `kind:`/size words in `raw`, in order, as display chips. Free (name) text is excluded, so
-    /// the chips are exactly the active structured filters.
+    /// the chips are exactly the active structured filters. Within each family only the last
+    /// occurrence is `isActive` — matching `parse`'s last-wins semantics.
     static func chips(_ raw: String) -> [Chip] {
         var out: [Chip] = []
+        var lastIndexByFamily: [String: Int] = [:]  // "kind" / ">" / "<"
+        func append(_ chip: Chip, family: String) {
+            if let previous = lastIndexByFamily[family] { out[previous].isActive = false }
+            lastIndexByFamily[family] = out.count
+            out.append(chip)
+        }
         for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
             let lower = word.lowercased()
             if lower.hasPrefix("kind:") {
                 let ext = String(lower.dropFirst("kind:".count)).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                if !ext.isEmpty { out.append(Chip(raw: word, label: "kind: \(ext)")) }
+                if !ext.isEmpty { append(Chip(raw: word, label: "kind: \(ext)"), family: "kind") }
             } else if lower.hasPrefix(">"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                out.append(Chip(raw: word, label: "> \(FileSyncManager.formatBytes(bytes))"))
+                append(Chip(raw: word, label: "> \(FileSyncManager.formatBytes(bytes))"), family: ">")
             } else if lower.hasPrefix("<"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                out.append(Chip(raw: word, label: "< \(FileSyncManager.formatBytes(bytes))"))
+                append(Chip(raw: word, label: "< \(FileSyncManager.formatBytes(bytes))"), family: "<")
             }
         }
         return out

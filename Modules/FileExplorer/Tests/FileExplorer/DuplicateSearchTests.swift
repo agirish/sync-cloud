@@ -55,6 +55,39 @@ import Sync
         #expect(!query.matches(group("summary.pdf", keeperSize: 1)))   // text fails
     }
 
+    @Test func kindImageClassMatchesAnyImageExtension() {
+        // `kind:image` is a class alias (the "Images" suggestion), matching the fixed extension
+        // set — not just JPEGs, which the suggestion used to silently mean.
+        let query = DuplicateSearch.parse("kind:image")
+        #expect(query.matches(group("photo.jpg", keeperSize: 1)))
+        #expect(query.matches(group("photo.PNG", keeperSize: 1)))
+        #expect(query.matches(group("photo.heic", keeperSize: 1)))
+        #expect(!query.matches(group("notes.pdf", keeperSize: 1)))
+        // No extension named "image" would ever match literally — the alias owns the word.
+        #expect(!query.matches(group("noext", keeperSize: 1)))
+    }
+
+    @Test func exactExtensionMatchingUnchangedByClassAliases() {
+        // Everything that isn't an alias stays an exact extension match.
+        #expect(DuplicateSearch.parse("kind:jpg").matches(group("photo.jpg", keeperSize: 1)))
+        #expect(!DuplicateSearch.parse("kind:jpg").matches(group("photo.png", keeperSize: 1)))
+    }
+
+    @Test func duplicateFamilyChipsMarkEarlierOnesInactive() {
+        // parse is last-wins within a family; chips must read as the effective query, so the
+        // superseded earlier chip renders inactive while both keep their exact raw word for ✕.
+        let chips = DuplicateSearch.chips("kind:pdf kind:png >5mb")
+        #expect(chips.count == 3)
+        #expect(chips[0].raw == "kind:pdf" && chips[0].isActive == false)
+        #expect(chips[1].raw == "kind:png" && chips[1].isActive == true)
+        #expect(chips[2].isActive == true)
+        // The effective query really is the last one.
+        #expect(DuplicateSearch.parse("kind:pdf kind:png").kind == "png")
+
+        // Different families never supersede each other.
+        #expect(DuplicateSearch.chips(">5mb <10mb").map(\.isActive) == [true, true])
+    }
+
     @Test func chipsListKindAndSizeAndSkipNameText() {
         let chips = DuplicateSearch.chips("kind:PDF >5mb contract")
         #expect(chips == [DuplicateSearch.Chip(raw: "kind:PDF", label: "kind: pdf"),

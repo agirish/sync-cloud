@@ -737,9 +737,14 @@ public struct DifferencesView: View {
                     Button {
                         searchText = DifferenceSearch.removingToken(token, from: searchText)
                     } label: {
+                        // 8 pt glyph, padded hit target (negative padding restores the chip's
+                        // visual size) — the bare glyph was a misclick magnet.
                         Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                            .padding(6)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .padding(-6)
                     .accessibilityLabel("Remove filter \(tokenLabel(token))")
                 }
                 .padding(.horizontal, 7)
