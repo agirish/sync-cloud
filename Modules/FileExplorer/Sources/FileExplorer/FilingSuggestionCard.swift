@@ -60,10 +60,7 @@ struct FilingSuggestionCard: View {
                 .padding(.top, densityMetrics.cardHeaderVerticalPadding)
                 .padding(.bottom, densityMetrics.cardHeaderVerticalPadding)
         }
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .lensCard()
     }
 
     private var sourceRow: some View {

@@ -449,10 +449,7 @@ public struct AutomationsLens: View {
             }
             .padding(.horizontal, 22).padding(.vertical, 18)
             .frame(maxWidth: 380)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6)))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+            .lensCard()
             HStack(spacing: 10) {
                 Button(action: { advanceFiling(approved: false) }) {
                     Label("Skip", systemImage: "arrow.uturn.forward").frame(minWidth: 66)
@@ -566,10 +563,7 @@ private struct AutomationRuleCard: View {
             actions
         }
         .padding(.horizontal, 14).padding(.vertical, densityMetrics.cardRowVerticalPadding)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(rule.enabled ? 0.5 : 0.25)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .lensCard(fillOpacity: rule.enabled ? 0.5 : 0.25)
         .opacity(rule.enabled ? 1 : 0.7)
     }
 
@@ -698,10 +692,7 @@ private struct AutomationDryRunRowView: View {
         // clamp rather than substitute: comfortable stays exactly 9; compact tightens to the
         // metric's 6.
         .padding(.vertical, min(9, densityMetrics.cardRowVerticalPadding))
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .lensCard()
         .contentShape(Rectangle())
         .contextMenu {
             if let onQuickLook {

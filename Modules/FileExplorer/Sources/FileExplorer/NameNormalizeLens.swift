@@ -183,10 +183,7 @@ private struct RiskyNameCard: View {
             actionsFooter
         }
         .padding(.horizontal, 14).padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .lensCard()
     }
 
     private var locationRow: some View {

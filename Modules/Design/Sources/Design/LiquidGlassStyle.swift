@@ -296,7 +296,7 @@ public extension View {
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.6)
+                        .strokeBorder(.quaternary, lineWidth: 0.5)
                 )
                 .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
                 .padding(LiquidGlass.cardGutter)
@@ -354,7 +354,7 @@ public extension View {
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(.quaternary, lineWidth: 0.6)
+                            .strokeBorder(.quaternary, lineWidth: 0.5)
                     )
                     .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
             }
