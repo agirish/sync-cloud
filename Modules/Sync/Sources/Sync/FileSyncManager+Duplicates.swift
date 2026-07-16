@@ -1,21 +1,6 @@
 import Events
 import Foundation
 
-/// Side storage for each manager's ``FileSyncManager/duplicateScanSkips``: an extension cannot
-/// add a stored property and `FileSyncManager.swift` hosts the class's stored state, so the value
-/// lives in a main-actor table keyed weakly (by identity) on the manager — no lifetime coupling,
-/// no leaks across test-created managers.
-@MainActor
-private let duplicateScanSkipStore = NSMapTable<FileSyncManager, DuplicateScanSkipsBox>(
-    keyOptions: [.weakMemory, .objectPointerPersonality],
-    valueOptions: .strongMemory
-)
-
-private final class DuplicateScanSkipsBox {
-    var value: FileSyncManager.DuplicateScanSkips
-    init(_ value: FileSyncManager.DuplicateScanSkips) { self.value = value }
-}
-
 /// Tidy — the in-provider duplicate finder. Reuses the existing tree walk and content hasher to
 /// gather input for the pure ``DuplicateFinder``, and routes removals through ``deleteItems`` so
 /// they land in the Trash with the same one-step Undo as every other destructive action.
@@ -24,12 +9,8 @@ extension FileSyncManager {
     /// Files the most recent duplicate scan had to skip during content hashing — and therefore
     /// could not prove identical to anything. Without this figure, two identical >100 MB files
     /// (or cloud-only placeholders) are simply invisible to Tidy with zero indication. Labels the
-    /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results, reset
-    /// by `clearDuplicates`.
-    ///
-    /// Follow-up (TidyView is owned elsewhere): surface `duplicateScanSkips.total` as a note in
-    /// the Tidy results header; a `@Published` property in FileSyncManager.swift would then be
-    /// the cleaner home for this value.
+    /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results
+    /// (`duplicateScanSkips` in FileSyncManager.swift), reset by `clearDuplicates`.
     public struct DuplicateScanSkips: Sendable, Equatable {
         /// Candidates skipped because they exceed the hashing size cap (`maxBytesToHash`).
         public var tooLarge: Int
@@ -41,19 +22,6 @@ extension FileSyncManager {
         public init(tooLarge: Int = 0, cloudOnly: Int = 0) {
             self.tooLarge = tooLarge
             self.cloudOnly = cloudOnly
-        }
-    }
-
-    /// See ``DuplicateScanSkips``. Updated just before `duplicateGroups` publishes, so observers
-    /// of the results always read a matching value.
-    public internal(set) var duplicateScanSkips: DuplicateScanSkips {
-        get { duplicateScanSkipStore.object(forKey: self)?.value ?? DuplicateScanSkips() }
-        set {
-            if let box = duplicateScanSkipStore.object(forKey: self) {
-                box.value = newValue
-            } else {
-                duplicateScanSkipStore.setObject(DuplicateScanSkipsBox(newValue), forKey: self)
-            }
         }
     }
 

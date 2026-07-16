@@ -471,6 +471,21 @@ enum TidyUnverifiedNote {
     }
 }
 
+/// The scan-level counterpart to ``TidyUnverifiedNote``: wording for the summary row's "skipped"
+/// pill tooltip when the duplicate scan skipped candidate files during hashing entirely, spelling
+/// out the per-reason split. Only reasons that actually occurred are listed, so the tooltip never
+/// mentions an empty category.
+enum TidyScanSkipNote {
+    static func text(_ skips: FileSyncManager.DuplicateScanSkips) -> String? {
+        guard skips.total > 0 else { return nil }
+        var reasons: [String] = []
+        if skips.tooLarge > 0 { reasons.append("\(skips.tooLarge) too large to hash") }
+        if skips.cloudOnly > 0 { reasons.append("\(skips.cloudOnly) cloud-only (not downloaded)") }
+        let plural = skips.total != 1
+        return "\(skips.total) file\(plural ? "s" : "") couldn't be content-checked: \(reasons.joined(separator: ", ")). Identical copies among them are not detected."
+    }
+}
+
 // MARK: - Keeper marker
 
 /// Pure mapping from (does this group allow picking a keeper?, is this copy the keeper?) to the

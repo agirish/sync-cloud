@@ -1,3 +1,4 @@
+import Sync
 import Testing
 @testable import FileExplorer
 
@@ -34,6 +35,33 @@ import Testing
         #expect(one?.hasPrefix("1 copy couldn't be content-verified") == true)
         let three = TidyUnverifiedNote.text(unverifiedCount: 3)
         #expect(three?.hasPrefix("3 copies couldn't be content-verified") == true)
+    }
+}
+
+/// Pins the scan-level "skipped" pill tooltip: nil (pill hidden) for a clean scan, per-reason
+/// breakdown listing only the reasons that occurred, singular/plural on the total.
+@Suite struct TidyScanSkipNoteTests {
+    private typealias Skips = FileSyncManager.DuplicateScanSkips
+
+    @Test func nilWhenNothingWasSkipped() {
+        #expect(TidyScanSkipNote.text(Skips()) == nil)
+    }
+
+    @Test func listsOnlyTheReasonsThatOccurred() {
+        let largeOnly = TidyScanSkipNote.text(Skips(tooLarge: 2, cloudOnly: 0))
+        #expect(largeOnly == "2 files couldn't be content-checked: 2 too large to hash. Identical copies among them are not detected.")
+        let cloudOnly = TidyScanSkipNote.text(Skips(tooLarge: 0, cloudOnly: 3))
+        #expect(cloudOnly == "3 files couldn't be content-checked: 3 cloud-only (not downloaded). Identical copies among them are not detected.")
+    }
+
+    @Test func combinesBothReasonsWithATotal() {
+        let both = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2))
+        #expect(both == "3 files couldn't be content-checked: 1 too large to hash, 2 cloud-only (not downloaded). Identical copies among them are not detected.")
+    }
+
+    @Test func singularTotalDropsThePluralS() {
+        let one = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
+        #expect(one?.hasPrefix("1 file couldn't be content-checked") == true)
     }
 }
 

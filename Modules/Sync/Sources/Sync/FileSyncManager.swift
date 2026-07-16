@@ -197,6 +197,11 @@ public class FileSyncManager: ObservableObject {
     var duplicateScanEpoch = 0
     /// True once a duplicate scan has completed at least once (drives the empty-vs-results state).
     @Published public var hasFoundDuplicates = false
+    /// Files the most recent duplicate scan could not content-verify — and among which identical
+    /// copies therefore go undetected (see ``DuplicateScanSkips``). Set just before
+    /// `duplicateGroups` publishes so observers of the results always read a matching value;
+    /// reset by `clearDuplicates`.
+    @Published public internal(set) var duplicateScanSkips = DuplicateScanSkips()
     /// Store for "Keep separate" duplicate-group keys (injectable so tests don't touch standard).
     public var duplicateIgnoreDefaults: UserDefaults = .standard
     /// The in-flight Find Duplicates task, so the UI can cancel a long scan.

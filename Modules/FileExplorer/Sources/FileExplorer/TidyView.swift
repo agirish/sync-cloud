@@ -538,6 +538,15 @@ public struct TidyView: View {
             if s.needsReviewCount > 0 {
                 StatPill(count: s.needsReviewCount, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
             }
+            // Scan-level counterpart to the per-group unverified note (TidyUnverifiedNote): files
+            // the scan never content-verified at all, so identical copies among them are absent
+            // from every group below — without this pill the scan is silently blind to them.
+            if let skipNote = TidyScanSkipNote.text(syncManager.duplicateScanSkips) {
+                StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
+                         color: .orange, systemImage: "eye.slash")
+                    .help(skipNote)
+                    .accessibilityLabel(skipNote)
+            }
             Spacer(minLength: 8)
             // "N of M" whenever the search/filter narrows the list (same affordance as Compare's
             // search), so a shortened list is visibly a filtered view, not the whole result.
