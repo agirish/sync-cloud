@@ -137,6 +137,44 @@ import Events
         #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
     }
 
+    // MARK: Move redo after a REFUSED undo — must not re-run the move the undo declined
+
+    /// Undo of a move refuses when a DIFFERENT file has appeared at the source (it won't clobber an
+    /// unrelated occupant). A subsequent redo must then do nothing — the move it would re-apply was
+    /// never actually reversed. Before the fix, the redo params were built from all items eagerly, so
+    /// the refused item was still redone: the occupant got moved over the real file at the
+    /// destination.
+    @MainActor
+    @Test func testRedoAfterARefusedMoveUndoDoesNotClobberTheDestination() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = file(100)   // the real file S
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.moveItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+
+        // An UNRELATED file Z appears at the source before the undo, occupying the move-back target.
+        mockFM.virtualDisk["/src/f.txt"] = file(55)   // Z
+
+        manager.undoManager?.undo()   // move-back refuses: /src/f.txt is occupied by Z
+        await waitUntil("the refused undo settles") { manager.activeFileOperationsCount == 0 }
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)  // S stayed
+        #expect(mockFM.virtualDisk["/src/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 55)   // Z stayed
+
+        manager.banner = nil
+        manager.undoManager?.redo()   // must NOT re-run the move the undo refused
+        await waitUntil("the redo settles") { manager.activeFileOperationsCount == 0 }
+
+        // The redo did nothing: S is untouched at the destination and Z stayed at the source.
+        // (Before the fix, the redo moved Z over S and backed the real file up to the Trash.)
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+        #expect(mockFM.virtualDisk["/src/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 55)
+        #expect(mockFM.trashedPaths.isEmpty)   // S was never displaced to the Trash
+    }
+
     // MARK: Folder redo — a file has taken the folder's path
 
     /// Redo of New Folder fails when a file now occupies the path. The failure must be surfaced,

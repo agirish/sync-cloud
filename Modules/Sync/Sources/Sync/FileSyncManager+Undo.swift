@@ -150,16 +150,20 @@ extension FileSyncManager {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let items = await stateResolver.get()
 
-                        let redoParams = items.map { (source: $0.source, destination: $0.destination) }
-                        await redoParamResolver.resolve(redoParams)
-
                         // Undoing a copy deletes the copied item. On volumes without Trash that
                         // deletion is permanent, so it needs the same user confirmation as
                         // deleteItems — never a silent removeItem fallback.
+                        // Redo params are resolved from ONLY the copies actually undone (destination
+                        // removed), not eagerly from every item — a copy whose undo was refused (trash
+                        // failed AND the user declined the permanent delete) still exists on disk, so
+                        // redoing it would re-copy over the survivor. `redoParamResolver` MUST be
+                        // resolved on every exit (including the declined-confirmation early return) or
+                        // a later redo would await it forever.
                         var trashFailures: [CopyItemState] = []
                         var removed = 0
                         var restored = 0
                         var restoreFailures = 0
+                        var undoneCopies: [(source: URL, destination: URL)] = []
                         for item in items {
                             do {
                                 try fm.trashItem(at: item.destination, resultingItemURL: nil)
@@ -168,6 +172,7 @@ extension FileSyncManager {
                                 continue
                             }
                             removed += 1
+                            undoneCopies.append((source: item.source, destination: item.destination))
 
                             switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                             case .restored: restored += 1
@@ -180,7 +185,10 @@ extension FileSyncManager {
                             let confirmed = await MainActor.run {
                                 confirmPermanentDelete(trashFailures.map { $0.destination.lastPathComponent })
                             }
-                            guard confirmed else { return }
+                            guard confirmed else {
+                                await redoParamResolver.resolve(undoneCopies)
+                                return
+                            }
                             for item in trashFailures {
                                 do {
                                     try fm.removeItem(at: item.destination)
@@ -191,6 +199,7 @@ extension FileSyncManager {
                                     continue
                                 }
                                 removed += 1
+                                undoneCopies.append((source: item.source, destination: item.destination))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
                                 case .failed: restoreFailures += 1
@@ -199,6 +208,7 @@ extension FileSyncManager {
                             }
                         }
 
+                        await redoParamResolver.resolve(undoneCopies)
                         logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s)")
                 }
             }
@@ -255,11 +265,15 @@ extension FileSyncManager {
             Task {
                 await target.enqueueFileOperation(alreadyCounted: true) {
                         let items = await stateResolver.get()
-                        let redoParams = items.map { (from: $0.from, to: $0.to) }
-                        await redoParamResolver.resolve(redoParams)
-                        
+
+                        // Resolve the redo params AFTER the reversal loop, from ONLY the items that
+                        // actually moved back — mirroring how the redo path excludes failed re-applies
+                        // from its next-undo state. A refused item (its source is now occupied by a
+                        // DIFFERENT file) must never be in redoParams: redoing it would run the move
+                        // anyway and drop that unrelated occupant over the real file at the destination.
                         var movedBack = 0
                         var restoreFailures = 0
+                        var reversedParams: [(from: URL, to: URL)] = []
                         for item in items {
                             try? fm.createDirectory(at: item.from.deletingLastPathComponent(), withIntermediateDirectories: true)
                             var movedBackOK = false
@@ -285,6 +299,8 @@ extension FileSyncManager {
                                     _ = try FileSyncManager.safeMoveItem(at: item.to, to: item.from, fileManager: fm)
                                     movedBack += 1
                                     movedBackOK = true
+                                    // Only a move-back that actually happened is redoable.
+                                    reversedParams.append((from: item.from, to: item.to))
                                 } catch {
                                     restoreFailures += 1
                                     await FileSyncManager.reportUndoRestoreFailure(of: item.from, from: item.to, actionName: actionName, error: error, on: target)
@@ -304,6 +320,7 @@ extension FileSyncManager {
                                 }
                             }
                         }
+                        await redoParamResolver.resolve(reversedParams)
                         logger.info("Undo (\(actionName)): moved \(movedBack) of \(items.count) item(s) back to source, \(restoreFailures) restore failure(s)")
                 }
             }
