@@ -67,7 +67,11 @@ public struct PaneHeader: View {
                     Circle()
                         .fill(freshness.isStale ? Color.orange : Color.green)
                         .frame(width: 5, height: 5)
+                    // One line always: in a narrow pane a wrapping pill would grow the whole
+                    // header vertically.
                     Text(freshness.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                     if freshness.isStale {
                         Image(systemName: "arrow.clockwise").font(.system(size: 9, weight: .semibold))
                     }
@@ -78,8 +82,11 @@ public struct PaneHeader: View {
                 .background(tint.opacity(freshness.isStale ? 0.14 : 0.1), in: Capsule())
 
                 if let onRefresh {
+                    // Same guard as the Scan button below: the pill triggers the same action,
+                    // so it must not queue a second scan while one is running.
                     Button(action: onRefresh) { label }
                         .buttonStyle(.plain)
+                        .disabled(isRefreshing)
                         .help(freshness.isStale
                               ? "This comparison may be out of date — click to re-scan"
                               : "\(freshness.text) — click to re-scan")
@@ -159,6 +166,10 @@ public struct PaneHeader: View {
                             Text(provider.displayName)
                                 .font(.headline.weight(.semibold))
                                 .foregroundStyle(hue.tint)
+                                // A long custom provider name must truncate, not wrap the
+                                // header taller in a narrow pane.
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                                 .contentShape(Rectangle())
                         }
                         .help("Switch this pane's cloud provider")
