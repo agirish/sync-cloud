@@ -1158,8 +1158,6 @@ struct TidySettingsTab: View {
     @State private var hasStoredKey = false
     @State private var testingKey = false
     @State private var keyTestResult: AnthropicKeyCheck.Result?
-    @State private var filingRuleCount = 0
-    @State private var showRulesManager = false
     // Cloud spend, refreshed on appear and when the history sheet closes.
     @State private var spendTotals = FilingSpendTotals()
     @State private var spendLast: FilingSpendEntry?
@@ -1211,18 +1209,14 @@ struct TidySettingsTab: View {
                 }
                 .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
                 LabeledContent("Remembered rules") {
-                    HStack(spacing: 8) {
-                        Text(filingRuleCount == 0 ? "None yet" : "\(filingRuleCount) rule\(filingRuleCount == 1 ? "" : "s")")
-                            .foregroundStyle(.secondary)
-                        Button("Manage…") { showRulesManager = true }
-                            .disabled(filingRuleCount == 0 || syncManager == nil)
-                    }
-                    .controlSize(.small)
+                    Text("Now live in Tidy ▸ Automations")
+                        .foregroundStyle(.secondary)
                 }
+                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Tidy tab's Automations lens.")
             } header: {
                 Text("Filing")
             } footer: {
-                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. Remembered rules are the corrections you asked Filing to keep. Changes apply on the next scan.")
+                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Filing to remember are saved as automations (Tidy ▸ Automations). Changes apply on the next scan.")
             }
 
             Section {
@@ -1264,14 +1258,8 @@ struct TidySettingsTab: View {
         }
         .formStyle(.grouped)
         .onAppear {
-            filingRuleCount = syncManager?.filingRules.count ?? 0
             hasStoredKey = AnthropicKeychain.hasKey
             refreshSpend()
-        }
-        .sheet(isPresented: $showRulesManager) {
-            if let syncManager {
-                FilingRulesManagerView(syncManager: syncManager) { filingRuleCount = syncManager.filingRules.count }
-            }
         }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             TidySpendHistorySheet()
@@ -1526,291 +1514,5 @@ struct AdvancedSettingsTab: View {
             return (attributes?[.size] as? NSNumber)?.intValue
         }.value
         logFileSizeText = bytes.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
-    }
-}
-
-/// Turns a remembered rule's canonical trigger tokens and absolute destination into the plain
-/// words shown in the manager — a rule should read as something a person can understand and undo,
-/// not as a raw token dump. Pure and internal so it can be pinned by tests.
-/// Reviews, edits, disables, and forgets the remembered filing rules (F3). Each rule is a trigger
-/// token-set the user taught by correcting a Filing suggestion, mapped to the folder those files
-/// should go into. Rendered in plain words with a live "drives N suggestions" read-out so a rule
-/// is legible and manageable rather than an opaque, invisible token map.
-struct FilingRulesManagerView: View {
-    let syncManager: FileSyncManager
-    /// Called after any change so the caller can refresh its rule count.
-    let onChange: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var rules: [FilingRule] = []
-    /// The rule currently open in the editor sheet, if any.
-    @State private var editingRule: FilingRule?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Remembered Filing Rules").font(.headline)
-                Spacer()
-                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
-            }
-            .padding()
-
-            Divider()
-
-            if rules.isEmpty {
-                Text("No remembered rules.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                List {
-                    ForEach(rules) { rule in
-                        FilingRuleRow(
-                            rule: rule,
-                            drivesCount: drivesCount(for: rule),
-                            // Built here (not forwarded as a stored closure) so the Binding's
-                            // @Sendable set closure captures the MainActor method directly, the
-                            // same pattern ProviderSettingsSection.enabledBinding uses.
-                            enabled: Binding(
-                                get: { rule.enabled },
-                                set: { setEnabled($0, for: rule) }
-                            ),
-                            onEdit: { editingRule = rule },
-                            onForget: { forget(rule) }
-                        )
-                    }
-                }
-            }
-
-            Divider()
-
-            HStack {
-                Button("Forget All…", role: .destructive) { forgetAll() }
-                    .disabled(rules.isEmpty)
-                Spacer()
-                Text("Rules are consulted on the next Filing scan.")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
-            }
-            .padding()
-        }
-        .frame(width: 500, height: 400)
-        .onAppear { rules = syncManager.filingRules }
-        .sheet(item: $editingRule) { rule in
-            FilingRuleEditor(original: rule) { edited in
-                applyEdit(original: rule, edited: edited)
-            }
-        }
-    }
-
-    /// How many of the current scan's suggestions this rule accounts for — a suggestion whose best
-    /// home came from a remembered rule pointing at this destination. Read directly (not observed):
-    /// suggestions don't change while this modal is open, and an approximate count is fine.
-    private func drivesCount(for rule: FilingRule) -> Int {
-        syncManager.filingSuggestions.filter {
-            $0.best?.remembered == true && $0.best?.path == rule.destinationPath
-        }.count
-    }
-
-    private func forget(_ rule: FilingRule) {
-        syncManager.forgetFilingRule(rule)
-        rules = syncManager.filingRules
-        onChange()
-    }
-
-    /// Flips a rule's `enabled` flag through the manager (kept, not deleted).
-    private func setEnabled(_ enabled: Bool, for rule: FilingRule) {
-        syncManager.setFilingRule(rule, enabled: enabled)
-        rules = syncManager.filingRules
-        onChange()
-    }
-
-    /// Replaces the edited rule through the manager (which also merges an id collision).
-    private func applyEdit(original: FilingRule, edited: FilingRule) {
-        syncManager.replaceFilingRule(original, with: edited)
-        rules = syncManager.filingRules
-        onChange()
-    }
-
-    private func forgetAll() {
-        let alert = NSAlert()
-        alert.messageText = "Forget all remembered filing rules?"
-        alert.informativeText = "Filing will go back to suggesting homes from scratch. Your files aren't affected."
-        alert.addButton(withTitle: "Forget All")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
-        alert.buttons.first?.keyEquivalent = ""
-        alert.buttons.last?.keyEquivalent = "\r"
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        syncManager.clearFilingRules()
-        rules = []
-        onChange()
-    }
-}
-
-/// One rule in the manager: an enable switch, the plain-words trigger + home-abbreviated
-/// destination, a "drives N suggestions" read-out, and Edit / Forget. Disabled rules read dimmed.
-private struct FilingRuleRow: View {
-    let rule: FilingRule
-    let drivesCount: Int
-    @Binding var enabled: Bool
-    let onEdit: () -> Void
-    let onForget: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Toggle("", isOn: $enabled)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .labelsHidden()
-                .help(rule.enabled ? "Disable this rule (kept for later)" : "Enable this rule")
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(FilingRulePhrasing.trigger(rule.tokens))
-                    .font(.system(size: 12.5, weight: .semibold))
-                HStack(spacing: 5) {
-                    Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                    Text(FilingRulePhrasing.destination(rule.destinationPath))
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                        .help(rule.destinationPath)
-                }
-                Text(drivesLabel)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.tertiary)
-            }
-            // Dim only the description of a disabled rule; leave its controls fully usable so it
-            // can be re-enabled or edited.
-            .opacity(rule.enabled ? 1 : 0.5)
-
-            Spacer(minLength: 8)
-
-            HStack(spacing: 6) {
-                Button("Edit") { onEdit() }
-                Button("Forget") { onForget() }
-            }
-            .controlSize(.small)
-        }
-        .padding(.vertical, 3)
-    }
-
-    private var drivesLabel: String {
-        drivesCount == 0
-            ? "No current matches"
-            : "Drives \(drivesCount) suggestion\(drivesCount == 1 ? "" : "s")"
-    }
-}
-
-/// Edits a remembered rule's trigger words and destination. Trigger words are re-canonicalized on
-/// save (lowercased, de-duplicated, sorted) to match how the engine stores and matches them; the
-/// rule's `enabled` state is carried through unchanged.
-private struct FilingRuleEditor: View {
-    let original: FilingRule
-    let onSave: (FilingRule) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var tokensText: String
-    @State private var destination: String
-
-    init(original: FilingRule, onSave: @escaping (FilingRule) -> Void) {
-        self.original = original
-        self.onSave = onSave
-        _tokensText = State(initialValue: original.tokens.joined(separator: ", "))
-        _destination = State(initialValue: original.destinationPath)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Edit Rule").font(.headline)
-                Spacer()
-            }
-            .padding()
-
-            Divider()
-
-            Form {
-                Section {
-                    TextField("invoice, acme", text: $tokensText)
-                } header: {
-                    Text("Trigger words")
-                } footer: {
-                    if canonicalTokens.isEmpty && !tokensText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
-                    } else {
-                        Text("A file matches when its name or contents include all of these words. Separate with commas or spaces.")
-                    }
-                }
-
-                Section {
-                    HStack(spacing: 8) {
-                        TextField("Destination folder", text: $destination)
-                            .font(.system(.callout, design: .monospaced))
-                            .textFieldStyle(.roundedBorder)
-                        Button("Browse…") { browse() }
-                    }
-                } header: {
-                    Text("File matching files into")
-                } footer: {
-                    Text(destination.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                         ? "Choose the folder these files should be filed into."
-                         : FilingRulePhrasing.destination(normalizedDestination))
-                }
-            }
-            .formStyle(.grouped)
-
-            Divider()
-
-            HStack {
-                Button("Cancel", role: .cancel) { dismiss() }
-                Spacer()
-                Button("Save") { save() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!isValid)
-            }
-            .padding()
-        }
-        .frame(width: 460, height: 380)
-    }
-
-    /// Canonical form the engine expects — produced by the SAME tokenizer that files are matched
-    /// with (`FilingEngine.nameTokens`: split on every non-alphanumeric, lowercase, drop stopwords
-    /// and short/bare-number tokens). A hand-split on commas/whitespace let entries like
-    /// "tesla-model-3" or "acme_corp" save verbatim, and a hyphenated/underscored trigger can
-    /// never be a subset of any file's tokens — the rule saved fine and then never fired again.
-    private var canonicalTokens: [String] {
-        FilingEngine.nameTokens(tokensText).sorted()
-    }
-
-    private var normalizedDestination: String {
-        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "" : (trimmed as NSString).expandingTildeInPath
-    }
-
-    private var isValid: Bool {
-        // The destination must be an absolute path: `filingRules(under:)` matches rules to a
-        // provider by absolute-path prefix, so a relative destination is silently filtered out
-        // of every scan forever — a rule that looks saved but can never fire.
-        !canonicalTokens.isEmpty && normalizedDestination.hasPrefix("/")
-    }
-
-    private func save() {
-        guard isValid else { return }
-        onSave(FilingRule(tokens: canonicalTokens, destinationPath: normalizedDestination, enabled: original.enabled))
-        dismiss()
-    }
-
-    private func browse() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose where matching files should be filed"
-        if !normalizedDestination.isEmpty {
-            panel.directoryURL = URL(fileURLWithPath: (normalizedDestination as NSString).expandingTildeInPath)
-        }
-        if panel.runModal() == .OK, let url = panel.url {
-            destination = url.path
-        }
     }
 }

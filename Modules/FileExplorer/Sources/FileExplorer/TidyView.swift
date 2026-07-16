@@ -147,12 +147,8 @@ public struct TidyView: View {
     @State private var pendingRuleOffer: RuleOffer?
     /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
     @State private var ruleConditionChoice: AutomationCondition?
-    /// The just-learned remembered rule, opened in the editor right after "Remember" so it can be
-    /// reviewed and adjusted while it's fresh (Cancel keeps it as learned; it stays editable under
-    /// Automations and Settings ▸ Filing).
-    @State private var reviewingRememberedRule: FilingRule?
-    /// The just-saved automation, opened in the editor right after "Save rule" for the same review
-    /// pass (Cancel keeps it as saved; it stays editable under Automations).
+    /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
+    /// review pass (Cancel keeps it as created; it stays editable under Automations).
     @State private var reviewingAutomationRule: AutomationRule?
 
     private let providerName: String?
@@ -266,18 +262,6 @@ public struct TidyView: View {
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
-        .sheet(item: $reviewingRememberedRule) { rule in
-            FilingRuleEditorView(
-                title: "Review remembered rule",
-                original: rule,
-                accent: glassHue.accentColor,
-                onSave: { edited in
-                    syncManager.replaceFilingRule(rule, with: edited)
-                    reviewingRememberedRule = nil
-                },
-                onCancel: { reviewingRememberedRule = nil }
-            )
-        }
         .sheet(item: $reviewingAutomationRule) { rule in
             AutomationRuleEditor(
                 rule: rule,
@@ -897,7 +881,7 @@ public struct TidyView: View {
         )
     }
 
-    /// N2 — the Automations lens (preview-only). Self-contained (its own rule-list / previewing /
+    /// N2 — the Automations lens. Self-contained (its own rule-list / previewing /
     /// results states and rule editor live in ``AutomationsLens``), so the host only threads the
     /// dry-run trigger through — it owns the focused-folder root the preview scans.
     private var automationsContent: some View {
@@ -943,15 +927,17 @@ public struct TidyView: View {
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
-    /// Learns the correction as an F3 rule, dismisses the prompt, and opens the learned rule for
-    /// review so it can be adjusted while it's fresh. `rememberFilingRule` is gated at the call
-    /// site by `FilingEngine.canRemember`, so it should succeed; a rare no-op (returns nil) still
-    /// just dismisses — no misleading "learned" banner, nothing to review.
+    /// Learns the correction as an automation (a "mentions" rule), dismisses the prompt, and opens
+    /// the learned rule for review so it can be adjusted while it's fresh. `rememberAutomationRule`
+    /// is gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
+    /// (returns nil) still just dismisses — no misleading "learned" banner, nothing to review.
     private func rememberOverride(_ prompt: PendingRememberPrompt) {
-        if let rule = syncManager.rememberFilingRule(fileName: prompt.fileName, destinationPath: prompt.destinationPath) {
+        if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
+                                                         destinationPath: prompt.destinationPath,
+                                                         providerRoot: automationDestinationRoot) {
             let folderName = (prompt.destinationPath as NSString).lastPathComponent
             syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
-            reviewingRememberedRule = rule
+            reviewingAutomationRule = rule
         }
         pendingRememberPrompt = nil
     }

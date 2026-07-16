@@ -279,7 +279,7 @@ public class FileSyncManager: ObservableObject {
     /// re-ask can classify a single file without re-walking the whole provider.
     public var filingLastProviderRoot: String?
 
-    // MARK: Automations (N2) — preview-only
+    // MARK: Automations (N2)
 
     /// The user's authored automation rules. Loaded lazily from `filingRuleDefaults` on first use
     /// (`ensureAutomationRulesLoaded`) and persisted on every mutation. `@Published` so the

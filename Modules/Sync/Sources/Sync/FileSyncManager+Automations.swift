@@ -1,10 +1,12 @@
 import Events
 import Foundation
 
-/// N2 Automations — **preview-only** orchestration. Loads/persists the user's rules and runs a
-/// dry-run over a folder: what the enabled rules *would* do, with nothing moved. Everything here is
-/// on-device — filename globs, UTType, file attributes, and (only when a rule asks) the injected
-/// on-device snippet extractor. The cloud filing classifier is never constructed on this path.
+/// N2 Automations — rule orchestration. Loads/persists the user's rules, runs a dry-run preview
+/// over a folder (what the enabled rules *would* do, nothing moved), and — after per-file
+/// confirmation in the UI — files the approved matches for real as one undoable run. Everything
+/// here is on-device — filename globs, UTType, file attributes, and (only when a rule asks) the
+/// injected on-device snippet extractor. The cloud filing classifier is never constructed on this
+/// path. Rules also steer the Organize scan's suggestions (see `FilingEngine.suggest(automations:)`).
 extension FileSyncManager {
 
     /// Where automation rules persist (JSON, in the injectable `filingRuleDefaults` store — the same
@@ -114,8 +116,15 @@ extension FileSyncManager {
         let destinationAnchor = destinationRoot ?? root
         // A single-rule preview (only != nil) runs even if that rule is toggled off, so a rule can be
         // tested before enabling it; "preview all" (only == nil) uses just the enabled rules.
+        // A rule with an ABSOLUTE destination (migrated from F3) that points outside this provider
+        // is inert here — filtered up front so it can't claim a file another rule would handle.
+        let anchorPath = destinationAnchor.standardizedFileURL.path
         let rules = automationRules.filter { rule in
             guard rule.isRunnable else { return false }
+            if rule.destinationTemplate.hasPrefix("/"),
+               AutomationEvaluator.absoluteDestination(rule.destinationTemplate, providerRoot: anchorPath) == nil {
+                return false
+            }
             return only == nil ? rule.enabled : rule.id == only
         }
 
@@ -149,12 +158,18 @@ extension FileSyncManager {
                 isDirectory: file.isDirectory
             )
 
-            // Read the file's on-device text only when a content condition could still decide a
-            // match for it — the cheap conditions above have already been factored in.
+            // Read the file's on-device text only when content could still CHANGE a rule's outcome
+            // for this file: some content-reading rule doesn't match yet but could once its content
+            // conditions are known. A rule already satisfied by the name alone (a `mentions` rule
+            // whose words are all in the filename) skips the extraction entirely.
             if readsContents, let extractor = snippetExtractor,
                rules.contains(where: { $0.requiresContent
+                   && !AutomationEvaluator.matches($0, facts, now: now)
                    && AutomationEvaluator.couldMatchPendingContent($0, facts, now: now) }) {
                 facts.snippet = (await extractor(file.id))?.lowercased()
+                // Tokenize the excerpt so `mentionsAll` sees the same canonical content tokens the
+                // Organize scan matches with.
+                if let snippet = facts.snippet { facts.contentTokens = FilingEngine.nameTokens(snippet) }
                 if Task.isCancelled { return }
             }
 
@@ -182,7 +197,7 @@ extension FileSyncManager {
         self.hasRunAutomationDryRun = true
         Logger.shared.info("Automations dry run: \(root.lastPathComponent) — \(looseFiles.count) file(s), "
             + "\(report.wouldFileCount) would file, \(report.needsAttentionCount) need a look "
-            + "(preview only, nothing moved)")
+            + "(a preview — nothing moved yet)")
     }
 
     /// Turns a resolved destination into a preview verdict, adding the two disk/root-aware outcomes
@@ -200,9 +215,19 @@ extension FileSyncManager {
                                                       providerName: providerName, now: now) {
         case .unresolved(let token):
             return (.needsAttention("needs \(token), which this file doesn't have"), nil, nil)
-        case .resolved(let relativeDestination):
-            let destinationDir = destinationRoot.appendingPathComponent(relativeDestination).standardizedFileURL
+        case .resolved(let resolvedDestination):
+            // An absolute destination (a migrated F3 rule) names its folder directly; a relative one
+            // anchors at the provider root. Provider-inert absolute rules were filtered out before
+            // matching, so an absolute path here is inside this provider.
+            let destinationDir = resolvedDestination.hasPrefix("/")
+                ? URL(fileURLWithPath: resolvedDestination).standardizedFileURL
+                : destinationRoot.appendingPathComponent(resolvedDestination).standardizedFileURL
             let currentParent = URL(fileURLWithPath: facts.parentPath).standardizedFileURL
+            // Label with the provider-relative form whenever the destination sits under the root.
+            let rootPath = destinationRoot.standardizedFileURL.path
+            let relativeDestination = destinationDir.path.hasPrefix(rootPath + "/")
+                ? String(destinationDir.path.dropFirst(rootPath.count + 1))
+                : (destinationDir.path == rootPath ? "" : destinationDir.path)
             let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
                                                     : relativeDestination
             if destinationDir.path == currentParent.path {

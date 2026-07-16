@@ -60,13 +60,16 @@ extension FileSyncManager {
 
     // MARK: Scan
 
-    /// Starts a cancellable Filing scan, replacing any in-flight one.
-    public func startFindFilingSuggestions(folder: URL, providerRoot: URL, options: FilingOptions = .init()) {
+    /// Starts a cancellable Filing scan, replacing any in-flight one. `providerName` resolves the
+    /// `{provider}` token in automation destinations that steer the suggestions.
+    public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
+                                           options: FilingOptions = .init()) {
         let previous = filingScanTask
         previous?.cancel()
         filingScanTask = Task { [weak self] in
             _ = await previous?.value
-            await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot, options: options)
+            await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
+                                              providerName: providerName, options: options)
         }
     }
 
@@ -76,7 +79,8 @@ extension FileSyncManager {
     /// Reads the loose files in `folder`, learns the provider's folder taxonomy, and produces
     /// suggested homes.
     public func findFilingSuggestions(
-        folder: URL, providerRoot: URL, options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
+        folder: URL, providerRoot: URL, providerName: String? = nil,
+        options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else { return }
         let fileManager = fm ?? self.fileManager
@@ -98,9 +102,13 @@ extension FileSyncManager {
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
 
-        // Remembered rules (F3), scoped to this provider so a rule pointing into another provider's
-        // tree can never fire here (its absolute destination would be wrong).
-        let rules = filingRules(under: providerRoot)
+        // The user's rules steer the suggestions. Automations are the one rule system; the legacy
+        // remembered-rule store (F3) is consulted only until the one-time migration into
+        // Automations has run, so an un-migrated install (tests, CLI) behaves exactly as before.
+        ensureAutomationRulesLoaded()
+        let automations = automationRules
+        let rules = filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey)
+            ? [] : filingRules(under: providerRoot)
         // Rejected folders per file — a "Try another" earlier said "not there"; never re-suggest it.
         let scopedRejections = filingRejections(under: providerRoot)
         var rejectedByFile: [String: Set<String>] = [:]
@@ -118,9 +126,10 @@ extension FileSyncManager {
         // Uncapped set for new-vs-existing marking on a re-ask (matches the main path's limit: .max).
         filingLastExistingFolders = Set(FilingEngine.relativeFolderPaths(of: taxonomy, limit: .max))
 
-        // Phase 1 — filename + metadata + your taxonomy + remembered rules (not published yet).
+        // Phase 1 — filename + metadata + your taxonomy + your rules (not published yet).
         var suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                providerRoot: providerRoot.path, rules: rules,
+                                               automations: automations, providerName: providerName,
                                                rejectedByFile: rejectedByFile, options: options)
         if Task.isCancelled { return }
 
@@ -135,7 +144,9 @@ extension FileSyncManager {
                 if !content.isEmpty {
                     suggestions = FilingEngine.suggest(looseFiles: looseFiles, taxonomy: taxonomy,
                                                        providerRoot: providerRoot.path, contentTokens: content,
-                                                       rules: rules, rejectedByFile: rejectedByFile, options: options)
+                                                       rules: rules, automations: automations,
+                                                       providerName: providerName,
+                                                       rejectedByFile: rejectedByFile, options: options)
                 }
             }
         }
@@ -302,12 +313,19 @@ extension FileSyncManager {
         (filingContentDefaults.object(forKey: Self.readContentsDefaultsKey) as? Bool) ?? true
     }
 
-    // MARK: Remembered rules (F3)
+    // MARK: Remembering rules (learned by example)
 
-    /// Where remembered filing rules are persisted (JSON, in `filingRuleDefaults`).
+    /// Where the legacy remembered filing rules (F3) persist (JSON, in `filingRuleDefaults`). The
+    /// store is read for the one-time migration into Automations — and consulted by scans only
+    /// until that migration has run — but no new rules are ever written to it.
     public static let rulesDefaultsKey = "tidyFilingRules"
 
-    /// The rules the user has taught by correcting suggestions. Persisted across scans and sessions.
+    /// Set once ``migrateFilingRulesToAutomations(providerRoots:)`` has converted the legacy F3
+    /// store; scans then steer from automations alone.
+    public static let filingRulesMigratedKey = "tidyFilingRulesMigratedToAutomations"
+
+    /// The legacy remembered rules (F3). Kept readable for the migration and the pre-migration
+    /// scan path; the old data stays in defaults untouched afterwards as a backup.
     public var filingRules: [FilingRule] {
         get {
             guard let data = filingRuleDefaults.data(forKey: Self.rulesDefaultsKey),
@@ -317,54 +335,77 @@ extension FileSyncManager {
         set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rulesDefaultsKey) }
     }
 
-    /// Rules whose destination lives inside `providerRoot` — the only ones safe to apply to a scan
-    /// of that provider (a rule's destination is an absolute path in one provider's tree).
+    /// Legacy rules whose destination lives inside `providerRoot` — the only ones safe to apply to
+    /// a scan of that provider (a rule's destination is an absolute path in one provider's tree).
     func filingRules(under providerRoot: URL) -> [FilingRule] {
         let root = providerRoot.path
         // Disabled rules (G1) stay persisted/editable in the manager but are inert for scans.
         return filingRules.filter { $0.enabled && ($0.destinationPath == root || $0.destinationPath.hasPrefix(root + "/")) }
     }
 
-    /// Learns a rule from a correction: "file <fileName> here" becomes "files like this go here."
-    /// Returns the learned rule so the caller can offer it for review; nil (a no-op) when the
-    /// filename yields nothing distinctive to key on.
+    /// Learns an automation from a correction: "file <fileName> here" becomes a *mentions*-rule —
+    /// "files that mention these words go here" — using the same distinctive-anchor token derivation
+    /// remembered rules (F3) always used. The destination is stored provider-relative when
+    /// `providerRoot` contains it (portable across providers), absolute otherwise. Re-teaching the
+    /// same trigger replaces the old destination rather than duplicating. Returns the saved rule so
+    /// the caller can open it for review; nil when the filename yields nothing distinctive to key on.
     @discardableResult
-    public func rememberFilingRule(fileName: String, contentTokens: Set<String> = [], destinationPath: String) -> FilingRule? {
-        guard let rule = FilingEngine.rule(forFileNamed: fileName, contentTokens: contentTokens,
-                                           filedInto: destinationPath) else { return nil }
-        var rules = filingRules
-        rules.removeAll { $0.tokens == rule.tokens }   // newest destination for a trigger wins
-        rules.append(rule)
-        filingRules = rules
+    public func rememberAutomationRule(fileName: String, contentTokens: Set<String> = [],
+                                       destinationPath: String, providerRoot: String?) -> AutomationRule? {
+        guard let derived = FilingEngine.rule(forFileNamed: fileName, contentTokens: contentTokens,
+                                              filedInto: destinationPath) else { return nil }
+        ensureAutomationRulesLoaded()
+        let condition = AutomationCondition.mentionsAll(derived.tokens)
+        let template = Self.destinationTemplate(
+            for: destinationPath, providerRoots: providerRoot.map { [URL(fileURLWithPath: $0)] } ?? [])
+        // Newest destination for a trigger wins — replace any rule keyed on exactly these words.
+        automationRules.removeAll { $0.conditions == [condition] }
+        let rule = AutomationRule(name: derived.tokens.map(\.capitalized).joined(separator: " "),
+                                  matchMode: .all, conditions: [condition], destinationTemplate: template)
+        upsertAutomationRule(rule)
         return rule
     }
 
-    /// Forgets one remembered rule.
-    public func forgetFilingRule(_ rule: FilingRule) {
-        filingRules.removeAll { $0.id == rule.id }
+    /// The template form of an absolute destination: relative to the provider root that contains it
+    /// (portable), or the absolute path itself when no known root does (the rule stays pinned to
+    /// where that folder lives — see ``AutomationEvaluator/absoluteDestination(_:providerRoot:)``).
+    /// The root itself also stays absolute: an empty template would read as "no destination".
+    static func destinationTemplate(for absolutePath: String, providerRoots: [URL]) -> String {
+        let normalized = (absolutePath as NSString).standardizingPath
+        for root in providerRoots {
+            let r = (root.path as NSString).standardizingPath
+            if normalized.hasPrefix(r + "/") { return String(normalized.dropFirst(r.count + 1)) }
+        }
+        return normalized
     }
 
-    /// Flips a remembered rule's `enabled` flag in place. The id is independent of `enabled`, so
-    /// this replaces the same rule; a disabled rule is kept (the teaching isn't lost) but inert.
-    public func setFilingRule(_ rule: FilingRule, enabled: Bool) {
-        var all = filingRules
-        guard let idx = all.firstIndex(where: { $0.id == rule.id }) else { return }
-        all[idx] = FilingRule(tokens: rule.tokens, destinationPath: rule.destinationPath, enabled: enabled)
-        filingRules = all
+    /// One-time migration: every legacy remembered rule (F3) becomes an automation with a single
+    /// `mentionsAll` condition — the same tokens, the same destination, the same enabled state —
+    /// so the rules the user taught keep steering Organize and become visible/editable in the
+    /// Automations lens. Idempotent via ``filingRulesMigratedKey``; the legacy store is left in
+    /// place (unconsulted) as a backup.
+    public func migrateFilingRulesToAutomations(providerRoots: [URL]) {
+        guard !filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) else { return }
+        let legacy = filingRules
+        guard !legacy.isEmpty else {
+            filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
+            return
+        }
+        ensureAutomationRulesLoaded()
+        var migrated = 0
+        for rule in legacy {
+            let condition = AutomationCondition.mentionsAll(rule.tokens)
+            let template = Self.destinationTemplate(for: rule.destinationPath, providerRoots: providerRoots)
+            guard !automationRules.contains(where: { $0.conditions == [condition] && $0.destinationTemplate == template })
+            else { continue }
+            upsertAutomationRule(AutomationRule(name: rule.tokens.map(\.capitalized).joined(separator: " "),
+                                                enabled: rule.enabled, matchMode: .all,
+                                                conditions: [condition], destinationTemplate: template))
+            migrated += 1
+        }
+        filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
+        Logger.shared.info("Migrated \(migrated) remembered filing rule(s) into Automations — manage them under Tidy ▸ Automations")
     }
-
-    /// Replaces `original` with `edited`. The edit can change tokens and/or destination — both feed
-    /// the derived id — so drop the original *and* anything already sharing the edited id (a merge
-    /// into an existing rule) before appending, avoiding duplicate ids.
-    public func replaceFilingRule(_ original: FilingRule, with edited: FilingRule) {
-        var all = filingRules
-        all.removeAll { $0.id == original.id || $0.id == edited.id }
-        all.append(edited)
-        filingRules = all
-    }
-
-    /// Forgets every remembered rule.
-    public func clearFilingRules() { filingRules = [] }
 
     // MARK: Rejections + "Try another" (negative feedback)
 
@@ -553,7 +594,10 @@ extension FileSyncManager {
         switch await performFiling(suggestion, to: destination) {
         case .moved(let move):
             // Remember only on an actual move — a rule keyed on where the file already lived is noise.
-            if remember { rememberFilingRule(fileName: suggestion.fileName, destinationPath: destination.path) }
+            if remember {
+                rememberAutomationRule(fileName: suggestion.fileName, destinationPath: destination.path,
+                                       providerRoot: suggestion.providerRoot)
+            }
             registerMoveUndo(items: [move], actionName: "File \(suggestion.fileName)", fileManager: fileManager)
             let folderName = (destination.path as NSString).lastPathComponent
             banner = .success("Filed “\(suggestion.fileName)” → \(folderName). Press ⌘Z to undo", undoable: true)

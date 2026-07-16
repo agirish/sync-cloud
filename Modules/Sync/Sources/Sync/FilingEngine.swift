@@ -127,6 +127,12 @@ public enum FilingEngine {
     ///   whose name says nothing can still find a home. Empty for the filename-only (F1) pass.
     /// - Parameter rules: Remembered filing rules (F3) — token-set → folder mappings the user
     ///   taught by correcting past suggestions. A rule that matches ranks ahead of the heuristics.
+    ///   Legacy: pre-migration stores only; migrated installs pass `automations` instead.
+    /// - Parameter automations: The user's automation rules. An enabled, runnable automation that
+    ///   matches a file steers its suggestion exactly like a remembered rule: user-taught, so it
+    ///   ranks ahead of the heuristics (capped to medium when the match needed the file's content).
+    /// - Parameter providerName: Resolves `{provider}` in an automation's destination template.
+    /// - Parameter now: Injectable clock for the automations' date conditions and `{year}` tokens.
     /// - Parameter rejectedByFile: Per-file absolute folder paths the user has rejected — dropped
     ///   from that file's candidates so a "no, not there" is never re-suggested.
     public static func suggest(
@@ -135,6 +141,9 @@ public enum FilingEngine {
         providerRoot: String,
         contentTokens: [String: Set<String>] = [:],
         rules: [FilingRule] = [],
+        automations: [AutomationRule] = [],
+        providerName: String? = nil,
+        now: Date = Date(),
         rejectedByFile: [String: Set<String>] = [:],
         options: FilingOptions = .init()
     ) -> [FilingSuggestion] {
@@ -163,6 +172,9 @@ public enum FilingEngine {
             var candidates: [FilingDestination] = []
             candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
                                                contentTokens: content, existingPaths: existingPaths)
+            candidates += automationCandidates(automations: automations, file: file, contentTokens: content,
+                                               providerRoot: providerRoot, providerName: providerName,
+                                               existingPaths: existingPaths, now: now)
             candidates += taxonomyCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content, profiles: profiles)
             candidates += ruleCandidates(tokens: tokens, nameTokens: nameToks, contentTokens: content,
                                          nameLower: file.name.lowercased(), ext: ext, year: year,
@@ -299,6 +311,55 @@ public enum FilingEngine {
                 confidence: fromContent ? .medium : .high,
                 reasons: [reason],
                 newSegments: missingSegments(of: rule.destinationPath, existingPaths: existingPaths),
+                fromContent: fromContent, remembered: true))
+        }
+        return out
+    }
+
+    // MARK: Automation rules (steering)
+
+    /// Destinations from the user's automations, as suggestion candidates. An enabled, runnable
+    /// automation whose conditions hold for the file steers the suggestion the way a remembered
+    /// rule always did: the user wrote it, so it's high confidence — capped to medium when the
+    /// match needed the file's *content* (same cap every content-derived signal gets, which also
+    /// keeps it out of the blind batch apply). A rule whose destination resolves outside this
+    /// provider is inert here, exactly like the old provider-scoped remembered rules.
+    private static func automationCandidates(
+        automations: [AutomationRule], file: FileNode, contentTokens: Set<String>,
+        providerRoot: String, providerName: String?, existingPaths: Set<String>, now: Date
+    ) -> [FilingDestination] {
+        guard !automations.isEmpty else { return [] }
+        let parentPath = (file.id as NSString).deletingLastPathComponent
+        let facts = AutomationFileFacts(
+            path: file.id, name: file.name,
+            parentFolderName: (parentPath as NSString).lastPathComponent,
+            parentPath: parentPath,
+            sizeBytes: file.fileSize ?? 0,
+            modificationDate: file.modificationDate,
+            isDirectory: file.isDirectory,
+            contentTokens: contentTokens)
+        // The same facts with the content stripped — a rule that only matches WITH content is a
+        // content-derived signal (medium confidence, "read from the file" note, no blind batch).
+        var nameOnlyFacts = facts
+        nameOnlyFacts.contentTokens = []
+
+        var out: [FilingDestination] = []
+        for rule in automations where rule.enabled && rule.isRunnable {
+            guard AutomationEvaluator.matches(rule, facts, now: now) else { continue }
+            guard case .resolved(let resolved) = AutomationEvaluator.resolveDestination(
+                rule.destinationTemplate, for: facts, providerName: providerName, now: now) else { continue }
+            guard let destination = AutomationEvaluator.absoluteDestination(resolved, providerRoot: providerRoot) else { continue }
+            let fromContent = !AutomationEvaluator.matches(rule, nameOnlyFacts, now: now)
+            let label = rule.name.trimmingCharacters(in: .whitespaces)
+            let shown = label.isEmpty ? rule.summary : label
+            let reason = fromContent
+                ? "Your rule “\(shown)” files this here (read from the file)"
+                : "Your rule “\(shown)” files this here"
+            out.append(FilingDestination(
+                path: destination,
+                confidence: fromContent ? .medium : .high,
+                reasons: [reason],
+                newSegments: missingSegments(of: destination, existingPaths: existingPaths),
                 fromContent: fromContent, remembered: true))
         }
         return out

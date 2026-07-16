@@ -157,11 +157,65 @@ import Testing
 
     @Test func destinationPathIsCleaned() {
         let f = facts("a.pdf", modified: now)
-        // Leading/trailing/duplicate slashes and . / .. segments are dropped.
-        #expect(AutomationEvaluator.resolveDestination("/Docs//Invoices/", for: f, providerName: nil, now: now)
+        // Trailing/duplicate slashes and . / .. segments are dropped.
+        #expect(AutomationEvaluator.resolveDestination("Docs//Invoices/", for: f, providerName: nil, now: now)
                 == .resolved("Docs/Invoices"))
         #expect(AutomationEvaluator.resolveDestination("Docs/../secret/./x", for: f, providerName: nil, now: now)
                 == .resolved("Docs/secret/x"))
+        // A leading slash marks an ABSOLUTE destination (a migrated F3 rule) — cleaned, but kept
+        // absolute so callers can provider-scope it.
+        #expect(AutomationEvaluator.resolveDestination("/Docs//Invoices/", for: f, providerName: nil, now: now)
+                == .resolved("/Docs/Invoices"))
+    }
+
+    @Test func absoluteDestinationsAreProviderScoped() {
+        // Relative destinations anchor at the root; the root itself is the empty template.
+        #expect(AutomationEvaluator.absoluteDestination("Docs/X", providerRoot: "/p") == "/p/Docs/X")
+        #expect(AutomationEvaluator.absoluteDestination("", providerRoot: "/p") == "/p")
+        // Absolute destinations resolve verbatim inside their provider and are inert elsewhere.
+        #expect(AutomationEvaluator.absoluteDestination("/p/Docs/X", providerRoot: "/p") == "/p/Docs/X")
+        #expect(AutomationEvaluator.absoluteDestination("/q/Docs/X", providerRoot: "/p") == nil)
+        // Prefix matching is on a path-component boundary — /pq is not inside /p.
+        #expect(AutomationEvaluator.absoluteDestination("/pq/Docs", providerRoot: "/p") == nil)
+    }
+
+    @Test func mentionsAllMatchesNameAndContentTokens() {
+        // Name-only match — no content needed.
+        #expect(AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.mentionsAll(["tesla"])], destinationTemplate: "X"),
+            facts("Tesla Policy.pdf", modified: now), now: now))
+        // A token missing from the name is satisfied by content tokens.
+        var withContent = facts("scan svc.pdf", modified: now)
+        withContent.contentTokens = ["tesla", "insurance"]
+        #expect(AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.mentionsAll(["tesla"])], destinationTemplate: "X"),
+            withContent, now: now))
+        // ALL tokens must be present — one hit out of two is no match.
+        #expect(!AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.mentionsAll(["tesla", "geico"])], destinationTemplate: "X"),
+            withContent, now: now))
+        // No tokens anywhere → no match.
+        #expect(!AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.mentionsAll(["tesla"])], destinationTemplate: "X"),
+            facts("scan svc.pdf", modified: now), now: now))
+    }
+
+    @Test func contentContainsFallsBackToTokensWithoutASnippet() {
+        var f = facts("scan.pdf", modified: now)
+        f.contentTokens = ["invoice", "acme"]
+        // No raw snippet: every word of the term must appear among the content tokens.
+        #expect(AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.contentContains("acme invoice")], destinationTemplate: "X"),
+            f, now: now))
+        #expect(!AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.contentContains("acme receipt")], destinationTemplate: "X"),
+            f, now: now))
+        // A raw snippet keeps exact substring semantics.
+        f.snippet = "invoice from acme corp"
+        f.contentTokens = []
+        #expect(AutomationEvaluator.matches(
+            AutomationRule(name: "T", conditions: [.contentContains("acme corp")], destinationTemplate: "X"),
+            f, now: now))
     }
 
     // MARK: Rule model

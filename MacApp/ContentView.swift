@@ -319,6 +319,14 @@ struct ContentView: View {
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()
+                        // One-time: convert the legacy remembered filing rules (F3) into
+                        // automations, relativizing each destination against the provider that
+                        // contains it. Runs here because this is the first moment the discovered
+                        // provider roots are known; the flag makes re-runs no-ops.
+                        syncManager.migrateFilingRulesToAutomations(
+                            providerRoots: settings.availableProviders.map {
+                                URL(fileURLWithPath: ($0.path as NSString).expandingTildeInPath)
+                            })
                         applyProviderSelection(preferDistinctPair: true)
                         syncManager.ignoredItemsStore?.activate(
                             pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
@@ -1063,7 +1071,8 @@ struct ContentView: View {
         selectedBottomTab = .tidy
         selectedTidyLens = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
-                                               providerRoot: URL(fileURLWithPath: root))
+                                               providerRoot: URL(fileURLWithPath: root),
+                                               providerName: tidyProviderName)
     }
 
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so

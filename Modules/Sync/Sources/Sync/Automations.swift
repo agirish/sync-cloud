@@ -1,12 +1,14 @@
 import Foundation
 import UniformTypeIdentifiers
 
-/// N2 Automations — the rule model. An automation is a small, readable sentence a user authors once:
-/// *when a loose file matches these on-device conditions, it belongs in this folder.* This first
-/// version is **preview-only** — the model and evaluator produce a dry run of what *would* happen;
-/// nothing is moved. Every condition is answered by a local signal (path, filename glob, UTType,
-/// file size, modification date, or on-device text) so a rule is deterministic, private, and free —
-/// no Claude Cloud classifier is ever consulted on the automation path.
+/// N2 Automations — the rule model. An automation is a small, readable sentence a user authors
+/// once (or teaches by example): *when a loose file matches these on-device conditions, it belongs
+/// in this folder.* A rule acts in two places: it steers the Organize scan's suggestions, and the
+/// Automations lens dry-runs it over a folder and then files the matches you confirm — nothing
+/// ever moves without that confirmation. Every condition is answered by a local signal (path,
+/// filename glob, UTType, file size, modification date, or on-device text) so a rule is
+/// deterministic, private, and free — no Claude Cloud classifier is ever consulted on the
+/// automation path.
 
 // MARK: - File kind
 
@@ -86,13 +88,21 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
     /// The file hasn't been modified in at least this many days ("untouched").
     case untouchedForDays(Int)
     /// The file's on-device text contains this term (case-insensitive substring of the extracted
-    /// excerpt). The only content-reading condition.
+    /// excerpt).
     case contentContains(String)
+    /// The file *mentions* every one of these canonical tokens — in its name or its on-device text.
+    /// This is the learned-by-example condition remembered filing rules (F3) migrated into: tokens
+    /// are produced by ``FilingEngine/nameTokens(_:)`` (lowercased, stopwords dropped) and matching
+    /// is a subset test against the file's name ∪ content tokens, exactly as F3 matched.
+    case mentionsAll([String])
 
-    /// True for conditions that need the file's text extracted. Used to defer the expensive read.
+    /// True for conditions that may need the file's text extracted. Used to defer the expensive
+    /// read. `mentionsAll` counts: a token can be satisfied by content when the name alone misses.
     public var requiresContent: Bool {
-        if case .contentContains = self { return true }
-        return false
+        switch self {
+        case .contentContains, .mentionsAll: return true
+        default: return false
+        }
     }
 
     /// A plain-words description for the rule summary and editor, e.g. "in a folder named Downloads".
@@ -110,6 +120,10 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
             return "not modified in \(days) day\(days == 1 ? "" : "s")"
         case .contentContains(let term):
             return "text contains “\(term.isEmpty ? "…" : term)”"
+        case .mentionsAll(let tokens):
+            let cleaned = tokens.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            guard !cleaned.isEmpty else { return "mentions …" }
+            return "mentions " + cleaned.map { "“\($0)”" }.joined(separator: " and ")
         }
     }
 
@@ -122,6 +136,8 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .largerThanMB(let n): return n > 0
         case .untouchedForDays(let n): return n > 0
         case .kindIs: return true
+        case .mentionsAll(let tokens):
+            return tokens.contains { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         }
     }
 
@@ -135,6 +151,7 @@ public enum AutomationCondition: Sendable, Equatable, Codable, Hashable {
         case .largerThanMB: return "largerThanMB"
         case .untouchedForDays: return "untouchedForDays"
         case .contentContains: return "contentContains"
+        case .mentionsAll: return "mentionsAll"
         }
     }
 }

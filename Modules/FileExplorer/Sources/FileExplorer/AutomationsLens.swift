@@ -26,6 +26,7 @@ func automationConditionIcon(_ condition: AutomationCondition) -> String {
     case .largerThanMB: return "scalemass"
     case .untouchedForDays: return "clock"
     case .contentContains: return "text.magnifyingglass"
+    case .mentionsAll: return "memories"
     }
 }
 
@@ -49,14 +50,20 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
     case .largerThanMB(let mb): return "> \(mb) MB"
     case .untouchedForDays(let days): return "\(days)d untouched"
     case .contentContains(let term): return "“\(term.isEmpty ? "…" : term)”"
+    case .mentionsAll(let tokens):
+        let cleaned = tokens.filter { !$0.isEmpty }
+        return cleaned.isEmpty ? "mentions …" : "mentions " + cleaned.joined(separator: " + ")
     }
 }
 
 // MARK: - Automations lens
 
-/// The Automations workspace (N2, preview-only): manage plain-words rules, then dry-run them over the
-/// focused folder to see exactly what *would* happen — no file is moved. Rendered inside ``TidyView``'s
-/// content card, so this view provides only the inner rule-list / previewing / results states.
+/// The Automations workspace (N2): the one home for the user's rules — authored plain-words
+/// automations and rules taught by example (the migrated "remembered" rules, now `mentions`
+/// conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
+/// over the focused folder and their matches filed for real after per-file confirmation. Rendered
+/// inside ``TidyView``'s content card, so this view provides only the inner rule-list /
+/// previewing / results states.
 public struct AutomationsLens: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -76,13 +83,6 @@ public struct AutomationsLens: View {
     @State private var editingRule: AutomationRule?
     /// True once the user has asked to see results — keeps the results view up until they go back.
     @State private var viewingResults = false
-
-    /// The remembered filing rules (F3) surfaced alongside the automations, so a rule learned from
-    /// a correction is findable here — not only in Settings ▸ Filing. Mirrored to local state (the
-    /// store is UserDefaults-backed, not published) and refreshed on appear and after each mutation.
-    @State private var rememberedRules: [FilingRule] = []
-    /// The remembered rule open in the review/edit sheet, if any.
-    @State private var editingRememberedRule: FilingRule?
 
     /// Per-file "ask each time" filing: the actionable rows to step through, the current index, and
     /// the ones approved so far. `isFiling` drives the review card; the approved set is applied as one
@@ -125,10 +125,7 @@ public struct AutomationsLens: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            syncManager.ensureAutomationRulesLoaded()
-            rememberedRules = syncManager.filingRules
-        }
+        .onAppear { syncManager.ensureAutomationRulesLoaded() }
         .sheet(item: $editingRule) { rule in
             AutomationRuleEditor(
                 rule: rule,
@@ -139,19 +136,6 @@ public struct AutomationsLens: View {
                     editingRule = nil
                 },
                 onCancel: { editingRule = nil }
-            )
-        }
-        .sheet(item: $editingRememberedRule) { rule in
-            FilingRuleEditorView(
-                title: "Edit remembered rule",
-                original: rule,
-                accent: accent,
-                onSave: { edited in
-                    syncManager.replaceFilingRule(rule, with: edited)
-                    rememberedRules = syncManager.filingRules
-                    editingRememberedRule = nil
-                },
-                onCancel: { editingRememberedRule = nil }
             )
         }
     }
@@ -167,13 +151,13 @@ public struct AutomationsLens: View {
 
     @ViewBuilder
     private var rulesState: some View {
-        if syncManager.automationRules.isEmpty && rememberedRules.isEmpty {
+        if syncManager.automationRules.isEmpty {
             EmptyStateView(
                 icon: AutomationsGlyph.lens,
                 tint: accent,
                 title: "Automate where loose files go",
                 message: "Write a plain-words rule — “PDFs that mention ‘invoice’ belong in Documents/Invoices/{year}” — and preview exactly which files it would file. Every test runs on your Mac; nothing is sent to the cloud.",
-                caption: "Preview-only for now: rules show what would happen. No file is moved.",
+                caption: "Rules steer Organize's suggestions, and preview here before anything is filed — every move needs your confirmation.",
                 primary: .init("New rule", systemImage: AutomationsGlyph.newRule, handler: newRule)
             )
         } else {
@@ -182,13 +166,6 @@ public struct AutomationsLens: View {
                 Divider().opacity(0.5)
                 ScrollView {
                     LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                        if syncManager.automationRules.isEmpty {
-                            Text("No automations yet — “New rule” writes one from scratch, and filing a loose file in Organize offers one ready-made.")
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.tertiary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 2).padding(.vertical, 6)
-                        }
                         ForEach(syncManager.automationRules) { rule in
                             AutomationRuleCard(
                                 rule: rule,
@@ -200,66 +177,13 @@ public struct AutomationsLens: View {
                                 onDelete: { syncManager.removeAutomationRule(id: rule.id) }
                             )
                         }
-                        if !rememberedRules.isEmpty {
-                            rememberedSectionHeader
-                            ForEach(rememberedRules) { rule in
-                                RememberedRuleCard(
-                                    rule: rule,
-                                    accent: accent,
-                                    drivesCount: drivesCount(for: rule),
-                                    onToggle: { enabled in
-                                        syncManager.setFilingRule(rule, enabled: enabled)
-                                        rememberedRules = syncManager.filingRules
-                                    },
-                                    onEdit: { editingRememberedRule = rule },
-                                    onForget: {
-                                        syncManager.forgetFilingRule(rule)
-                                        rememberedRules = syncManager.filingRules
-                                    }
-                                )
-                            }
-                        }
                     }
                     .padding(densityMetrics.cardListPadding)
                     .animation(.easeInOut(duration: 0.2), value: syncManager.automationRules.map(\.id))
-                    .animation(.easeInOut(duration: 0.2), value: rememberedRules.map(\.id))
                 }
                 .scrollContentBackground(.hidden)
             }
         }
-    }
-
-    /// Separates the remembered (learned-by-example) rules from the authored automations above,
-    /// and says in one line what they are and where they act.
-    private var rememberedSectionHeader: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 7) {
-                Image(systemName: "memories")
-                    .font(.system(size: 10.5, weight: .semibold))
-                    .foregroundStyle(accent)
-                Text("Remembered rules")
-                    .font(.system(size: 11.5, weight: .semibold))
-                Text("\(rememberedRules.count)")
-                    .font(.system(size: 10, weight: .semibold)).monospacedDigit()
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule().fill(Color.primary.opacity(0.07)))
-                Spacer(minLength: 0)
-            }
-            Text("Learned when you corrected an Organize suggestion — they steer where future matches are suggested to file.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.leading, 2).padding(.top, 10)
-    }
-
-    /// How many of the current scan's suggestions this remembered rule accounts for — a suggestion
-    /// whose best home came from a remembered rule pointing at this destination. Read directly (not
-    /// observed): an approximate count is fine here.
-    private func drivesCount(for rule: FilingRule) -> Int {
-        syncManager.filingSuggestions.filter {
-            $0.best?.remembered == true && $0.best?.path == rule.destinationPath
-        }.count
     }
 
     private var rulesHeader: some View {
@@ -271,13 +195,7 @@ public struct AutomationsLens: View {
             Text("\(count) automation\(count == 1 ? "" : "s")")
                 .font(.system(size: 13, weight: .semibold))
                 .monospacedDigit()
-            if !rememberedRules.isEmpty {
-                Text("+ \(rememberedRules.count) remembered")
-                    .font(.system(size: 12, weight: .medium))
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            Text("· preview only, nothing is moved")
+            Text("· previews first — files only what you confirm")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
@@ -290,7 +208,7 @@ public struct AutomationsLens: View {
                 .disabled(runnableRuleCount == 0 || destinationRoot == nil)
                 .help(runnableRuleCount == 0
                       ? "Add a rule with a condition and a destination to preview it."
-                      : "Dry-run the enabled rules over the focused folder in \(provider). Nothing is moved.")
+                      : "Dry-run the enabled rules over the focused folder in \(provider). A preview — nothing moves until you confirm.")
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
     }
@@ -415,7 +333,7 @@ public struct AutomationsLens: View {
     private var previewBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "eye.circle.fill").foregroundStyle(accent)
-            Text("Preview only — this is what the rules would do. Nothing was moved.")
+            Text("A preview — nothing has moved yet. “File …” walks you through the matches.")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)

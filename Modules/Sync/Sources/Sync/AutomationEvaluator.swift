@@ -17,6 +17,10 @@ public struct AutomationFileFacts: Sendable, Equatable {
     public let isDirectory: Bool
     /// On-device text excerpt (PDFKit / OCR / plain text), already lowercased. nil = not read.
     public var snippet: String?
+    /// Canonical tokens extracted from the file's *contents* (the Organize scan supplies these from
+    /// its content pass; the dry run derives them from `snippet`). Feeds `mentionsAll` and, when no
+    /// raw snippet is available, `contentContains`. Empty = no content read.
+    public var contentTokens: Set<String>
 
     public init(
         path: String,
@@ -26,7 +30,8 @@ public struct AutomationFileFacts: Sendable, Equatable {
         sizeBytes: Int,
         modificationDate: Date?,
         isDirectory: Bool,
-        snippet: String? = nil
+        snippet: String? = nil,
+        contentTokens: Set<String> = []
     ) {
         self.path = path
         self.name = name
@@ -36,9 +41,14 @@ public struct AutomationFileFacts: Sendable, Equatable {
         self.modificationDate = modificationDate
         self.isDirectory = isDirectory
         self.snippet = snippet
+        self.contentTokens = contentTokens
     }
 
     public var fileExtension: String { (name as NSString).pathExtension }
+
+    /// The filename's canonical tokens (extension stripped) — the same tokenizer the Organize
+    /// engine matches with, so `mentionsAll` behaves identically on both surfaces.
+    public var nameTokens: Set<String> { FilingEngine.fileTokens(name) }
 }
 
 // MARK: - Destination resolution
@@ -154,9 +164,18 @@ public enum AutomationEvaluator {
             guard let modified = facts.modificationDate else { return false }
             return now.timeIntervalSince(modified) >= Double(days) * 86_400
         case .contentContains(let term):
-            guard let snippet = facts.snippet else { return false }
             let needle = term.trimmingCharacters(in: .whitespaces).lowercased()
-            return !needle.isEmpty && snippet.contains(needle)
+            guard !needle.isEmpty else { return false }
+            if let snippet = facts.snippet { return snippet.contains(needle) }
+            // No raw excerpt (the Organize scan extracts tokens, not text): fall back to a
+            // token-subset test — every word of the term must appear among the content tokens.
+            let needleTokens = FilingEngine.nameTokens(needle)
+            return !facts.contentTokens.isEmpty && !needleTokens.isEmpty
+                && needleTokens.isSubset(of: facts.contentTokens)
+        case .mentionsAll(let tokens):
+            let trigger = Set(tokens.map { $0.lowercased() }.filter { !$0.isEmpty })
+            guard !trigger.isEmpty else { return false }
+            return trigger.isSubset(of: facts.nameTokens.union(facts.contentTokens))
         }
     }
 
@@ -189,9 +208,14 @@ public enum AutomationEvaluator {
     /// The tokens a destination template understands, for the editor's insert menu.
     public static let supportedTokens = ["{year}", "{month}", "{yyyy-mm}", "{kind}", "{ext}", "{provider}"]
 
-    /// Expands a provider-relative template against a file. Each token resolves from the file's own
+    /// Expands a destination template against a file. Each token resolves from the file's own
     /// local metadata; an unfillable token yields ``DestinationResolution/unresolved(token:)`` so
     /// the preview can say what's missing rather than invent a folder.
+    ///
+    /// Templates are normally provider-relative. A template starting with `/` is an **absolute**
+    /// destination (a remembered rule migrated from F3 whose folder lay outside every known
+    /// provider root) — it resolves to that absolute path verbatim, and callers must scope it
+    /// (only act when it falls inside the provider being worked on).
     public static func resolveDestination(
         _ template: String,
         for facts: AutomationFileFacts,
@@ -231,14 +255,32 @@ public enum AutomationEvaluator {
             return .unresolved(token: String(result[open...close]))
         }
 
-        // Clean into a safe provider-relative path: drop empty / "." / ".." segments so a stray
-        // slash or an escape attempt can't produce a weird destination in the preview.
+        // Clean into a safe path: drop empty / "." / ".." segments so a stray slash or an escape
+        // attempt can't produce a weird destination in the preview. An absolute template keeps its
+        // leading slash so callers can tell it apart from a provider-relative one.
+        let isAbsolute = result.hasPrefix("/")
         let cleaned = result
             .split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
             .filter { $0 != "." && $0 != ".." }
             .joined(separator: "/")
-        return .resolved(cleaned)
+        return .resolved(isAbsolute ? "/" + cleaned : cleaned)
+    }
+
+    // MARK: Absolute destinations (migrated F3 rules)
+
+    /// Resolves a destination to the absolute folder it names under `providerRoot`, or nil when the
+    /// destination is absolute but points outside that provider (the rule is inert there — the same
+    /// provider scoping remembered rules always had). A relative destination is anchored at the root.
+    public static func absoluteDestination(_ resolved: String, providerRoot: String) -> String? {
+        let dest: String
+        if resolved.hasPrefix("/") {
+            dest = resolved
+        } else {
+            dest = resolved.isEmpty ? providerRoot : providerRoot + "/" + resolved
+        }
+        guard dest == providerRoot || dest.hasPrefix(providerRoot + "/") else { return nil }
+        return dest
     }
 }
 

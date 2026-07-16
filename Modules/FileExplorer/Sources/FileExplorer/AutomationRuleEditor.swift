@@ -7,7 +7,7 @@ import Sync
 /// The editable *type* of a condition, decoupled from its value so the editor can offer a picker and
 /// swap the underlying ``AutomationCondition`` while keeping the row.
 private enum ConditionType: String, CaseIterable, Identifiable {
-    case folderNamed, nameMatches, kindIs, largerThanMB, untouchedForDays, contentContains
+    case folderNamed, nameMatches, kindIs, mentionsAll, largerThanMB, untouchedForDays, contentContains
     var id: String { rawValue }
 
     var label: String {
@@ -18,6 +18,7 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .largerThanMB: return "Larger than"
         case .untouchedForDays: return "Not modified in"
         case .contentContains: return "Text contains"
+        case .mentionsAll: return "Mentions the words"
         }
     }
 
@@ -29,6 +30,7 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .largerThanMB: self = .largerThanMB
         case .untouchedForDays: self = .untouchedForDays
         case .contentContains: self = .contentContains
+        case .mentionsAll: self = .mentionsAll
         }
     }
 
@@ -41,6 +43,7 @@ private enum ConditionType: String, CaseIterable, Identifiable {
         case .largerThanMB: return .largerThanMB(100)
         case .untouchedForDays: return .untouchedForDays(365)
         case .contentContains: return .contentContains("invoice")
+        case .mentionsAll: return .mentionsAll(["invoice"])
         }
     }
 }
@@ -94,9 +97,31 @@ struct AutomationRuleEditor: View {
             name: name,
             enabled: wasEnabled,
             matchMode: matchMode,
-            conditions: rows.map(\.condition),
-            destinationTemplate: destination
+            conditions: rows.map { Self.canonicalized($0.condition) },
+            destinationTemplate: Self.normalizedDestination(destination)
         )
+    }
+
+    /// Save-time canonicalization: a `mentionsAll` row's free-typed words become the exact tokens
+    /// the engine matches with (`FilingEngine.nameTokens` — lowercased, stopwords and bare numbers
+    /// dropped, sorted). Editing keeps the raw text; only the saved rule is canonical, so an entry
+    /// like "Tesla-Model-3" can never save in a form that silently never fires.
+    private static func canonicalized(_ condition: AutomationCondition) -> AutomationCondition {
+        guard case .mentionsAll(let tokens) = condition else { return condition }
+        return .mentionsAll(FilingEngine.nameTokens(tokens.joined(separator: " ")).sorted())
+    }
+
+    /// A destination is provider-relative; a leading slash is almost always a typo for one — strip
+    /// it unless that absolute folder really exists on disk (then it's a migrated absolute rule
+    /// being re-saved, which must keep its meaning).
+    private static func normalizedDestination(_ template: String) -> String {
+        let trimmed = template.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("/") else { return trimmed }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDirectory), isDirectory.boolValue {
+            return trimmed
+        }
+        return String(trimmed.drop { $0 == "/" })
     }
 
     var body: some View {
@@ -216,6 +241,10 @@ struct AutomationRuleEditor: View {
         case .contentContains:
             TextField("invoice", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
+        case .mentionsAll:
+            TextField("tesla, insurance", text: tokensBinding(condition))
+                .textFieldStyle(.roundedBorder).controlSize(.small)
+                .help("The file must mention every word — in its name or its text. Separate with commas.")
         case .kindIs:
             Picker("", selection: kindBinding(condition)) {
                 ForEach(FileKind.allCases) { Text($0.label).tag($0) }
@@ -393,6 +422,24 @@ struct AutomationRuleEditor: View {
         Binding(
             get: { if case .kindIs(let k) = condition.wrappedValue { return k } else { return .pdf } },
             set: { condition.wrappedValue = .kindIs($0) }
+        )
+    }
+
+    /// Comma-separated round-trip for a `mentionsAll` row. Splitting keeps an empty trailing entry
+    /// so a just-typed comma survives the get/set cycle; canonicalization (lowercase, stopwords,
+    /// tokenizer splits) happens once, at save (see `canonicalized`), never while typing.
+    private func tokensBinding(_ condition: Binding<AutomationCondition>) -> Binding<String> {
+        Binding(
+            get: {
+                if case .mentionsAll(let tokens) = condition.wrappedValue { return tokens.joined(separator: ", ") }
+                return ""
+            },
+            set: { newValue in
+                guard case .mentionsAll = condition.wrappedValue else { return }
+                let parts = newValue.split(separator: ",", omittingEmptySubsequences: false)
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                condition.wrappedValue = .mentionsAll(parts)
+            }
         )
     }
 }
