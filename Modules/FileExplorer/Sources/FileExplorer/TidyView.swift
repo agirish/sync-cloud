@@ -617,34 +617,13 @@ public struct TidyView: View {
         if !chips.isEmpty || dupSearchFocused {
             HStack(spacing: 6) {
                 Spacer(minLength: 0)
-                ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                    // A chip superseded by a later same-family word (parse is last-wins) renders
-                    // dimmed, so the chips read as the query the filter actually runs.
-                    let tint = chip.isActive ? glassHue.accentColor : Color.secondary
-                    HStack(spacing: 4) {
-                        Text(chip.label)
-                            .font(.caption.monospaced())
-                            .strikethrough(!chip.isActive)
-                        Button {
-                            dupSearchText = DuplicateSearch.removing(dupSearchText, word: chip.raw)
-                        } label: {
-                            // 8 pt glyph, padded hit target (negative padding restores the chip's
-                            // visual size) — the bare glyph was a misclick magnet.
-                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                                .padding(6)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padding(-6)
-                        .accessibilityLabel("Remove filter \(chip.label)")
-                    }
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 2)
-                    .foregroundStyle(tint)
-                    .background(Capsule().fill(tint.opacity(chip.isActive ? 0.16 : 0.08)))
-                    .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
-                    .help(chip.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
-                }
+                // Design's shared TokenChipsRow: the ✕ edits the chip's exact word back out of the
+                // raw text; a chip superseded by a later same-family word renders dimmed.
+                TokenChipsRow(
+                    items: chips.map { TokenChipsRow.Item(label: $0.label, word: $0.raw, isActive: $0.isActive) },
+                    tint: glassHue.accentColor,
+                    onRemove: { word in dupSearchText = DuplicateSearch.removing(dupSearchText, word: word) }
+                )
                 if dupSearchFocused {
                     dupSuggestions(active: chips)
                 }

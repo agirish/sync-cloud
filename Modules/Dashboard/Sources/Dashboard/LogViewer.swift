@@ -297,38 +297,15 @@ public struct LogViewer: View {
 
     // MARK: Token chips & suggestions
 
-    /// The parsed `level:`/`since:` tokens as removable chips: a plain reading of the query, each with
-    /// an ✕ that edits that word back out of the raw text. A chip superseded by a later same-family
-    /// word (`parse` is last-wins) renders dimmed, so the chips read as the query that actually runs.
+    /// The parsed `level:`/`since:` tokens as removable chips (Design's shared `TokenChipsRow`):
+    /// a plain reading of the query, each with an ✕ that edits that word back out of the raw text.
     private func logTokenChips(_ chips: [LogSearch.Chip]) -> some View {
         HStack(spacing: 6) {
-            ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                let tint = chip.isActive ? Color.accentColor : Color.secondary
-                HStack(spacing: 4) {
-                    Text(chip.label)
-                        .font(.caption.monospaced())
-                        .strikethrough(!chip.isActive)
-                    Button {
-                        searchText = LogSearch.removing(searchText, word: chip.raw)
-                    } label: {
-                        // The glyph stays 8 pt but the tappable area is padded well past it (then
-                        // pulled back with negative padding so the chip's visual size is unchanged)
-                        // — an 8 pt hit target is a misclick magnet.
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(-6)
-                    .accessibilityLabel("Remove filter \(chip.label)")
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .foregroundStyle(tint)
-                .background(Capsule().fill(tint.opacity(chip.isActive ? 0.16 : 0.08)))
-                .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
-                .help(chip.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
-            }
+            TokenChipsRow(
+                items: chips.map { TokenChipsRow.Item(label: $0.label, word: $0.raw, isActive: $0.isActive) },
+                tint: Color.accentColor,
+                onRemove: { word in searchText = LogSearch.removing(searchText, word: word) }
+            )
             Spacer(minLength: 0)
         }
     }

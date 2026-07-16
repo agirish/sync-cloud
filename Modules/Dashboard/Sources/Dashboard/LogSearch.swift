@@ -1,10 +1,15 @@
 import Foundation
+import Design
 import Events
 
 /// Structured tokens for the Activity Log search — `level:` and `since:` on top of free text —
 /// carrying the Compare token grammar to the log. A query with no recognized tokens is exactly the
 /// legacy case-insensitive message substring, so the existing filter, history, and grouping behavior
 /// is unchanged. Pure, so the parsing and matching are unit-tested without a view.
+///
+/// The mechanics (tokenizer, all-occurrences removal, family-last-wins chips, the number+unit
+/// duration parser) are Design's shared `TokenQuery` core; this grammar owns only its token table
+/// (`level:` / `since:`) and `matches()`.
 enum LogSearch {
 
     struct Query: Equatable {
@@ -23,22 +28,20 @@ enum LogSearch {
     }
 
     static func parse(_ raw: String) -> Query {
-        let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         var level: LogLevel?
         var since: TimeInterval?
-        var freeWords: [String] = []
-        var matchedAnyToken = false
-        for word in words {
+        // No recognized tokens → freeText keeps the raw string verbatim (legacy substring search).
+        let text = TokenQuery.freeText(raw) { word in
             if let parsedLevel = parseLevel(word) {
-                level = parsedLevel; matchedAnyToken = true
-            } else if let parsedSince = parseSince(word) {
-                since = parsedSince; matchedAnyToken = true
-            } else {
-                freeWords.append(word)
+                level = parsedLevel
+                return true
             }
+            if let parsedSince = parseSince(word) {
+                since = parsedSince
+                return true
+            }
+            return false
         }
-        // No recognized tokens → keep the raw string verbatim (legacy substring search).
-        let text = matchedAnyToken ? freeWords.joined(separator: " ") : raw
         return Query(level: level, since: since, text: text)
     }
 
@@ -60,7 +63,7 @@ enum LogSearch {
     /// chips like Compare's. `raw` is the exact word the user typed (e.g. `since:1h`), so a chip's ✕
     /// removes precisely that word and its label reflects the value chosen — `since:1h` stays "1h",
     /// not a normalized "3600s".
-    struct Chip: Equatable {
+    struct Chip: Equatable, DimmableTokenChip {
         var raw: String
         var label: String
         /// Whether this chip is part of the effective query. `parse` is last-wins within a family
@@ -72,37 +75,25 @@ enum LogSearch {
 
     /// The `level:`/`since:` words in `raw`, in order, as display chips. Free text is excluded, so the
     /// chips are exactly the active structured filters. Within each family only the last occurrence is
-    /// `isActive` — matching `parse`'s last-wins semantics.
+    /// `isActive` — matching `parse`'s last-wins semantics (via `TokenQuery.lastWinsChips`).
     static func chips(_ raw: String) -> [Chip] {
-        var out: [Chip] = []
-        var lastLevelIndex: Int?
-        var lastSinceIndex: Int?
-        for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
+        TokenQuery.lastWinsChips(raw) { word in
             if let level = parseLevel(word) {
                 // Canonical level name (matches the log's own [WARN]/[ERROR] vocabulary) regardless of
                 // the abbreviation typed (`level:err`, `level:warn`).
-                if let previous = lastLevelIndex { out[previous].isActive = false }
-                lastLevelIndex = out.count
-                out.append(Chip(raw: word, label: "level: \(level.rawValue.lowercased())"))
-            } else if parseSince(word) != nil {
-                if let previous = lastSinceIndex { out[previous].isActive = false }
-                lastSinceIndex = out.count
-                out.append(Chip(raw: word, label: "since: \(word.lowercased().dropFirst("since:".count))"))
+                return (Chip(raw: word, label: "level: \(level.rawValue.lowercased())"), "level")
             }
+            if parseSince(word) != nil {
+                return (Chip(raw: word, label: "since: \(word.lowercased().dropFirst("since:".count))"), "since")
+            }
+            return nil
         }
-        return out
     }
 
-    /// Removes every occurrence of `word` from `raw`, leaving every other word as typed. Backs a
-    /// chip's ✕ button. ALL occurrences, deliberately: chips are keyed by raw text, so with
-    /// `level:warn level:error level:warn` the ✕ on the active warn chip must not just drop the
-    /// FIRST warn (which would leave the effective filter unchanged) — one click clearing every
-    /// duplicate of the word is the honest semantics.
+    /// Removes every occurrence of `word` from `raw` — see `TokenQuery.removing` for why ALL
+    /// occurrences is the honest ✕ semantics under last-wins parsing.
     static func removing(_ raw: String, word: String) -> String {
-        raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map(String.init)
-            .filter { $0 != word }
-            .joined(separator: " ")
+        TokenQuery.removing(raw, word: word)
     }
 
     /// "1h" / "30m" / "2d" / "45s" → seconds. Returns nil for anything else, so an unrecognized
@@ -110,20 +101,6 @@ enum LogSearch {
     static func parseSince(_ word: String) -> TimeInterval? {
         let lower = word.lowercased()
         guard lower.hasPrefix("since:") else { return nil }
-        let value = String(lower.dropFirst("since:".count))
-        var number = "", unit = ""
-        for character in value {
-            if character.isNumber || character == "." { number.append(character) } else { unit.append(character) }
-        }
-        guard let magnitude = Double(number), magnitude.isFinite, magnitude >= 0 else { return nil }
-        let multiplier: Double
-        switch unit {
-        case "s", "sec": multiplier = 1
-        case "m", "min": multiplier = 60
-        case "h", "hr": multiplier = 3600
-        case "d", "day", "days": multiplier = 86_400
-        default: return nil
-        }
-        return magnitude * multiplier
+        return TokenQuery.parseDurationSeconds(String(lower.dropFirst("since:".count)))
     }
 }

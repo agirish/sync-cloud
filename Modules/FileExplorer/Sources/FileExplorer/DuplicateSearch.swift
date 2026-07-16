@@ -1,4 +1,5 @@
 import Foundation
+import Design
 import Sync
 
 /// Structured tokens for the Tidy ▸ Duplicates search — `kind:` plus size comparators on top of a
@@ -6,6 +7,10 @@ import Sync
 /// vocabulary works across surfaces. A query with no recognized tokens is a plain case-insensitive
 /// match on the group's name, so an empty field shows everything. Pure, so it's unit-tested without
 /// a view.
+///
+/// The mechanics (tokenizer, verbatim-raw fallback, all-occurrences removal, family-last-wins
+/// chips) are Design's shared `TokenQuery` core; this grammar owns only its token table and
+/// `matches()`.
 enum DuplicateSearch {
 
     struct Query: Equatable {
@@ -38,27 +43,24 @@ enum DuplicateSearch {
     static let kindClasses: [String: Set<String>] = DifferenceSearch.kindClasses
 
     static func parse(_ raw: String) -> Query {
-        let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         var kind: String?
         var atLeast: Int?
         var atMost: Int?
-        var freeWords: [String] = []
-        var matchedAnyToken = false
-        for word in words {
+        // No recognized tokens → freeText keeps the raw string verbatim (legacy substring search).
+        let text = TokenQuery.freeText(raw) { word in
             let lower = word.lowercased()
             if lower.hasPrefix("kind:") {
                 let ext = String(lower.dropFirst("kind:".count)).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                if !ext.isEmpty { kind = ext; matchedAnyToken = true; continue }
+                if !ext.isEmpty { kind = ext; return true }
             }
             if lower.hasPrefix(">"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                atLeast = bytes; matchedAnyToken = true; continue
+                atLeast = bytes; return true
             }
             if lower.hasPrefix("<"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                atMost = bytes; matchedAnyToken = true; continue
+                atMost = bytes; return true
             }
-            freeWords.append(word)
+            return false
         }
-        let text = matchedAnyToken ? freeWords.joined(separator: " ") : raw
         return Query(kind: kind, sizeAtLeast: atLeast, sizeAtMost: atMost, text: text)
     }
 
@@ -67,7 +69,7 @@ enum DuplicateSearch {
     /// A recognized filter word paired with a human label, so the Tidy search field can render
     /// removable chips like Compare's. `raw` is the exact word typed (e.g. `>5mb`), so a chip's ✕
     /// removes precisely that word; the label formats sizes the way the app displays them.
-    struct Chip: Equatable {
+    struct Chip: Equatable, DimmableTokenChip {
         var raw: String
         var label: String
         /// Whether this chip is part of the effective query. `parse` is last-wins within a family
@@ -79,38 +81,28 @@ enum DuplicateSearch {
 
     /// The `kind:`/size words in `raw`, in order, as display chips. Free (name) text is excluded, so
     /// the chips are exactly the active structured filters. Within each family only the last
-    /// occurrence is `isActive` — matching `parse`'s last-wins semantics.
+    /// occurrence is `isActive` — matching `parse`'s last-wins semantics (via
+    /// `TokenQuery.lastWinsChips`).
     static func chips(_ raw: String) -> [Chip] {
-        var out: [Chip] = []
-        var lastIndexByFamily: [String: Int] = [:]  // "kind" / ">" / "<"
-        func append(_ chip: Chip, family: String) {
-            if let previous = lastIndexByFamily[family] { out[previous].isActive = false }
-            lastIndexByFamily[family] = out.count
-            out.append(chip)
-        }
-        for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
+        TokenQuery.lastWinsChips(raw) { word in
             let lower = word.lowercased()
             if lower.hasPrefix("kind:") {
                 let ext = String(lower.dropFirst("kind:".count)).trimmingCharacters(in: CharacterSet(charactersIn: "."))
-                if !ext.isEmpty { append(Chip(raw: word, label: "kind: \(ext)"), family: "kind") }
-            } else if lower.hasPrefix(">"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                append(Chip(raw: word, label: "> \(FileSyncManager.formatBytes(bytes))"), family: ">")
-            } else if lower.hasPrefix("<"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
-                append(Chip(raw: word, label: "< \(FileSyncManager.formatBytes(bytes))"), family: "<")
+                if !ext.isEmpty { return (Chip(raw: word, label: "kind: \(ext)"), "kind") }
             }
+            if lower.hasPrefix(">"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
+                return (Chip(raw: word, label: "> \(FileSyncManager.formatBytes(bytes))"), ">")
+            }
+            if lower.hasPrefix("<"), let bytes = DifferenceSearch.parseSize(String(lower.dropFirst())) {
+                return (Chip(raw: word, label: "< \(FileSyncManager.formatBytes(bytes))"), "<")
+            }
+            return nil
         }
-        return out
     }
 
-    /// Removes every occurrence of `word` from `raw`, leaving every other word as typed. Backs a
-    /// chip's ✕ button. ALL occurrences, deliberately: chips are keyed by raw text, so with
-    /// `kind:pdf kind:png kind:pdf` the ✕ on the active pdf chip must not just drop the FIRST pdf
-    /// (which would leave the effective filter unchanged) — one click clearing every duplicate of
-    /// the word is the honest semantics.
+    /// Removes every occurrence of `word` from `raw` — see `TokenQuery.removing` for why ALL
+    /// occurrences is the honest ✕ semantics under last-wins parsing.
     static func removing(_ raw: String, word: String) -> String {
-        raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map(String.init)
-            .filter { $0 != word }
-            .joined(separator: " ")
+        TokenQuery.removing(raw, word: word)
     }
 }

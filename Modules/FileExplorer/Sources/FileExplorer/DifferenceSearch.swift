@@ -1,4 +1,5 @@
 import Foundation
+import Design
 import Sync
 
 /// Structured search for the Differences table: turns a raw query into filter tokens plus free text,
@@ -15,6 +16,10 @@ import Sync
 /// Backwards-compatible by construction: a query with NO recognized tokens keeps the exact legacy
 /// behavior — the whole raw string (spacing intact) is one case-insensitive substring over the
 /// relative path — so phrase and trailing-space searches are unchanged.
+///
+/// The mechanics (tokenizer, verbatim-raw fallback, all-occurrences removal, family-last-wins
+/// chips, the number+unit size parser) are Design's shared `TokenQuery` core; this grammar owns
+/// only its token table and `matches()`.
 enum DifferenceSearch {
 
     enum Token: Equatable {
@@ -46,25 +51,20 @@ enum DifferenceSearch {
     ]
 
     static func parse(_ raw: String) -> Query {
-        let words = raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         var tokens: [Token] = []
-        var freeWords: [String] = []
-        for word in words {
-            if let token = parseToken(word) {
-                // `kind:` is last-wins (like Tidy/Log families): a path has ONE extension, so two
-                // conjunctive kind: tokens can never both match — the earlier one is dropped rather
-                // than turning the query into a guaranteed-empty dead-end. Size bounds and only:
-                // stay conjunctive; those combinations are legitimate (ranges).
-                if case .kind = token {
-                    tokens.removeAll { if case .kind = $0 { return true } else { return false } }
-                }
-                tokens.append(token)
-            } else {
-                freeWords.append(word)
+        // No recognized tokens → freeText preserves the raw string verbatim (legacy substring search).
+        let freeText = TokenQuery.freeText(raw) { word in
+            guard let token = parseToken(word) else { return false }
+            // `kind:` is last-wins (like Tidy/Log families): a path has ONE extension, so two
+            // conjunctive kind: tokens can never both match — the earlier one is dropped rather
+            // than turning the query into a guaranteed-empty dead-end. Size bounds and only:
+            // stay conjunctive; those combinations are legitimate (ranges).
+            if case .kind = token {
+                tokens.removeAll { if case .kind = $0 { return true } else { return false } }
             }
+            tokens.append(token)
+            return true
         }
-        // No recognized tokens → preserve the raw string verbatim (legacy substring search).
-        let freeText = tokens.isEmpty ? raw : freeWords.joined(separator: " ")
         return Query(tokens: tokens, freeText: freeText)
     }
 
@@ -72,7 +72,7 @@ enum DifferenceSearch {
 
     /// A recognized filter word paired with its token, so the Compare search field can render
     /// removable chips. `raw` is the exact word typed, so a chip's ✕ removes precisely that word.
-    struct Chip: Equatable {
+    struct Chip: Equatable, DimmableTokenChip {
         var raw: String
         var token: Token
         /// Whether this chip is part of the effective query. `parse` is last-wins for the `kind:`
@@ -83,30 +83,22 @@ enum DifferenceSearch {
 
     /// Every recognized token word in `raw`, in typed order, as display chips. Free text is
     /// excluded. Within the `kind:` family only the last occurrence is `isActive` — matching
-    /// `parse`'s last-wins semantics; size and only: chips are always active (conjunctive).
+    /// `parse`'s last-wins semantics (via `TokenQuery.lastWinsChips`); size and only: chips are
+    /// always active (conjunctive, so their family is nil).
     static func chips(_ raw: String) -> [Chip] {
-        var out: [Chip] = []
-        var lastKindIndex: Int?
-        for word in raw.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init) {
-            guard let token = parseToken(word) else { continue }
+        TokenQuery.lastWinsChips(raw) { word in
+            guard let token = parseToken(word) else { return nil }
             if case .kind = token {
-                if let previous = lastKindIndex { out[previous].isActive = false }
-                lastKindIndex = out.count
+                return (Chip(raw: word, token: token), "kind")
             }
-            out.append(Chip(raw: word, token: token))
+            return (Chip(raw: word, token: token), nil)
         }
-        return out
     }
 
-    /// Removes every occurrence of `word` from `raw`, leaving every other word as the user typed
-    /// it. Backs a chip's ✕ button. ALL occurrences, deliberately: chips are keyed by their raw
-    /// text, so with `kind:pdf ... kind:pdf` one ✕ clearing both duplicates is the honest
-    /// semantics — removing only the first would leave the filter visibly unchanged.
+    /// Removes every occurrence of `word` from `raw` — see `TokenQuery.removing` for why ALL
+    /// occurrences is the honest ✕ semantics under last-wins parsing.
     static func removing(_ raw: String, word: String) -> String {
-        raw.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map(String.init)
-            .filter { $0 != word }
-            .joined(separator: " ")
+        TokenQuery.removing(raw, word: word)
     }
 
     // MARK: Matching
@@ -148,31 +140,10 @@ enum DifferenceSearch {
         return nil
     }
 
-    /// "10mb" / "1.5gb" / "500kb" / "1024" → bytes. SI (1000-base) to match the app's displayed
-    /// sizes (`ByteCountFormatter` `.file`). Returns nil for anything that isn't a number + known
-    /// unit, so an unrecognized `>`/`<` word stays plain free text.
+    /// "10mb" / "1.5gb" / "500kb" / "1024" → bytes, via the shared `TokenQuery` parser (SI
+    /// 1000-base, overflow-guarded). Kept as this grammar's named entry point because Tidy's
+    /// `DuplicateSearch` and the tests address the size vocabulary through it.
     static func parseSize(_ string: String) -> Int? {
-        guard !string.isEmpty else { return nil }
-        var number = ""
-        var unit = ""
-        for character in string {
-            if character.isNumber || character == "." { number.append(character) } else { unit.append(character) }
-        }
-        guard let value = Double(number), value.isFinite, value >= 0 else { return nil }
-        let multiplier: Double
-        switch unit {
-        case "", "b": multiplier = 1
-        case "k", "kb": multiplier = 1_000
-        case "m", "mb": multiplier = 1_000_000
-        case "g", "gb": multiplier = 1_000_000_000
-        default: return nil
-        }
-        // Guard the Double→Int conversion: `Int(_: Double)` TRAPS when the value isn't representable,
-        // and this parses live on every keystroke — an over-large token (e.g. `>99999999999gb`) would
-        // otherwise crash the window. Strict `<`: `Double(Int.max)` rounds up to 2^63, which is itself
-        // one past `Int.max`, so `bytes < Double(Int.max)` is what keeps `Int(bytes)` in range.
-        let bytes = (value * multiplier).rounded()
-        guard bytes >= 0, bytes < Double(Int.max) else { return nil }
-        return Int(bytes)
+        TokenQuery.parseSizeBytes(string)
     }
 }

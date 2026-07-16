@@ -787,38 +787,17 @@ public struct DifferencesView: View {
         )
     }
 
-    /// The recognized filter words as removable chips: a human reading of the query, each with an ✕
-    /// that edits its exact word back out of the raw text. A chip superseded by a later same-family
-    /// word (`kind:` parses last-wins) renders dimmed, so the chips read as the query the filter
-    /// actually runs — mirroring the Tidy search's chips.
+    /// The recognized filter words as removable chips (Design's shared `TokenChipsRow`): a human
+    /// reading of the query, each with an ✕ that edits its exact word back out of the raw text —
+    /// mirroring the Tidy search's chips. The labels stay this view's `tokenLabel` because the
+    /// `only:` chips name the live panes.
     private func tokenChips(_ chips: [DifferenceSearch.Chip]) -> some View {
         HStack(spacing: 6) {
-            ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                let tint = chip.isActive ? glassHue.accentColor : Color.secondary
-                HStack(spacing: 4) {
-                    Text(tokenLabel(chip.token))
-                        .font(.caption.monospaced())
-                        .strikethrough(!chip.isActive)
-                    Button {
-                        searchText = DifferenceSearch.removing(searchText, word: chip.raw)
-                    } label: {
-                        // 8 pt glyph, padded hit target (negative padding restores the chip's
-                        // visual size) — the bare glyph was a misclick magnet.
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                            .padding(6)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(-6)
-                    .accessibilityLabel("Remove filter \(tokenLabel(chip.token))")
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 2)
-                .foregroundStyle(tint)
-                .background(Capsule().fill(tint.opacity(chip.isActive ? 0.16 : 0.08)))
-                .overlay(Capsule().strokeBorder(tint.opacity(0.35), lineWidth: 0.5))
-                .help(chip.isActive ? "Active filter" : "Overridden by a later filter of the same kind")
-            }
+            TokenChipsRow(
+                items: chips.map { TokenChipsRow.Item(label: tokenLabel($0.token), word: $0.raw, isActive: $0.isActive) },
+                tint: glassHue.accentColor,
+                onRemove: { word in searchText = DifferenceSearch.removing(searchText, word: word) }
+            )
             Spacer(minLength: 0)
         }
     }
