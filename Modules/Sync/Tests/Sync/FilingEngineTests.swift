@@ -386,6 +386,19 @@ import Testing
         #expect(best.newSegments == ["Tesla"])                      // created on apply
     }
 
+    @Test func verdictEchoingASiblingOfTheRootIsNotStrippedIntoASubfolder() {
+        // providerRoot "/root"; the model echoes "/rootArchive/Foo" — a SIBLING that shares the
+        // string prefix but is NOT under the root. Stripping on a raw-string boundary would rewrite
+        // it to "/root/Archive/Foo" and misfile the document into a real subfolder. The root prefix
+        // is stripped only on a path-component boundary, so this can't happen.
+        let taxonomy = [dir("/root/Archive", [])]
+        let loose = [file("/root/Downloads/x.pdf", modified: y2024)]
+        let base = FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root")
+        let v = ["/root/Downloads/x.pdf": FilingVerdict(relativePath: "/rootArchive/Foo", confidence: .high, reason: "x")]
+        let best = FilingEngine.applyVerdicts(v, to: base, taxonomy: taxonomy, providerRoot: "/root").first?.best
+        #expect(best?.path != "/root/Archive/Foo")
+    }
+
     @Test func verdictWithNoUsablePathIsIgnored() {
         let taxonomy = [dir("/root/Documents", [])]
         let loose = [file("/root/Downloads/tesla.pdf", modified: y2024)]

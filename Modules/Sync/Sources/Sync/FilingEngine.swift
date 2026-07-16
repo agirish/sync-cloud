@@ -613,7 +613,14 @@ public enum FilingEngine {
     static func destination(from verdict: FilingVerdict, providerRoot: String,
                             existingRelative: Set<String>) -> FilingDestination? {
         var rel = verdict.relativePath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if rel.hasPrefix(providerRoot) { rel = String(rel.dropFirst(providerRoot.count)) }
+        // Strip an echoed provider-root prefix only on a PATH-COMPONENT boundary, so a sibling that
+        // merely shares a string prefix (root "/Users/x/Docs", verdict "/Users/x/DocsArchive/Foo")
+        // isn't rewritten into a subfolder ("/Users/x/Docs/Archive/Foo") — a misfile.
+        if rel == providerRoot {
+            rel = ""
+        } else if rel.hasPrefix(providerRoot + "/") {
+            rel = String(rel.dropFirst(providerRoot.count))
+        }
         rel = rel.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let segments = rel.split(separator: "/").map(String.init)
         guard !segments.isEmpty, !segments.contains(".."), !segments.contains(".") else { return nil }
