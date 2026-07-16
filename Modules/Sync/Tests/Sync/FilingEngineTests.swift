@@ -93,6 +93,50 @@ import Testing
         #expect(best.newSegments == ["Taxes", "2024"])
     }
 
+    // MARK: Filename year beats modification date for the year segment
+
+    @Test func filenameYearWinsOverMtimeForTheYearSegment() throws {
+        // A 2022 receipt downloaded (mtime) in 2024 belongs in Receipts/2022 — the filename names
+        // the document's year; the mtime only says when the bytes last changed.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
+        let loose = [file("/root/Downloads/amazon invoice 2022.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Receipts/2022")
+    }
+
+    @Test func taxFormFilenameYearWinsOverMtime() throws {
+        let taxonomy = [dir("/root/Taxes", [])]
+        let loose = [file("/root/Downloads/1099-INT 2023.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Taxes/2023")
+    }
+
+    @Test func multipleFilenameYearsFallBackToMtime() throws {
+        // A range names no single year — the mtime year stands.
+        let taxonomy = [dir("/root/Statements", [])]
+        let loose = [file("/root/Downloads/statement 2021-2022.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Statements/2024")
+    }
+
+    @Test func implausibleFilenameYearFallsBackToMtime() throws {
+        // "2098" passes the tokenizer's year net (1900–2099) but is not a plausible filing year.
+        let taxonomy = [dir("/root/Documents", [dir("/root/Documents/Receipts", [])])]
+        let loose = [file("/root/Downloads/receipt 2098.pdf", modified: y2024)]
+        let best = try #require(FilingEngine.suggest(looseFiles: loose, taxonomy: taxonomy, providerRoot: "/root").first?.best)
+        #expect(best.path == "/root/Documents/Receipts/2024")
+    }
+
+    @Test func filenameYearHelperRequiresExactlyOnePlausibleYear() {
+        let now = Date(timeIntervalSince1970: 1_720_000_000)   // mid-2024
+        #expect(FilingEngine.filenameYear(in: ["tax", "2023"], now: now) == "2023")
+        #expect(FilingEngine.filenameYear(in: ["report", "2025"], now: now) == "2025")   // current+1 ok
+        #expect(FilingEngine.filenameYear(in: ["report", "2026"], now: now) == nil)      // beyond current+1
+        #expect(FilingEngine.filenameYear(in: ["scan", "1989"], now: now) == nil)        // before 1990
+        #expect(FilingEngine.filenameYear(in: ["fy", "2021", "2022"], now: now) == nil)  // ambiguous range
+        #expect(FilingEngine.filenameYear(in: ["notes"], now: now) == nil)               // no year at all
+    }
+
     // MARK: Content signals (F2)
 
     @Test func contentTokensUpgradeAFileWhoseNameSaysNothing() throws {

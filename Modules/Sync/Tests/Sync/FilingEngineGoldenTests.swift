@@ -53,7 +53,10 @@ import Testing
         let loose = [
             file("/root/Downloads/tesla registration card.pdf"),   // name matches an existing folder
             file("/root/Downloads/IMG_2831.HEIC"),                  // photo → Photos/<year>
-            file("/root/Downloads/1099-INT 2024.pdf"),             // tax doc
+            file("/root/Downloads/1099-INT 2024.pdf"),             // tax doc, filename year == mtime year
+            // Filename year ≠ mtime year: the filename's 2023 must win the year segment (every
+            // other fixture's years coincide, which is exactly how the mtime-only bug hid).
+            file("/root/Downloads/1099-INT 2023.pdf"),
             file("/root/Downloads/2024-overview.pdf"),             // ONLY a year token → no confident home
             file("/root/Downloads/blorf.xyz"),                     // no signal at all
         ]
@@ -63,6 +66,7 @@ import Testing
         // GOLDEN — captured, hand-verified, pinned. Re-bless only after confirming an intentional
         // change to the filing heuristic is correct.
         let expected = """
+        1099-INT 2023.pdf -> /root/Documents/Taxes/2023 [medium, batch]
         1099-INT 2024.pdf -> /root/Documents/Taxes/2024 [medium, batch]
         2024-overview.pdf -> (no confident home)
         IMG_2831.HEIC -> /root/Photos/2024 [high, batch]

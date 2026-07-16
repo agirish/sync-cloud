@@ -153,7 +153,12 @@ public enum FilingEngine {
             let content = contentTokens[file.id] ?? []
             let tokens = nameToks.union(content)
             let ext = (file.name as NSString).pathExtension.lowercased()
-            let year = yearString(file.modificationDate)
+            // The year segment of rule destinations (Receipts/<year>, Taxes/<year>, …): a single
+            // plausible year in the FILENAME names the document's own year and wins over the
+            // modification date, which is merely when the bytes last changed — a 2023 tax form
+            // downloaded in 2024 belongs in Taxes/2023, not Taxes/2024. Zero or multiple filename
+            // years (a "2021-2022" range says nothing definite) fall back to mtime.
+            let year = filenameYear(in: nameToks) ?? yearString(file.modificationDate)
 
             var candidates: [FilingDestination] = []
             candidates += rememberedCandidates(rules: rules, tokens: tokens, nameTokens: nameToks,
@@ -491,6 +496,20 @@ public enum FilingEngine {
     private static func isYear(_ t: String) -> Bool {
         guard t.count == 4, let n = Int(t) else { return false }
         return n >= 1900 && n <= 2099
+    }
+
+    /// The single PLAUSIBLE year named by the filename's tokens, or nil. Plausible narrows
+    /// ``isYear``'s 1900–2099 token span to 1990...(current year + 1) — old scans and next
+    /// year's pre-dated statements are real; "2098" in a filename is not a filing year.
+    /// Requires exactly one such token: several ("FY2021-2022 report") name no single year.
+    /// `now` is injectable for deterministic tests.
+    static func filenameYear(in nameTokens: Set<String>, now: Date = Date()) -> String? {
+        let currentYear = Calendar(identifier: .gregorian).component(.year, from: now)
+        let plausible = nameTokens.filter { token in
+            guard isYear(token), let n = Int(token) else { return false }
+            return n >= 1990 && n <= currentYear + 1
+        }
+        return plausible.count == 1 ? plausible.first : nil
     }
 
     private static func yearString(_ date: Date?) -> String? {
