@@ -1,9 +1,18 @@
 import AppKit
+import Combine
 import Design
 import Events
 import QuickLook
 import SwiftUI
 import Sync
+
+extension Notification.Name {
+    /// Posted after a cloud-only "Download" request is accepted, carrying the file's absolute path
+    /// in `object`. The row displaying that file listens and re-checks its cloud badge while the
+    /// content materializes — the context menu and the row are separate views with no shared state,
+    /// and without this the badge lingered until the row was recycled.
+    static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
+}
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
 public struct FileTreeView: View {
@@ -475,6 +484,9 @@ struct FileContextMenu: View {
                         do {
                             try MaterializationStatus.download(atPath: singleNode.id)
                             Logger.shared.info("Requested download of cloud-only file: \(singleNode.id)")
+                            // Tell the row to watch for the content landing so its cloud badge
+                            // clears; on the failure path the badge (correctly) stays.
+                            NotificationCenter.default.post(name: .cloudDownloadRequested, object: singleNode.id)
                         } catch {
                             Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
                         }
@@ -583,6 +595,9 @@ struct FileRowView: View {
     /// Whether this file is a cloud-only placeholder (content not on disk). Detected lazily per row
     /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears.
     @State private var isCloudOnly = false
+    /// Bumped when a Download is requested for this file (see `.cloudDownloadRequested`), keying
+    /// the short poll that clears the badge once the content lands.
+    @State private var downloadWatchToken = 0
 
     /// Shared formatter (sizes use FileSizeFormat.byteCount): rows render lazily but
     /// scroll fast, so allocating a formatter per row body would still churn.
@@ -658,6 +673,29 @@ struct FileRowView: View {
             let path = node.id
             // lstat off the main actor; it's cheap but there's no reason to do syscalls on it.
             isCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        }
+        // After a Download request for THIS file, re-check the badge as the content arrives.
+        .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
+            guard note.object as? String == node.id else { return }
+            downloadWatchToken &+= 1
+        }
+        // Polls the lstat once a second for ~10 s: materialization is asynchronous and has no
+        // public completion callback, so a short bounded poll is the cheap honest option. The
+        // badge clears the moment the check says the content is local; if it never does (the
+        // download stalled or failed), the badge correctly stays. Cancel-safe: keyed .task is
+        // cancelled when the row disappears, and Task.sleep throws on cancellation.
+        .task(id: downloadWatchToken) {
+            guard downloadWatchToken > 0, isCloudOnly, !node.isDirectory else { return }
+            let path = node.id
+            for _ in 0..<10 {
+                guard (try? await Task.sleep(nanoseconds: 1_000_000_000)) != nil else { return }
+                let stillCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+                if Task.isCancelled { return }
+                if !stillCloudOnly {
+                    isCloudOnly = false
+                    return
+                }
+            }
         }
     }
 
