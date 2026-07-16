@@ -52,8 +52,11 @@ struct ContentView: View {
     /// Active "compare two duplicate copies" handoff from Tidy: the keeper (left pane) and the
     /// redundant copy (right pane) opened in Compare, plus the duplicate scan root to re-scan once
     /// the right copy is trashed. Drives the keep-left / trash-right banner over Compare; nil when
-    /// no such review is in progress.
-    @State private var duplicateReview: DuplicateCompareContext? = nil
+    /// no such review is in progress. App-owned (a binding, like `hasBootstrappedSession`): a
+    /// window close + Dock reopen recreates ContentView and its `@State`, and losing the review
+    /// context here while its provider pins persist in @AppStorage would strand the panes pinned
+    /// to the duplicate's provider with no banner, no Done button, and no restore snapshot.
+    @Binding var duplicateReview: DuplicateCompareContext?
 
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) var openWindow
@@ -61,10 +64,11 @@ struct ContentView: View {
     @State var actionHandler: FileActionHandler?
     @State var quickLookURL: URL? = nil
     @State private var isBootstrappingProviders: Bool = true
-    /// Guided-review state, owned here so it outlives DifferencesView — that view unmounts on
-    /// a Details-tab peek and whenever the live differences list goes empty, and the session
-    /// (plus any in-flight copy's outcome) must survive both.
-    @StateObject private var reviewStore = ReviewSessionStore()
+    /// Guided-review state, owned by the App (like `duplicateReview`) so it outlives BOTH
+    /// DifferencesView — that view unmounts on a Details-tab peek and whenever the live
+    /// differences list goes empty, and the session (plus any in-flight copy's outcome) must
+    /// survive both — and this ContentView itself, which a window close + Dock reopen recreates.
+    @ObservedObject var reviewStore: ReviewSessionStore
     
     @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue

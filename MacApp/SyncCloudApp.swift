@@ -3,6 +3,7 @@ import Sync
 import Events
 import Settings
 import Dashboard
+import FileExplorer
 import AppIntents
 
 // Keep an explicit AppIntents symbol reference so metadata extraction sees the framework dependency.
@@ -32,6 +33,17 @@ struct SyncCloudApp: App {
     /// shared FileSyncManager, its trees, and mid-session toggles — lives on. Deliberately
     /// @State, not @AppStorage: it must reset on every app launch.
     @State private var hasBootstrappedSession = false
+    /// The active duplicate-copy review (Tidy's "Compare copies" hand-off). App-owned for the
+    /// same reason as `hasBootstrappedSession`: its provider pins live in @AppStorage and the
+    /// FileSyncManager's pane focus survives a window close + Dock reopen, so the review context
+    /// — the banner, the trash-right action, and above all the restore snapshot that un-pins the
+    /// panes — must survive it too, or the panes stay pinned with no way back. @State (never
+    /// persisted): a review never outlives the app session.
+    @State private var duplicateReview: DuplicateCompareContext? = nil
+    /// Guided-review session state. App-owned so a window close + Dock reopen mid-review (or
+    /// mid-decision: an in-flight copy's outcome lands in this store) doesn't drop the session
+    /// while the underlying comparison lives on in the shared FileSyncManager.
+    @StateObject private var reviewStore = ReviewSessionStore()
     /// The first-run welcome gate, shared with ContentView by key. Held here too so the Help ▸
     /// Welcome to SyncCloud command can flip it back to `false` and re-summon the tour: ContentView's
     /// `@AppStorage` on the same key observes the write and re-renders the overlay.
@@ -156,7 +168,9 @@ struct SyncCloudApp: App {
                     showSettings: $showSettings,
                     showHelp: $showHelp,
                     hasBootstrappedSession: $hasBootstrappedSession,
-                    welcomeDismissedThisSession: $welcomeDismissedThisSession
+                    welcomeDismissedThisSession: $welcomeDismissedThisSession,
+                    duplicateReview: $duplicateReview,
+                    reviewStore: reviewStore
                 )
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
