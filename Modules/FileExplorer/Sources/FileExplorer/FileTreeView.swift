@@ -442,9 +442,13 @@ struct FileContextMenu: View {
         } else {
             effectiveSelection = [node.id]
         }
-        return tree.findNodes(at: effectiveSelection)
+        // Prune nested nodes (a folder and its descendant never travel together) exactly as the
+        // drag path does, so a context-menu Copy/Move/Delete on a selection spanning a folder AND an
+        // item inside it can't pass the superset to a handler — matching PaneDropLogic.dragNodes and
+        // the downstream copy/move prune, and keeping the two entry points from drifting apart.
+        return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
-    
+
     var body: some View {
         let selectedNodes = Self.resolvedSelection(node: node, selection: selection, tree: tree)
         let count = selectedNodes.count
