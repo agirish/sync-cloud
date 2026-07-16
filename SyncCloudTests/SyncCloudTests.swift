@@ -143,6 +143,20 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
     }
 
+    @Test func testPaneProviderRenameIsANoOpForPaneRefresh() {
+        // Renaming a provider in Settings (setCustomName) changes only displayName.
+        // That must NOT read as a pane-provider change: it used to trip the
+        // .comparisonRootEdited teardown — dropping an in-flight duplicate review with
+        // no restore — and force a full rescan for a purely cosmetic edit.
+        let old = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]
+        let new = [
+            CloudProvider(id: "iCloud", displayName: "My Renamed iCloud", imageName: "icloud", path: "/a", type: .iCloud),
+            provider("Dropbox", path: "/b")
+        ]
+
+        #expect(!ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
+    }
+
     @Test func testPaneProviderAppearingOrVanishingRequiresPaneRefresh() {
         let old = [provider("iCloud", path: "/a")]
         let new = [provider("iCloud", path: "/a"), provider("Dropbox", path: "/b")]

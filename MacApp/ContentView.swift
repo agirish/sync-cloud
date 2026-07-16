@@ -198,7 +198,11 @@ struct ContentView: View {
     }
 
     /// Whether either pane's provider differs between two versions of the enabled-provider
-    /// list — by value, so a root-path edit counts, but changes to other providers don't.
+    /// list — comparing only identity-relevant fields (id, root path, type), so a root-path
+    /// edit counts, but changes to other providers don't. Cosmetic fields are deliberately
+    /// excluded: comparing whole structs made a Settings rename (setCustomName → new
+    /// displayName) read as a root edit, which tore down an in-flight duplicate review
+    /// (`.comparisonRootEdited` has no restore) and forced a full rescan for a label change.
     static func paneProvidersChanged(
         old: [CloudProvider],
         new: [CloudProvider],
@@ -208,8 +212,15 @@ struct ContentView: View {
         func provider(_ id: String, in providers: [CloudProvider]) -> CloudProvider? {
             providers.first(where: { $0.id == id })
         }
-        return provider(leftId, in: old) != provider(leftId, in: new)
-            || provider(rightId, in: old) != provider(rightId, in: new)
+        func sameIdentity(_ a: CloudProvider?, _ b: CloudProvider?) -> Bool {
+            switch (a, b) {
+            case (nil, nil): return true
+            case let (a?, b?): return a.id == b.id && a.path == b.path && a.type == b.type
+            default: return false
+            }
+        }
+        return !sameIdentity(provider(leftId, in: old), provider(leftId, in: new))
+            || !sameIdentity(provider(rightId, in: old), provider(rightId, in: new))
     }
 
     /// The window content with its overlays, animations, and background. Split out of `body` so the
