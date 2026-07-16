@@ -530,13 +530,71 @@ import Combine
         try write(redundant.appendingPathComponent("sub/unique.txt"), bytes: 5000, fill: 0x52)
 
         let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        let srcNames = plan.map { $0.src.lastPathComponent }
+        let srcNames = plan.steps.map { $0.src.lastPathComponent }
 
         #expect(srcNames.contains("unique.txt"))          // content the keeper lacks → copied
         #expect(!srcNames.contains("shared.txt"))         // provably already in keeper → skipped
         // Destination preserves the relative layout under the keeper.
-        let uniqueStep = try #require(plan.first { $0.src.lastPathComponent == "unique.txt" })
+        let uniqueStep = try #require(plan.steps.first { $0.src.lastPathComponent == "unique.txt" })
         #expect(uniqueStep.dst.path == keeper.appendingPathComponent("sub/unique.txt").path)
+        // The snapshot covers the redundant copy's FULL file set (including provably-shared files
+        // the steps skip) with byte sizes — the trash step's drift baseline.
+        #expect(plan.sourceSnapshot == ["shared.txt": 5000, "sub/unique.txt": 5000])
+    }
+
+    @Test func mergeSourceDriftedFlagsNewAndChangedFilesButNotRemovals() {
+        let planned = ["a.txt": 100, "sub/b.txt": 200]
+        // Unchanged → no drift.
+        #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: planned))
+        // A file REMOVED since plan time is fine — what remains was covered by the plan.
+        #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: ["a.txt": 100]))
+        #expect(!FileSyncManager.mergeSourceDrifted(planned: planned, current: [:]))
+        // A NEW file is content the plan never saw → drift.
+        #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
+                                                   current: ["a.txt": 100, "sub/b.txt": 200, "new.txt": 1]))
+        // A size CHANGE is content the plan never verified → drift.
+        #expect(FileSyncManager.mergeSourceDrifted(planned: planned,
+                                                   current: ["a.txt": 100, "sub/b.txt": 999]))
+    }
+
+    @MainActor
+    @Test func mergeRefusesToTrashARedundantCopyThatChangedMidMerge() async throws {
+        let base = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Changing")
+        try write(keeper.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(redundant.appendingPathComponent("shared.txt"), bytes: 5000, fill: 0x53)
+        try write(redundant.appendingPathComponent("unique.txt"), bytes: 5000, fill: 0x52)
+
+        // A file manager that simulates external activity: the first copy the merge performs
+        // also drops a brand-new file into the redundant folder — after the plan was snapshotted,
+        // before the trash step. The old code re-verified only the keeper and would trash the
+        // folder, destroying surprise.txt.
+        let fm = MidMergeInterferingFileManager(
+            dropping: redundant.appendingPathComponent("surprise.txt"),
+            bytes: Data(repeating: 0x21, count: 4096))
+        let manager = FileSyncManager(fileManager: fm)
+
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 10000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant.path, name: "Changing", isDirectory: true, size: 10000, itemCount: 2,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(FileManager.default.fileExists(atPath: redundant.path), "the changed copy must NOT be trashed")
+        #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("surprise.txt").path),
+                "the file that appeared mid-merge survives")
+        #expect(FileManager.default.fileExists(atPath: keeper.appendingPathComponent("unique.txt").path),
+                "the planned fold-in still landed")
+        #expect(manager.duplicateGroups.count == 1, "group stays listed for a rescan/retry")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("changed") == true)
     }
 
     @MainActor
@@ -689,6 +747,42 @@ import Combine
         // But it can be dismissed manually ("Keep separate").
         manager.dismissDuplicateGroup(group)
         #expect(manager.duplicateGroups.isEmpty)
+    }
+}
+
+/// A real FileManager that simulates external activity landing mid-merge: the FIRST copy it
+/// performs also writes a brand-new file into the (redundant) folder being merged — after
+/// `planMerge` snapshotted that folder, before the trash step re-verifies it. Everything else
+/// is stock FileManager, so the merge's real copy/trash machinery runs unmodified.
+private final class MidMergeInterferingFileManager: FileManager, @unchecked Sendable {
+    private let dropURL: URL
+    private let dropBytes: Data
+    // FileManager is (unchecked) Sendable, so a subclass may not add mutable stored state
+    // directly — the one-shot flag lives in a lock-guarded box (same shape as GatingFileManager).
+    private final class OneShot: @unchecked Sendable {
+        private let lock = NSLock()
+        private var fired = false
+        /// True exactly once.
+        func trip() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            let first = !fired
+            fired = true
+            return first
+        }
+    }
+    private let shot = OneShot()
+
+    init(dropping url: URL, bytes: Data) {
+        self.dropURL = url
+        self.dropBytes = bytes
+        super.init()
+    }
+
+    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
+        if shot.trip() {
+            try? dropBytes.write(to: dropURL)
+        }
+        try super.copyItem(at: srcURL, to: dstURL)
     }
 }
 
