@@ -428,9 +428,36 @@ final class LogFileWriter: @unchecked Sendable {
         self.maxFileSize = maxFileSize
         trimCheckInterval = min(1024 * 1024, max(1, maxFileSize / 2))
         queue.async { [self] in
-            trimTailIfOversized(maxFileSize: maxFileSize)
+            withTrimLock { trimTailIfOversized(maxFileSize: maxFileSize) }
             openHandle()
         }
+    }
+
+    /// Runs `body` holding an exclusive `flock` on a sidecar lock file (`<log>.lock`) next to
+    /// the log. Two processes share `~/sync-cloud.log` (the app and the `synccloud` CLI), and a
+    /// trim is a read-tail + atomic-rename of the whole file: two concurrent trims could each
+    /// rewrite from a stale tail and clobber the other's result. The lock serializes trims
+    /// across processes; the size stat happens INSIDE `body` (trimTailIfOversized re-stats), so
+    /// a trim that lost the race re-checks and finds nothing left to do.
+    ///
+    /// Residual (accepted, documented): appends are NOT under this lock. The other process's
+    /// O_APPEND write can land on the old inode between our tail-read/rename — its next append
+    /// re-stats the inode and reopens (see `append`), but that one in-flight line is lost.
+    /// Locking every append would put a cross-process syscall on the hot path for a rare,
+    /// single-line race, so trims-only is the deliberate trade.
+    ///
+    /// If the lock file cannot be opened, the trim proceeds unguarded (the pre-lock behavior)
+    /// rather than letting the log grow unbounded. Runs on `queue`.
+    private func withTrimLock(_ body: () -> Void) {
+        let fd = open(url.path + ".lock", O_WRONLY | O_CREAT, 0o644)
+        guard fd >= 0 else {
+            body()
+            return
+        }
+        defer { close(fd) }  // close releases the flock too
+        _ = flock(fd, LOCK_EX)
+        body()
+        _ = flock(fd, LOCK_UN)
     }
 
     /// Inode of the item currently at `url`; nil when the path does not exist. One
@@ -512,14 +539,20 @@ final class LogFileWriter: @unchecked Sendable {
     /// Mid-session counterpart to the init-time trim. Runs on `queue`. The trim rewrites the
     /// file atomically (new inode), so the open handle must be closed first and reopened after —
     /// otherwise subsequent appends would land in the orphaned old inode and vanish.
+    ///
+    /// The size check runs UNDER the trim lock: the other process may have just trimmed, and a
+    /// decision made from the pre-lock size would re-trim a file that's already back under the
+    /// cap (double-cutting fresh lines).
     private func trimMidSessionIfOversized() {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = (attributes[.size] as? NSNumber)?.intValue,
-              size > maxFileSize else { return }
-        try? handle?.close()
-        handle = nil
-        trimTailIfOversized(maxFileSize: maxFileSize)
-        openHandle()
+        withTrimLock {
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+                  let size = (attributes[.size] as? NSNumber)?.intValue,
+                  size > maxFileSize else { return }
+            try? handle?.close()
+            handle = nil
+            trimTailIfOversized(maxFileSize: maxFileSize)
+            openHandle()
+        }
     }
 
     /// Blocks until every append/clear enqueued before this call has finished. The barrier

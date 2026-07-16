@@ -14,6 +14,12 @@ import Foundation
             .appendingPathComponent("LogFileWriterTest-\(UUID().uuidString).log")
     }
 
+    /// Removes the log and its trim-lock sidecar.
+    private func cleanup(_ url: URL) {
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(atPath: url.path + ".lock")
+    }
+
     @Test func testLogFileRecreatedAfterExternalDeletion() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -150,6 +156,49 @@ import Foundation
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.hasSuffix(lastLine))
         #expect(contents.hasPrefix("session line ")) // still starts at a line boundary
+    }
+
+    /// A leftover sidecar lock file (e.g. from a crashed process) must not block trims: flock
+    /// state dies with the holder's descriptor, so a stale FILE alone carries no lock, and the
+    /// trim proceeds normally through the guarded path.
+    @Test func testStaleTrimLockFileDoesNotBlockTrimming() throws {
+        let url = makeTempURL()
+        defer { cleanup(url) }
+
+        try Data().write(to: URL(fileURLWithPath: url.path + ".lock"))  // stale sidecar
+        let history = (0..<500).map { "line \($0)" }.joined(separator: "\n") + "\n"
+        try history.write(to: url, atomically: true, encoding: .utf8)
+
+        let writer = LogFileWriter(url: url, maxFileSize: 1024)
+        writer.flush()
+
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        #expect(contents.utf8.count <= 512)
+        #expect(contents.hasSuffix("line 499\n"))
+    }
+
+    /// Concurrent writers on the same log (the app + CLI scenario, here two in-process writers
+    /// with separate descriptors — flock contends across file descriptions the same way) must
+    /// both finish their guarded trims without deadlock and leave a bounded, line-aligned file.
+    @Test func testConcurrentWritersTrimWithoutDeadlock() throws {
+        let url = makeTempURL()
+        defer { cleanup(url) }
+
+        let maxFileSize = 1024
+        let a = LogFileWriter(url: url, maxFileSize: maxFileSize)
+        let b = LogFileWriter(url: url, maxFileSize: maxFileSize)
+        for i in 0..<300 {
+            a.append("writer-a line \(i)\n")
+            b.append("writer-b line \(i)\n")
+        }
+        a.flush()
+        b.flush()
+
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes[.size] as? NSNumber)?.intValue ?? .max
+        // Bounded near the cap (same slack as the single-writer bound, doubled for two
+        // writers' independent check intervals), nowhere near the ~12 KB written.
+        #expect(size <= 2 * (maxFileSize + maxFileSize / 2) + 64)
     }
 
     @Test func testClearTruncatesFile() throws {
