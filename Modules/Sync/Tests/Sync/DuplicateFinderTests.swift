@@ -59,6 +59,27 @@ import Testing
         #expect(groups.isEmpty)   // the symlink is excluded, so the real file has no duplicate
     }
 
+    @Test func aFolderWithASymlinkIsNotIdenticalToOneWithARealFileOfTheSameName() {
+        // A file-symlink's parent-signature contribution must not collide with a REAL file of the
+        // same name+hash: folder A {real.txt, link.pdf→L} and folder C {real.txt, real link.pdf(L)}
+        // are NOT identical (one entry is a link, the other a real file). If they grouped, accepting
+        // could trash C — the folder holding the only real copy — keeping A's dangling link.
+        let link = FileNode(id: "/root/A/link.pdf", name: "link.pdf", isDirectory: false,
+                            modificationDate: nil, fileSize: 8192, isSymbolicLink: true)
+        let tree = [
+            dir("/root/A", [file("/root/A/real.txt"), link]),
+            dir("/root/C", [file("/root/C/real.txt"), file("/root/C/link.pdf")]),
+        ]
+        // The link resolves to the same content the real link.pdf has (hash L).
+        let hashes = [
+            "/root/A/real.txt": "H", "/root/C/real.txt": "H",
+            "/root/A/link.pdf": "L", "/root/C/link.pdf": "L",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        #expect(!groups.contains { $0.isDirectory })   // A and C are NOT identical folders
+    }
+
     @Test func aFolderWithASymlinkIsNotIdenticalToOneWithout() {
         // Excluding a symlink from the dedup buckets must NOT drop it from its PARENT folder's
         // signature: folder A {real.txt, link} and folder B {real.txt} differ (A has an extra

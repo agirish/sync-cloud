@@ -364,17 +364,21 @@ public enum DuplicateFinder {
         // occupies a name in its parent, so it MUST contribute to the parent's structural signature
         // — otherwise a folder containing a symlink would look identical to one without it and the
         // two would be offered as duplicate folders. So return an info the parent folds into its
-        // signature (a file link carries its target's hash; a directory link is left unhashed, which
-        // conservatively makes its parent non-groupable) WITHOUT adding it to the file/dir buckets,
-        // and without walking a linked directory's contents. Size 0: a symlink reclaims no space.
+        // signature (a file link carries a "symlink:"-TAGGED target hash so it can never collide
+        // with a REAL file of the same name+hash — otherwise a folder holding a symlink would look
+        // identical to one holding the real file and the two would be offered as duplicate folders,
+        // trashing the real copy; a directory link is left unhashed, conservatively making its
+        // parent non-groupable) WITHOUT adding it to the file/dir buckets, and without walking a
+        // linked directory's contents. Size 0 + itemCount 0: a symlink reclaims no space and adds no
+        // nested items (the parent still counts it as one entry via its own `+ 1`).
         if node.isSymbolicLink == true {
-            let signature = node.isDirectory ? nil : fileHashes[node.id]
+            let signature = node.isDirectory ? nil : fileHashes[node.id].map { "symlink:" + $0 }
             return NodeInfo(
                 path: node.id,
                 name: node.name,
                 isDirectory: node.isDirectory,
                 size: 0,
-                itemCount: 1,
+                itemCount: 0,
                 modificationDate: node.modificationDate,
                 depth: depth,
                 signature: signature,
