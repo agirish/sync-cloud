@@ -2,6 +2,8 @@ import Testing
 import AppKit
 import Foundation
 import Sync
+import Design
+import SwiftUI
 @testable import SyncCloud
 
 /// Regression coverage for the operation banner's auto-dismiss timer. The old implementation
@@ -148,5 +150,14 @@ import Sync
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil,
                     "missing SF Symbol \(name)")
         }
+    }
+
+    @Test func testBannerTintsComeFromTheSemanticColorTable() {
+        // The banner is a severity surface, so its tints must stay pinned to Design's one
+        // semantic table — a drift back to ad-hoc greens/oranges/reds would let the same
+        // meaning wear different colors in different corners of the app (the C3 rule).
+        #expect(OperationBannerStyle.tint(for: .success) == SemanticColor.success)
+        #expect(OperationBannerStyle.tint(for: .warning) == SemanticColor.warning)
+        #expect(OperationBannerStyle.tint(for: .error) == SemanticColor.error)
     }
 }
