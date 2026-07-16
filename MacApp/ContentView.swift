@@ -341,8 +341,7 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched left provider to \(newId)")
-            endReviewForComparisonChange()
-            duplicateReview = nil   // a manual provider switch takes over Compare; don't restore later
+            dispatchReview(.providerSwitched)   // end the guided review + drop the duplicate review, no restore (the user chose the switch)
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview
@@ -358,8 +357,7 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched right provider to \(newId)")
-            endReviewForComparisonChange()
-            duplicateReview = nil   // a manual provider switch takes over Compare; don't restore later
+            dispatchReview(.providerSwitched)   // end the guided review + drop the duplicate review, no restore (the user chose the switch)
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview
@@ -640,8 +638,7 @@ struct ContentView: View {
         // window is interactive during bootstrap, so refuse the swap outright.
         guard !isBootstrappingProviders else { return }
         guard syncManager.swapPanes() else { return }
-        endReviewForComparisonChange()
-        duplicateReview = nil   // the swap redefines the comparison; drop any duplicate review
+        dispatchReview(.panesSwapped)   // the swap redefines the comparison; end the guided review + drop any duplicate review (no restore)
         let swapped = PaneLogic.swappedProviderIds(
             leftProviderId: leftProviderId,
             rightProviderId: rightProviderId
@@ -945,8 +942,9 @@ struct ContentView: View {
             leftRelativePath: syncManager.leftRelativePath, rightRelativePath: syncManager.rightRelativePath)
 
         // The comparison itself is changing; end any guided review that was framed on the old panes
-        // (the id onChange would normally do this, but we're about to suppress it).
-        endReviewForComparisonChange()
+        // (the id onChange would normally do this, but we're about to suppress it). The new
+        // duplicateReview is set below, after the panes are pinned.
+        dispatchReview(.compareCopiesStarted)
 
         // Suppress the id onChange for each id that actually changes, so neither clears the Tidy
         // duplicate results nor resets the focus applied just below.
@@ -1427,25 +1425,14 @@ struct ContentView: View {
             set: { newTab in
                 let previousTab = selectedBottomTab
                 selectedBottomTab = newTab
-                // A duplicate review the user has already navigated away from (its banner and Done
-                // button gone, `duplicateReviewActive` false) is abandoned. Tear it down through the
-                // same restore path as Done — NOT a bare `= nil`: compareCopies auto-pinned the right
-                // pane to the duplicate's provider, and dropping the review without restoring would
-                // leave that pin in place, silently repointing the user's pane (and any later
-                // Copy/Move) to the wrong provider. (presentTidyRail resets the left focus just below.)
-                if previousTab == .differences, let review = duplicateReview, !duplicateReviewActive(review) {
-                    endDuplicateReview()
-                }
+                // All duplicate-review / guided-review teardown & restore decisions go through the
+                // reducer (CompareReviewReducer): an abandoned review — left Compare while inactive,
+                // banner and Done button gone — is torn down like Done (ending the guided review AND
+                // restoring the auto-pinned provider); returning to Compare re-focuses the two copies
+                // (the shared left pane was reset to the rail root while away).
+                dispatchReview(.tabSwitched(toCompare: newTab == .differences, fromCompare: previousTab == .differences))
                 if newTab == .tidy {
                     presentTidyRail(for: selectedTidyLens)
-                } else if newTab == .differences, let review = duplicateReview {
-                    // The left pane is shared between the Tidy rail and Compare, so its focus can't
-                    // serve both during a review: leaving for Tidy reset it to the rail's root
-                    // (presentTidyRail above), which would leave Compare diffing the root against the
-                    // right copy. Re-focus the two copies and re-diff so returning restores the review.
-                    syncManager.focusOn(relativePath: review.keeperRelativePath, isLeft: true)
-                    syncManager.focusOn(relativePath: review.redundantRelativePath, isLeft: false)
-                    refreshAction()
                 }
             }
         )
@@ -1616,26 +1603,48 @@ struct ContentView: View {
         .overlay(alignment: .bottom) { Divider() }
     }
 
-    /// Ends the duplicate review without deleting: dismisses the banner and restores the Compare
-    /// setup the review overrode, so the right pane returns to the user's own provider and folder.
+    /// The review's "Done" button: tears down the review (guided + duplicate) and restores the
+    /// Compare setup it overrode. Routed through the shared reducer.
     func endDuplicateReview() {
-        guard let review = duplicateReview else { return }
-        duplicateReview = nil
-        restoreCompareState(review.restore)
+        dispatchReview(.reviewDone)
+    }
+
+    /// Applies the `CompareReviewReducer`'s decision for `event` to this view's state — the single
+    /// place the duplicate-review / guided-review teardown decisions live. The reducer decides WHICH
+    /// effects run; the implementations stay here. The restore snapshot is captured up front so
+    /// `.clearDuplicateReview` may precede `.restoreCompareState` in the effect list.
+    private func dispatchReview(_ event: CompareReviewEvent) {
+        let state = CompareReviewState(
+            hasDuplicateReview: duplicateReview != nil,
+            duplicateReviewActive: duplicateReview.map(duplicateReviewActive) ?? false,
+            isGuidedReviewing: reviewStore.isReviewing
+        )
+        let restoreSnapshot = duplicateReview?.restore
+        for effect in CompareReviewReducer.effects(for: event, state: state) {
+            switch effect {
+            case .endGuidedReview:
+                endReviewForComparisonChange()
+            case .clearDuplicateReview:
+                duplicateReview = nil
+            case .restoreCompareState:
+                if let restoreSnapshot { restoreCompareState(restoreSnapshot) }
+            case .refocusCopies:
+                if let review = duplicateReview {
+                    syncManager.focusOn(relativePath: review.keeperRelativePath, isLeft: true)
+                    syncManager.focusOn(relativePath: review.redundantRelativePath, isLeft: false)
+                    refreshAction()
+                }
+            }
+        }
     }
 
     /// Puts both Compare panes back to a saved setup — used when a duplicate review ends, so pinning
     /// both panes to the duplicate's provider never permanently repoints the user's right pane. The
     /// id onChanges are suppressed (as `compareCopies` does) so the restore can't clear the surviving
     /// Tidy results or reset navigation; then each pane re-focuses its saved folder and rescans.
+    /// Ending any active guided review is the reducer's job (it always pairs `.endGuidedReview` with
+    /// `.restoreCompareState`), so it is deliberately NOT done here.
     private func restoreCompareState(_ saved: SavedCompareState) {
-        // Restoring the comparison changes it out from under any active guided review whose frozen
-        // queue captured the DUPLICATE copies — its copies would still run against those captured
-        // paths while the card relabels directions against the restored panes (exactly the reversed-
-        // direction hazard `endReviewForComparisonChange` exists to prevent). compareCopies ends the
-        // review at entry; the restore must too. The provider-id onChanges (which would otherwise
-        // fire it) are suppressed just below via `pendingSwapProviderChanges`, so end it explicitly.
-        endReviewForComparisonChange()
         if leftProviderId != saved.leftProviderId {
             pendingSwapProviderChanges += 1
             leftProviderId = saved.leftProviderId
@@ -1671,11 +1680,12 @@ struct ContentView: View {
             let removed = await syncManager.deleteItems(at: [review.deletePath])
             guard removed > 0 else { return }
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
-            duplicateReview = nil
             selectedBottomTab = .tidy
             selectedTidyLens = .duplicates
             syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
-            restoreCompareState(review.restore)
+            // End the guided review, drop the duplicate review, and restore the pre-review Compare
+            // setup — all via the reducer (it reads review.restore before clearing duplicateReview).
+            dispatchReview(.rightCopyTrashed)
         }
     }
 }
