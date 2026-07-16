@@ -205,7 +205,7 @@ struct FilingSuggestionCard: View {
                 Text(token)
                     .font(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Capsule(style: .continuous).fill(Color.green.opacity(0.18)))
+                    .background(Capsule(style: .continuous).fill(Color.green.opacity(0.14)))
                     .foregroundStyle(Color.green)
                 Text(evidenceTail(dest)).font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

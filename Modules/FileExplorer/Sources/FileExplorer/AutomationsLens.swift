@@ -366,7 +366,7 @@ public struct AutomationsLens: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 14).padding(.vertical, 7)
-        .background(accent.opacity(0.06))
+        .background(accent.opacity(0.10))
     }
 
     // MARK: Filing (per-file "ask each time")
@@ -416,7 +416,7 @@ public struct AutomationsLens: View {
                     .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.forward").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
+                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
                     Image(systemName: "folder.fill").font(.system(size: 11)).foregroundStyle(accent)
                     Text(row.destinationLabel ?? "its destination")
                         .font(.system(size: 12, weight: .medium, design: .monospaced))
@@ -595,7 +595,7 @@ private struct AutomationRuleCard: View {
                         .font(.system(size: 9, weight: .bold)).kerning(0.4)
                         .foregroundStyle(accent)
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Capsule().fill(accent.opacity(0.12)))
+                        .background(Capsule().fill(accent.opacity(0.14)))
                 }
                 ForEach(Array(completeConditions.enumerated()), id: \.offset) { _, condition in
                     ConditionChip(icon: automationConditionIcon(condition),
@@ -648,7 +648,7 @@ private struct DestinationPill: View {
     let accent: Color
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.forward").font(.system(size: 9, weight: .bold))
+            Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold))
             Image(systemName: "folder.fill").font(.system(size: 9))
             Text(template.isEmpty ? "set a destination" : template)
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -709,7 +709,7 @@ private struct AutomationDryRunRowView: View {
         switch row.verdict {
         case .wouldFile(let destination):
             HStack(spacing: 5) {
-                Image(systemName: "arrow.forward").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
                 Text(destination)
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)

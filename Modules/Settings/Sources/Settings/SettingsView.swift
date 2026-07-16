@@ -146,8 +146,7 @@ public struct SettingsView: View {
                     .help("Close settings")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.vertical, 12)
 
             // Search across every tab by name — the System Settings pattern. Typing here
             // replaces the tab content with matching settings; picking one jumps to its tab.
@@ -1330,7 +1329,7 @@ struct TidySettingsTab: View {
             case .valid:
                 Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
             case .invalid(let message):
-                Label(message, systemImage: "xmark.circle.fill").font(.caption).foregroundStyle(.red)
+                Label(message, systemImage: "xmark.octagon.fill").font(.caption).foregroundStyle(.red)
             case .failed(let message):
                 Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
             }

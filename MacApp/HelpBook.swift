@@ -133,7 +133,7 @@ enum HelpBook {
                         LegendItem(systemImage: "arrow.left", mood: .accent, title: "Only on the right", detail: "Missing on the left — copy it back"),
                         LegendItem(systemImage: "clock", mood: .warning, title: "Different date", detail: "One copy is newer than the other"),
                         LegendItem(systemImage: "ruler", mood: .warning, title: "Different size", detail: "Same name, but the contents differ"),
-                        LegendItem(systemImage: "exclamationmark.triangle", mood: .danger, title: "Name conflict", detail: "Names differ only by spacing or letter case"),
+                        LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .danger, title: "Name conflict", detail: "Names differ only by spacing or letter case"),
                     ]),
                     .tip("Select rows and press ⌘→ or ⌘← to copy them across. Add ⇧ to move instead of copy."),
                 ],

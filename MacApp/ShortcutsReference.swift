@@ -76,7 +76,7 @@ struct ShortcutsReferenceView: View {
                     }
                 }
             }
-            .padding(20)
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(width: 480, height: 420)

@@ -139,7 +139,7 @@ struct FirstRunOverlay: View {
 
             controls
         }
-        .padding(28)
+        .padding(24)
         .frame(width: 460)
         .overlay(alignment: .topTrailing) { closeButton }
     }

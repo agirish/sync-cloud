@@ -1197,7 +1197,7 @@ struct ContentView: View {
                 }
                 .help("Hide the inspector")
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource)
         }

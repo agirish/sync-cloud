@@ -115,7 +115,7 @@ struct RuleOfferPromptView: View {
                             Text(condition.summary)
                                 .font(.system(size: 11, weight: on ? .semibold : .regular))
                                 .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(Capsule().fill(on ? accent.opacity(0.18) : Color.primary.opacity(0.05)))
+                                .background(Capsule().fill(on ? accent.opacity(0.14) : Color.primary.opacity(0.05)))
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
                                 .foregroundStyle(on ? accent : Color.secondary)
                         }

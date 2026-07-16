@@ -152,7 +152,7 @@ struct ReviewCardView: View {
                 .foregroundStyle(accent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Capsule(style: .continuous).fill(accent.opacity(0.12)))
+                .background(Capsule(style: .continuous).fill(accent.opacity(0.14)))
                 .layoutPriority(1)
         }
         .lineLimit(1)
@@ -179,7 +179,7 @@ struct ReviewCardView: View {
                         .foregroundStyle(tint)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
-                        .background(Capsule(style: .continuous).fill(tint.opacity(0.12)))
+                        .background(Capsule(style: .continuous).fill(tint.opacity(0.14)))
                 }
             }
         }
