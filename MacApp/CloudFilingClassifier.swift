@@ -15,26 +15,43 @@ enum CloudFilingClassifier {
     /// number of loose files. Files beyond the cap keep their on-device / heuristic suggestion.
     private static let maxFiles = 150
 
-    /// The model the user picked (cost vs quality), defaulting to the best.
-    private static var model: String {
-        UserDefaults.standard.string(forKey: FileSyncManager.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel
+    /// The injectable edges of `classify` — the Keychain key read, the UserDefaults domain (model
+    /// choice, budget caps, spend store), the clock, and the HTTPS transport — each defaulting to
+    /// the real implementation, so production behavior is unchanged. Tests swap these to exercise
+    /// the full decision path (key gate, budget caps, file cap, request assembly, response mapping,
+    /// spend recording) without a network call or the login Keychain.
+    /// `@unchecked Sendable`: UserDefaults is documented thread-safe; the closures are `@Sendable`.
+    struct Environment: @unchecked Sendable {
+        var readAPIKey: @Sendable () -> String? = { AnthropicKeychain.read() }
+        var defaults: UserDefaults = .standard
+        var now: @Sendable () -> Date = { Date() }
+        var transport: @Sendable (URLRequest) async throws -> (Data, URLResponse) = {
+            try await URLSession.shared.data(for: $0)
+        }
     }
 
     /// Classifies `files` against `taxonomyFolders`. Returns nil on a hard error (no key, network
     /// failure, non-200, unreadable body) so the caller can fall back; an empty dictionary means the
     /// model placed nothing.
-    static func classify(taxonomyFolders: [String], files allFiles: [FilingCandidateFile]) async -> [String: FilingVerdict]? {
-        guard let key = AnthropicKeychain.read() else { return nil }
+    static func classify(taxonomyFolders: [String], files: [FilingCandidateFile]) async -> [String: FilingVerdict]? {
+        await classify(taxonomyFolders: taxonomyFolders, files: files, environment: Environment())
+    }
+
+    /// The seam-parameterized worker behind `classify` (same contract). Production always passes the
+    /// default `Environment()`; tests inject fakes.
+    static func classify(taxonomyFolders: [String], files allFiles: [FilingCandidateFile],
+                         environment env: Environment) async -> [String: FilingVerdict]? {
+        guard let key = env.readAPIKey() else { return nil }
         guard !allFiles.isEmpty else { return [:] }
 
         // Hard budget cap (X6, belt-and-suspenders): even if the pre-flight UI gate was somehow
         // bypassed, never make a cloud call once EITHER the monthly or the total (lifetime) cap has
         // been reached. Returning nil reuses the existing graceful on-device fallback. A monthly cap
         // of 0 = unlimited; the total cap defaults to $5 (see `totalBudgetCap(in:)`).
-        let monthlyCap = UserDefaults.standard.double(forKey: FileSyncManager.monthlyBudgetCapKey)
-        let totalCap = FileSyncManager.totalBudgetCap(in: .standard)
-        let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
-        let totalSpent = FilingSpendStore.totals().costUSD
+        let monthlyCap = env.defaults.double(forKey: FileSyncManager.monthlyBudgetCapKey)
+        let totalCap = FileSyncManager.totalBudgetCap(in: env.defaults)
+        let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(defaults: env.defaults), now: env.now())
+        let totalSpent = FilingSpendStore.totals(defaults: env.defaults).costUSD
         if FilingSpendBudget.isOverCap(spent: monthlySpent, capUSD: monthlyCap) {
             Logger.shared.info("Cloud Filing paused — monthly budget cap \(FilingSpendFormat.cost(monthlyCap)) reached (\(FilingSpendFormat.cost(monthlySpent)) spent this month) — using on-device suggestions")
             return nil
@@ -46,6 +63,8 @@ enum CloudFilingClassifier {
 
         let files = Array(allFiles.prefix(maxFiles))   // same array feeds requestBody + parse (indices)
 
+        // The model the user picked (cost vs quality), defaulting to the best.
+        let model = env.defaults.string(forKey: FileSyncManager.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel
         let body = CloudFilingProtocol.requestBody(model: model, taxonomyFolders: taxonomyFolders, files: files)
         guard let url = URL(string: CloudFilingProtocol.endpoint),
               let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }
@@ -66,7 +85,7 @@ enum CloudFilingClassifier {
 
         let start = Date()
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await env.transport(request)
             let elapsed = Date().timeIntervalSince(start)
             guard let http = response as? HTTPURLResponse else { return nil }
             let requestID = http.value(forHTTPHeaderField: "request-id") ?? "—"
@@ -99,10 +118,11 @@ enum CloudFilingClassifier {
             // Record spend for the Filing UI (history + total).
             if let u = usage {
                 FilingSpendStore.record(FilingSpendEntry(
-                    timestamp: Date(), model: model, fileCount: files.count, placedCount: verdicts?.count ?? 0,
+                    timestamp: env.now(), model: model, fileCount: files.count, placedCount: verdicts?.count ?? 0,
                     inputTokens: u.inputTokens, outputTokens: u.outputTokens,
                     cacheReadTokens: u.cacheReadTokens, cacheCreationTokens: u.cacheCreationTokens,
-                    estimatedCostUSD: CloudFilingProtocol.estimatedCostUSD(model: model, usage: u) ?? 0))
+                    estimatedCostUSD: CloudFilingProtocol.estimatedCostUSD(model: model, usage: u) ?? 0),
+                    defaults: env.defaults)
             }
 
             if stop == "max_tokens" {

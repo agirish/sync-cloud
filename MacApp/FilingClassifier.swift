@@ -49,6 +49,60 @@ enum OnDeviceFilingClassifier {
         #endif
     }
 
+    // MARK: Pure prompt shaping / verdict mapping (unit-testable without the model)
+
+    /// The system instructions handed to every on-device session. A stored constant (rather than a
+    /// local in `classifyOnDevice`) so the prompt shaping is unit-testable without FoundationModels.
+    static let onDeviceInstructions = """
+    You organize a user's files into their EXISTING folder structure. You are given the list of \
+    folders they already keep and one file. Choose the single best-fitting folder.
+
+    Rules:
+    • Strongly prefer an existing folder from the list — copy its path exactly.
+    • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
+    parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
+    • Reason about meaning, people's names, and document type — not just matching words.
+    • If you genuinely cannot tell, answer with the folder "none".
+    Always answer with a path relative to the folder list — never an absolute path.
+    """
+
+    /// The per-file prompt `pick` sends to the model — pure string shaping (folder list, file
+    /// facts, bounded content excerpt, rejected folders), extracted so it's unit-testable.
+    static func promptText(for file: FilingCandidateFile, folderList: String) -> String {
+        var prompt = """
+        Existing folders (relative paths):
+        \(folderList)
+
+        File name: \(file.fileName)
+        Type: \(file.ext.isEmpty ? "unknown" : file.ext)
+        """
+        if let year = file.year { prompt += "\nModified: \(year)" }
+        if let snippet = file.contentSnippet, !snippet.isEmpty {
+            prompt += "\n\nContent excerpt:\n\(String(snippet.prefix(maxSnippetChars)))"
+        }
+        if !file.excludedRelativePaths.isEmpty {
+            prompt += "\n\nThe user already rejected these folders — do NOT choose them, pick a different one: "
+                + file.excludedRelativePaths.joined(separator: ", ")
+        }
+        prompt += "\n\nWhich folder should this file go in?"
+        return prompt
+    }
+
+    /// Maps a model answer (folder / 0–100 confidence / reason) to a Sync verdict, or nil when it
+    /// declined ("none"/empty). `FolderPick.asVerdict()` delegates here so the mapping is testable
+    /// on any OS, without constructing a @Generable value.
+    static func verdict(folder: String, confidence: Int, reason: String) -> FilingVerdict? {
+        let cleaned = folder
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`"))
+        guard !cleaned.isEmpty, cleaned.lowercased() != "none" else { return nil }
+        let score = max(0, min(100, confidence))
+        let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FilingVerdict(relativePath: cleaned,
+                             confidence: FilingVerdict.confidence(fromScore: score),
+                             reason: why.isEmpty ? "Chosen by on-device AI" : why)
+    }
+
     /// Whether on-device classification can run right now (framework present, OS new enough, model
     /// downloaded and enabled). Cheap to call; used to gate the Settings toggle and injection.
     static var isAvailable: Bool {
@@ -78,18 +132,7 @@ enum OnDeviceFilingClassifier {
         guard !taxonomyFolders.isEmpty else { return [:] }
 
         let folderList = taxonomyFolders.joined(separator: "\n")
-        let instructions = """
-        You organize a user's files into their EXISTING folder structure. You are given the list of \
-        folders they already keep and one file. Choose the single best-fitting folder.
-
-        Rules:
-        • Strongly prefer an existing folder from the list — copy its path exactly.
-        • Only if nothing existing fits, propose a NEW subfolder under the most appropriate existing \
-        parent (e.g. an existing "Documents/Vehicles" → "Documents/Vehicles/Tesla").
-        • Reason about meaning, people's names, and document type — not just matching words.
-        • If you genuinely cannot tell, answer with the folder "none".
-        Always answer with a path relative to the folder list — never an absolute path.
-        """
+        let instructions = onDeviceInstructions
 
         var verdicts: [String: FilingVerdict] = [:]
         let batch = files.prefix(maxFiles)
@@ -106,22 +149,7 @@ enum OnDeviceFilingClassifier {
 
     @available(macOS 26.0, *)
     private static func pick(file: FilingCandidateFile, folderList: String, instructions: String) async -> FilingVerdict? {
-        var prompt = """
-        Existing folders (relative paths):
-        \(folderList)
-
-        File name: \(file.fileName)
-        Type: \(file.ext.isEmpty ? "unknown" : file.ext)
-        """
-        if let year = file.year { prompt += "\nModified: \(year)" }
-        if let snippet = file.contentSnippet, !snippet.isEmpty {
-            prompt += "\n\nContent excerpt:\n\(String(snippet.prefix(maxSnippetChars)))"
-        }
-        if !file.excludedRelativePaths.isEmpty {
-            prompt += "\n\nThe user already rejected these folders — do NOT choose them, pick a different one: "
-                + file.excludedRelativePaths.joined(separator: ", ")
-        }
-        prompt += "\n\nWhich folder should this file go in?"
+        let prompt = promptText(for: file, folderList: folderList)
 
         do {
             // A fresh session per file keeps each decision independent (no transcript bleed).
@@ -154,16 +182,10 @@ struct FolderPick {
 @available(macOS 26.0, *)
 extension FolderPick {
     /// Maps the model's answer to a Sync verdict, or nil when it declined ("none"/empty).
+    /// The mapping itself lives in `OnDeviceFilingClassifier.verdict` so it's unit-testable
+    /// without FoundationModels.
     func asVerdict() -> FilingVerdict? {
-        let cleaned = folder
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\"'`"))
-        guard !cleaned.isEmpty, cleaned.lowercased() != "none" else { return nil }
-        let score = max(0, min(100, confidence))
-        let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        return FilingVerdict(relativePath: cleaned,
-                             confidence: FilingVerdict.confidence(fromScore: score),
-                             reason: why.isEmpty ? "Chosen by on-device AI" : why)
+        OnDeviceFilingClassifier.verdict(folder: folder, confidence: confidence, reason: reason)
     }
 }
 #endif
