@@ -477,8 +477,10 @@ private struct TidyArt: View {
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 22))
-                        .foregroundStyle(.green)
-                        .background(Circle().fill(.white).padding(2))
+                        .foregroundStyle(SemanticColor.success)
+                        // The knockout disc behind the check tracks the appearance — a
+                        // hard-coded `.white` glowed against the dark-mode art.
+                        .background(Circle().fill(Color(nsColor: .windowBackgroundColor)).padding(2))
                         .offset(x: 7, y: 5)
                         .scaleEffect(appeared ? 1 : 0.2)
                         .opacity(appeared ? 1 : 0)

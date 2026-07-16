@@ -39,6 +39,12 @@ enum HelpBook {
     /// resolved to a concrete `Color` at render time so this stays pure data.
     enum Mood: Equatable {
         case accent, warning, danger, success, neutral
+        /// The Differences list's name-conflict yellow (`DifferenceGlyph.color(for: .nameConflict)`)
+        /// — softer than danger-red, which the list never paints for a conflict.
+        case caution
+        /// The copy-direction tints the Differences list actually paints
+        /// (`DifferenceGlyph.color(toRight:)`): blue for →, purple for ←.
+        case copyRight, copyLeft
     }
 
     /// One row of the difference-badge legend.
@@ -129,11 +135,11 @@ enum HelpBook {
                 intro: "After a scan, every item that isn't identical on both sides appears here. A badge tells you what changed and which way a copy would go.",
                 blocks: [
                     .legend([
-                        LegendItem(systemImage: "arrow.right", mood: .accent, title: "Only on the left", detail: "Missing on the right — copy it over"),
-                        LegendItem(systemImage: "arrow.left", mood: .accent, title: "Only on the right", detail: "Missing on the left — copy it back"),
+                        LegendItem(systemImage: "arrow.right", mood: .copyRight, title: "Only on the left", detail: "Missing on the right — copy it over"),
+                        LegendItem(systemImage: "arrow.left", mood: .copyLeft, title: "Only on the right", detail: "Missing on the left — copy it back"),
                         LegendItem(systemImage: "clock", mood: .warning, title: "Different date", detail: "One copy is newer than the other"),
                         LegendItem(systemImage: "ruler", mood: .warning, title: "Different size", detail: "Same name, but the contents differ"),
-                        LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .danger, title: "Name conflict", detail: "Names differ only by spacing or letter case"),
+                        LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .caution, title: "Name conflict", detail: "Names differ only by spacing or letter case"),
                     ]),
                     .tip("Select rows and press ⌘→ or ⌘← to copy them across. Add ⇧ to move instead of copy."),
                 ],
@@ -339,7 +345,8 @@ extension HelpBook.Topic {
 
 extension HelpBook.Mood {
     /// The concrete color for a legend icon — the same semantic vocabulary the differences list
-    /// uses (accent = a copy direction, warning = a mismatch, danger = a conflict).
+    /// uses (copyRight/copyLeft = the blue/purple direction tints, warning = a mismatch,
+    /// caution = the yellow name-conflict badge).
     // Help stays on the system accent deliberately (C7): its accent flows through this non-View
     // Mood table and the AccentLabelColor on-fill helper, so threading the glass hue isn't the
     // trivial @AppStorage read the main-window sites get — and it's a standalone overlay surface.
@@ -350,6 +357,12 @@ extension HelpBook.Mood {
         case .danger: return SemanticColor.error
         case .success: return SemanticColor.success
         case .neutral: return .secondary
+        // The exact colors DifferenceGlyph paints in the real list (it's internal to
+        // FileExplorer, so the values are mirrored here): nameConflict = yellow, → = blue,
+        // ← = purple. The legend must describe what the list renders, not a nicer palette.
+        case .caution: return .yellow
+        case .copyRight: return .blue
+        case .copyLeft: return .purple
         }
     }
 }
