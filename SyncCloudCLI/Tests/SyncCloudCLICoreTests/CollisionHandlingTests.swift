@@ -27,8 +27,8 @@ import Testing
 
         tally.recordCopied()
         tally.recordCopied(replacedExisting: true)
-        tally.recordSkipped(relativePath: "a.txt")
-        tally.recordSkipped(relativePath: "b/c.txt")
+        tally.recordSkipped(relativePath: "a.txt", reason: .collision)
+        tally.recordSkipped(relativePath: "b/c.txt", reason: .nameViolation)
         tally.recordFailed()
 
         #expect(tally.copied == 2)
@@ -36,15 +36,23 @@ import Testing
         #expect(tally.skipped == 2)
         #expect(tally.failed == 1)
         #expect(tally.skippedPaths == ["a.txt", "b/c.txt"])
+        #expect(tally.skippedItems == [
+            SkippedItem(relativePath: "a.txt", reason: .collision),
+            SkippedItem(relativePath: "b/c.txt", reason: .nameViolation),
+        ])
     }
 }
 
 @Suite struct SyncSummaryTests {
 
-    private func tally(copied: Int = 0, replaced: Int = 0, skipped: [String] = [], failed: Int = 0) -> SyncTally {
+    private func tally(
+        copied: Int = 0, replaced: Int = 0, skipped: [String] = [],
+        nameSkipped: [String] = [], failed: Int = 0
+    ) -> SyncTally {
         var t = SyncTally()
         for i in 0..<copied { t.recordCopied(replacedExisting: i < replaced) }
-        for path in skipped { t.recordSkipped(relativePath: path) }
+        for path in skipped { t.recordSkipped(relativePath: path, reason: .collision) }
+        for path in nameSkipped { t.recordSkipped(relativePath: path, reason: .nameViolation) }
         for _ in 0..<failed { t.recordFailed() }
         return t
     }
@@ -75,6 +83,29 @@ import Testing
         let s = syncSummary(tally: tally(copied: 4, replaced: 2), strategy: .replace)
         #expect(s.stdoutLines.contains(
             "Replaced 2 existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log)."))
+    }
+
+    @Test func testNameViolationSkipsReportedSeparatelyFromCollisions() {
+        // Both skipping paths in one run: the summary must attribute each cause truthfully,
+        // not lump name-rule skips under the collision wording.
+        let s = syncSummary(tally: tally(skipped: ["kept.txt"], nameSkipped: ["Swimming "]), strategy: .skip)
+        #expect(s.stdoutLines.contains(
+            "Skipped 1 file(s) (existing files left untouched; use --strategy replace to update them):"))
+        #expect(s.stdoutLines.contains("  kept.txt"))
+        #expect(s.stdoutLines.contains(
+            "Skipped 1 file(s) (name not allowed by the destination provider; reasons above):"))
+        #expect(s.stdoutLines.contains("  Swimming "))
+        #expect(s.stdoutLines.first == "Sync complete. Copied: 0, Skipped: 2, Failed: 0.")
+        #expect(!s.exitNonzero)
+    }
+
+    @Test func testNameViolationSkipsUnderReplaceStrategyDoNotClaimCollision() {
+        // Under --strategy replace, the only skips are name-rule skips; the collision
+        // wording ("destination already existed") must not appear at all.
+        let s = syncSummary(tally: tally(copied: 2, nameSkipped: ["a b "]), strategy: .replace)
+        #expect(!s.stdoutLines.joined().contains("destination already existed"))
+        #expect(s.stdoutLines.contains(
+            "Skipped 1 file(s) (name not allowed by the destination provider; reasons above):"))
     }
 
     @Test func testNoSkipExplanationWhenNothingSkipped() {

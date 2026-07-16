@@ -34,6 +34,29 @@ public func resolveCollision(strategy: CollisionStrategy, targetExists: Bool) ->
     }
 }
 
+/// Why one planned copy was skipped. Threaded through the tally so the summary reports each
+/// cause truthfully — the sync loop has TWO skipping paths (`--strategy skip` collisions and
+/// the pre-write provider-name guard) and lumping them together mislabeled name-rule skips
+/// as collision skips.
+public enum SkipReason: Equatable, Sendable {
+    /// The destination already existed and `--strategy skip` left it untouched.
+    case collision
+    /// The destination provider's name rules reject the path (pre-write guard;
+    /// writing it would create a local-only file the provider never uploads).
+    case nameViolation
+}
+
+/// One skipped item: the path plus why it was skipped.
+public struct SkippedItem: Equatable, Sendable {
+    public let relativePath: String
+    public let reason: SkipReason
+
+    public init(relativePath: String, reason: SkipReason) {
+        self.relativePath = relativePath
+        self.reason = reason
+    }
+}
+
 /// Accumulates the per-file outcomes of a sync run for the final
 /// "Copied: X, Skipped: Y, Failed: Z" report.
 public struct SyncTally: Equatable, Sendable {
@@ -42,9 +65,10 @@ public struct SyncTally: Equatable, Sendable {
     /// previous version to the Trash, so the summary can say replacements are recoverable).
     public private(set) var replaced = 0
     public private(set) var failed = 0
-    public private(set) var skippedPaths: [String] = []
+    public private(set) var skippedItems: [SkippedItem] = []
 
-    public var skipped: Int { skippedPaths.count }
+    public var skipped: Int { skippedItems.count }
+    public var skippedPaths: [String] { skippedItems.map(\.relativePath) }
 
     public init() {}
 
@@ -53,7 +77,9 @@ public struct SyncTally: Equatable, Sendable {
         if replacedExisting { replaced += 1 }
     }
     public mutating func recordFailed() { failed += 1 }
-    public mutating func recordSkipped(relativePath: String) { skippedPaths.append(relativePath) }
+    public mutating func recordSkipped(relativePath: String, reason: SkipReason) {
+        skippedItems.append(SkippedItem(relativePath: relativePath, reason: reason))
+    }
 }
 
 /// The end-of-run report for `sync`, split by stream so failures land on stderr. Pure so the
@@ -68,14 +94,21 @@ public func syncSummary(tally: SyncTally, strategy: CollisionStrategy) -> (
         // so the per-file recovery paths logged by the replace primitive are the real pointer.
         out.append("Replaced \(tally.replaced) existing file(s); previous versions are recoverable from the Trash (exact paths in ~/sync-cloud.log).")
     }
-    if tally.skipped > 0 {
-        // Skips only arise under `.skip` (see resolveCollision), but keep the wording
-        // strategy-driven so a future skipping path can't print a misleading reason.
+    // Report each skip cause separately: collision skips (from `--strategy skip`) and
+    // provider-name skips (the pre-write guard) are different problems with different fixes,
+    // and lumping them under the collision wording mislabeled the name-rule ones.
+    let collisionSkips = tally.skippedItems.filter { $0.reason == .collision }
+    if !collisionSkips.isEmpty {
         let reason = strategy == .skip
             ? "existing files left untouched; use --strategy replace to update them"
             : "destination already existed"
-        out.append("Skipped \(tally.skipped) file(s) (\(reason)):")
-        out.append(contentsOf: tally.skippedPaths.map { "  \($0)" })
+        out.append("Skipped \(collisionSkips.count) file(s) (\(reason)):")
+        out.append(contentsOf: collisionSkips.map { "  \($0.relativePath)" })
+    }
+    let nameSkips = tally.skippedItems.filter { $0.reason == .nameViolation }
+    if !nameSkips.isEmpty {
+        out.append("Skipped \(nameSkips.count) file(s) (name not allowed by the destination provider; reasons above):")
+        out.append(contentsOf: nameSkips.map { "  \($0.relativePath)" })
     }
     var err: [String] = []
     if tally.failed > 0 {

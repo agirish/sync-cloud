@@ -316,13 +316,13 @@ struct SyncFiles: AsyncParsableCommand {
             let validatedRelativePath = DifferenceProcessing.targetRelativePath(for: diff, targetRoot: targetRoot)
             if let violation = ProviderNameRules.violation(inRelativePath: validatedRelativePath, for: targetProvider.type) {
                 fputs("Skipping \(diff.relativePath): \(violation.reason) \(targetProvider.displayName) would not upload it.\n", stderr)
-                tally.recordSkipped(relativePath: diff.relativePath)
+                tally.recordSkipped(relativePath: diff.relativePath, reason: .nameViolation)
                 continue
             }
 
             switch resolveCollision(strategy: strategy, targetExists: fm.fileExists(atPath: targetURL.path)) {
             case .skip:
-                tally.recordSkipped(relativePath: diff.relativePath)
+                tally.recordSkipped(relativePath: diff.relativePath, reason: .collision)
                 continue
             case .copyToUnique:
                 targetURL = FileSyncManager.generateUniqueURL(for: targetURL, fileManager: fm)
