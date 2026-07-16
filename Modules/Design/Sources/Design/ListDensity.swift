@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// How tightly the long lists (the Differences table, Tidy group cards, Filing suggestions)
@@ -80,14 +81,108 @@ public struct ListDensityMetrics: Equatable, Sendable {
 }
 
 public extension View {
-    /// Applies a density to a `Table`/`List` subtree. Comfortable is the identity — the
-    /// current look, untouched by construction; compact lowers the minimum row height.
+    /// Applies a density to a `Table`/`List` subtree. Comfortable restores the default look;
+    /// compact tightens the rows.
+    ///
+    /// A SwiftUI `Table` ignores every environment lever on macOS — `defaultMinListRowHeight`,
+    /// `controlSize`, and even the ambient font never reach its NSTableView or its hosted
+    /// cells (verified empirically against the Compare differences table; the original H7
+    /// row-minimum approach rendered pixel-identical rows). So compact reaches beneath the
+    /// Table and pins the AppKit `rowHeight` directly via `TableDensityApplier`; the
+    /// environment minimum is still set for any plain `List` under the same modifier. Cell
+    /// fonts don't inherit either — table cells opt in per-view (see `DifferenceNameCell`).
     @ViewBuilder
     func listDensity(_ density: ListDensity) -> some View {
         if let minRowHeight = density.metrics.tableMinRowHeight {
             self.environment(\.defaultMinListRowHeight, minRowHeight)
+                .background(TableDensityApplier(rowHeight: minRowHeight))
         } else {
-            self
+            self.background(TableDensityApplier(rowHeight: nil))
+        }
+    }
+}
+
+/// Reaches the `NSTableView` beneath a SwiftUI `Table` and pins its row height — the only
+/// row-density lever the Table actually honors (see `listDensity(_:)`). A nil `rowHeight`
+/// restores the table's own original metrics, so live-toggling compact → comfortable in
+/// Settings returns the exact pre-compact look.
+private struct TableDensityApplier: NSViewRepresentable {
+    let rowHeight: CGFloat?
+
+    func makeNSView(context: Context) -> ApplierView { ApplierView() }
+
+    func updateNSView(_ view: ApplierView, context: Context) {
+        view.desiredRowHeight = rowHeight
+        view.applySoon()
+    }
+
+    final class ApplierView: NSView {
+        var desiredRowHeight: CGFloat?
+        /// The table's own metrics, captured the first time compact overrides them; restored
+        /// when the density returns to comfortable.
+        private var original: (rowHeight: CGFloat, spacing: NSSize, automaticHeights: Bool)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applySoon()
+        }
+
+        // Re-assert on every layout pass: SwiftUI re-tiles the table on data changes and can
+        // recreate it on tab switches. apply() is guarded, so steady state is a no-op.
+        override func layout() {
+            super.layout()
+            apply()
+        }
+
+        func applySoon() {
+            // The Table's NSScrollView may not exist yet while SwiftUI is still mounting
+            // this background view — retry after the current runloop turn.
+            DispatchQueue.main.async { [weak self] in self?.apply() }
+        }
+
+        private func apply() {
+            guard let tableView = findTableView() else { return }
+            if let desired = desiredRowHeight {
+                if original == nil {
+                    original = (tableView.rowHeight, tableView.intercellSpacing,
+                                tableView.usesAutomaticRowHeights)
+                }
+                // usesAutomaticRowHeights is the piece that actually matters: SwiftUI's Table
+                // measures every cell and ignores `rowHeight` while it's on (verified live —
+                // rowHeight already read 20 while the rows still rendered at ~25pt).
+                if tableView.usesAutomaticRowHeights || tableView.rowHeight != desired {
+                    tableView.usesAutomaticRowHeights = false
+                    tableView.rowHeight = desired
+                    tableView.intercellSpacing = NSSize(width: tableView.intercellSpacing.width, height: 0)
+                    tableView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<tableView.numberOfRows))
+                }
+            } else if let original {
+                tableView.usesAutomaticRowHeights = original.automaticHeights
+                tableView.rowHeight = original.rowHeight
+                tableView.intercellSpacing = original.spacing
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(0..<tableView.numberOfRows))
+                self.original = nil
+            }
+        }
+
+        /// This view sits as a background sibling of the Table's hosting view — walk a few
+        /// levels up, scanning each subtree, to find the table.
+        private func findTableView() -> NSTableView? {
+            var root: NSView? = superview
+            for _ in 0..<5 {
+                guard let candidate = root else { return nil }
+                if let found = Self.firstTableView(in: candidate) { return found }
+                root = candidate.superview
+            }
+            return nil
+        }
+
+        private static func firstTableView(in view: NSView) -> NSTableView? {
+            if let table = view as? NSTableView { return table }
+            for sub in view.subviews {
+                if let found = firstTableView(in: sub) { return found }
+            }
+            return nil
         }
     }
 }

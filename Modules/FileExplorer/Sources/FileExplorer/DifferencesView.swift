@@ -84,7 +84,8 @@ public struct DifferencesView: View {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
     }
     /// The appearance density (H7): comfortable leaves the table untouched; compact
-    /// tightens the minimum row height via `.listDensity(_:)`.
+    /// tightens the rows via `.listDensity(_:)` (small controls + subheadline cells +
+    /// lowered row minimum — the floor alone can't shrink regular-size cells).
     private var listDensity: ListDensity {
         ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
@@ -505,10 +506,11 @@ public struct DifferencesView: View {
     /// order captured at entry), with the direction column swapped for per-item status. Native
     /// selection doubles as the "current item" highlight (see the `reviewSelection` onChange).
     private func reviewTable(session: ReviewSession) -> some View {
-        Table(session.queue, selection: $reviewSelection) {
-            TableColumn("Name") { DifferenceNameCell(difference: $0) }
-            TableColumn("Change") { DifferenceChangeCell(difference: $0) }
-            TableColumn("Size") { DifferenceSizeCell(difference: $0) }
+        let compact = listDensity == .compact
+        return Table(session.queue, selection: $reviewSelection) {
+            TableColumn("Name") { DifferenceNameCell(difference: $0, compact: compact) }
+            TableColumn("Change") { DifferenceChangeCell(difference: $0, compact: compact) }
+            TableColumn("Size") { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
             TableColumn("Status") { ReviewStatusCell(difference: $0, session: session) }
                 .width(min: 96, ideal: 140)
@@ -540,10 +542,11 @@ public struct DifferencesView: View {
         // Rows going the same way as the bulk of the list quiet their direction chip; the
         // majority is read over the whole visible list, not the selection.
         let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
+        let compact = listDensity == .compact
         Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0) }
-            TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0) }
-            TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0) }
+            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
+            TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
+            TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
             TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
                 .width(min: 96, ideal: 140)
@@ -1073,8 +1076,13 @@ public struct DifferencesView: View {
 // the type-checker (a single big Table literal with inline cell closures times out).
 
 /// Name column: type glyph, dimmed parent path, then the filename — single line, middle-truncated.
+///
+/// `compact` shrinks the cell text to subheadline so it fits the compact row height — the
+/// Table doesn't propagate an ambient `.font` into its cells (see `listDensity(_:)` in
+/// Design), so each default-font cell opts in itself.
 private struct DifferenceNameCell: View {
     let difference: FileDifference
+    var compact: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1093,6 +1101,7 @@ private struct DifferenceNameCell: View {
         }
         .lineLimit(1)
         .truncationMode(.middle)
+        .font(compact ? .subheadline : nil)
         .help(NameDisplay.visiblePath(difference.relativePath))
     }
 }
@@ -1102,12 +1111,14 @@ private struct DifferenceNameCell: View {
 /// rolled-up sentence survives as the hover help.
 private struct DifferenceChangeCell: View {
     let difference: FileDifference
+    var compact: Bool = false
 
     var body: some View {
         Text(difference.description)
             .foregroundStyle(DifferenceGlyph.color(for: difference.type))
             .lineLimit(1)
             .truncationMode(.tail)
+            .font(compact ? .subheadline : nil)
             .help(difference.rolledUpDescription)
     }
 }
@@ -1116,6 +1127,7 @@ private struct DifferenceChangeCell: View {
 /// item count ("5,301 items"), or "—" when neither is known.
 private struct DifferenceSizeCell: View {
     let difference: FileDifference
+    var compact: Bool = false
 
     var body: some View {
         Text(difference.displaySize.map { FileSizeFormat.byteCount.string(fromByteCount: Int64($0)) }
@@ -1123,6 +1135,7 @@ private struct DifferenceSizeCell: View {
              ?? "—")
             .monospacedDigit()
             .foregroundStyle(.secondary)
+            .font(compact ? .subheadline : nil)
             .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
