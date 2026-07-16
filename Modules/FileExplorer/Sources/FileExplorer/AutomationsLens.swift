@@ -624,7 +624,8 @@ private struct AutomationRuleCard: View {
 // MARK: - Condition chip & destination pill
 
 /// A single condition rendered as an icon + compact label chip.
-private struct ConditionChip: View {
+/// Internal (not private) so the snapshot tests can pin its wrapping inside ``FlowLayout``.
+struct ConditionChip: View {
     let icon: String
     let text: String
     var body: some View {
