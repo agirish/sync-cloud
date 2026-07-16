@@ -318,18 +318,24 @@ struct TidyGroupCard: View {
     }
 
     private var noteText: String? {
+        let base: String
         switch group.matchType {
         case .identical:
-            return "Every item in the removed \(group.isDirectory ? "copy" : "file") also exists in the copy you're keeping. Nothing is lost — removed copies go to the Trash and can be restored with Undo."
+            base = "Every item in the removed \(group.isDirectory ? "copy" : "file") also exists in the copy you're keeping. Nothing is lost — removed copies go to the Trash and can be restored with Undo."
         case .versions:
-            return "The newest version is kept; older versions move to the Trash and can be restored with Undo."
+            base = "The newest version is kept; older versions move to the Trash and can be restored with Undo."
         case .overlapping(let f):
             let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
             let many = group.redundantCopies.count != 1
-            return "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
+            base = "These folders share \(Int((f * 100).rounded()))% of their contents; the other cop\(many ? "ies add" : "y adds") \(unique) unique item\(unique == 1 ? "" : "s"). Merging copies those into “\(group.keeper.name)”, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost — reversible with ⌘Z."
         case .nameOnly:
-            return "Same name, different contents — likely two unrelated things. Tidy won't remove either; keep them separate, or rename one to disambiguate."
+            base = "Same name, different contents — likely two unrelated things. Tidy won't remove either; keep them separate, or rename one to disambiguate."
         }
+        if let caveat = TidyUnverifiedNote.text(
+            unverifiedCount: group.copies.filter { $0.contentUnverified }.count) {
+            return base + " " + caveat
+        }
+        return base
     }
 
     // MARK: Actions
@@ -450,6 +456,19 @@ struct TidyGroupCard: View {
         f.timeStyle = .none
         return f
     }()
+}
+
+// MARK: - Unverified-content note
+
+/// Pure wording for the card's caveat when some copies in a group could not be content-verified
+/// (hash skipped: too large, cloud-only, unreadable) — the group's content claim rests on less
+/// than full verification, and the note must say so before the user trusts a one-click resolve.
+enum TidyUnverifiedNote {
+    static func text(unverifiedCount count: Int) -> String? {
+        guard count > 0 else { return nil }
+        let plural = count != 1
+        return "\(count) cop\(plural ? "ies" : "y") couldn't be content-verified (too large to hash, or not downloaded from the cloud) — review before removing anything."
+    }
 }
 
 // MARK: - Keeper marker

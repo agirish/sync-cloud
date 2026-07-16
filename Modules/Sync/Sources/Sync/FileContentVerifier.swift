@@ -12,6 +12,24 @@ public enum FileContentVerifier {
     /// instead of the whole file).
     private static let hashChunkSize = 4 * 1024 * 1024  // 4 MB
 
+    /// Why (or that) a file was hashed — lets callers that aggregate many hashes (the Tidy
+    /// duplicate scan) distinguish "skipped because of the size cap" from "unreadable", instead
+    /// of collapsing every non-hash into an indistinguishable `nil`.
+    public enum HashOutcome: Sendable, Equatable {
+        /// The file was hashed; associated value is the SHA-256 hex digest.
+        case hashed(String)
+        /// Skipped without reading: the file exceeds the size cap (`maxBytesToHash`).
+        case skippedTooLarge
+        /// Not hashable: directory, missing, unreadable, or the file changed mid-read.
+        case unverifiable
+
+        /// The digest for `.hashed`, else nil — the classic `sha256Hex` result.
+        public var hash: String? {
+            if case .hashed(let hex) = self { return hex }
+            return nil
+        }
+    }
+
     /// Computes SHA-256 of the file at the given path on a background thread.
     /// The file is hashed in chunks, never loaded into memory whole.
     /// - Parameters:
@@ -27,11 +45,23 @@ public enum FileContentVerifier {
         fileManager: FileManaging = FileManager.default,
         cache: ContentHashCache? = nil
     ) async -> String? {
-        await Task.detached(priority: .utility) {
+        await hashOutcome(filePath: path, fileManager: fileManager, cache: cache).hash
+    }
+
+    /// `sha256Hex` with a classified result instead of a collapsed nil. `maxBytes` is injectable
+    /// for tests only (creating a real >100 MB fixture per run would be wasteful); production
+    /// callers use the default cap.
+    public static func hashOutcome(
+        filePath path: String,
+        fileManager: FileManaging = FileManager.default,
+        cache: ContentHashCache? = nil,
+        maxBytes: Int = maxBytesToHash
+    ) async -> HashOutcome {
+        await Task.detached(priority: .utility) { () -> HashOutcome in
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
                   !isDirectory.boolValue else {
-                return nil
+                return .unverifiable
             }
             // `attributesOfItem` does not resolve a trailing symlink (lstat semantics) while
             // the FileHandle read below follows it, so a symlinked file would stat as the
@@ -42,10 +72,10 @@ public enum FileContentVerifier {
                 statPath = (path as NSString).resolvingSymlinksInPath
             }
             guard let attributes = try? fileManager.attributesOfItem(atPath: statPath),
-                  let size = (attributes[.size] as? NSNumber)?.intValue,
-                  size <= maxBytesToHash else {
-                return nil
+                  let size = (attributes[.size] as? NSNumber)?.intValue else {
+                return .unverifiable
             }
+            guard size <= maxBytes else { return .skippedTooLarge }
             // Build the cache key from the same resolved stat. mtime comes from the attributes we
             // already read, so this adds a dictionary lookup, not a syscall. When mtime is
             // unavailable the file is hashed normally but never cached (no stable key).
@@ -53,9 +83,9 @@ public enum FileContentVerifier {
                 ContentHashKey(path: statPath, mtime: $0.timeIntervalSince1970, size: size)
             }
             if let cache, let cacheKey, let hit = await cache.hash(for: cacheKey) {
-                return hit
+                return .hashed(hit)
             }
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            guard let handle = FileHandle(forReadingAtPath: path) else { return .unverifiable }
             defer { try? handle.close() }
 
             var hasher = SHA256()
@@ -77,16 +107,16 @@ public enum FileContentVerifier {
                     hasher.update(data: chunk)
                     return true
                 }
-                guard let advance else { return nil }
+                guard let advance else { return .unverifiable }
                 if !advance { break }
             }
-            guard totalBytes == size else { return nil }
+            guard totalBytes == size else { return .unverifiable }
             let digest = hasher.finalize()
             let hex = digest.map { String(format: "%02x", $0) }.joined()
             if let cache, let cacheKey {
                 await cache.store(hex, for: cacheKey)
             }
-            return hex
+            return .hashed(hex)
         }.value
     }
 

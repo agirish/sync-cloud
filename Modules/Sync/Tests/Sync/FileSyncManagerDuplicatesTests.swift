@@ -85,6 +85,37 @@ import Combine
         #expect(manager.banner?.severity == .success)
     }
 
+    @MainActor
+    @Test func findDuplicatesCountsCandidatesSkippedForSize() async throws {
+        let root = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Two byte-identical files over the (injected) hash cap: they are size-collision
+        // candidates, but hashing skips both — so no group can form, and the scan must SAY so
+        // instead of silently reporting "no duplicates".
+        try write(root.appendingPathComponent("A/movie.mp4"), bytes: 5000, fill: 0x41)
+        try write(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root, maxBytesToHash: 1000)
+
+        #expect(manager.hasFoundDuplicates)
+        #expect(manager.duplicateGroups.isEmpty)                      // identity unknown → no claim
+        #expect(manager.duplicateScanSkips.tooLarge == 2)
+        #expect(manager.duplicateScanSkips.cloudOnly == 0)
+        #expect(manager.duplicateScanSkips.total == 2)
+
+        // A rescan with the real cap hashes them — and resets the skip figure with the results.
+        await manager.findDuplicates(root: root)
+        #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
+        #expect(manager.duplicateGroups.count == 1)
+
+        // clearDuplicates resets it alongside the rest of the results state.
+        await manager.findDuplicates(root: root, maxBytesToHash: 1000)
+        #expect(manager.duplicateScanSkips.total == 2)
+        manager.clearDuplicates()
+        #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
+    }
+
     // MARK: Group builders for state-level tests
 
     private func copy(_ path: String, keeper: Bool, size: Int = 1000) -> DuplicateCopy {

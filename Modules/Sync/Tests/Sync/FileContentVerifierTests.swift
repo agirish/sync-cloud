@@ -86,6 +86,35 @@ import Foundation
         #expect(await FileContentVerifier.filesHaveSameContent(leftPath: link.path, rightPath: link.path) == nil)
     }
 
+    // MARK: Classified outcomes (hashOutcome)
+
+    @Test func hashOutcomeClassifiesTooLargeDistinctFromUnreadable() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let big = dir.appendingPathComponent("big.bin")
+        try Data(repeating: 0x42, count: 4096).write(to: big)
+
+        // Over the (injected) cap → skippedTooLarge, and never read.
+        #expect(await FileContentVerifier.hashOutcome(filePath: big.path, maxBytes: 1000) == .skippedTooLarge)
+        // Under the cap → hashed, agreeing with sha256Hex.
+        let expected = await FileContentVerifier.sha256Hex(filePath: big.path)
+        #expect(await FileContentVerifier.hashOutcome(filePath: big.path) == .hashed(expected!))
+        // Directory / missing → unverifiable (not a size skip).
+        #expect(await FileContentVerifier.hashOutcome(filePath: dir.path) == .unverifiable)
+        #expect(await FileContentVerifier.hashOutcome(filePath: dir.appendingPathComponent("nope").path) == .unverifiable)
+    }
+
+    @Test func sha256HexStillCollapsesEveryNonHashToNil() async throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let f = dir.appendingPathComponent("f.bin")
+        try Data(repeating: 1, count: 64).write(to: f)
+        // The classic API is a thin wrapper over hashOutcome — same digest, nil for a directory.
+        #expect(await FileContentVerifier.sha256Hex(filePath: f.path) != nil)
+        #expect(await FileContentVerifier.sha256Hex(filePath: dir.path) == nil)
+    }
+
     @Test func testFilesHaveSameContentNilWhenEitherSideUnhashable() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

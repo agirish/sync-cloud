@@ -52,6 +52,11 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     public let depth: Int
     /// Whether this is the recommended copy to keep.
     public let isRecommendedKeeper: Bool
+    /// True when the scan could NOT content-verify this copy: its hash (or, for a folder, some
+    /// descendant's) was skipped — too large, cloud-only, unreadable. Lets the UI say the group's
+    /// content claim rests on less than full verification. Defaulted so existing construction
+    /// sites are unaffected.
+    public let contentUnverified: Bool
 
     /// A non-keeper copy that holds nothing the keeper lacks — safe to remove outright.
     public var isFullyRedundant: Bool { !isRecommendedKeeper && uniqueItemCount == 0 }
@@ -65,7 +70,8 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         modificationDate: Date?,
         uniqueItemCount: Int,
         depth: Int,
-        isRecommendedKeeper: Bool
+        isRecommendedKeeper: Bool,
+        contentUnverified: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -76,6 +82,7 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         self.uniqueItemCount = uniqueItemCount
         self.depth = depth
         self.isRecommendedKeeper = isRecommendedKeeper
+        self.contentUnverified = contentUnverified
     }
 }
 
@@ -162,12 +169,7 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         guard allowsKeeperChoice,
               copyID != keeper.id,
               copies.contains(where: { $0.id == copyID }) else { return self }
-        let relabelled = copies.map { c in
-            DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
-                          itemCount: c.itemCount, modificationDate: c.modificationDate,
-                          uniqueItemCount: c.uniqueItemCount, depth: c.depth,
-                          isRecommendedKeeper: c.id == copyID)
-        }
+        let relabelled = copies.map { Self.relabel($0, isKeeper: $0.id == copyID) }
         let newKeeper = relabelled.first { $0.id == copyID }!
         let rest = relabelled.filter { $0.id != copyID }.sorted { ($0.depth, $0.id) < ($1.depth, $1.id) }
         let reclaim = rest.reduce(0) { $0 + $1.size }
@@ -201,11 +203,13 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                                            remaining: keeperFirst, priorReclaim: reclaimableBytes))
     }
 
-    /// A copy of `c` with its keeper flag set — mirrors ``choosingKeeper``'s relabelling.
+    /// A copy of `c` with its keeper flag set — the single relabelling used by
+    /// ``choosingKeeper(_:)`` and ``removingRedundantCopy(atPath:)``.
     private static func relabel(_ c: DuplicateCopy, isKeeper: Bool) -> DuplicateCopy {
         DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
                       itemCount: c.itemCount, modificationDate: c.modificationDate,
-                      uniqueItemCount: c.uniqueItemCount, depth: c.depth, isRecommendedKeeper: isKeeper)
+                      uniqueItemCount: c.uniqueItemCount, depth: c.depth,
+                      isRecommendedKeeper: isKeeper, contentUnverified: c.contentUnverified)
     }
 
     /// Recomputes reclaimable bytes after one copy is removed, per the finder's own rules: identical
@@ -720,6 +724,16 @@ public enum DuplicateFinder {
 
     private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool) -> DuplicateCopy {
         let unique = isKeeper ? 0 : info.contentHashes.subtracting(keeper.contentHashes).count
+        // Unverified content: a file whose hash is missing or an unknown-content placeholder, or
+        // a folder without a full structural signature (some descendant wasn't walked) or with an
+        // unknown-content descendant (placeholders make the signature computable and unique, but
+        // the folder's contents still weren't fully verified).
+        let unverified: Bool
+        if info.isDirectory {
+            unverified = info.signature == nil || info.contentHashes.contains(where: isUnknownSignature)
+        } else {
+            unverified = info.signature.map(isUnknownSignature) ?? true
+        }
         return DuplicateCopy(
             id: info.path,
             name: info.name,
@@ -729,7 +743,8 @@ public enum DuplicateFinder {
             modificationDate: info.modificationDate,
             uniqueItemCount: unique,
             depth: info.depth,
-            isRecommendedKeeper: isKeeper
+            isRecommendedKeeper: isKeeper,
+            contentUnverified: unverified
         )
     }
 

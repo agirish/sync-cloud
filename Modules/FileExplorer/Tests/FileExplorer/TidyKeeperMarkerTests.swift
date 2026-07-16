@@ -21,6 +21,22 @@ import Testing
     }
 }
 
+/// Pins the wording gate for the card's unverified-content caveat: it appears only when a group
+/// really contains copies whose hash was skipped (too large / cloud-only / unreadable), pluralizes
+/// correctly, and never fires for a fully verified group.
+@Suite struct TidyUnverifiedNoteTests {
+    @Test func noNoteWhenEveryCopyIsVerified() {
+        #expect(TidyUnverifiedNote.text(unverifiedCount: 0) == nil)
+    }
+
+    @Test func singularAndPluralWording() {
+        let one = TidyUnverifiedNote.text(unverifiedCount: 1)
+        #expect(one?.hasPrefix("1 copy couldn't be content-verified") == true)
+        let three = TidyUnverifiedNote.text(unverifiedCount: 3)
+        #expect(three?.hasPrefix("3 copies couldn't be content-verified") == true)
+    }
+}
+
 /// Pins the cursor-stack bookkeeping behind the selectable radio's hover effect: NSCursor's
 /// stack is global, so a push must happen exactly once per hovered state and a pop only for a
 /// push we made — even when SwiftUI repeats an onHover callback without a state change.

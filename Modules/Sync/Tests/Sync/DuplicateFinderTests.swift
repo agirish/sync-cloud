@@ -344,6 +344,9 @@ import Testing
         #expect(groups.count == 1)
         #expect(groups[0].matchType == .versions)
         #expect(groups[0].copies.count == 3)
+        // The unhashable member is flagged so the UI can caveat the group's content claim.
+        #expect(groups[0].copies.first { $0.path.hasSuffix("deck copy 2.key") }?.contentUnverified == true)
+        #expect(groups[0].copies.filter { $0.contentUnverified }.count == 1)
     }
 
     @Test func versionsKeeperAvoidsArchiveLocationEvenWhenNewest() {

@@ -1,10 +1,61 @@
 import Events
 import Foundation
 
+/// Side storage for each manager's ``FileSyncManager/duplicateScanSkips``: an extension cannot
+/// add a stored property and `FileSyncManager.swift` hosts the class's stored state, so the value
+/// lives in a main-actor table keyed weakly (by identity) on the manager — no lifetime coupling,
+/// no leaks across test-created managers.
+@MainActor
+private let duplicateScanSkipStore = NSMapTable<FileSyncManager, DuplicateScanSkipsBox>(
+    keyOptions: [.weakMemory, .objectPointerPersonality],
+    valueOptions: .strongMemory
+)
+
+private final class DuplicateScanSkipsBox {
+    var value: FileSyncManager.DuplicateScanSkips
+    init(_ value: FileSyncManager.DuplicateScanSkips) { self.value = value }
+}
+
 /// Tidy — the in-provider duplicate finder. Reuses the existing tree walk and content hasher to
 /// gather input for the pure ``DuplicateFinder``, and routes removals through ``deleteItems`` so
 /// they land in the Trash with the same one-step Undo as every other destructive action.
 extension FileSyncManager {
+
+    /// Files the most recent duplicate scan had to skip during content hashing — and therefore
+    /// could not prove identical to anything. Without this figure, two identical >100 MB files
+    /// (or cloud-only placeholders) are simply invisible to Tidy with zero indication. Labels the
+    /// current `duplicateGroups` like `duplicateScanRoot` does: published with the results, reset
+    /// by `clearDuplicates`.
+    ///
+    /// Follow-up (TidyView is owned elsewhere): surface `duplicateScanSkips.total` as a note in
+    /// the Tidy results header; a `@Published` property in FileSyncManager.swift would then be
+    /// the cleaner home for this value.
+    public struct DuplicateScanSkips: Sendable, Equatable {
+        /// Candidates skipped because they exceed the hashing size cap (`maxBytesToHash`).
+        public var tooLarge: Int
+        /// Candidates skipped because they are cloud-only (dataless) placeholders that hashing
+        /// would force-download.
+        public var cloudOnly: Int
+        public var total: Int { tooLarge + cloudOnly }
+
+        public init(tooLarge: Int = 0, cloudOnly: Int = 0) {
+            self.tooLarge = tooLarge
+            self.cloudOnly = cloudOnly
+        }
+    }
+
+    /// See ``DuplicateScanSkips``. Updated just before `duplicateGroups` publishes, so observers
+    /// of the results always read a matching value.
+    public internal(set) var duplicateScanSkips: DuplicateScanSkips {
+        get { duplicateScanSkipStore.object(forKey: self)?.value ?? DuplicateScanSkips() }
+        set {
+            if let box = duplicateScanSkipStore.object(forKey: self) {
+                box.value = newValue
+            } else {
+                duplicateScanSkipStore.setObject(DuplicateScanSkipsBox(newValue), forKey: self)
+            }
+        }
+    }
 
     /// Aggregate headline numbers for the Duplicates results view.
     public struct DuplicateSummary: Sendable, Equatable {
@@ -56,10 +107,13 @@ extension FileSyncManager {
         duplicateScanTask?.cancel()
     }
 
+    /// `maxBytesToHash` is injectable for tests only (a real >100 MB fixture per run would be
+    /// wasteful); production callers use the verifier's default cap.
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
-        fileManager fm: FileManaging? = nil
+        fileManager fm: FileManaging? = nil,
+        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
@@ -98,7 +152,9 @@ extension FileSyncManager {
         let total = candidatePaths.count
         duplicateScanStatus = "Hashing \(total) candidate\(total == 1 ? "" : "s")…"
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
-        let realHashes = await Self.hashFiles(candidatePaths, fileManager: fileManager) { [weak self] done in
+        let hashOutcome = await Self.hashFilesCounting(
+            candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash
+        ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
                     guard let self, self.duplicateScanEpoch == epoch else { return }
@@ -107,6 +163,7 @@ extension FileSyncManager {
                 }
             }
         }
+        let realHashes = hashOutcome.hashes
         if Task.isCancelled { return }
         // Deterministic terminal publish: the done == total update above is an unstructured
         // main-actor Task that can lose the race against this resumption — the defer's epoch
@@ -128,6 +185,10 @@ extension FileSyncManager {
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options)
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
+        // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
+        // (like duplicateScanRoot, it labels what's on screen, not the in-flight scan).
+        duplicateScanSkips = DuplicateScanSkips(tooLarge: hashOutcome.skippedTooLarge,
+                                                cloudOnly: hashOutcome.skippedCloudOnly)
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -135,6 +196,10 @@ extension FileSyncManager {
         hasFoundDuplicates = true
         let summary = duplicateSummary
         Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
+        let skips = duplicateScanSkips
+        if skips.total > 0 {
+            Logger.shared.info("Tidy: \(skips.total) candidate file(s) could not be content-verified — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded); identical copies among them are not detected")
+        }
     }
 
     // MARK: Keep separate (persistent ignore)
@@ -164,6 +229,7 @@ extension FileSyncManager {
         duplicateScanTask?.cancel()
         duplicateGroups = []
         duplicateScanRoot = nil
+        duplicateScanSkips = DuplicateScanSkips()
         hasFoundDuplicates = false
     }
 
@@ -458,6 +524,14 @@ extension FileSyncManager {
         return out
     }
 
+    /// The hashes plus why the rest were skipped — what the duplicate scan needs to report that
+    /// some candidates were never content-verified (identical copies among them go undetected).
+    struct HashBatchOutcome: Sendable {
+        var hashes: [String: String] = [:]
+        var skippedTooLarge = 0
+        var skippedCloudOnly = 0
+    }
+
     /// Hashes files with bounded concurrency, returning path → SHA-256 hex (missing when a file
     /// can't be hashed — too large, unreadable). Off-main via ``FileContentVerifier``.
     nonisolated static func hashFiles(
@@ -466,21 +540,38 @@ extension FileSyncManager {
         maxConcurrent: Int = 6,
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> [String: String] {
-        guard !paths.isEmpty else { return [:] }
-        var result: [String: String] = [:]
-        result.reserveCapacity(paths.count)
+        await hashFilesCounting(paths, fileManager: fileManager, maxConcurrent: maxConcurrent,
+                                onProgress: onProgress).hashes
+    }
+
+    /// ``hashFiles`` plus per-reason skip counts. `maxBytesToHash` is injectable for tests.
+    nonisolated static func hashFilesCounting(
+        _ paths: [String],
+        fileManager: FileManaging,
+        maxConcurrent: Int = 6,
+        maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
+        onProgress: (@Sendable (Int) -> Void)? = nil
+    ) async -> HashBatchOutcome {
+        guard !paths.isEmpty else { return HashBatchOutcome() }
+        var result = HashBatchOutcome()
+        result.hashes.reserveCapacity(paths.count)
         var next = 0
         var completed = 0
-        await withTaskGroup(of: (String, String?).self) { group in
+        await withTaskGroup(of: (String, FileContentVerifier.HashOutcome).self) { group in
             func schedule(_ path: String) {
                 group.addTask {
-                    (path, await FileContentVerifier.sha256Hex(filePath: path, fileManager: fileManager))
+                    (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
+                                                                 maxBytes: maxBytesToHash))
                 }
             }
             let initial = min(maxConcurrent, paths.count)
             while next < initial { schedule(paths[next]); next += 1 }
-            for await (path, hash) in group {
-                if let hash { result[path] = hash }
+            for await (path, outcome) in group {
+                switch outcome {
+                case .hashed(let hash): result.hashes[path] = hash
+                case .skippedTooLarge: result.skippedTooLarge += 1
+                case .unverifiable: break
+                }
                 completed += 1
                 onProgress?(completed)
                 // Cancellation stops scheduling new work; already-detached hashes drain out.
