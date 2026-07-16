@@ -99,6 +99,7 @@ struct RenameLens: View {
                         RiskyNameCard(
                             risky: risky,
                             accent: accent,
+                            densityMetrics: densityMetrics,
                             onFix: { onNormalize([risky]) },
                             onSkip: { syncManager.dismissRiskyName(risky) },
                             onReveal: { onReveal(risky.id) },
@@ -154,6 +155,9 @@ struct RenameLens: View {
 private struct RiskyNameCard: View {
     let risky: RiskyName
     let accent: Color
+    /// Row measurements per the appearance density setting (D4). Comfortable must render this card
+    /// pixel-identical to the pre-density look.
+    let densityMetrics: ListDensityMetrics
     let onFix: () -> Void
     let onSkip: () -> Void
     /// Reveal this item in Finder.
@@ -168,15 +172,17 @@ private struct RiskyNameCard: View {
                     .resizable().frame(width: 26, height: 26)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 5) {
-                    locationRow
+                    // The location and reason lines are the secondary detail compact hides (D4);
+                    // the rename row still shows the risky name (markers included) and its fix.
+                    if densityMetrics.showsSecondaryDetail { locationRow }
                     renameRow
-                    reasonRow
+                    if densityMetrics.showsSecondaryDetail { reasonRow }
                 }
                 Spacer(minLength: 8)
             }
             actionsFooter
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)

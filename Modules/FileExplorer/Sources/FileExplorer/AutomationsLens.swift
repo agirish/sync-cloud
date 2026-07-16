@@ -190,6 +190,7 @@ public struct AutomationsLens: View {
                                     : destinationRoot == nil
                                     ? "Focus a provider folder first — the preview runs over the focused folder"
                                     : "Preview just this rule over the focused folder",
+                                densityMetrics: densityMetrics,
                                 onToggle: { syncManager.setAutomationRule(id: rule.id, enabled: $0) },
                                 onPreview: { runPreview(only: rule.id) },
                                 onEdit: { editingRule = rule },
@@ -279,6 +280,7 @@ public struct AutomationsLens: View {
                                 ForEach(group.rows) { row in
                                     AutomationDryRunRowView(
                                         row: row, accent: accent,
+                                        densityMetrics: densityMetrics,
                                         onQuickLook: onQuickLook.map { ql in { ql(row.id) } },
                                         onReveal: onReveal.map { rv in { rv(row.id) } }
                                     )
@@ -512,6 +514,9 @@ private struct AutomationRuleCard: View {
     /// The Preview button's tooltip — names the real blocker when disabled (host computes it,
     /// since only the host knows whether a provider folder is focused).
     let previewHelp: String
+    /// Row measurements per the appearance density setting (D4). Comfortable must render this card
+    /// pixel-identical to the pre-density look.
+    let densityMetrics: ListDensityMetrics
     let onToggle: (Bool) -> Void
     let onPreview: () -> Void
     let onEdit: () -> Void
@@ -522,12 +527,14 @@ private struct AutomationRuleCard: View {
     @State private var isEnabled: Bool
 
     init(rule: AutomationRule, accent: Color, canPreview: Bool, previewHelp: String,
+         densityMetrics: ListDensityMetrics,
          onToggle: @escaping (Bool) -> Void, onPreview: @escaping () -> Void,
          onEdit: @escaping () -> Void, onDelete: @escaping () -> Void) {
         self.rule = rule
         self.accent = accent
         self.canPreview = canPreview
         self.previewHelp = previewHelp
+        self.densityMetrics = densityMetrics
         self.onToggle = onToggle
         self.onPreview = onPreview
         self.onEdit = onEdit
@@ -553,12 +560,14 @@ private struct AutomationRuleCard: View {
                 }
             VStack(alignment: .leading, spacing: 7) {
                 nameRow
-                conditionRow
+                // The condition chips are the secondary detail compact hides (D4); the rule's
+                // name and destination pill still say what it is and where it files.
+                if densityMetrics.showsSecondaryDetail { conditionRow }
                 DestinationPill(template: rule.destinationTemplate, accent: accent)
             }
             actions
         }
-        .padding(.horizontal, 14).padding(.vertical, 11)
+        .padding(.horizontal, 14).padding(.vertical, densityMetrics.cardRowVerticalPadding)
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(rule.enabled ? 0.5 : 0.25)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -667,6 +676,9 @@ private struct DestinationPill: View {
 private struct AutomationDryRunRowView: View {
     let row: AutomationDryRunRow
     let accent: Color
+    /// Row measurements per the appearance density setting (D4). Comfortable must render this row
+    /// pixel-identical to the pre-density look.
+    let densityMetrics: ListDensityMetrics
     var onQuickLook: (() -> Void)? = nil
     var onReveal: (() -> Void)? = nil
 
@@ -683,7 +695,11 @@ private struct AutomationDryRunRowView: View {
             Spacer(minLength: 8)
             verdictChip
         }
-        .padding(.horizontal, 14).padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        // This row's comfortable padding (9) is smaller than the shared card-row metric (11), so
+        // clamp rather than substitute: comfortable stays exactly 9; compact tightens to the
+        // metric's 6.
+        .padding(.vertical, min(9, densityMetrics.cardRowVerticalPadding))
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -716,9 +732,14 @@ private struct AutomationDryRunRowView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         case .alreadyThere:
-            Text("already in its destination")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
+            // Fully redundant with the "Already there" verdict chip, so it's the one detail line
+            // compact can drop (D4). The "would file" destination and "needs a look" reason stay
+            // in both densities — without them the row loses what would happen / what's wrong.
+            if densityMetrics.showsSecondaryDetail {
+                Text("already in its destination")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

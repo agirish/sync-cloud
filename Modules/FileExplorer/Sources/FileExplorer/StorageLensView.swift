@@ -273,6 +273,7 @@ public struct StorageLensView: View {
                                 relativeFolder: displayFolder(entry.path),
                                 showAge: section == .stale,
                                 offloadStyle: section == .reclaim,
+                                densityMetrics: densityMetrics,
                                 onReveal: { onReveal(entry.path) },
                                 onPreview: onQuickLook.map { ql in { ql(entry.path) } }
                             )
@@ -372,6 +373,9 @@ private struct StorageEntryRow: View {
     /// When true, the reveal control renders as a prominent "Offload…" button with the
     /// Finder-handoff explainer; otherwise it's a quiet reveal glyph.
     let offloadStyle: Bool
+    /// Row measurements per the appearance density setting (D4). Comfortable must render this row
+    /// pixel-identical to the pre-density look.
+    let densityMetrics: ListDensityMetrics
     let onReveal: () -> Void
     let onPreview: (() -> Void)?
 
@@ -386,17 +390,21 @@ private struct StorageEntryRow: View {
                     .font(.system(size: 12.5, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                HStack(spacing: 6) {
-                    Text(relativeFolder)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if showAge, let age = ageText {
-                        Text("· \(age)")
+                // The folder + age line is the secondary detail compact hides (D4); the name and
+                // size still identify the file and its weight.
+                if densityMetrics.showsSecondaryDetail {
+                    HStack(spacing: 6) {
+                        Text(relativeFolder)
                             .lineLimit(1)
+                            .truncationMode(.middle)
+                        if showAge, let age = ageText {
+                            Text("· \(age)")
+                                .lineLimit(1)
+                        }
                     }
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 }
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             Text(FileSyncManager.formatBytes(entry.bytes))
@@ -428,7 +436,10 @@ private struct StorageEntryRow: View {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        // This row's comfortable padding (8) is smaller than the shared card-row metric (11), so
+        // clamp rather than substitute: comfortable stays exactly 8; compact tightens to the
+        // metric's 6.
+        .padding(.vertical, min(8, densityMetrics.cardRowVerticalPadding))
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .fill(Color.primary.opacity(0.04)))
     }

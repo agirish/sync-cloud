@@ -17,7 +17,15 @@ struct FilingSuggestionCard: View {
     var onTryAnother: (() -> Void)? = nil
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
+    /// Row measurements per the appearance density setting (H7/D4); comfortable is the pre-density
+    /// look — its values equal the literals this card used to hard-code.
+    private var densityMetrics: ListDensityMetrics {
+        (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
+    }
+    /// File-icon side: the pre-density 26pt in comfortable, a tighter 20pt in compact.
+    private var iconSize: CGFloat { densityMetrics.showsSecondaryDetail ? 26 : 20 }
 
     /// Count of the destination folder's existing entries (G6 "peek"), loaded off the render path.
     /// nil until counted / when the destination doesn't exist yet.
@@ -29,24 +37,28 @@ struct FilingSuggestionCard: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Image(nsImage: FileIconCache.icon(name: suggestion.fileName, isDirectory: false))
-                    .resizable().frame(width: 26, height: 26)
+                    .resizable().frame(width: iconSize, height: iconSize)
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(suggestion.fileName)
                         .font(.system(size: 14, weight: .semibold))
                         .lineLimit(1).truncationMode(.middle)
-                    sourceRow
+                    // The source and "why" lines are the secondary detail compact hides (D4); the
+                    // destination row and the actions still carry what happens and where.
+                    if densityMetrics.showsSecondaryDetail { sourceRow }
                     if let best { destinationRow(best) }
                     if best?.remembered == true { rememberedBadge }
                     else if best?.fromAI == true { aiBadge }
-                    if let best { whyRow(best) }
+                    if densityMetrics.showsSecondaryDetail, let best { whyRow(best) }
                 }
                 Spacer(minLength: 8)
                 confidenceCluster
             }
-            .padding(.horizontal, 14).padding(.top, 12)
+            .padding(.horizontal, 14).padding(.top, densityMetrics.cardHeaderVerticalPadding)
             actions
-                .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 12)
+                .padding(.horizontal, 14)
+                .padding(.top, densityMetrics.cardHeaderVerticalPadding)
+                .padding(.bottom, densityMetrics.cardHeaderVerticalPadding)
         }
         .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5)))
