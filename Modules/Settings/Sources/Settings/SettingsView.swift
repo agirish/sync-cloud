@@ -754,7 +754,11 @@ private struct HueOptionView: View {
                     if isSelected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(hue == .none ? Color.primary : .white)
+                            // The checkmark sits on the swatch's own fill, so it pairs with that
+                            // fill's luminance — hardcoded white was ~2.1:1 on amber. "None" has no
+                            // fill of its own (a neutral disc deferring to the system accent), so it
+                            // tracks the appearance via `.primary` like the disc does.
+                            .foregroundStyle(hue == .none ? Color.primary : .onFillLabel(hue.accentColor))
                             .shadow(color: .black.opacity(0.35), radius: 0.5, x: 0, y: 0.5)
                     }
                 }

@@ -42,4 +42,19 @@ public extension Color {
     static var onAccentLabel: Color {
         AccentLabel.currentPrefersDarkText ? Color.black.opacity(0.85) : .white
     }
+
+    /// Text/glyph color for content drawn on an arbitrary solid `fill`, by the same luminance rule
+    /// `onAccentLabel` applies to the system accent: near-black on light fills (amber, cyan), white
+    /// on dark ones. Appearance-independent by design — the fill is the background here, so the
+    /// window's light/dark mode doesn't enter into it.
+    ///
+    /// `fill` must be a *static* color. A dynamic one (`Color.accentColor`, a semantic
+    /// `NSColor`) collapses to whatever the current appearance resolves it to at call time and
+    /// won't re-resolve when that changes — use `onAccentLabel` for the system accent instead.
+    static func onFillLabel(_ fill: Color) -> Color {
+        guard let rgb = NSColor(fill).usingColorSpace(.sRGB) else { return .white }
+        return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
+            ? Color.black.opacity(0.85)
+            : .white
+    }
 }

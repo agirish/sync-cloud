@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 import Sync
 import Design
 
@@ -18,12 +17,8 @@ struct TreemapView: View {
     /// Per-tile label colors, chosen by each palette entry's luminance: hardcoded white was
     /// ~2.1–2.7:1 on the light hues (amber, cyan, …), so those tiles get near-black text while
     /// the dark hues keep white. The palette is fixed sRGB values, so this is computed once.
-    private static let labelPalette: [Color] = palette.map { fill in
-        guard let rgb = NSColor(fill).usingColorSpace(.sRGB) else { return .white }
-        return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
-            ? Color.black.opacity(0.85)
-            : .white
-    }
+    /// See `Color.onFillLabel(_:)` in Design for the rule.
+    private static let labelPalette: [Color] = palette.map { Color.onFillLabel($0) }
 
     private func color(for index: Int, node: TreemapNode) -> Color {
         node.name == "Other" ? Color.secondary : Self.palette[index % Self.palette.count]

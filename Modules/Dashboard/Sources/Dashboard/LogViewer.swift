@@ -124,15 +124,10 @@ public struct LogViewer: View {
 
     /// Text/glyph color that stays legible on a `hueAccent` fill. `Color.onAccentLabel` pairs
     /// with the *system* accent, but the selected chip now fills with the glass hue — so the
-    /// pairing is computed from the hue's own sRGB luminance (the TreemapView approach). The
-    /// `.none` hue fills with the system accent, where `onAccentLabel` is exactly right.
+    /// pairing comes from the hue's own sRGB luminance. The `.none` hue fills with the system
+    /// accent, where `onAccentLabel` is exactly right.
     private var onHueAccent: Color {
-        guard glassHue != .none, let rgb = NSColor(hueAccent).usingColorSpace(.sRGB) else {
-            return .onAccentLabel
-        }
-        return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)
-            ? Color.black.opacity(0.85)
-            : .white
+        glassHue == .none ? .onAccentLabel : .onFillLabel(hueAccent)
     }
 
     private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
