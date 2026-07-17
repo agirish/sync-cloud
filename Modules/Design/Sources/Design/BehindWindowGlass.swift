@@ -18,8 +18,36 @@ struct BehindWindowGlass: NSViewRepresentable {
     /// switching off `.clear` restores the normal window rather than stranding it transparent.
     let isEnabled: Bool
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
+    /// Carries the desired window transparency across the gap where `view.window` is still nil.
+    /// A plain `updateNSView` that defers a tick and bails on a nil window drops the launch-time
+    /// application entirely when the deferred block outruns window attachment — with `.clear`
+    /// stored and no later state change, the window would stay opaque until the user next
+    /// touched the setting. `viewDidMoveToWindow` re-applies whatever was last requested.
+    final class Backing: NSVisualEffectView {
+        var wantsTransparentWindow = false {
+            didSet { applyWindowFlags() }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyWindowFlags()
+        }
+
+        private func applyWindowFlags() {
+            let transparent = wantsTransparentWindow
+            // Window flags set during a SwiftUI update pass are liable to be overwritten by
+            // AppKit's own layout — so defer a tick. `viewDidMoveToWindow` above catches the
+            // case where this block runs before the view is windowed.
+            DispatchQueue.main.async { [weak self] in
+                guard let window = self?.window else { return }
+                window.isOpaque = !transparent
+                window.backgroundColor = transparent ? .clear : .windowBackgroundColor
+            }
+        }
+    }
+
+    func makeNSView(context: Context) -> Backing {
+        let view = Backing()
         view.blendingMode = .behindWindow
         // `.underWindowBackground` over the alternatives: `.hudWindow` is more see-through but
         // applies its own vibrancy to the content on top, bleaching the folder icons from blue to
@@ -31,15 +59,8 @@ struct BehindWindowGlass: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
+    func updateNSView(_ view: Backing, context: Context) {
         view.isHidden = !isEnabled
-        let enabled = isEnabled
-        // `view.window` is nil while the view is being made, and window flags set during a SwiftUI
-        // update pass are liable to be overwritten by AppKit's own layout — so defer a tick.
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
-            window.isOpaque = !enabled
-            window.backgroundColor = enabled ? .clear : .windowBackgroundColor
-        }
+        view.wantsTransparentWindow = isEnabled
     }
 }

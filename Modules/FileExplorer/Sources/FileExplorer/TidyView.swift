@@ -96,8 +96,8 @@ enum TidyMatchStyle {
 // MARK: - TidyView
 
 /// The Tidy workspace: a single-source hub of lenses (Duplicates, Rename, Organize, Automations, and
-/// the read-only Storage). The host owns the active `lens` (its picker lives in the persistent tab
-/// strip) and docks the source rail beside this workspace.
+/// the read-only Storage). The host owns the active `lens` binding, but its picker renders here —
+/// `lensTabs` heads this workspace — and the host docks the source rail beside it.
 public struct TidyView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -384,7 +384,9 @@ public struct TidyView: View {
         // vertical rule. Tracks `cardInset`, not `cardGutter` — the card's offset is the inset.
         .padding(.horizontal, LiquidGlass.cardInset + 12)
         .padding(.top, LiquidGlass.cardInset)
-        .padding(.bottom, 2)
+        // Half a gutter, like everything else: the card below insets by the other half, so the
+        // strip-to-card gap comes to exactly `cardGutter` (a hard-coded 2 left it at 4.5).
+        .padding(.bottom, LiquidGlass.cardInset)
     }
 
     @ViewBuilder
@@ -533,7 +535,7 @@ public struct TidyView: View {
                 .disabled(disabled).help(movedHelp)
         } else {
             Button(action: action) { Label("Rescan", systemImage: "arrow.clockwise") }
-                .buttonStyle(.bordered).controlSize(.small)
+                .chromeButtonStyle(glassLevel).controlSize(.small)
                 .disabled(disabled).help("Scan this folder again")
         }
     }

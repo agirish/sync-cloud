@@ -403,7 +403,7 @@ public struct DifferencesView: View {
             }
             // The dominant direction reads as THE primary action; the smaller one drops to
             // bordered so a 559-vs-17 split shows in visual weight (ties keep both prominent).
-            .bulkActionProminence(targets.dominantCopyDirection != .copyToLeft)
+            .bulkActionProminence(targets.dominantCopyDirection != .copyToLeft, level: glassLevel)
             .disabled(isSyncActionBlocked)
         }
         if targets.copyToLeftCount > 0 {
@@ -417,7 +417,7 @@ public struct DifferencesView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .bulkActionProminence(targets.dominantCopyDirection != .copyToRight)
+            .bulkActionProminence(targets.dominantCopyDirection != .copyToRight, level: glassLevel)
             .disabled(isSyncActionBlocked)
         }
         if targets.verifiableCount > 0 {
@@ -1238,11 +1238,15 @@ private struct DifferenceDirectionCell: View {
 /// two `PrimitiveButtonStyle` types, hence the builder.
 private extension View {
     @ViewBuilder
-    func bulkActionProminence(_ prominent: Bool) -> some View {
+    func bulkActionProminence(_ prominent: Bool, level: GlassLevel) -> some View {
         if prominent {
             buttonStyle(.borderedProminent)
         } else {
-            buttonStyle(.bordered)
+            // The demoted direction still has to read as a control on its card — at Clear a
+            // plain bordered fill all but vanishes over the desktop, which turned a bulk copy
+            // action invisible. `chromeButtonStyle` is bordered everywhere else, so the
+            // dominant/secondary weight contrast survives at every level.
+            chromeButtonStyle(level)
         }
     }
 }

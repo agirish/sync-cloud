@@ -11,6 +11,9 @@ import Design
 /// user jumped rows can be applied — or dropped — with the full picture. The card's own async
 /// work is display-only: statting facts and hashing for the per-item Verify.
 struct ReviewCardView: View {
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     let session: ReviewSession
     let paneNames: PaneProviderNames
     let accent: Color
@@ -227,7 +230,7 @@ struct ReviewCardView: View {
             Button("Skip") {
                 onSkip(item)
             }
-            .buttonStyle(.bordered)
+            .chromeButtonStyle(glassLevel)
             .disabled(isActing)
             if let onQuickLook {
                 // One button, source side (same as ␣) — mockup style. The destination copy is

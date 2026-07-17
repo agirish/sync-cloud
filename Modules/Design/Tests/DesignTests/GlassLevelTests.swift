@@ -14,25 +14,29 @@ struct GlassLevelTests {
     // MARK: - The chrome legibility floor
 
     @Test func clearIsFlooredToFrostedForChrome() {
-        // Chrome is anything that must stay legible over a backdrop it doesn't control: overlays
-        // (app content behind them) and bars (controls whose only fill is a thin tint wash). It
-        // can never resolve to no-frost glass, however clear the rest of the app is.
+        // Overlay cards (Settings, Help, first-run, the banner) must stay legible over the app
+        // content behind them. The floor can never resolve to no-frost glass, however clear the
+        // rest of the app is.
         #expect(GlassLevel.clear.flooredForChrome == .frosted)
     }
 
     @Test func frostedAndSolidPassThroughTheFloorUnchanged() {
-        // The floor raises `.clear` and touches nothing else. This is what lets `chromeFrost` and
-        // `hostsControls` be applied unconditionally: at Frosted/Solid the surface underneath
-        // already backs the controls, and stacking a second material would just look heavy.
+        // The floor raises `.clear` and touches nothing else: at Frosted/Solid the surface
+        // underneath already backs the content, and stacking a second material would look heavy.
         #expect(GlassLevel.frosted.flooredForChrome == .frosted)
         #expect(GlassLevel.solid.flooredForChrome == .solid)
     }
 
     @Test func onlyClearNeedsChromeFrosting() {
-        // Pins the branch `chromeFrost` keys off: it adds a layer for exactly one level, so a
-        // level added later can't silently start stacking materials inside the pane cards.
-        let needsFrosting = GlassLevel.allCases.filter { $0.flooredForChrome != $0 }
-        #expect(needsFrosting == [.clear])
+        // Pins the branch `chromeButtonStyle`/`chromePillFrost` key off — the property those
+        // helpers actually read, so a level added later must decide its chrome treatment here
+        // and can't silently render faint controls (or stack materials) on its cards.
+        #expect(GlassLevel.allCases.filter(\.needsChromeFrosting) == [.clear])
+        // And the two escalations agree: the level that frosts its controls is the level whose
+        // overlays get floored.
+        for level in GlassLevel.allCases {
+            #expect(level.needsChromeFrosting == (level.flooredForChrome != level))
+        }
     }
 
     @Test func flooringIsIdempotent() {

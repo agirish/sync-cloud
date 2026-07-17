@@ -168,23 +168,26 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The level *chrome* renders at — any surface that must stay legible over a backdrop it
-    /// doesn't control. `.clear` resolves to `.frosted`; `.frosted` and `.solid` pass through, so
-    /// applying this is a no-op everywhere except Clear.
+    /// The level *overlay* cards render at — surfaces that sit over dense app content rather than
+    /// the window's own background (Settings, Help, first-run, the operation banner). Clear glass
+    /// over text is two layers of text competing — the Settings panel rendered at ~9% opacity
+    /// before this floor existed. `.clear` resolves to `.frosted`; the others pass through, so
+    /// applying it is a no-op everywhere except Clear. Only `glassCardStyle` consumes it: bars
+    /// take the level verbatim and instead frost their *controls* (see `needsChromeFrosting`).
     ///
-    /// Two kinds of surface need it, for the same reason:
-    ///
-    /// - **Overlays** (Settings, Help, first-run, the operation banner) sit over dense app content
-    ///   rather than the window's own background, and clear glass over text is two layers of text
-    ///   competing — this panel rendered at ~9% opacity before the floor existed.
-    /// - **Bars** (pane headers, the workspace toolbars) host controls. A button's fill is a thin
-    ///   tint wash with no material of its own, so on clear glass it has nothing to read against
-    ///   and the control stops looking like a control.
-    ///
-    /// Apple draws the same line both times: Control Center is glass but alerts are not, and a
-    /// transparent window frosts its toolbar and sidebar while leaving only the content clear.
+    /// Apple draws the same line: Control Center is glass but alerts are not.
     public var flooredForChrome: GlassLevel {
         self == .clear ? .frosted : self
+    }
+
+    /// Whether individual chrome elements — buttons and pills sitting on a card that takes the
+    /// level verbatim — need a material of their own. A button's fill is a thin tint wash, so on
+    /// see-through glass it has nothing to read against and stops looking like a control; the
+    /// desktop showing through a `.clear` card is exactly that backdrop. `chromeButtonStyle` and
+    /// `chromePillFrost` both key off this (and the tests pin it), so a level added later decides
+    /// its chrome treatment here, in one place, rather than in scattered `== .clear` checks.
+    public var needsChromeFrosting: Bool {
+        self == .clear
     }
 
     /// Backdrop dimming behind an overlay. `.clear` deepens it so the app recedes further and the
@@ -394,7 +397,13 @@ public extension View {
                     y: LiquidGlass.cardShadow.y
                 )
         } else {
-            self.glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
+            // Clip here too: `.glassEffect` shapes only the effect, not the view's own
+            // backgrounds, and every caller stacks `contentSurface`'s square tint wash under
+            // this — unclipped it pokes past the rounded corners at any Tint above zero
+            // (surfaceCard and bottomSectionCard clip for exactly the same reason).
+            self
+                .clipShape(shape)
+                .glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
         }
     }
 
@@ -416,7 +425,7 @@ public extension View {
     /// the bar opaque, which is the transparency the level asked for being taken back.
     @ViewBuilder
     func chromeButtonStyle(_ level: GlassLevel) -> some View {
-        if level == .clear, #available(macOS 26.0, *) {
+        if level.needsChromeFrosting, #available(macOS 26.0, *) {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.bordered)
@@ -428,7 +437,7 @@ public extension View {
     /// a see-through card there's nothing behind it to read against. No-op otherwise.
     @ViewBuilder
     func chromePillFrost(_ level: GlassLevel) -> some View {
-        if level == .clear {
+        if level.needsChromeFrosting {
             self.background(.regularMaterial, in: Capsule(style: .continuous))
         } else {
             self

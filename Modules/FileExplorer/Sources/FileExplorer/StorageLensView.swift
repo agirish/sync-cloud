@@ -75,7 +75,7 @@ public struct StorageLensView: View {
                     Button(action: onBuild) {
                         Label("Re-analyze", systemImage: "arrow.clockwise")
                     }
-                    .buttonStyle(.bordered)
+                    .chromeButtonStyle(glassLevel)
                     .controlSize(.small)
                     .help("Walk this folder again and rebuild the storage picture")
                 }
@@ -368,6 +368,9 @@ private enum StorageSection: Hashable {
 /// One file row in a Storage Lens list. Read-only by construction: the trailing controls only
 /// reveal the file in Finder (the honest extent of "offload") or open a Quick Look preview.
 private struct StorageEntryRow: View {
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     let entry: StorageEntry
     let relativeFolder: String
     /// When true, show the file's age (used by the stale list).
@@ -425,7 +428,7 @@ private struct StorageEntryRow: View {
                 Button(action: onReveal) {
                     Label("Offload…", systemImage: "icloud.and.arrow.up")
                 }
-                .buttonStyle(.bordered)
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
                 .help("Reveals the file in Finder — use Finder to keep it online-only and free local space")
             } else {

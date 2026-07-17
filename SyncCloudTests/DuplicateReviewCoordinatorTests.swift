@@ -51,6 +51,7 @@ private final class Harness {
             selectedBottomTab: Binding(get: { self.tab }, set: { self.tab = $0 }),
             selectedTidyLens: Binding(get: { self.lens }, set: { self.lens = $0 }),
             accentColor: .blue,
+            glassLevel: .frosted,
             currentLeftPath: { self.currentLeftPath },
             currentRightPath: { self.currentRightPath },
             tidyTargetIsRight: { self.tidyTargetIsRight },

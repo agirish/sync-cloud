@@ -23,6 +23,9 @@ enum NameNormalizeGlyph {
 /// & folder names, previews the safe replacement for each, and fixes them in one undoable pass.
 /// Its own intro / scanning / results / all-clean states; rendered inside ``TidyView``'s content card.
 struct RenameLens: View {
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @ObservedObject var syncManager: FileSyncManager
     let providerName: String?
     let accent: Color
@@ -130,7 +133,7 @@ struct RenameLens: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Button(action: onScan) { Label("Rescan", systemImage: "arrow.clockwise") }
-                .buttonStyle(.bordered)
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
                 .disabled(syncManager.isNormalizingNames)
                 .help("Scan the focused folder again")

@@ -8,6 +8,9 @@ import Design
 /// Sidebar that shows file/folder metadata (size, dates, permissions) for the current selection or focused folder.
 /// Shown in the bottom tabbed area of the main view when the “Details” tab is selected.
 public struct DetailsSidebar: View {
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @ObservedObject public var syncManager: FileSyncManager
 
     /// Current root path for the left pane (used when no item is selected).
@@ -432,7 +435,9 @@ public struct DetailsSidebar: View {
                 Label("Quick Look", systemImage: "doc.viewfinder")
             }
         }
-        .buttonStyle(.bordered)
+        // The inspector card takes the glass level verbatim, so at Clear these buttons frost
+        // individually — a plain bordered fill has nothing to read against on see-through glass.
+        .chromeButtonStyle(glassLevel)
         .controlSize(.small)
     }
 

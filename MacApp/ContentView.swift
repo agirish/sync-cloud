@@ -76,7 +76,9 @@ struct ContentView: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
-    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    // Not `private`: the split-layout extension lives in another file and reads it for the rail
+    // spine's card, and `private` is invisible to a same-type extension across files.
+    @AppStorage(LiquidGlass.tintKey) var surfaceTint: Double = 0
 
     /// Left pane's share of the pane row's width (0…1). Persisted so the split survives relaunches.
     /// Drives the custom two-pane split that replaced HSplitView, whose NSSplitView divider bled
@@ -950,6 +952,7 @@ struct ContentView: View {
             selectedBottomTab: $selectedBottomTab,
             selectedTidyLens: $selectedTidyLens,
             accentColor: glassHue.accentColor,
+            glassLevel: glassLevel,
             currentLeftPath: { currentLeftPath },
             currentRightPath: { currentRightPath },
             tidyTargetIsRight: { tidyTargetIsRight },
@@ -1170,14 +1173,17 @@ struct ContentView: View {
             DetailsSidebar(syncManager: syncManager, leftPath: currentLeftPath, rightPath: currentRightPath, compact: true, overridePath: infoPath, singleSource: layoutMode == .singleSource)
         }
         .frame(width: inspectorDragWidth ?? inspectorWidth)
-        .background(.bar)
+        // A card like every other surface, not a docked `.bar` panel: the opaque bar fill was a
+        // solid band down a window Clear asks to see through, and its zero inset broke the gap
+        // model (2.5pt to the pane card, flush to the window edge the root padding then floated).
+        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
-    /// The draggable seam between the panes and the Info inspector. Replaces the static `Divider()`
-    /// with the same "invisible hit target overlaid on a visible 1pt divider" idiom the pane splits
-    /// use: the divider keeps its slim layout footprint while a 10pt-wide clear strip straddles it
-    /// for the drag. `inspectorWidth` is held constant through the gesture (written only on release),
-    /// so it's the stable base for `PaneLogic.inspectorDragWidth`.
+    /// The draggable seam between the panes and the Info inspector: a 1pt clear strip in the
+    /// HStack flow with a 10pt-wide hit target straddling it — the pane splits' idiom, minus
+    /// their visible divider, since the card gap already draws the separation here.
+    /// `inspectorWidth` is held constant through the gesture (written only on release), so it's
+    /// the stable base for `PaneLogic.inspectorDragWidth`.
     ///
     /// The drag reads `.global`, NOT the default `.local`, coordinate space: this handle slides left
     /// as the inspector widens, so in its own moving frame `translation` feeds back on itself and
@@ -1186,7 +1192,10 @@ struct ContentView: View {
     /// translation is the cursor's real delta, independent of the handle's position, so the resize
     /// stays smooth instead of stuttering.
     private var inspectorResizeHandle: some View {
-        Divider()
+        // A clear 1pt strip, not a visible Divider: the inspector is a floating card now, so the
+        // seam is the gap between cards — same construction as the panes↔workspace boundary
+        // (2.5 + 1 + 2.5). Only the hit target remains.
+        Color.clear.frame(width: 1)
             .overlay {
                 ResizeHandle(
                     axis: .horizontal,
@@ -1428,6 +1437,7 @@ struct ContentView: View {
         // from the reviewed copies, so the scoped trash can't fire against the wrong folder.
         if selectedBottomTab == .differences, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
             reviewCoordinator.duplicateReviewBanner(review)
+                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
         // An active review keeps the view mounted through an empty live list: an external
         // change resolving the last live difference mid-review must not vanish the session.

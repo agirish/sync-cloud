@@ -199,8 +199,10 @@ extension ContentView {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.bar)
-        .overlay(alignment: .trailing) { Divider() }
+        // A slim card, not a docked `.bar` strip: the bar fill stayed opaque at Clear and sat
+        // flush against the root padding while every neighbor floated — the spine joins the gap
+        // model instead (5pt to the window edge and to the workspace card beside it).
+        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         .help("Show the \(name) pane to browse or re-scope")
         .accessibilityLabel("Show the \(name) source pane")
     }

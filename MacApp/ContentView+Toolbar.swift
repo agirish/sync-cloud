@@ -134,7 +134,9 @@ extension ContentView {
             }
         }
         .pickerStyle(.segmented)
-        .tint(glassHue.accentColor)
+        // No `.tint` here: it does not survive a macOS 26 glass toolbar group (the segmented
+        // control renders neutral regardless — carrying the modifier over from the strip days
+        // just implied an accent that never drew). The neutral rendering is the accepted look.
         .fixedSize()
         .labelsHidden()
     }

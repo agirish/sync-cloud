@@ -39,6 +39,9 @@ struct DuplicateReviewCoordinator {
 
     /// The banner icon's tint (the host's glass accent).
     let accentColor: Color
+    /// The host's glass material — the banner's Done button frosts at Clear like every other
+    /// control on a see-through card.
+    let glassLevel: GlassLevel
 
     /// The two panes' absolute focused paths, resolved live by the host (provider root + relative
     /// path) — `duplicateReviewActive` compares them against the reviewed copies.
@@ -141,6 +144,7 @@ struct DuplicateReviewCoordinator {
             }
             Spacer(minLength: 12)
             Button("Done") { endDuplicateReview() }
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
             Button(role: .destructive) { trashRightCopy(review) } label: {
                 Label("Trash right copy", systemImage: "trash")
@@ -149,8 +153,9 @@ struct DuplicateReviewCoordinator {
             .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial)
-        .overlay(alignment: .bottom) { Divider() }
+        // No fill or divider of its own: the host mounts this as a `bottomSectionCard`, so it
+        // joins the workspace's card stack (the flush `.regularMaterial` bar it used to be hung
+        // 2.5pt wider than the cards below it and closed the gap above them to a half-gutter).
     }
 
     /// The review's "Done" button: tears down the review (guided + duplicate) and restores the

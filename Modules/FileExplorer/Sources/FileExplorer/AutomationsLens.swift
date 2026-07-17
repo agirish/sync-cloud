@@ -70,6 +70,9 @@ public struct AutomationsLens: View {
     @ObservedObject public var syncManager: FileSyncManager
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
 
     private let providerName: String?
@@ -220,7 +223,7 @@ public struct AutomationsLens: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 8)
             Button(action: newRule) { Label("New rule", systemImage: AutomationsGlyph.newRule) }
-                .buttonStyle(.bordered)
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
             Button(action: { runPreview(only: nil) }) { Label("Preview all", systemImage: AutomationsGlyph.preview) }
                 .buttonStyle(.borderedProminent)
@@ -298,14 +301,14 @@ public struct AutomationsLens: View {
     private func resultsHeader(_ report: AutomationDryRunReport) -> some View {
         HStack(spacing: 10) {
             Button(action: { viewingResults = false }) { Label("Rules", systemImage: "chevron.left") }
-                .buttonStyle(.bordered)
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
             Text("Previewed \((report.root as NSString).lastPathComponent)")
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
             Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
-                .buttonStyle(.bordered)
+                .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
             let fileable = report.rows.filter { $0.destinationDir != nil }
             if !fileable.isEmpty {
