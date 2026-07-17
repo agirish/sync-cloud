@@ -141,7 +141,9 @@ public struct DifferencesView: View {
         let sorted = displayRows.sorted
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
 
-        return VStack(spacing: 8) {
+        // spacing 0: each bottomSectionCard insets itself by half a gutter, so the gap between
+        // them is already `cardGutter`. A spacing here would add to it.
+        return VStack(spacing: 0) {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
@@ -178,8 +180,6 @@ public struct DifferencesView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
-        // Match the pane cards' gutter so the bottom cards line up with the panes above.
-        .padding(LiquidGlass.cardGutter)
         // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
         // only — decided rows snap the highlight back), and a session advance re-highlights.
         .onChange(of: reviewSelection) { oldSelection, newSelection in

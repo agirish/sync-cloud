@@ -161,9 +161,18 @@ struct GlassLevelTests {
 
     // MARK: - Gutter
 
-    @Test func cardGutterReadsAsSeparation() {
-        // At the previous 3pt the gap sat below the threshold where it registers as separation,
-        // making Cards nearly indistinguishable from Unified against a 14pt corner radius.
-        #expect(LiquidGlass.cardGutter >= 8)
+    @Test func cardInsetIsHalfAGutterSoEveryGapMatches() {
+        // The gaps used to be non-uniform by construction: a card padded ITSELF by the full gutter,
+        // so two touching cards showed 2x what a window edge showed, and the bottom stack
+        // hard-coded a third value. Halving it is what makes card↔card and card↔edge agree —
+        // each pairing contributes two insets.
+        #expect(LiquidGlass.cardInset * 2 == LiquidGlass.cardGutter)
+    }
+
+    @Test func cardGutterIsVisibleButTight() {
+        // Big enough to read as separation against the 14pt radius (3pt did not), small enough not
+        // to make a dense file view airy.
+        #expect(LiquidGlass.cardGutter >= 4)
+        #expect(LiquidGlass.cardGutter <= 8)
     }
 }

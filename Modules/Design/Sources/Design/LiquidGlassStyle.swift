@@ -241,12 +241,22 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
 public enum LiquidGlass {
     /// Corner radius for cards and floating panels.
     public static let cardCornerRadius: CGFloat = 14
-    /// Gutter around each floating card in Cards mode. The gap between two adjacent cards is 2×
-    /// this; outer edges (sidebar side, window edge) show 1×. Shared by `surfaceCard` (panes) and
-    /// the bottom-workspace padding so the top pane cards and the bottom cards line up.
-    /// At the previous 3pt this sat below the threshold where a gap reads as separation, which
-    /// made Cards nearly indistinguishable from Unified — the 14pt radius needs room to register.
-    public static let cardGutter: CGFloat = 8
+    /// The gap between any two floating cards in Cards mode, and between a card and the window
+    /// edge. One number for every gap on screen.
+    ///
+    /// It used to be the padding each card applied to *itself*, which made the gaps non-uniform by
+    /// construction: two touching cards each contributed their own padding and so showed 2×, while
+    /// a window edge showed 1×, and the bottom stack hard-coded a third value. At the old 3pt all
+    /// three were too small to tell apart; raising it made every mismatch visible at once.
+    ///
+    /// Now `cardInset` is what a card pads itself by — half the gap — so two adjacent cards add up
+    /// to exactly `cardGutter`, and the content root supplies the matching half at the window edge.
+    /// Don't reintroduce per-container padding: that's what broke it.
+    public static let cardGutter: CGFloat = 5
+
+    /// What one card insets itself by, and what the content root pads by — half a gutter each, so
+    /// every pairing (card↔card, card↔window edge) sums to `cardGutter`.
+    public static var cardInset: CGFloat { cardGutter / 2 }
     /// Corner radius for smaller elements (badges, buttons, inputs).
     public static let smallCornerRadius: CGFloat = 10
 
@@ -402,9 +412,9 @@ public extension View {
             filled
                 .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-                .padding(LiquidGlass.cardGutter)
+                .padding(LiquidGlass.cardInset)
         } else {
-            filled.padding(LiquidGlass.cardGutter)
+            filled.padding(LiquidGlass.cardInset)
         }
     }
 
@@ -436,7 +446,7 @@ public extension View {
             based
                 .clipShape(shape)
                 .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
-                .padding(LiquidGlass.cardGutter)
+                .padding(LiquidGlass.cardInset)
         }
     }
 

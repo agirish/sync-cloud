@@ -1197,6 +1197,10 @@ struct ContentView: View {
                         .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
+            // The window-edge half of every gap. Each card insets itself by the other half, so a
+            // card-to-edge gap and a card-to-card gap both come to `cardGutter`. Applied once,
+            // here, and nowhere else — per-container padding is what made the gaps uneven before.
+            .padding(LiquidGlass.cardInset)
         }
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
@@ -1544,8 +1548,6 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-                // Match the pane cards' gutter so the bottom card lines up with the panes above.
-                .padding(LiquidGlass.cardGutter)
         }
         }
     }

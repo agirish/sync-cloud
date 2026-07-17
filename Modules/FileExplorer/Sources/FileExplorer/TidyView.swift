@@ -340,8 +340,11 @@ public struct TidyView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, LiquidGlass.cardGutter + 12)
-        .padding(.top, LiquidGlass.cardGutter)
+        // Line this strip up with the card content below it: a card sits `cardInset` in from the
+        // region edge and pads its own contents by 12, so matching both puts the text on the same
+        // vertical rule. Tracks `cardInset`, not `cardGutter` — the card's offset is the inset.
+        .padding(.horizontal, LiquidGlass.cardInset + 12)
+        .padding(.top, LiquidGlass.cardInset)
         .padding(.bottom, 2)
     }
 
@@ -367,14 +370,14 @@ public struct TidyView: View {
                 // re-evaluated at four call sites per render (summary count, empty-check, ForEach,
                 // animation key).
                 let dupGroups = lens == .duplicates ? filteredGroups : []
-                VStack(spacing: 8) {
+                // spacing 0: the cards inset themselves by half a gutter each (see `cardGutter`).
+                VStack(spacing: 0) {
                     // Only show the toolbar card when it actually has something (a results summary or
                     // batch action). In the intro / scanning / clean states it would otherwise render
                     // as an empty bar — the lens picker that used to fill it now lives in the top strip.
                     if toolbarHasContent { toolbarCard(dupGroups: dupGroups) }
                     contentCard(dupGroups: dupGroups)
                 }
-                .padding(LiquidGlass.cardGutter)
             }
         }
     }
