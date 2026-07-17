@@ -58,8 +58,8 @@ public struct StorageLensView: View {
         // spacing 0: the cards inset themselves by half a gutter each (see `cardGutter`).
         VStack(spacing: 0) {
             // Only show the toolbar card once there's a report to summarize; in the intro / building
-            // states it would otherwise render as an empty bar (the tab picker that used to fill it
-            // moved to the top strip).
+            // states it would otherwise render as an empty bar (the lens picker that used to fill it
+            // now heads the Tidy workspace, above this view).
             if hasReport { toolbarCard }
             contentCard
         }

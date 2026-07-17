@@ -121,13 +121,36 @@ extension ContentView {
         .controlSize(.small)
     }
 
-    /// The window toolbar — pared down to the two window-level utilities: Logs and Settings.
-    /// Everything else moved to where it acts: Scan is in each pane header (next to its nav
-    /// controls), Find Duplicates lives in the Tidy ▸ Duplicates lens, the file actions are the
-    /// panes' contextual action bar, and the pane toggles are gone — the Tidy rail collapses via its
-    /// own header control, and the comparison panes resize with the draggable divider.
+    /// The primary tabs — a boxed segmented control. It rides the toolbar's leading region, which
+    /// `.hiddenTitleBar` leaves empty save for the traffic lights, so the tabs cost no content
+    /// height at all. Narrow enough (~120pt) that it and the trailing utility pill clear the
+    /// window's 600pt `minWidth` together; the Tidy lens tabs deliberately stay out of here, since
+    /// adding their ~300pt would overflow that minimum and macOS would silently collapse them
+    /// behind an overflow chevron.
+    var primaryTabPicker: some View {
+        Picker("", selection: primaryTabSelection) {
+            ForEach(BottomTab.allCases, id: \.self) { tab in
+                Text(tab.title).tag(tab)
+            }
+        }
+        .pickerStyle(.segmented)
+        .tint(glassHue.accentColor)
+        .fixedSize()
+        .labelsHidden()
+    }
+
+    /// The window toolbar — the window-level controls, and only those: which workspace you're in
+    /// (Compare | Tidy), and the three utilities (Info, Logs, Settings). Everything else lives where
+    /// it acts: Scan is in each pane header, Find Duplicates in the Tidy ▸ Duplicates lens, the file
+    /// actions are the panes' contextual action bar, and the Tidy lens tabs head the Tidy workspace.
     @ToolbarContentBuilder
     var mainToolbar: some ToolbarContent {
+        // `.navigation` puts the tabs immediately after the traffic lights. There's no window title
+        // competing for the space — the window is `.hiddenTitleBar`.
+        ToolbarItem(placement: .navigation) {
+            primaryTabPicker
+        }
+
         // A leading flexible spacer keeps the utility pill trailing (macOS 26's grouped toolbar no
         // longer trails `.primaryAction` on its own).
         if #available(macOS 26.0, *) {
@@ -135,6 +158,19 @@ extension ContentView {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
+            // Info inspector toggle — available on every tab (Compare shows both-sides status; Tidy
+            // shows the single source), so opening Info never yanks the Tidy rail over to Compare.
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
+            } label: {
+                Label("Info", systemImage: "sidebar.right")
+                    // Accent-tinted when the inspector is open, so the toggle reads as a state and
+                    // not just an action. Closed, it renders as a normal enabled toolbar button.
+                    .foregroundStyle(showInspector ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(.primary))
+            }
+            .help(showInspector ? "Hide the Info inspector" : "Show details for the selected item")
+            .accessibilityLabel(showInspector ? "Hide inspector" : "Show inspector")
+
             Button(action: { openWindow(id: "activity-log") }) {
                 Label("Logs", systemImage: "list.bullet.rectangle")
             }

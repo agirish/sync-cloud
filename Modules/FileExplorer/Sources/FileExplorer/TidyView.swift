@@ -5,8 +5,8 @@ import Design
 
 // MARK: - Lens / filter / match styling
 
-/// The lenses of the Tidy workspace. Public so the host can hoist the lens picker into the
-/// persistent tab strip and drive `TidyView.lens` as a binding.
+/// The lenses of the Tidy workspace. Public so the host can own the selection (persisting it) and
+/// drive `TidyView.lens` as a binding; the tabs themselves render in TidyView.
 public enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     /// The former Name Normalizer, its own lens again (was briefly folded into Organize) — finds and
@@ -114,8 +114,9 @@ public struct TidyView: View {
     /// acceptable motion under Reduce motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The active lens, owned by the host so it lives in the persistent tab strip and survives
-    /// tab switches (and relaunches, via the host's `@AppStorage`).
+    /// The active lens. `lensTabs` writes it directly; the host owns the storage so the choice
+    /// survives tab switches (and relaunches, via the host's `@AppStorage`) and so writing it can
+    /// carry the host's side effect — re-homing the source rail onto the new lens's folder.
     @Binding private var lens: TidyLens
     @State private var filter: TidyFilter = .all
     /// Token search over the duplicate list (`kind:`, size, name); ANDed with `filter`.
@@ -271,6 +272,7 @@ public struct TidyView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
+            lensTabs
             if showSourcePicker { sourceBar }
             lensBody
         }
@@ -309,6 +311,43 @@ public struct TidyView: View {
                 dupSearchText = ""
             }
         }
+    }
+
+    /// The lens tabs, heading the workspace they switch. They used to sit in a 44pt strip up in the
+    /// window chrome, one level under a Compare | Tidy segmented control that has since moved into
+    /// the title bar; down here they're the primary control of this workspace rather than a
+    /// subordinate second row, and the strip's height goes back to the content.
+    ///
+    /// Deliberately *not* folded into `toolbarCard`: that card only renders once a lens has results
+    /// (`toolbarHasContent`), so tabs riding it would shift down the moment a scan landed. They head
+    /// the VStack instead, above the optional `sourceBar`, so their position is the one thing in this
+    /// workspace that never moves.
+    private var lensTabs: some View {
+        HStack(spacing: 2) {
+            ForEach(TidyLens.allCases) { tab in
+                let isActive = (lens == tab)
+                Button { lens = tab } label: {
+                    Text(tab.title)
+                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(isActive ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(isActive ? glassHue.accentColor : Color.clear)
+                                .frame(height: 2)
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
+            }
+            Spacer(minLength: 0)
+        }
+        // Land the first tab's *text* on the same vertical rule as `sourceBar` and the card contents
+        // below: they sit at `cardInset + 12`, and each tab already pads itself by 8.
+        .padding(.horizontal, LiquidGlass.cardInset + 12 - 8)
+        .padding(.top, LiquidGlass.cardInset)
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -353,8 +392,8 @@ public struct TidyView: View {
         Group {
             if lens == .storage {
                 // Storage, folded in as a read-only lens: it brings its own toolbar + content cards
-                // (and card gutter), so it renders in place of Tidy's own two cards. The lens picker
-                // lives in the host's persistent tab strip, so switching away from Storage still works.
+                // (and card gutter), so it renders in place of Tidy's own two cards. The lens tabs sit
+                // above this whole Group, so switching away from Storage still works.
                 StorageLensView(
                     syncManager: syncManager,
                     providerName: providerName,
@@ -374,7 +413,7 @@ public struct TidyView: View {
                 VStack(spacing: 0) {
                     // Only show the toolbar card when it actually has something (a results summary or
                     // batch action). In the intro / scanning / clean states it would otherwise render
-                    // as an empty bar — the lens picker that used to fill it now lives in the top strip.
+                    // as an empty bar — the lens tabs head the workspace above, not this card.
                     if toolbarHasContent { toolbarCard(dupGroups: dupGroups) }
                     contentCard(dupGroups: dupGroups)
                 }

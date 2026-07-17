@@ -13,8 +13,9 @@ import Foundation
 /// Either way the panes can be shown or hidden per tab, and the choice persists — encoded into one
 /// defaults string keyed by the tab's raw value. The single-source tab defaults to the rail
 /// collapsed (workspace fills the window); the compare tabs default to the panes shown. Because the
-/// persistent tab strip is always on screen, hiding the panes can never leave the window empty, so —
-/// unlike the previous model — every tab's panes are freely hideable.
+/// Compare | Tidy picker is always on screen — it rides the window toolbar — hiding the panes can
+/// never leave the window with no way out, so, unlike the previous model, every tab's panes are
+/// freely hideable.
 ///
 /// The persisted map stores *hidden* (not *visible*) per tab, matching the format shipped before the
 /// two-mode rework, so a user's remembered show/hide survives the upgrade unchanged.
