@@ -70,7 +70,7 @@ struct ContentView: View {
     /// survive both — and this ContentView itself, which a window close + Dock reopen recreates.
     @ObservedObject var reviewStore: ReviewSessionStore
     
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -99,6 +99,13 @@ struct ContentView: View {
 
     var surfaceStyle: SurfaceStyle {
         SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
+    }
+
+    /// The resolved glass material. Falls back to `.frosted` — the standard Liquid Glass — when
+    /// the stored raw value is unrecognized. Not `private`: the split-layout extension frames the
+    /// panes region with it.
+    var glassLevel: GlassLevel {
+        GlassLevel(rawValue: glassLevelRaw) ?? .frosted
     }
     // Not `private`: the split-layout extension (ContentView+SplitLayout.swift) paints its
     // seam chrome (swap button, rail spine) with the same user-selected hue (C7).
@@ -261,7 +268,7 @@ struct ContentView: View {
             if isOpen { showHelp = false }
         }
         .quickLookPreview($quickLookURL)
-        .liquidGlassAppBackground(intensity: glassIntensity, hue: glassHue)
+        .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
     }
 
     var body: some View {
@@ -729,9 +736,8 @@ struct ContentView: View {
             leftProviderName: paneNames.left,
             rightProviderName: paneNames.right,
             providerCount: settings.enabledProviders.count,
-            surfaceStyle: surfaceStyle,
             glassHue: glassHue,
-            glassIntensity: glassIntensity,
+            glassLevel: glassLevel,
             surfaceTint: surfaceTint,
             onScan: { dontShowAgain in
                 dismissWelcome(persist: dontShowAgain)
@@ -751,9 +757,8 @@ struct ContentView: View {
     @ViewBuilder
     private var helpOverlay: some View {
         HelpOverlay(
-            surfaceStyle: surfaceStyle,
             glassHue: glassHue,
-            glassIntensity: glassIntensity,
+            glassLevel: glassLevel,
             surfaceTint: surfaceTint,
             onClose: { showHelp = false }
         )
@@ -775,7 +780,9 @@ struct ContentView: View {
     private var settingsOverlay: some View {
         ZStack {
             Rectangle()
-                .fill(Color.black.opacity(0.35))
+                // Deepens for `.clear` (`overlayScrimOpacity`): the card below is floored to
+                // frosted, and pushing the app further back is what lets it read cleanly.
+                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()
                 .onTapGesture { showSettings = false }
 
@@ -786,41 +793,29 @@ struct ContentView: View {
         .transition(.opacity)
     }
 
-    /// The Settings card, decorated to reflect the app's own content-surface style — the panel that
-    /// *configures* translucency should itself *obey* it (item 5.4). `.solid` is an opaque panel;
-    /// `.unified`/`.cards` are a frosted glass card whose translucency tracks the glass-intensity
-    /// slider and whose fill picks up the accent tint. Radius, clip, and shadow come from the shared
-    /// LiquidGlass system (`glassCardStyle`, `cardCornerRadius`) rather than hardcoded values, so the
-    /// card matches the rest of the glass surfaces it sits over.
+    /// The Settings card. It picks up the accent tint and the glass material like every other
+    /// surface, but `glassCardStyle` applies `flooredForOverlay` — this is the one panel with the
+    /// whole app behind it rather than the window's gradient, and clear glass over content is two
+    /// layers of text competing (it rendered at ~9% opacity before the floor existed). Radius,
+    /// clip and shadow come from the shared LiquidGlass system rather than hardcoded values.
     @ViewBuilder
     private var settingsCard: some View {
-        // Same fill + clip both branches share: the surface-style fill (opaque base for `.solid`,
-        // tint-only wash otherwise) clipped to the shared card radius.
-        let shaped = SettingsView(
+        SettingsView(
             selection: $settingsTab,
             onClose: { showSettings = false },
             syncManager: syncManager,
             onResetAllSettings: { resetAllSettingsAction() }
         )
-            .environmentObject(settings)
-            .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
-            .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        let border = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-            .strokeBorder(.quaternary, lineWidth: 0.5)
-
-        switch surfaceStyle {
-        case .solid:
-            // Opaque panel — no see-through material — plus the floating-modal drop shadow.
-            shaped
-                .overlay(border)
-                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
-        case .unified, .cards:
-            // Frosted glass card: `glassCardStyle` handles the macOS-26/15 gating and clip+shadow,
-            // and its translucency scales with the glass-intensity slider.
-            shaped
-                .glassCardStyle(intensity: glassIntensity)
-                .overlay(border)
-        }
+        .environmentObject(settings)
+        .contentSurface(hue: glassHue, tint: surfaceTint)
+        .glassCardStyle(level: glassLevel)
+        .overlay(
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
+        // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
+        // read as lifted off the window, whatever material it resolved to.
+        .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
     /// Renders one abstract `SyncErrorAction` as its concrete alert button. Dismissing is implicit
@@ -1121,7 +1116,7 @@ struct ContentView: View {
             )
             treeView(pane)
         }
-        .paneCardIfNeeded(surfaceStyle)
+        .paneCardIfNeeded(surfaceStyle, level: glassLevel)
         // The file actions (Copy/Move/Compare/New Folder/Delete) live here now, not in the titlebar:
         // a contextual bar on whichever pane holds the selection, so the buttons name their target.
         .overlay(alignment: .bottom) {
@@ -1229,7 +1224,7 @@ struct ContentView: View {
             if let banner = syncManager.banner {
                 OperationBannerView(
                     banner: banner,
-                    glassIntensity: glassIntensity,
+                    glassLevel: glassLevel,
                     canUndo: undoManager?.canUndo ?? false,
                     onUndo: {
                         // The same reversal ⌘Z performs: this operation registered exactly one
@@ -1548,7 +1543,7 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
                 // Match the pane cards' gutter so the bottom card lines up with the panes above.
                 .padding(LiquidGlass.cardGutter)
         }

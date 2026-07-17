@@ -276,12 +276,14 @@ enum SettingsSearchIndex {
         // Appearance
         .init(tab: .appearance, title: "Accent color",
               keywords: ["accent", "color", "colour", "hue", "theme", "highlight"]),
-        .init(tab: .appearance, title: "Glass intensity",
-              keywords: ["glass", "translucency", "transparency", "frosted", "clear", "blur", "liquid glass", "material"]),
+        .init(tab: .appearance, title: "Glass effect",
+              keywords: ["glass", "translucency", "transparency", "frosted", "clear", "solid",
+                         "blur", "liquid glass", "material", "opaque", "see-through"]),
         .init(tab: .appearance, title: "Surface tint",
               keywords: ["tint", "wash", "color overlay", "vivid", "subtle"]),
+        // "solid" belongs to Glass effect now, not here: this control is shape only.
         .init(tab: .appearance, title: "Content surface style",
-              keywords: ["surface", "unified", "cards", "solid", "pane background", "content surface"]),
+              keywords: ["surface", "unified", "cards", "pane background", "content surface"]),
         .init(tab: .appearance, title: "List density",
               keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
 
@@ -597,9 +599,15 @@ struct GeneralSettingsTab: View {
 
 // MARK: - Appearance
 
-/// Accent hue and liquid glass intensity, both shared with MacApp through UserDefaults.
+/// Accent hue, glass material and surface shape, all shared with MacApp through UserDefaults.
+///
+/// Glass effect (material) and Content surface (shape) are deliberately separate controls: any
+/// level combines with any shape. They were entangled before — "Solid" appeared in the shape
+/// picker and silently overrode the material one.
 struct AppearanceSettingsTab: View {
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -629,30 +637,17 @@ struct AppearanceSettingsTab: View {
             }
 
             Section {
-                HStack(spacing: 12) {
-                    Slider(value: $glassIntensity, in: 0.0...1.0) {
-                        Text("Glass effect")
-                    } minimumValueLabel: {
-                        Text("Clear")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                    } maximumValueLabel: {
-                        Text("Frosted")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
+                Picker("Glass effect", selection: $glassLevelRaw) {
+                    ForEach(GlassLevel.allCases) { level in
+                        Text(level.displayName).tag(level.rawValue)
                     }
-                    .accessibilityValue("\(Int(glassIntensity * 100)) percent")
-                    Text("\(Int(glassIntensity * 100))%")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, alignment: .trailing)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Glass effect")
             } footer: {
-                Text("Controls the translucency of window backgrounds, bars, and cards.")
+                Text(glassLevel.detail)
             }
 
             Section {

@@ -398,16 +398,15 @@ struct SyncHistoryWindowCommand: View {
 /// outside, Esc, or the ✕ all dismiss. Living inside the main window (rather than a separate
 /// scene) keeps it floating over the content even in full screen.
 struct HelpOverlay: View {
-    let surfaceStyle: SurfaceStyle
     let glassHue: LiquidGlassHue
-    let glassIntensity: Double
+    let glassLevel: GlassLevel
     let surfaceTint: Double
     let onClose: () -> Void
 
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(Color.black.opacity(0.35))
+                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()
                 .onTapGesture(perform: onClose)
 
@@ -418,27 +417,19 @@ struct HelpOverlay: View {
         .transition(.opacity)
     }
 
-    /// The card, decorated exactly like the Settings and Welcome cards: the surface-style fill
-    /// clipped to the shared radius, then an opaque panel (`.solid`) or a frosted glass card
-    /// tracking the glass-intensity slider.
+    /// The card, decorated exactly like the Settings and Welcome cards: the accent tint, then the
+    /// glass material via `glassCardStyle` — which floors `.clear` to `.frosted`, since this card
+    /// sits over live app content rather than the window's gradient.
     @ViewBuilder
     private var card: some View {
-        let shaped = HelpView(onClose: onClose)
-            .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
-            .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        let border = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-            .strokeBorder(.quaternary, lineWidth: 0.5)
-
-        switch surfaceStyle {
-        case .solid:
-            shaped
-                .overlay(border)
-                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
-        case .unified, .cards:
-            shaped
-                .glassCardStyle(intensity: glassIntensity)
-                .overlay(border)
-        }
+        HelpView(onClose: onClose)
+            .contentSurface(hue: glassHue, tint: surfaceTint)
+            .glassCardStyle(level: glassLevel)
+            .overlay(
+                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 }
 

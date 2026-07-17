@@ -1,0 +1,169 @@
+import Testing
+import Foundation
+@testable import Design
+
+/// The Appearance model's two controls and the migration onto them.
+///
+/// These pin the fix for the bug that motivated the rework: a stored intensity of 0.15 fell below
+/// `glassCardStyle`'s `> 0.33` threshold, so the Settings modal resolved to `.clear` glass and the
+/// app behind it read straight through — its only fill was the ~9% accent tint wash.
+struct GlassLevelTests {
+
+    // MARK: - The overlay legibility floor
+
+    @Test func clearIsFlooredToFrostedForOverlays() {
+        // The whole point: overlay chrome is the only surface with dense app content behind it,
+        // so it can never resolve to no-frost glass, however clear the rest of the app is.
+        #expect(GlassLevel.clear.flooredForOverlay == .frosted)
+    }
+
+    @Test func frostedAndSolidPassThroughTheFloorUnchanged() {
+        // The floor raises `.clear` and touches nothing else — an opaque Settings panel must stay
+        // opaque, not get quietly downgraded to glass.
+        #expect(GlassLevel.frosted.flooredForOverlay == .frosted)
+        #expect(GlassLevel.solid.flooredForOverlay == .solid)
+    }
+
+    @Test func flooringIsIdempotent() {
+        for level in GlassLevel.allCases {
+            #expect(level.flooredForOverlay.flooredForOverlay == level.flooredForOverlay)
+        }
+    }
+
+    @Test func clearDeepensTheOverlayScrim() {
+        // Apple's guidance for `.clear` glass is to pair it with a dimming layer. The card is
+        // floored to frosted; pushing the app further back is what makes it read cleanly.
+        #expect(GlassLevel.clear.overlayScrimOpacity > GlassLevel.frosted.overlayScrimOpacity)
+        #expect(GlassLevel.frosted.overlayScrimOpacity == GlassLevel.solid.overlayScrimOpacity)
+    }
+
+    // MARK: - Background intensity
+
+    @Test func frostedKeepsTheRetiredSliderDefault() {
+        // 0.65 was the old `liquidGlassIntensity` default, so a migrated install's window
+        // background is pixel-identical to what it rendered before the rework.
+        #expect(GlassLevel.frosted.backgroundIntensity == 0.65)
+    }
+
+    @Test func backgroundIntensityIsOrderedAndInRange() {
+        for level in GlassLevel.allCases {
+            #expect((0.0...1.0).contains(level.backgroundIntensity))
+        }
+        #expect(GlassLevel.clear.backgroundIntensity < GlassLevel.frosted.backgroundIntensity)
+        #expect(GlassLevel.frosted.backgroundIntensity < GlassLevel.solid.backgroundIntensity)
+    }
+
+    // MARK: - Explicit chrome
+
+    @Test func solidAlwaysDrawsItsOwnChrome() {
+        // Native Liquid Glass draws its own edge and shadow; an opaque panel has neither, so it
+        // must supply them or it reads as a flat rectangle with no lift.
+        #expect(GlassLevel.solid.needsExplicitChrome)
+    }
+
+    // MARK: - Shape is shape
+
+    @Test func surfaceStyleIsShapeOnly() {
+        // `solid` was a material answer inside the shape control: it silently overrode the glass
+        // setting, so "Solid" meant two different things in two pickers. It lives on GlassLevel now.
+        #expect(SurfaceStyle.allCases.map(\.rawValue) == ["unified", "cards"])
+        #expect(SurfaceStyle(rawValue: "solid") == nil)
+    }
+
+    @Test func everyLevelAndStyleIsLabelledAndExplained() {
+        for level in GlassLevel.allCases {
+            #expect(!level.displayName.isEmpty)
+            #expect(!level.detail.isEmpty)
+        }
+        for style in SurfaceStyle.allCases {
+            #expect(!style.displayName.isEmpty)
+            #expect(!style.detail.isEmpty)
+        }
+    }
+
+    // MARK: - Migration
+
+    /// A defaults suite scoped to one test, so migrations can't leak into the real domain.
+    private func makeDefaults(_ name: String = UUID().uuidString) -> UserDefaults {
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
+    @Test func anyStoredIntensityBecomesFrosted() {
+        // The old value can't be read as a number: `surfaceCard` hard-coded `.regular` and ignored
+        // it, so the panes rendered frosted at EVERY setting. Frosted preserves what installs
+        // actually looked like — including this user's 0.15, which is what surfaced the bug.
+        for intensity in [0.0, 0.15, 0.33, 0.65, 1.0] {
+            let d = makeDefaults()
+            d.set(intensity, forKey: LiquidGlass.intensityKey)
+            LiquidGlass.migrateLegacyAppearance(d)
+            #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.frosted.rawValue)
+        }
+    }
+
+    @Test func storedIntensityIsClearedOut() {
+        let d = makeDefaults()
+        d.set(0.15, forKey: LiquidGlass.intensityKey)
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.object(forKey: LiquidGlass.intensityKey) == nil)
+    }
+
+    @Test func retiredSolidSurfaceStyleBecomesSolidGlassOnUnified() {
+        // A stored `SurfaceStyle.solid` was a material choice. It becomes `GlassLevel.solid` with
+        // the shape reset to unified — which is what those installs already rendered, since the
+        // opaque fill hid whether cards floated underneath.
+        let d = makeDefaults()
+        d.set("solid", forKey: LiquidGlass.surfaceStyleKey)
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.solid.rawValue)
+        #expect(d.string(forKey: LiquidGlass.surfaceStyleKey) == SurfaceStyle.unified.rawValue)
+    }
+
+    @Test func cardsSurfaceStyleSurvivesMigration() {
+        // Shape is orthogonal to material: migrating the material must not disturb it.
+        let d = makeDefaults()
+        d.set("cards", forKey: LiquidGlass.surfaceStyleKey)
+        d.set(0.15, forKey: LiquidGlass.intensityKey)
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.string(forKey: LiquidGlass.surfaceStyleKey) == SurfaceStyle.cards.rawValue)
+        #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.frosted.rawValue)
+    }
+
+    @Test func migrationNeverOverwritesAChosenLevel() {
+        // Runs on every launch (App.init can re-run), so it must be a no-op once the key exists —
+        // otherwise it would stamp Frosted back over the user's pick on the next launch.
+        let d = makeDefaults()
+        d.set(GlassLevel.clear.rawValue, forKey: LiquidGlass.levelKey)
+        d.set(0.9, forKey: LiquidGlass.intensityKey)
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.clear.rawValue)
+    }
+
+    @Test func migrationIsIdempotent() {
+        let d = makeDefaults()
+        d.set("solid", forKey: LiquidGlass.surfaceStyleKey)
+        LiquidGlass.migrateLegacyAppearance(d)
+        LiquidGlass.migrateLegacyAppearance(d)
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.solid.rawValue)
+        #expect(d.string(forKey: LiquidGlass.surfaceStyleKey) == SurfaceStyle.unified.rawValue)
+    }
+
+    @Test func freshInstallLandsOnFrosted() {
+        // Nothing stored at all: the standard Liquid Glass material, matching the @AppStorage
+        // defaults every view declares.
+        let d = makeDefaults()
+        LiquidGlass.migrateLegacyAppearance(d)
+        #expect(d.string(forKey: LiquidGlass.levelKey) == GlassLevel.frosted.rawValue)
+        #expect(GlassLevel(rawValue: d.string(forKey: LiquidGlass.levelKey)!) == .frosted)
+    }
+
+    // MARK: - Gutter
+
+    @Test func cardGutterReadsAsSeparation() {
+        // At the previous 3pt the gap sat below the threshold where it registers as separation,
+        // making Cards nearly indistinguishable from Unified against a 14pt corner radius.
+        #expect(LiquidGlass.cardGutter >= 8)
+    }
+}

@@ -1,4 +1,5 @@
 import SwiftUI
+import Design
 import Sync
 import Events
 import Settings
@@ -61,6 +62,11 @@ struct SyncCloudApp: App {
         // the delegate's applicationDidFinishLaunching, which fires exactly once — App.init can be
         // re-run by SwiftUI, which would otherwise emit a duplicate "launched" line each time.)
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
+
+        // Move a pre-GlassLevel install onto the two-control Appearance model before any
+        // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init calls
+        // noted above are harmless.
+        LiquidGlass.migrateLegacyAppearance()
 
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse

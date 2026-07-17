@@ -12,7 +12,9 @@ public struct DifferencesView: View {
     /// keeps it alive — and keeps the view mounted — for the whole review.
     @ObservedObject private var reviewStore: ReviewSessionStore
     @StateObject private var modifierTracker = ModifierTracker()
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
@@ -163,7 +165,7 @@ public struct DifferencesView: View {
             .buttonBorderShape(.capsule)
             .controlSize(.large)
             .font(.body)
-            .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
 
             // Table card: review card / progress (during ops) sits above the differences table.
             VStack(spacing: 0) {
@@ -174,7 +176,7 @@ public struct DifferencesView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .bottomSectionCard(surfaceStyle, intensity: glassIntensity, hue: glassHue, tint: surfaceTint)
+            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
         // Match the pane cards' gutter so the bottom cards line up with the panes above.
         .padding(LiquidGlass.cardGutter)

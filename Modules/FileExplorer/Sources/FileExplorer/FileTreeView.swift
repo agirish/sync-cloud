@@ -102,15 +102,13 @@ public struct FileTreeView: View {
         )
     }
 
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    // No surface style here: the pane's shape is decided by its container (`paneCardIfNeeded` /
+    // `panesRegionFrame`), and its material by the glass level. This view only paints the tint.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     /// List-density setting (H7), read ONCE here and injected into every row — a per-row
     /// @AppStorage would register a defaults observer per visible row.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
-    private var surfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
-    }
     private var density: ListDensity {
         ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
@@ -216,7 +214,7 @@ public struct FileTreeView: View {
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
-        .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
+        .contentSurface(hue: glassHue, tint: surfaceTint)
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
             if !selectedNodes.isEmpty {

@@ -29,7 +29,9 @@ public struct SyncHistoryView: View {
     /// The date-range gate, as a preset the picker offers.
     @State private var dateRange: DateRange = .all
     @State private var searchText: String = ""
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     /// List-density setting (H7): comfortable renders exactly the pre-setting look; compact
     /// tightens the row spacing so more history records fit on screen.
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
@@ -145,7 +147,7 @@ public struct SyncHistoryView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .glassBarStyle(intensity: glassIntensity)
+        .glassBarStyle(level: glassLevel)
     }
 
     // MARK: Search
@@ -168,7 +170,7 @@ public struct SyncHistoryView: View {
             }
         }
         .padding(12)
-        .glassBarStyle(intensity: glassIntensity)
+        .glassBarStyle(level: glassLevel)
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }

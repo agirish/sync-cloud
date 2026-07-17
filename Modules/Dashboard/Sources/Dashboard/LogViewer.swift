@@ -107,7 +107,9 @@ public struct LogViewer: View {
     /// Drives the one-tap suggestion row: shown only while the field has the caret, exactly like
     /// Compare's search.
     @FocusState private var searchFocused: Bool
-    @AppStorage(LiquidGlass.intensityKey) private var glassIntensity: Double = 0.65
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     /// The glass hue, so the accent-tinted chrome (token chips, the selected severity chip)
     /// matches the hue every other window passes to the same components — Tidy hands this exact
     /// tint to `TokenChipsRow`; the Log window used to hardcode `Color.accentColor` instead.
@@ -260,7 +262,7 @@ public struct LogViewer: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .glassBarStyle(intensity: glassIntensity)
+            .glassBarStyle(level: glassLevel)
 
             Divider()
                 .opacity(0.6)
@@ -311,7 +313,7 @@ public struct LogViewer: View {
                 }
             }
             .padding(12)
-            .glassBarStyle(intensity: glassIntensity)
+            .glassBarStyle(level: glassLevel)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             

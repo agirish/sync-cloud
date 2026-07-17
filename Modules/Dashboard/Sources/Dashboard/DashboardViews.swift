@@ -44,12 +44,10 @@ public struct PaneHeader: View {
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
-    @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
+    // No surface style here: the header's shape comes from its container, its material from the
+    // glass level. This view only paints the tint.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
-    private var surfaceStyle: SurfaceStyle {
-        SurfaceStyle(rawValue: surfaceStyleRaw) ?? .unified
-    }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
@@ -190,7 +188,7 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
+        .contentSurface(hue: glassHue, tint: surfaceTint)
     }
 
     /// The brand-tinted provider capsule (UX H2: the hue tints the name and washes softly behind

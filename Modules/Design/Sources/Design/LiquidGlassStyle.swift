@@ -126,24 +126,32 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     }
 }
 
-/// How the bottom workspace (Differences / Details) surfaces sit against the app's glass
-/// background. The three cases differ only in translucency, so the panel can blend into the
-/// window glass like the file panes, or read as a distinct, opaque panel for legibility.
-/// Stored in UserDefaults via `LiquidGlass.surfaceStyleKey`.
-public enum SurfaceStyle: String, CaseIterable, Identifiable {
-    /// No fill: the window's glass shows straight through — one continuous surface.
-    case unified
-    /// Each pane and the Differences area float as separate frosted cards on the background.
-    case cards
-    /// Flat, fully opaque panels for maximum legibility.
+/// How much the glass surfaces obscure what is behind them — the *material* half of the
+/// Appearance model. Orthogonal to `SurfaceStyle`, which controls *shape*: any level can be
+/// combined with any shape.
+///
+/// All three cases are Liquid Glass on macOS 26 except `.solid`. `.frosted` is `.regular`, the
+/// standard system material (Control Center, the menu bar, Finder's sidebar) — translucent and
+/// blurred, but content on top stays legible. `.clear` is the specialist variant: glass with no
+/// frost, for surfaces sitting over the window's gradient rather than over content.
+///
+/// Replaces the old `liquidGlassIntensity` Double, which presented a 0–100% continuum over an
+/// API that only has two states — every value below 0.33 rendered identically, as did every
+/// value above it. Stored in UserDefaults via `LiquidGlass.levelKey`.
+public enum GlassLevel: String, CaseIterable, Identifiable {
+    /// Glass with no frost: the background reads straight through.
+    case clear
+    /// Standard Liquid Glass — translucent and blurred, legible on top.
+    case frosted
+    /// Opaque panels. The only case with no translucency at all.
     case solid
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .unified: return "Unified"
-        case .cards: return "Cards"
+        case .clear: return "Clear"
+        case .frosted: return "Frosted"
         case .solid: return "Solid"
         }
     }
@@ -151,12 +159,81 @@ public enum SurfaceStyle: String, CaseIterable, Identifiable {
     /// One-line explanation shown under the Settings picker.
     public var detail: String {
         switch self {
+        case .clear:
+            return "Glass with no frost — the window's background reads through every surface."
+        case .frosted:
+            return "Standard Liquid Glass: translucent and blurred, with content on top staying legible."
+        case .solid:
+            return "Opaque panels for maximum readability, with no translucency."
+        }
+    }
+
+    /// The level overlay chrome actually renders at. Settings, Help, the first-run card and the
+    /// operation banner are the only surfaces with dense app content behind them rather than the
+    /// window's gradient, and clear glass over text is two layers of text competing — so `.clear`
+    /// resolves to `.frosted` there. Apple draws the same line: Control Center is glass, alerts
+    /// and sheets are not. `.frosted` and `.solid` pass through untouched.
+    public var flooredForOverlay: GlassLevel {
+        self == .clear ? .frosted : self
+    }
+
+    /// Backdrop dimming behind an overlay. `.clear` deepens it so the app recedes further and the
+    /// floored-to-frosted card reads cleanly against it — Apple's documented advice for `.clear`
+    /// glass is to pair it with a dimming layer.
+    public var overlayScrimOpacity: Double {
+        self == .clear ? 0.55 : 0.35
+    }
+
+    /// Strength of the app background gradient, 0...1. `.frosted` keeps 0.65 — the old intensity
+    /// slider's default — so migrating installs see an unchanged background. `.clear` drops the
+    /// wash (nothing frosts it, so it would read as flat color), `.solid` maxes it (only the
+    /// window edges show it at all).
+    public var backgroundIntensity: Double {
+        switch self {
+        case .clear: return 0.0
+        case .frosted: return 0.65
+        case .solid: return 1.0
+        }
+    }
+
+    /// Whether this level must draw its own hairline edge and drop shadow. Native Liquid Glass
+    /// draws both itself; an opaque panel has neither, and so does the macOS 15 material fallback.
+    public var needsExplicitChrome: Bool {
+        if self == .solid { return true }
+        if #available(macOS 26.0, *) { return false }
+        return true
+    }
+}
+
+/// How the content surfaces are *shaped* against the app's glass background — the other half of
+/// the Appearance model, orthogonal to `GlassLevel`. Stored via `LiquidGlass.surfaceStyleKey`.
+///
+/// Formerly carried a third `solid` case, which was a material answer inside a shape control: it
+/// silently overrode the glass setting, so "Solid" meant two different things in two pickers.
+/// That case is now `GlassLevel.solid`; `LiquidGlass.migrateLegacyAppearance` moves stored values
+/// across.
+public enum SurfaceStyle: String, CaseIterable, Identifiable {
+    /// The panes and the bottom workspace read as one continuous surface.
+    case unified
+    /// Each pane and the bottom workspace float as separate cards on the background.
+    case cards
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .unified: return "Unified"
+        case .cards: return "Cards"
+        }
+    }
+
+    /// One-line explanation shown under the Settings picker.
+    public var detail: String {
+        switch self {
         case .unified:
-            return "The panes and Differences area blend into the window's glass as one continuous surface."
+            return "The panes and the Differences area read as one continuous surface."
         case .cards:
             return "Each pane and the Differences area float as separate cards on the background."
-        case .solid:
-            return "The panes and Differences area use opaque panels for maximum readability."
         }
     }
 }
@@ -167,7 +244,9 @@ public enum LiquidGlass {
     /// Gutter around each floating card in Cards mode. The gap between two adjacent cards is 2×
     /// this; outer edges (sidebar side, window edge) show 1×. Shared by `surfaceCard` (panes) and
     /// the bottom-workspace padding so the top pane cards and the bottom cards line up.
-    public static let cardGutter: CGFloat = 3
+    /// At the previous 3pt this sat below the threshold where a gap reads as separation, which
+    /// made Cards nearly indistinguishable from Unified — the 14pt radius needs room to register.
+    public static let cardGutter: CGFloat = 8
     /// Corner radius for smaller elements (badges, buttons, inputs).
     public static let smallCornerRadius: CGFloat = 10
 
@@ -176,8 +255,11 @@ public enum LiquidGlass {
     /// Lighter shadow for inline elements.
     public static let subtleShadow = (color: Color.black.opacity(0.04), radius: CGFloat(6), x: CGFloat(0), y: CGFloat(2))
 
-    /// Global user-tunable intensity, stored in UserDefaults.
-    /// 0.0 = very subtle (less glass), 1.0 = very glassy (more transparency).
+    /// UserDefaults key for the selected `GlassLevel` (raw value).
+    public static let levelKey = "glassLevel"
+
+    /// UserDefaults key for the retired `liquidGlassIntensity` Double. Read only by
+    /// `migrateLegacyAppearance`, which clears it.
     public static let intensityKey = "liquidGlassIntensity"
 
     /// UserDefaults key for the selected liquid glass hue (raw value of `LiquidGlassHue`).
@@ -188,18 +270,40 @@ public enum LiquidGlass {
 
     /// UserDefaults key for the accent-color tint strength applied to surfaces (Double, 0...1).
     public static let tintKey = "contentSurfaceTint"
+
+    /// Moves a pre-`GlassLevel` install onto the new two-control model. Idempotent: once
+    /// `levelKey` is set this is a no-op, so it can run on every launch.
+    ///
+    /// Every stored intensity maps to `.frosted` rather than being read as a number. The old
+    /// value can't be honored faithfully because it never had one meaning: `surfaceCard`
+    /// hard-coded `.regular` and ignored it entirely, so the panes — the app's dominant surface —
+    /// rendered frosted at *every* setting. Mapping to `.frosted` preserves what installs
+    /// actually looked like, and matches the old slider's own 0.65 default.
+    ///
+    /// A stored `SurfaceStyle.solid` was a material choice, so it becomes `GlassLevel.solid` with
+    /// the shape reset to `.unified` — which is what those installs already rendered, since the
+    /// opaque fill hid whether cards were floating underneath.
+    public static func migrateLegacyAppearance(_ defaults: UserDefaults = .standard) {
+        guard defaults.string(forKey: levelKey) == nil else { return }
+
+        var level = GlassLevel.frosted
+        if defaults.string(forKey: surfaceStyleKey) == "solid" {
+            level = .solid
+            defaults.set(SurfaceStyle.unified.rawValue, forKey: surfaceStyleKey)
+        }
+        defaults.set(level.rawValue, forKey: levelKey)
+        defaults.removeObject(forKey: intensityKey)
+    }
 }
 
 // MARK: - View Extensions
 
 public extension View {
-    /// Applies an app-level background that makes Liquid Glass visible by providing subtle color/content behind it.
-    /// - Parameters:
-    ///   - intensity: 0.0 = very subtle, 1.0 = very glassy.
-    ///   - hue: The color theme for the gradient (defaults to `.blue` if invalid).
+    /// Applies an app-level background that makes Liquid Glass visible by providing subtle
+    /// color/content behind it.
     @ViewBuilder
-    func liquidGlassAppBackground(intensity: Double, hue: LiquidGlassHue = .blue) -> some View {
-        let t = max(0.0, min(1.0, intensity))
+    func liquidGlassAppBackground(level: GlassLevel, hue: LiquidGlassHue = .blue) -> some View {
+        let t = level.backgroundIntensity
         let colors = hue.gradientColors
         let opacities: [Double] = [0.06 + 0.16 * t, 0.05 + 0.14 * t, 0.04 + 0.10 * t]
         let gradientColors = zip(colors, opacities).map { $0.0.opacity($0.1) }
@@ -220,150 +324,149 @@ public extension View {
             }
         }
     }
-    
-    /// Applies a frosted glass card style: material background, rounded corners, soft shadow.
+
+    /// The material fill for one content surface. This is the single place the level → appearance
+    /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through
+    /// it, so they can't drift apart the way they did when each call site mapped a raw intensity
+    /// itself (the panes ignored it, the bottom workspace and the modals didn't).
     @ViewBuilder
-    func glassCardStyle(material: Material = .regularMaterial, intensity: Double = 0.65) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
+    func glassSurface(_ level: GlassLevel, cornerRadius: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        switch level {
+        case .solid:
+            self.background(Color(nsColor: .controlBackgroundColor), in: shape)
+        case .clear, .frosted:
+            if #available(macOS 26.0, *) {
+                self.glassEffect(level == .frosted ? .regular : .clear, in: .rect(cornerRadius: cornerRadius))
+            } else {
+                self.background(level == .frosted ? Material.thinMaterial : Material.ultraThinMaterial, in: shape)
+            }
+        }
+    }
+
+    /// Frosted glass card style for floating overlay chrome (Settings, Help, the first-run card,
+    /// the operation banner). Applies `flooredForOverlay`, so a `.clear` app never produces an
+    /// unreadable dialog — these are the only surfaces with live content behind them.
+    @ViewBuilder
+    func glassCardStyle(level: GlassLevel) -> some View {
+        let resolved = level.flooredForOverlay
+        let shape = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+        if resolved.needsExplicitChrome {
             self
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: LiquidGlass.cardCornerRadius))
-        } else {
-            self
-                .background(material.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
+                .glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
+                .clipShape(shape)
                 .shadow(
                     color: LiquidGlass.cardShadow.color,
                     radius: LiquidGlass.cardShadow.radius,
                     x: LiquidGlass.cardShadow.x,
                     y: LiquidGlass.cardShadow.y
                 )
-        }
-    }
-    
-    /// Lighter glass style for bars and inline panels.
-    @ViewBuilder
-    func glassBarStyle(intensity: Double = 0.65) -> some View {
-        let t = max(0.0, min(1.0, intensity))
-        if #available(macOS 26.0, *) {
-            self
-                .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: LiquidGlass.smallCornerRadius))
         } else {
-            self
-                .background(.ultraThinMaterial.opacity(0.55 + 0.35 * t))
-                .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous))
+            self.glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
         }
     }
 
-    /// Fills a region (a file pane or the Differences/Details workspace) per the selected surface
-    /// style, plus an optional accent-color wash driven by the Tint slider (`tint`, 0...1) that
-    /// applies to every style. `.unified` and `.cards` add no base fill (unified shows the app
-    /// glass directly; cards get their fill from `surfaceCard`); `.solid` is a flat opaque panel.
-    /// Apply it ONCE per region (don't stack it on nested views, or fills compound).
+    /// Lighter glass style for bars and inline panels. These sit over the window's own background
+    /// rather than over content, so they take the level verbatim — no floor.
     @ViewBuilder
-    func contentSurface(_ style: SurfaceStyle, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+    func glassBarStyle(level: GlassLevel) -> some View {
+        self.glassSurface(level, cornerRadius: LiquidGlass.smallCornerRadius)
+    }
+
+    /// The accent-color wash driven by the Tint slider (`tint`, 0...1). Applies to every shape and
+    /// level. Apply it ONCE per region (don't stack it on nested views, or washes compound).
+    ///
+    /// The opaque base for `.solid` is no longer applied here — that moved to `GlassLevel`, which
+    /// is where a material decision belongs. `SurfaceStyle` now only answers "one surface, or
+    /// floating cards".
+    @ViewBuilder
+    func contentSurface(hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
         // A transparent wash at tint 0, up to a clear-but-legible accent at tint 1. "None" gets no
         // wash at any tint: its accentColor falls back to the system accent (for controls), which
         // would repaint the surfaces with it here.
         let wash = hue == .none ? Color.clear : hue.accentColor.opacity(max(0.0, min(1.0, tint)) * 0.32)
-        switch style {
-        case .unified, .cards:
-            self.background(wash)
-        case .solid:
-            // Opaque base, then the accent wash on top so Solid can tint too.
-            self.background(wash).background(Color(nsColor: .controlBackgroundColor))
-        }
+        self.background(wash)
     }
 
-    /// Frosted floating-card decoration for the `.cards` style: material fill, rounded corners,
-    /// hairline border, soft shadow, and an outer gutter so the background shows between cards.
-    /// On macOS 26 the fill/border/shadow come from native `glassEffect` instead (matching
-    /// `glassCardStyle`), so Cards mode doesn't mix raw material with Liquid Glass in one window;
-    /// the gutter is layout and applies on both branches. No intensity reaches this decoration,
-    /// so the glass variant is always `.regular` (the ≥0.33 default in `glassCardStyle`'s mapping).
+    /// Floating-card decoration for the `.cards` shape: the level's fill, rounded corners, and an
+    /// outer gutter so the background shows between cards. Native Liquid Glass draws its own edge
+    /// and shadow; `.solid` and the macOS 15 fallback draw theirs explicitly.
     @ViewBuilder
-    func surfaceCard(cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
+    func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
         // Clip the content to the card shape first — the pane's contentSurface tint wash is a
-        // square fill, and without this it pokes past the rounded glass corners into the gutters
+        // square fill, and without this it pokes past the rounded corners into the gutters
         // (bottomSectionCard already clips the same way).
-        let clipped = self.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-        if #available(macOS 26.0, *) {
-            clipped
-                .glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-                .padding(LiquidGlass.cardGutter)
-        } else {
-            clipped
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.5)
-                )
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let filled = self.clipShape(shape).glassSurface(level, cornerRadius: cornerRadius)
+        if level.needsExplicitChrome {
+            filled
+                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
                 .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
                 .padding(LiquidGlass.cardGutter)
+        } else {
+            filled.padding(LiquidGlass.cardGutter)
         }
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
     @ViewBuilder
-    func paneCardIfNeeded(_ style: SurfaceStyle) -> some View {
-        if style == .cards { self.surfaceCard() } else { self }
+    func paneCardIfNeeded(_ style: SurfaceStyle, level: GlassLevel) -> some View {
+        if style == .cards { self.surfaceCard(level) } else { self }
     }
 
     /// Frames the whole panes region (both flush panes) so the top of the window reads as a
-    /// bounded container — matching the clipped, hairline-outlined sections of the bottom workspace
-    /// (`bottomSectionCard`). Applies to `.unified`/`.solid` only; in `.cards` each pane is already
-    /// its own floating card (`paneCardIfNeeded`), so this is a no-op to avoid a card-in-cards frame.
-    /// No `contentSurface` fill is added here — the panes fill themselves — so the accent tint isn't
-    /// applied twice in the top region.
+    /// bounded container — matching the clipped, hairline-outlined sections of the bottom
+    /// workspace (`bottomSectionCard`). Applies to `.unified` only; in `.cards` each pane is
+    /// already its own floating card (`paneCardIfNeeded`), so this is a no-op.
+    ///
+    /// The level supplies the fill: `.solid` needs an opaque base here (the panes' own
+    /// `contentSurface` only paints the tint wash), while glass levels let the window background
+    /// through, which is what "unified" means.
     @ViewBuilder
-    func panesRegionFrame(_ style: SurfaceStyle) -> some View {
+    func panesRegionFrame(_ style: SurfaceStyle, level: GlassLevel) -> some View {
         let radius = LiquidGlass.cardCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         switch style {
         case .cards:
             self
-        case .unified, .solid:
-            self
-                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.5)
-                )
+        case .unified:
+            let based = level == .solid
+                ? AnyView(self.glassSurface(.solid, cornerRadius: radius))
+                : AnyView(self)
+            based
+                .clipShape(shape)
+                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
                 .padding(LiquidGlass.cardGutter)
         }
     }
 
-    /// One section of the bottom workspace (the toolbar, or the table / Details) as a self-contained
-    /// card: applies the surface fill, then frames it — a floating frosted card for `.cards`, or a
-    /// clipped hairline-outlined region for `.unified`/`.solid`. Sections are stacked with a gap so
+    /// One section of the bottom workspace (the toolbar, or the table / Details) as a
+    /// self-contained card: applies the tint wash, then frames it — a floating card for `.cards`,
+    /// or a clipped hairline-outlined region for `.unified`. Sections are stacked with a gap so
     /// the toolbar reads separately from the data.
     @ViewBuilder
-    func bottomSectionCard(_ style: SurfaceStyle, intensity: Double = 0.65, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+    func bottomSectionCard(_ style: SurfaceStyle, level: GlassLevel, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
         let radius = LiquidGlass.cardCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let filled = self
-            .contentSurface(style, hue: hue, tint: tint)
-            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-        if style == .cards {
-            // Same macOS-26 gating as `glassCardStyle`/`surfaceCard`: native glass replaces the
-            // material/border/shadow stack; the macOS-15 fallback is unchanged.
-            if #available(macOS 26.0, *) {
-                let t = max(0.0, min(1.0, intensity))
-                filled
-                    .glassEffect(t > 0.33 ? .regular : .clear, in: .rect(cornerRadius: radius))
-            } else {
-                filled
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(.quaternary, lineWidth: 0.5)
-                    )
+            .contentSurface(hue: hue, tint: tint)
+            .clipShape(shape)
+        switch style {
+        case .cards:
+            let glassed = filled.glassSurface(level, cornerRadius: radius)
+            if level.needsExplicitChrome {
+                glassed
+                    .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
                     .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+            } else {
+                glassed
             }
-        } else {
-            filled
-                .overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .strokeBorder(.quaternary, lineWidth: 0.5)
-                )
+        case .unified:
+            // Unified blends into the window glass, so only `.solid` contributes a fill here.
+            let based = level == .solid
+                ? AnyView(filled.glassSurface(.solid, cornerRadius: radius))
+                : AnyView(filled)
+            based.overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
         }
     }
 }

@@ -33,9 +33,17 @@ import Testing
     }
 
     @Test func keywordMatchIsFound() {
-        // "blur" appears only as a keyword on the Glass intensity control, never in a title.
+        // "blur" appears only as a keyword on the Glass effect control, never in a title.
         let results = filterSettings(SettingsSearchIndex.all, query: "blur")
-        #expect(results.contains { $0.title == "Glass intensity" })
+        #expect(results.contains { $0.title == "Glass effect" })
+    }
+
+    @Test func solidIsFoundUnderGlassEffectNotContentSurface() {
+        // "Solid" moved from the shape control to the material one. Searching it must land on
+        // Glass effect alone — while it lived in both, the two controls' meanings blurred.
+        let results = filterSettings(SettingsSearchIndex.all, query: "solid")
+        #expect(results.contains { $0.title == "Glass effect" })
+        #expect(!results.contains { $0.title == "Content surface style" })
     }
 
     @Test func listDensityIsFindableByValueName() {

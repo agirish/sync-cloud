@@ -13,7 +13,7 @@ import Design
 /// resetting to full on hover exactly as the scheduler restarts its timer.
 struct OperationBannerView: View {
     let banner: OperationBanner
-    let glassIntensity: Double
+    let glassLevel: GlassLevel
     /// Whether the undo stack currently has something to undo. Combined with `banner.isUndoable`
     /// (the outcome is a single undo step) to decide whether to offer the button — so a banner
     /// whose operation has already been undone elsewhere doesn't show a dead Undo.
@@ -79,7 +79,7 @@ struct OperationBannerView: View {
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
-        .glassCardStyle(material: .ultraThickMaterial, intensity: glassIntensity)
+        .glassCardStyle(level: glassLevel)
         .onAppear { startCountdown() }
         .onHover { hovering in
             onHover(hovering)

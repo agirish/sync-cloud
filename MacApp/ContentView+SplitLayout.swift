@@ -119,7 +119,7 @@ extension ContentView {
                 let bottomHeight = panesHeight * fraction
                 VStack(spacing: 0) {
                     panesSplit
-                        .panesRegionFrame(surfaceStyle)
+                        .panesRegionFrame(surfaceStyle, level: glassLevel)
                         .frame(height: panesHeight - bottomHeight)
                     verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
                         .frame(height: dividerHeight)
@@ -160,7 +160,7 @@ extension ContentView {
             let railWidth = totalWidth * fraction
             HStack(spacing: 0) {
                 paneColumn(isLeft: true)
-                    .panesRegionFrame(surfaceStyle)
+                    .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: railWidth)
                 bottomPaneView
                     .frame(width: totalWidth - railWidth)

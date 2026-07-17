@@ -70,9 +70,8 @@ struct FirstRunOverlay: View {
     let leftProviderName: String
     let rightProviderName: String
     let providerCount: Int
-    let surfaceStyle: SurfaceStyle
     let glassHue: LiquidGlassHue
-    let glassIntensity: Double
+    let glassLevel: GlassLevel
     let surfaceTint: Double
     let onScan: (_ dontShowAgain: Bool) -> Void
     let onChooseProviders: (_ dontShowAgain: Bool) -> Void
@@ -94,7 +93,7 @@ struct FirstRunOverlay: View {
     var body: some View {
         ZStack {
             Rectangle()
-                .fill(Color.black.opacity(0.35))
+                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
                 .ignoresSafeArea()
                 .onTapGesture { onDismiss(dontShowAgain) }
 
@@ -105,27 +104,19 @@ struct FirstRunOverlay: View {
         .transition(.opacity)
     }
 
-    /// The card, decorated the same way as the settings card so the two in-window overlays
-    /// read as one system: surface-style fill + shared card radius, then an opaque panel
-    /// (`.solid`) or a frosted glass card tracking the glass-intensity slider.
+    /// The card, decorated the same way as the settings card so the in-window overlays read as one
+    /// system: the accent tint, then the glass material via `glassCardStyle` — which floors
+    /// `.clear` to `.frosted`, since this card sits over live app content.
     @ViewBuilder
     private var card: some View {
-        let shaped = cardContent
-            .contentSurface(surfaceStyle, hue: glassHue, tint: surfaceTint)
-            .clipShape(RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous))
-        let border = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-            .strokeBorder(.quaternary, lineWidth: 0.5)
-
-        switch surfaceStyle {
-        case .solid:
-            shaped
-                .overlay(border)
-                .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
-        case .unified, .cards:
-            shaped
-                .glassCardStyle(intensity: glassIntensity)
-                .overlay(border)
-        }
+        cardContent
+            .contentSurface(hue: glassHue, tint: surfaceTint)
+            .glassCardStyle(level: glassLevel)
+            .overlay(
+                RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                    .strokeBorder(.quaternary, lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
     private var cardContent: some View {
