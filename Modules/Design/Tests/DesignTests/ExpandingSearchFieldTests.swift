@@ -51,6 +51,23 @@ private final class RevealBox: ObservableObject {
         #expect(Self.isEditingText(window), "the revealed field must hold the caret — no second click")
     }
 
+    // MARK: Behaviour-preservation of the extraction
+
+    /// Compare's adoption has to be a no-op visually, and the risky part is the accessories slot:
+    /// the chips and suggestions used to be written inline as two siblings of a `VStack(spacing:
+    /// 7)`, and now arrive through a ViewBuilder closure as a nested `TupleView`. If SwiftUI
+    /// didn't flatten that, the 7pt spacing between them would change and Compare's header would
+    /// silently shift.
+    ///
+    /// So: the pre-extraction shape, reproduced verbatim, measured against the component in every
+    /// combination of chips and suggestions. Equal heights ⇒ the extraction preserved the layout.
+    @Test(arguments: [(false, false), (true, false), (false, true), (true, true)])
+    func matchesThePreExtractionLayout(showsChips: Bool, showsSuggestions: Bool) {
+        let legacy = LegacyCompareField(showsChips: showsChips, showsSuggestions: showsSuggestions)
+        let adopted = AdoptedCompareField(showsChips: showsChips, showsSuggestions: showsSuggestions)
+        #expect(laidOutHeight(legacy, width: 480) == laidOutHeight(adopted, width: 480))
+    }
+
     // MARK: Collapse semantics
 
     /// Escape and the toggle's second click share one path: collapsing always clears. A query
@@ -102,6 +119,85 @@ private final class RevealBox: ObservableObject {
     private static func isEditingText(_ window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return responder.isKind(of: NSTextView.self)
+    }
+}
+
+/// Stand-ins for Compare's accessories, shaped like the real ones (a chips capsule row and a
+/// one-tap suggestion row) so the two layouts below are measured with identical content.
+private struct AccessoryStubs {
+    @ViewBuilder
+    static var chips: some View {
+        HStack(spacing: 6) {
+            TokenChipsRow(items: [TokenChipsRow.Item(label: "kind: pdf", word: "kind:pdf", isActive: true)],
+                          tint: .blue, onRemove: { _ in })
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    static var suggestions: some View {
+        HStack(spacing: 6) {
+            Text("Add filter").font(.caption2).foregroundStyle(.tertiary).fixedSize()
+            Text("PDFs").font(.caption2).padding(.horizontal, 7).padding(.vertical, 2)
+                .background(Capsule().fill(.quaternary.opacity(0.6)))
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    static var trailing: some View {
+        Text("3 of 12").font(.caption).monospacedDigit().foregroundStyle(.secondary)
+    }
+}
+
+/// Compare's search field EXACTLY as it was written before the extraction (DifferencesView:765–806
+/// at `9733e2f`). The reference the adoption is measured against.
+private struct LegacyCompareField: View {
+    let showsChips: Bool
+    let showsSuggestions: Bool
+    @State private var text = "kind:pdf"
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                TextField("Search — try kind:pdf, >10mb, only:left", text: $text)
+                    .textFieldStyle(.plain)
+                    .focused($focused)
+                if !text.isEmpty {
+                    Button { text = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                AccessoryStubs.trailing
+            }
+            if showsChips { AccessoryStubs.chips }
+            if showsSuggestions { AccessoryStubs.suggestions }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .searchFieldSurface()
+    }
+}
+
+/// The same field, expressed through the extracted component the way `DifferencesView` now does.
+private struct AdoptedCompareField: View {
+    let showsChips: Bool
+    let showsSuggestions: Bool
+    @State private var text = "kind:pdf"
+
+    var body: some View {
+        ExpandingSearchField(
+            text: $text,
+            isExpanded: .constant(true),
+            placeholder: "Search — try kind:pdf, >10mb, only:left",
+            trailing: { AccessoryStubs.trailing },
+            accessories: { _ in
+                if showsChips { AccessoryStubs.chips }
+                if showsSuggestions { AccessoryStubs.suggestions }
+            }
+        )
     }
 }
 

@@ -38,7 +38,6 @@ public struct DifferencesView: View {
     /// the async first pass shows a briefly blank table, never a wrong "nothing here" flash.
     @State private var hasComputedRows = false
     @State private var isSearchExpanded = false
-    @FocusState private var searchFocused: Bool
     /// The review table's selection — doubles as the review cursor: advancing the session moves
     /// it, and clicking a pending row jumps the session. Separate from `selection` so entering
     /// and leaving review mode can't corrupt the normal table's selection.
@@ -432,21 +431,15 @@ public struct DifferencesView: View {
             // actually covers: only date-only differences whose sizes match are checksummed.
             .help("Checksum both sides of each same-size, date-only difference to confirm whether the contents actually differ")
         }
-        // Search collapses to an icon; clicking it reveals the field on a second
-        // line, which takes focus itself on appear (a FocusState write here, in
-        // the same transaction that inserts the field, can be silently dropped).
-        Button {
-            withAnimation(.easeOut(duration: 0.15)) {
-                isSearchExpanded.toggle()
-                if !isSearchExpanded { searchText = "" }
-            }
-        } label: {
-            Image(systemName: "magnifyingglass")
-        }
-        .buttonStyle(.borderless)
-        .foregroundStyle((isSearchExpanded || !searchText.isEmpty) ? glassHue.accentColor : Color.secondary)
-        .help("Search by name or path")
-        .accessibilityLabel("Search by name or path")
+        // Search collapses to an icon; clicking it reveals the field on a second line, which
+        // takes focus itself on appear. Both halves are Design's now — Tidy's five lenses drive
+        // the same two views, so the expand/collapse/Escape behaviour can't drift copy by copy.
+        ExpandingSearchToggle(
+            text: $searchText,
+            isExpanded: $isSearchExpanded,
+            accent: glassHue.accentColor,
+            help: "Search by name or path"
+        )
     }
 
     /// The header's review-mode trailing controls: position pill, running tally, and the
@@ -762,47 +755,36 @@ public struct DifferencesView: View {
     /// match count — plus, below, the parsed filter tokens (removable) and, while focused,
     /// one-tap suggestions. Typing `kind:pdf`, `>10mb`, or `only:left` narrows the list; anything
     /// else is a plain path substring, exactly as before.
+    ///
+    /// The field, its clear button, its Escape handling and its focus-on-appear are Design's
+    /// `ExpandingSearchField` — this view is where that mechanism came from, and it adopts the
+    /// extraction rather than keeping the original alongside five copies of it. What stays here
+    /// is what's genuinely Compare's: the "N of M" against the unfiltered total, and the chips /
+    /// suggestions, whose labels name the live panes ("only on iCloud").
     private func searchField(filteredCount: Int) -> some View {
         let tokens = DifferenceSearch.parse(searchText).tokens
         let chips = DifferenceSearch.chips(searchText)
-        return VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                TextField("Search — try kind:pdf, >10mb, only:left", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchFocused)
-                    // Focus is claimed here, once the field exists — not by the reveal button,
-                    // whose FocusState write lands in the transaction that inserts the field
-                    // and can fail silently. The one-turn defer outlives that transaction.
-                    .onAppear { Task { @MainActor in searchFocused = true } }
-                    .onExitCommand { collapseSearch() }
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
-                    .accessibilityLabel("Clear search")
-                }
+        return ExpandingSearchField(
+            text: $searchText,
+            isExpanded: $isSearchExpanded,
+            placeholder: "Search — try kind:pdf, >10mb, only:left",
+            trailing: {
                 if selectedFilter != .all || !searchText.isEmpty {
                     Text("\(filteredCount) of \(syncManager.differences.count)")
                         .font(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
+            },
+            accessories: { isFocused in
+                if !chips.isEmpty {
+                    tokenChips(chips)
+                }
+                if isFocused {
+                    suggestionRow(active: tokens)
+                }
             }
-            if !chips.isEmpty {
-                tokenChips(chips)
-            }
-            if searchFocused {
-                suggestionRow(active: tokens)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .searchFieldSurface()
+        )
     }
 
     /// The recognized filter words as removable chips (Design's shared `TokenChipsRow`): a human
@@ -876,14 +858,6 @@ public struct DifferencesView: View {
     /// The Copy/Move button label, reflecting the target count and the held move modifier.
     private func actionLabel(count: Int, to name: String) -> String {
         "\(modifierTracker.isMoveModifierPressed ? "Move" : "Copy") \(count) to \(name)"
-    }
-
-    /// Escape in the search field: clear the query and collapse back to the icon.
-    private func collapseSearch() {
-        withAnimation(.easeOut(duration: 0.15)) {
-            searchText = ""
-            isSearchExpanded = false
-        }
     }
 
     // MARK: Header actions
