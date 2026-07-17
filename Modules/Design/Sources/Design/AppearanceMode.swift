@@ -80,8 +80,20 @@ public enum AppAppearance {
     }
 
     /// Pins (or, for `.system`, un-pins) the whole app's appearance.
+    ///
+    /// The per-window pass exists because `NSApplication.appearance` alone is not enough for a
+    /// window that is already on screen: its SwiftUI content re-resolves, but the macOS 26 glass
+    /// title-bar band keeps drawing with the appearance it was created under, so a Dark → Light
+    /// switch left a dark toolbar strip on a light window until relaunch. Re-asserting the value
+    /// on each open window makes AppKit rebuild the title-bar backing. Windows created later
+    /// inherit from `NSApp` (their `appearance` stays nil under `.system`), so the pass never
+    /// needs re-running for them.
     public static func apply(_ mode: AppearanceMode) {
-        NSApplication.shared.appearance = mode.nsAppearance
+        let appearance = mode.nsAppearance
+        NSApplication.shared.appearance = appearance
+        for window in NSApplication.shared.windows {
+            window.appearance = appearance
+        }
     }
 
     /// Applies whatever is stored. Idempotent, so it is safe on every launch and on every change.

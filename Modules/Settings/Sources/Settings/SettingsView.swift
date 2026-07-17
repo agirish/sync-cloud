@@ -233,7 +233,7 @@ public struct SettingsView: View {
 // MARK: - Settings search
 
 /// One searchable settings control: the tab it lives on, its display title, and a few
-/// synonyms/keywords so a search for "blur" finds "Glass intensity" and "trash" finds the
+/// synonyms/keywords so a search for "blur" finds "Glass effect" and "trash" finds the
 /// delete confirmation. Pure data with a pure match — no SwiftUI — so the filter is unit-testable.
 struct SettingsSearchEntry: Identifiable, Sendable {
     let tab: SettingsView.SettingsTab
@@ -274,8 +274,13 @@ enum SettingsSearchIndex {
               keywords: ["quit", "warn", "confirm quit", "close", "exit"]),
 
         // Appearance
+        // "theme" lives here, not on Accent color: since the Theme control exists, that word
+        // means light/dark to users, and matching it on the accent row steered them wrong.
+        .init(tab: .appearance, title: "Theme",
+              keywords: ["theme", "light", "dark", "dark mode", "light mode", "appearance",
+                         "system", "night", "follow macos"]),
         .init(tab: .appearance, title: "Accent color",
-              keywords: ["accent", "color", "colour", "hue", "theme", "highlight"]),
+              keywords: ["accent", "color", "colour", "hue", "highlight"]),
         .init(tab: .appearance, title: "Glass effect",
               keywords: ["glass", "translucency", "transparency", "frosted", "clear", "solid",
                          "blur", "liquid glass", "material", "opaque", "see-through"]),

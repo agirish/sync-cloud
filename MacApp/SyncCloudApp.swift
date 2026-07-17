@@ -63,15 +63,22 @@ struct SyncCloudApp: App {
         // re-run by SwiftUI, which would otherwise emit a duplicate "launched" line each time.)
         Logger.shared.minimumLevel = Logger.persistedMinimumLevel()
 
-        // Move a pre-GlassLevel install onto the two-control Appearance model before any
-        // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init calls
-        // noted above are harmless.
-        LiquidGlass.migrateLegacyAppearance()
+        // Not under tests: the migration writes into the real defaults domain and the theme pin
+        // sets the shared NSApp's appearance from the developer's stored preference — both are
+        // launch behavior, and the test host rendering appearance-sensitive UI must not depend
+        // on the machine it runs on.
+        if !isRunningTests {
+            // Move a pre-GlassLevel install onto the two-control Appearance model before any
+            // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
+            // calls noted above are harmless.
+            LiquidGlass.migrateLegacyAppearance()
 
-        // Pin the app's light/dark theme before any window exists, so a pinned appearance is what
-        // the first frame draws rather than a flash of the system one. Settings re-applies on
-        // change; `.system` (the default) assigns nil, which is AppKit for "follow macOS".
-        AppAppearance.applyPersisted()
+            // Pin the app's light/dark theme before any window exists, so a pinned appearance is
+            // what the first frame draws rather than a flash of the system one. Settings
+            // re-applies on change; `.system` (the default) assigns nil — AppKit for "follow
+            // macOS".
+            AppAppearance.applyPersisted()
+        }
 
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse

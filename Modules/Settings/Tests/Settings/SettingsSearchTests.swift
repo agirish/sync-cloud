@@ -46,6 +46,19 @@ import Testing
         #expect(!results.contains { $0.title == "Content surface style" })
     }
 
+    @Test func themeIsFindableAndOwnsTheThemeKeyword() {
+        // The Theme control governs light/dark, so the words people type for that must land on
+        // it — including "theme" itself, which used to be an Accent color keyword and steered
+        // searches at the wrong control.
+        for query in ["theme", "dark mode", "light", "system", "appearance"] {
+            let results = filterSettings(SettingsSearchIndex.all, query: query)
+            #expect(results.contains { $0.title == "Theme" && $0.tab == .appearance },
+                    "'\(query)' should surface the Theme control")
+        }
+        #expect(!filterSettings(SettingsSearchIndex.all, query: "theme")
+            .contains { $0.title == "Accent color" })
+    }
+
     @Test func listDensityIsFindableByValueName() {
         // H7: the new density control must be findable like its Appearance neighbors —
         // both by title and by the value words people would type.

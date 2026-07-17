@@ -29,6 +29,7 @@ import SwiftUI
         #expect(AccentLabel.relativeLuminance(red: 0, green: 0, blue: 0) == 0)
     }
 
+    @MainActor
     @Test func currentAccentResolvesWithoutCrashing() {
         // Whatever accent the test host runs under, the dynamic resolution must produce a
         // decision (exercises the usingColorSpace conversion path).

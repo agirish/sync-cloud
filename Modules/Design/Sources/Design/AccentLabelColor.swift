@@ -29,8 +29,20 @@ public enum AccentLabel {
     /// The current pairing for `NSColor.controlAccentColor`. Resolved on every call — never cached
     /// at launch — so a System Settings accent change picks up the right pairing on the app's next
     /// render (the system triggers one when the accent changes).
+    ///
+    /// Resolved under the app's *effective* appearance, not `NSAppearance.currentDrawing()`: during
+    /// a SwiftUI body evaluation the drawing appearance isn't guaranteed to be the one the fill
+    /// will render under, and with the Theme control pinning the app against the system the two
+    /// can genuinely differ. Graphite is the accent that makes this visible — its light and dark
+    /// variants straddle the 0.30 luminance cutoff, so pairing against the wrong variant flips
+    /// the label to the illegible side.
+    @MainActor
     public static var currentPrefersDarkText: Bool {
-        guard let accent = NSColor.controlAccentColor.usingColorSpace(.sRGB) else { return false }
+        var resolved: NSColor?
+        NSApplication.shared.effectiveAppearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor.controlAccentColor.usingColorSpace(.sRGB)
+        }
+        guard let accent = resolved else { return false }
         return prefersDarkText(red: accent.redComponent, green: accent.greenComponent, blue: accent.blueComponent)
     }
 }
@@ -39,6 +51,7 @@ public extension Color {
     /// Text/glyph color for content drawn on a `Color.accentColor` fill: near-black on light
     /// accents (Yellow), white otherwise. See `AccentLabel` for why the AppKit "system pairing"
     /// color can't do this job.
+    @MainActor
     static var onAccentLabel: Color {
         AccentLabel.currentPrefersDarkText ? Color.black.opacity(0.85) : .white
     }
