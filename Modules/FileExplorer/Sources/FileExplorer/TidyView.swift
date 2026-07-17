@@ -119,10 +119,16 @@ public struct TidyView: View {
     /// carry the host's side effect — re-homing the source rail onto the new lens's folder.
     @Binding private var lens: TidyLens
     @State private var filter: TidyFilter = .all
-    /// Token search over the duplicate list (`kind:`, size, name); ANDed with `filter`.
-    @State private var dupSearchText: String = ""
-    /// Drives the one-tap suggestion row under the search field: shown only while it holds the caret.
-    @FocusState private var dupSearchFocused: Bool
+    /// Each lens's live query, kept SEPARATELY rather than as one shared field.
+    ///
+    /// Not tidiness — correctness. The grammars are deliberately per-lens, so a query carried
+    /// across a tab switch would change meaning silently: `kind:pdf >5mb` typed in Duplicates
+    /// lands in Rename, which declares no size token, so `>5mb` degrades to free text and matches
+    /// nothing. The user would see an empty Rename lens with no visible cause. Each lens keeps
+    /// (and re-enters) its own query instead.
+    @State private var searchQueries: [TidyLens: String] = [:]
+    /// Which lenses currently have the field revealed — per-lens for the same reason.
+    @State private var searchExpandedLenses: Set<TidyLens> = []
     @State private var expanded: Set<UUID> = []
     @State private var showSpendHistory = false
     /// H5 — bytes reclaimed so far this Duplicates session (view-level only; see ``ReclaimTally``).
@@ -151,8 +157,13 @@ public struct TidyView: View {
     /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
     @State private var ruleConditionChoice: AutomationCondition?
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
-    /// review pass (Cancel keeps it as created; it stays editable under Automations).
+    /// review pass (Cancel keeps it as created; it stays editable under Automations). Also backs
+    /// the header card's "New rule", so a blank rule and a taught one share one editor.
     @State private var reviewingAutomationRule: AutomationRule?
+    /// The Automations lens's host-owned view state. It lives up here because the lens's controls
+    /// now ride the shared header card: "Preview all" is rendered by this view and has to flip the
+    /// lens into its results view.
+    @StateObject private var automationsState = AutomationsLensState()
 
     private let providerName: String?
     /// The folder a rescan would target — the focused pane's current directory. Lets both lenses
@@ -236,13 +247,107 @@ public struct TidyView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
-    /// The duplicate groups after the match-type filter AND the token search. Parses the query and
-    /// walks every group, so it's resolved ONCE per render in `lensBody` and passed down — the
-    /// summary "N of M", the empty-check, the list's ForEach, and its animation key all read the
-    /// same resolved array instead of re-filtering per call site.
-    private var filteredGroups: [DuplicateGroup] {
-        let query = DuplicateSearch.parse(dupSearchText)
-        return syncManager.duplicateGroups.filter { filter.matches($0) && query.matches($0) }
+    // MARK: Search state
+
+    /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
+    /// rather than carrying it into a grammar that would read it differently.
+    private var searchText: Binding<String> {
+        Binding(get: { searchQueries[lens] ?? "" }, set: { searchQueries[lens] = $0 })
+    }
+
+    private var isSearchExpanded: Binding<Bool> {
+        Binding(
+            get: { searchExpandedLenses.contains(lens) },
+            set: { expanded in
+                if expanded { searchExpandedLenses.insert(lens) } else { searchExpandedLenses.remove(lens) }
+            }
+        )
+    }
+
+    private var query: String { searchQueries[lens] ?? "" }
+    /// True when this lens's list is narrowed by anything — the cue for the "N of M" readout.
+    private var isFiltered: Bool {
+        !query.isEmpty || (lens == .duplicates && filter != .all)
+    }
+
+    /// The parsed tokens of this lens's query, as chips. Each lens's own grammar answers, so a
+    /// chip is only ever offered for a token that lens can actually bind.
+    private var searchChips: [TokenChipsRow.Item] {
+        func items<C: DimmableTokenChip>(_ chips: [C], label: (C) -> String, word: (C) -> String) -> [TokenChipsRow.Item] {
+            chips.map { TokenChipsRow.Item(label: label($0), word: word($0), isActive: $0.isActive) }
+        }
+        switch lens {
+        case .duplicates:
+            return items(DuplicateSearch.chips(query), label: \.label, word: \.raw)
+        case .rename:
+            return items(RiskyNameSearch.chips(query), label: \.label, word: \.raw)
+        case .filing:
+            return items(FilingSearch.chips(query), label: \.label, word: \.raw)
+        case .automations:
+            return items(AutomationSearch.chips(query), label: \.label, word: \.raw)
+        case .storage:
+            return items(StorageSearch.chips(query), label: \.label, word: \.raw)
+        }
+    }
+
+    /// A chip's ✕ edits its exact word back out of THIS lens's raw query.
+    private func removeSearchChip(_ word: String) {
+        searchQueries[lens] = TokenQuery.removing(query, word: word)
+    }
+
+    // MARK: Filtered rows
+
+    /// One lens's rows after its own search, resolved ONCE per render in `body` and handed to both
+    /// the header card and the content below.
+    ///
+    /// Two consumers, one value — and that is the safety property, not an optimization. The header
+    /// counts these rows and labels a destructive button with the number ("Trash all 3"); the
+    /// action iterates this same array. Recomputing either from an unfiltered source is what makes
+    /// a button destroy items the user can't see.
+    private struct FilteredRows {
+        var duplicates: [DuplicateGroup] = []
+        var risky: [RiskyName] = []
+        var filing: [FilingSuggestion] = []
+        var rules: [AutomationRule] = []
+    }
+
+    /// Resolves only the ACTIVE lens's rows — the other four aren't on screen, and each of these
+    /// parses a query and walks a collection.
+    private var filteredRows: FilteredRows {
+        var rows = FilteredRows()
+        switch lens {
+        case .duplicates:
+            let q = DuplicateSearch.parse(query)
+            rows.duplicates = syncManager.duplicateGroups.filter { filter.matches($0) && q.matches($0) }
+        case .rename:
+            let q = RiskyNameSearch.parse(query)
+            rows.risky = syncManager.riskyNames.filter { q.matches($0) }
+        case .filing:
+            let q = FilingSearch.parse(query)
+            // Filtered UPSTREAM of FilingSuggestionGrouping: the sections are derived from these
+            // rows, so an emptied tier's header falls away with it instead of heading nothing.
+            rows.filing = syncManager.filingSuggestions.filter { q.matches($0) }
+        case .automations:
+            let q = AutomationSearch.parse(query)
+            rows.rules = syncManager.automationRules.filter { q.matches($0) }
+        case .storage:
+            break   // StorageLensView filters its own three lists from `storageQuery`
+        }
+        return rows
+    }
+
+    /// Storage's parsed query. Its report holds three ranked lists rather than one collection, and
+    /// `StorageLensView` brings its own content card, so the query goes down and the lists are
+    /// filtered there — see `StorageSearch` for why the treemap is deliberately left whole.
+    private var storageQuery: StorageSearch.Query { StorageSearch.parse(query) }
+
+    /// The counts behind Storage's "N of M": the three ranked lists, before and after the query.
+    private var storageCounts: (filtered: Int, total: Int) {
+        guard let report = syncManager.storageLensReport else { return (0, 0) }
+        let lists = [report.largest, report.stale, report.reclaimCandidates]
+        let q = storageQuery
+        return (lists.reduce(0) { $0 + $1.filter { q.matches($0) }.count },
+                lists.reduce(0) { $0 + $1.count })
     }
 
     /// Per-filter group counts for the filter menu's badges, in ONE pass over the groups (the menu
@@ -255,26 +360,19 @@ public struct TidyView: View {
         return counts
     }
     private var hasResults: Bool { !syncManager.duplicateGroups.isEmpty }
-    private var recommendedCount: Int {
-        syncManager.duplicateGroups.filter { $0.isRecommendedForBatch }.count
-    }
-
-    /// Whether the toolbar card has anything to render for the current lens (a results summary,
-    /// batch action, or the Filing spend row). Duplicates/Organize only earn it once they have
-    /// results; Names/Automations render their own chrome, so their toolbar card is always empty.
-    private var toolbarHasContent: Bool {
-        switch lens {
-        case .duplicates: return hasResults
-        case .filing: return hasFilingResults || spendTotals.scans > 0
-        case .rename, .automations, .storage: return false
-        }
-    }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            lensTabs
+        // Resolve this lens's rows ONCE and hand the same value to the header and the content —
+        // see `FilteredRows`.
+        let rows = filteredRows
+        return VStack(spacing: 0) {
+            // The header card heads the workspace in EVERY lens and EVERY state, so its bottom
+            // edge lands on 83.5 — the file pane's header/list boundary — no matter what's been
+            // scanned. The `sourceBar` sits below it (and only ever appears when the source rail
+            // is collapsed, i.e. when there's no pane left to line up with anyway).
+            lensHeaderCard(rows: rows)
             if showSourcePicker { sourceBar }
-            lensBody
+            lensBody(rows: rows)
         }
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
@@ -308,20 +406,53 @@ public struct TidyView: View {
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
             if isScanning {
                 reclaim.reset()
-                dupSearchText = ""
+                searchQueries[.duplicates] = ""
             }
+        }
+        // Same reasoning for the other scanning lenses: a query left over from the previous
+        // results would silently pre-filter the new scan's rows.
+        .onChange(of: syncManager.isScanningNames) { _, isScanning in
+            if isScanning { searchQueries[.rename] = "" }
+        }
+        .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
+            if isScanning { searchQueries[.filing] = "" }
+        }
+        .onChange(of: syncManager.isBuildingStorageLens) { _, isBuilding in
+            if isBuilding { searchQueries[.storage] = "" }
         }
     }
 
-    /// The lens tabs, heading the workspace they switch. They used to sit in a 44pt strip up in the
-    /// window chrome, one level under a Compare | Tidy segmented control that has since moved into
-    /// the title bar; down here they're the primary control of this workspace rather than a
-    /// subordinate second row, and the strip's height goes back to the content.
+    // MARK: Header card
+
+    /// The one header of this workspace: lens tabs and this lens's controls on row 1, what the
+    /// lens found on row 2, and the search below — 81pt at rest, in every lens and every state.
     ///
-    /// Deliberately *not* folded into `toolbarCard`: that card only renders once a lens has results
-    /// (`toolbarHasContent`), so tabs riding it would shift down the moment a scan landed. They head
-    /// the VStack instead, above the optional `sourceBar`, so their position is the one thing in this
-    /// workspace that never moves.
+    /// **This reverses `fd63c8b`'s reasoning, deliberately.** The tabs were kept off the old
+    /// toolbar card precisely because that card was results-gated and would shift them down the
+    /// moment a scan landed. Ungating the card is this change's premise, so that objection no
+    /// longer applies: the card is here in the intro, scanning, empty and clean states too, which
+    /// is exactly what lets the tabs ride it without ever moving.
+    private func lensHeaderCard(rows: FilteredRows) -> some View {
+        LensHeaderCard(
+            searchText: searchText,
+            isSearchExpanded: isSearchExpanded,
+            searchPlaceholder: TidyLensSearch.placeholder(for: lens),
+            searchHelp: TidyLensSearch.help(for: lens),
+            chips: searchChips,
+            onRemoveChip: removeSearchChip,
+            accent: glassHue.accentColor,
+            surfaceStyle: surfaceStyle,
+            level: glassLevel,
+            hue: glassHue,
+            tint: surfaceTint,
+            tabs: { lensTabs },
+            actions: { lensActions(rows: rows) },
+            summary: { lensSummary(rows: rows) },
+            trailing: { lensTrailing(rows: rows) }
+        )
+    }
+
+    /// The lens tabs — row 1 of the header card, and the primary control of this workspace.
     private var lensTabs: some View {
         HStack(spacing: 2) {
             ForEach(TidyLens.allCases) { tab in
@@ -332,6 +463,8 @@ public struct TidyView: View {
                         .foregroundStyle(isActive ? Color.primary : Color.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
+                        // An overlay, NOT a border or a stacked row: it adds ZERO height, which is
+                        // what keeps the tab row at 27 and the card at 81.
                         .overlay(alignment: .bottom) {
                             Rectangle()
                                 .fill(isActive ? glassHue.accentColor : Color.clear)
@@ -342,12 +475,11 @@ public struct TidyView: View {
                 .buttonStyle(.plain)
                 .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
             }
-            Spacer(minLength: 0)
         }
-        // Land the first tab's *text* on the same vertical rule as `sourceBar` and the card contents
-        // below: they sit at `cardInset + 12`, and each tab already pads itself by 8.
-        .padding(.horizontal, LiquidGlass.cardInset + 12 - 8)
-        .padding(.top, LiquidGlass.cardInset)
+        // Land the first tab's *text* on the card's own content rule: the card pads by 12 and each
+        // tab already pads itself by 8, so pull back that 8 — otherwise the tabs sit 8pt right of
+        // the stat pills directly beneath them.
+        .padding(.leading, -8)
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the
@@ -389,16 +521,99 @@ public struct TidyView: View {
         .padding(.bottom, LiquidGlass.cardInset)
     }
 
+    /// Row 1's trailing controls: this lens's actions, in the order the deck draws them (the
+    /// search toggle is appended by `LensHeaderCard` itself, always last).
+    ///
+    /// Each lens's controls are gated on having something to act on, but the CARD is not — an
+    /// empty row 1 keeps the tabs and the height exactly where they are.
     @ViewBuilder
-    private var lensBody: some View {
+    private func lensActions(rows: FilteredRows) -> some View {
+        switch lens {
+        case .duplicates:
+            if hasResults, !syncManager.isFindingDuplicates {
+                filterMenu
+                rescanDuplicatesButton
+                applyAllButton(rows.duplicates)
+            }
+        case .rename:
+            if syncManager.hasScannedNames, !syncManager.riskyNames.isEmpty, !syncManager.isScanningNames {
+                rescanNamesButton
+                fixAllButton(rows.risky)
+            }
+        case .filing:
+            if hasFilingResults, !syncManager.isSuggestingFiles {
+                rescanFilingButton
+                fileAllButton(rows.filing)
+            }
+        case .automations:
+            if !syncManager.automationRules.isEmpty {
+                newRuleButton
+                previewAllButton
+            }
+        case .storage:
+            if hasStorageReport, !syncManager.isBuildingStorageLens {
+                reanalyzeStorageButton
+            }
+        }
+    }
+
+    /// Row 2's leading content: the folder these results are for, then this lens's stat pills.
+    /// While a query is live these pills are the filter's READOUT — watching 12 groups → 3 and
+    /// 2.1 GB → 840 MB as you type is most of the point, which is why the search field grows the
+    /// card rather than swapping itself in over this row.
+    @ViewBuilder
+    private func lensSummary(rows: FilteredRows) -> some View {
+        switch lens {
+        case .duplicates:
+            if hasResults { duplicatesSummary(rows.duplicates) }
+        case .rename:
+            if syncManager.hasScannedNames, !syncManager.riskyNames.isEmpty { renameSummary(rows.risky) }
+        case .filing:
+            if hasFilingResults, !syncManager.isSuggestingFiles { filingSummary(rows.filing) }
+        case .automations:
+            if !syncManager.automationRules.isEmpty { automationsSummary(rows.rules) }
+        case .storage:
+            if let report = syncManager.storageLensReport { storageSummary(report) }
+        }
+    }
+
+    /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
+    /// always reads as a filtered view rather than as the whole result.
+    @ViewBuilder
+    private func lensTrailing(rows: FilteredRows) -> some View {
+        if isFiltered {
+            switch lens {
+            case .duplicates: ofMLabel(rows.duplicates.count, syncManager.duplicateGroups.count)
+            case .rename: ofMLabel(rows.risky.count, syncManager.riskyNames.count)
+            case .filing: ofMLabel(rows.filing.count, syncManager.filingSuggestions.count)
+            case .automations: ofMLabel(rows.rules.count, syncManager.automationRules.count)
+            case .storage:
+                let counts = storageCounts
+                ofMLabel(counts.filtered, counts.total)
+            }
+        }
+    }
+
+    private func ofMLabel(_ shown: Int, _ total: Int) -> some View {
+        Text("\(shown) of \(total)")
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .fixedSize()
+            .accessibilityLabel("Showing \(shown) of \(total)")
+    }
+
+    @ViewBuilder
+    private func lensBody(rows: FilteredRows) -> some View {
         Group {
             if lens == .storage {
-                // Storage, folded in as a read-only lens: it brings its own toolbar + content cards
-                // (and card gutter), so it renders in place of Tidy's own two cards. The lens tabs sit
-                // above this whole Group, so switching away from Storage still works.
+                // Storage, folded in as a read-only lens: it brings its own CONTENT card (its
+                // toolbar card is gone — the shared header above replaced it), so it renders in
+                // place of Tidy's content card.
                 StorageLensView(
                     syncManager: syncManager,
                     providerName: providerName,
+                    query: storageQuery,
                     onBuild: onBuildStorage,
                     onReveal: { path in
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
@@ -406,19 +621,7 @@ public struct TidyView: View {
                     onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
                 )
             } else {
-                // Resolve the duplicate search+filter ONCE per render and hand the result down —
-                // `filteredGroups` parses the query and walks all groups, and it used to be
-                // re-evaluated at four call sites per render (summary count, empty-check, ForEach,
-                // animation key).
-                let dupGroups = lens == .duplicates ? filteredGroups : []
-                // spacing 0: the cards inset themselves by half a gutter each (see `cardGutter`).
-                VStack(spacing: 0) {
-                    // Only show the toolbar card when it actually has something (a results summary or
-                    // batch action). In the intro / scanning / clean states it would otherwise render
-                    // as an empty bar — the lens tabs head the workspace above, not this card.
-                    if toolbarHasContent { toolbarCard(dupGroups: dupGroups) }
-                    contentCard(dupGroups: dupGroups)
-                }
+                contentCard(rows: rows)
             }
         }
     }
@@ -437,37 +640,6 @@ public struct TidyView: View {
     /// today's instant swap (the `.transition` only fires inside an animated transaction).
     private var listSettle: Animation? {
         reduceMotion ? nil : .easeInOut(duration: 0.22)
-    }
-
-    // MARK: Toolbar card
-
-    private func toolbarCard(dupGroups: [DuplicateGroup]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-                if lens == .duplicates, hasResults, !syncManager.isFindingDuplicates {
-                    rescanDuplicatesButton
-                    if recommendedCount > 0 { applyAllButton }
-                } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
-                    // The batch action lives down in the summary row (next to the counts it acts on),
-                    // not detached up here — so only the rescan control sits in the toolbar.
-                    rescanFilingButton
-                }
-            }
-            if lens == .duplicates, hasResults {
-                summaryRow(dupGroups: dupGroups)
-                dupSearchAccessories
-            } else if lens == .filing, hasFilingResults, !syncManager.isSuggestingFiles {
-                // The Filing scan publishes its suggestions once, at the very end, so results are
-                // empty (hasFilingResults == false) for the whole scan; the `!isSuggestingFiles`
-                // guard is belt-and-suspenders. The running phase is surfaced in the scanning view
-                // itself (filingScanStatus), not here.
-                filingSummaryRow
-            }
-            if lens == .filing, spendTotals.scans > 0 { filingSpendRow }
-        }
-        .padding(12)
-        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
     }
 
     // MARK: Filing toolbar
@@ -492,20 +664,25 @@ public struct TidyView: View {
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
     }
-    private var filingRecommendedCount: Int {
-        syncManager.filingSuggestions.filter { $0.isBatchEligible }.count
-    }
-
-    private var fileAllButton: some View {
-        let n = filingRecommendedCount
-        return Button(action: applyRecommendedFiling) {
-            Label("File all \(n) confident", systemImage: "arrow.right.circle.fill")
+    /// "File all N confident", scoped to the FILTERED rows.
+    ///
+    /// `batch` is derived from the rows on screen and used for BOTH the count in the label and the
+    /// collection the action files — one value, passed to `applyRecommendedFiling`, which requires
+    /// it. A query leaving 3 of 12 makes this read "File all 3 confident" and file exactly those.
+    @ViewBuilder
+    private func fileAllButton(_ filing: [FilingSuggestion]) -> some View {
+        let batch = filing.filter { $0.isBatchEligible }
+        if !batch.isEmpty {
+            Button { applyRecommendedFiling(batch) } label: {
+                Label("File all \(batch.count) confident", systemImage: "arrow.right.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(syncManager.isSuggestingFiles)
+            .help("Files the \(batch.count) name-matched suggestion\(batch.count == 1 ? "" : "s") with a confident home"
+                  + (isFiltered ? " among the \(filing.count) your search left showing" : "")
+                  + ". Content- and AI-based picks stay for you to review; every move undoes with ⌘Z.")
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-        .disabled(syncManager.isSuggestingFiles)
-        .help("Files the \(n) name-matched suggestion\(n == 1 ? "" : "s") with a confident home. "
-              + "Content- and AI-based picks stay for you to review; every move undoes with ⌘Z.")
     }
 
     /// The folder a rescan would walk (the focused pane's current directory), by leaf name.
@@ -567,159 +744,96 @@ public struct TidyView: View {
         }
     }
 
-    private var filingSummaryRow: some View {
-        let s = syncManager.filingSummary
-        let unsure = s.fileCount - s.withConfidentHome
-        return HStack(spacing: 8) {
+    /// Organize's pills. The counts come from the scan's summary when nothing is filtered, and
+    /// from the rows on screen once a query narrows them — the pills ARE the filter's readout.
+    private func filingSummary(_ filing: [FilingSuggestion]) -> some View {
+        let ready = filing.filter { $0.hasConfidentHome }.count
+        let newFolders = filing.filter { $0.best?.isNew == true }.count
+        let unsure = filing.count - ready
+        return Group {
             scannedFolderChip(syncManager.filingScanFolder)
-            // "to file" = every loose file found; "ready" = the ones with a confident home now.
-            StatPill(count: s.fileCount, label: "to file", color: .blue, systemImage: "doc")
-            StatPill(count: s.withConfidentHome, label: "ready", color: .green, systemImage: "checkmark.circle")
-            if s.needNewFolders > 0 {
-                StatPill(count: s.needNewFolders, label: s.needNewFolders == 1 ? "new folder" : "new folders",
+            // "to file" = the loose files showing; "ready" = the ones with a confident home now.
+            StatPill(count: filing.count, label: "to file", color: .blue, systemImage: "doc")
+            StatPill(count: ready, label: "ready", color: .green, systemImage: "checkmark.circle")
+            if newFolders > 0 {
+                StatPill(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
                          color: glassHue.accentColor, systemImage: "folder.badge.plus")
             }
             if unsure > 0 {
                 StatPill(count: unsure, label: "unsure", color: .yellow, systemImage: "questionmark.circle")
             }
-            Spacer(minLength: 8)
-            // The batch action sits right beside the counts it acts on (G3), not detached in the
-            // toolbar. Only shown when there's actually a confident, name-based batch to file.
-            if filingRecommendedCount > 0 { fileAllButton }
         }
     }
 
-    private func summaryRow(dupGroups: [DuplicateGroup]) -> some View {
-        let s = syncManager.duplicateSummary
-        return HStack(spacing: 8) {
+    /// Duplicates' pills. `groups` / `redundant` / `reclaimable` recount over the FILTERED rows, so
+    /// typing `kind:pdf` visibly rolls 12 groups → 3 and 2.1 GB → 840 MB. `need review` and
+    /// `skipped` stay scan-level facts: they describe what the scan did, not what the query kept.
+    private func duplicatesSummary(_ groups: [DuplicateGroup]) -> some View {
+        let reclaimable = groups.filter { $0.isRecommendedForBatch }.reduce(0) { $0 + $1.reclaimableBytes }
+        let redundant = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
+        let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
+        return Group {
             scannedFolderChip(syncManager.duplicateScanRoot)
-            StatPill(count: s.groupCount, label: "groups", color: .blue, systemImage: "square.on.square")
-            ReclaimPill(reclaimableBytes: s.reclaimableBytes,
+            StatPill(count: groups.count, label: "groups", color: .blue, systemImage: "square.on.square")
+            ReclaimPill(reclaimableBytes: reclaimable,
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
                         flashToken: reclaimFlashToken,
                         reduceMotion: reduceMotion)
-            StatPill(count: s.redundantCopyCount, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
-            if s.needsReviewCount > 0 {
-                StatPill(count: s.needsReviewCount, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
+            StatPill(count: redundant, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
+            if needsReview > 0 {
+                StatPill(count: needsReview, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
             }
             // Scan-level counterpart to the per-group unverified note (TidyUnverifiedNote): files
             // the scan never content-verified at all, so identical copies among them are absent
-            // from every group below — without this pill the scan is silently blind to them.
+            // from every group below — without this pill the scan is silently blind to them. Not
+            // filtered: these files aren't rows, so no query can include or exclude them.
             if let skipNote = TidyScanSkipNote.text(syncManager.duplicateScanSkips) {
                 StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
                          color: .orange, systemImage: "eye.slash")
                     .help(skipNote)
                     .accessibilityLabel(skipNote)
             }
-            Spacer(minLength: 8)
-            // "N of M" whenever the search/filter narrows the list (same affordance as Compare's
-            // search), so a shortened list is visibly a filtered view, not the whole result.
-            if filter != .all || !dupSearchText.isEmpty {
-                Text("\(dupGroups.count) of \(syncManager.duplicateGroups.count)")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-            dupSearchField
-            filterMenu
         }
     }
 
-    /// Compact token search for the duplicate list — `kind:pdf`, `>5mb`, or a name substring —
-    /// sharing the Compare grammar. Narrows `filteredGroups` on top of the match-type filter.
-    private var dupSearchField: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
-            TextField("kind:pdf, >5mb…", text: $dupSearchText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 11))
-                .frame(maxWidth: 150)
-                .focused($dupSearchFocused)
-            if !dupSearchText.isEmpty {
-                Button { dupSearchText = "" } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Clear search")
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
-        .searchFieldSurface()
-        .fixedSize()
-    }
-
-    /// The removable filter chips and one-tap suggestions for the duplicate search, shown as a second
-    /// toolbar row beneath the summary so the compact field itself stays single-line. Right-aligned to
-    /// sit under the field. Renders nothing until there's a chip or the field holds the caret.
-    @ViewBuilder
-    private var dupSearchAccessories: some View {
-        let chips = DuplicateSearch.chips(dupSearchText)
-        if !chips.isEmpty || dupSearchFocused {
-            HStack(spacing: 6) {
-                Spacer(minLength: 0)
-                // Design's shared TokenChipsRow: the ✕ edits the chip's exact word back out of the
-                // raw text; a chip superseded by a later same-family word renders dimmed.
-                TokenChipsRow(
-                    items: chips.map { TokenChipsRow.Item(label: $0.label, word: $0.raw, isActive: $0.isActive) },
-                    tint: glassHue.accentColor,
-                    onRemove: { word in dupSearchText = DuplicateSearch.removing(dupSearchText, word: word) }
-                )
-                if dupSearchFocused {
-                    dupSuggestions(active: chips)
-                }
+    /// Rename's pills, over the filtered rows.
+    private func renameSummary(_ risky: [RiskyName]) -> some View {
+        let folders = risky.filter(\.isDirectory).count
+        return Group {
+            scannedFolderChip(syncManager.nameScanRoot?.path)
+            StatPill(count: risky.count, label: risky.count == 1 ? "risky name" : "risky names",
+                     color: .yellow, systemImage: NameNormalizeGlyph.risky)
+            if folders > 0 {
+                StatPill(count: folders, label: folders == 1 ? "folder" : "folders",
+                         color: .secondary, systemImage: "folder")
             }
         }
     }
 
-    /// One-tap filter suggestions, appended to the field. Omits a family already active (kind and the
-    /// size floor are each single-valued, so a second just replaces the first).
-    @ViewBuilder
-    private func dupSuggestions(active: [DuplicateSearch.Chip]) -> some View {
-        let suggestions = dupSuggestionList(active: active)
-        if !suggestions.isEmpty {
-            Text("Add filter")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .fixedSize()
-            ForEach(suggestions, id: \.raw) { suggestion in
-                Button {
-                    // Trim first so appending never leaves a double space when the field already ends
-                    // in whitespace.
-                    let base = dupSearchText.trimmingCharacters(in: .whitespaces)
-                    dupSearchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
-                } label: {
-                    Text(suggestion.label)
-                        .font(.caption2)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(.quaternary.opacity(0.6)))
-                        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
-                }
-                .buttonStyle(.plain)
-            }
+    /// Automations' pills, over the filtered rules. The folder chip names the focused folder — the
+    /// one a preview would run over — since rules aren't scanned FROM anywhere.
+    private func automationsSummary(_ rules: [AutomationRule]) -> some View {
+        let enabled = rules.filter(\.enabled).count
+        return Group {
+            scannedFolderChip(scanTargetFolder)
+            StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",
+                     color: glassHue.accentColor, systemImage: AutomationsGlyph.lens)
+            StatPill(count: enabled, label: "enabled", color: .green, systemImage: "checkmark.circle")
         }
     }
 
-    private static let dupSuggestionCandidates: [(label: String, raw: String)] = [
-        ("PDFs", "kind:pdf"),
-        // `kind:image` is a class alias (see DuplicateSearch.kindClasses), so "Images" honestly
-        // means images — the old `kind:jpg` silently excluded PNGs, HEICs, ….
-        ("Images", "kind:image"),
-        ("> 10 MB", ">10mb"),
-    ]
-
-    private func dupSuggestionList(active: [DuplicateSearch.Chip]) -> [(label: String, raw: String)] {
-        let hasKind = active.contains { $0.raw.lowercased().hasPrefix("kind:") }
-        let hasFloor = active.contains { $0.raw.hasPrefix(">") }
-        return Self.dupSuggestionCandidates.filter { candidate in
-            if candidate.raw.hasPrefix("kind:") { return !hasKind }
-            if candidate.raw.hasPrefix(">") { return !hasFloor }
-            return true
+    /// Storage's pills. The total is the whole scanned tree's — a query filters the ranked lists,
+    /// never the tree's size, so this figure must not move when you type.
+    private func storageSummary(_ report: StorageLensReport) -> some View {
+        Group {
+            scannedFolderChip(syncManager.storageLensRoot?.path)
+            Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
+                 text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
+            StatPill(count: report.largest.count, label: "largest", color: .blue, systemImage: "arrow.up.circle")
+            if !report.reclaimCandidates.isEmpty {
+                StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
+                         color: .green, systemImage: "internaldrive")
+            }
         }
     }
 
@@ -757,25 +871,108 @@ public struct TidyView: View {
         .fixedSize()
     }
 
-    private var applyAllButton: some View {
-        Button(action: applyRecommended) {
-            Label("Apply \(recommendedCount) recommended", systemImage: "checkmark.circle.fill")
+    /// "Apply N recommended", scoped to the FILTERED groups.
+    ///
+    /// `batch` is one value: the label counts it and `applyRecommended` iterates it. This is the
+    /// dangerous button — a query leaving 3 of 8 eligible groups must trash exactly those 3, and a
+    /// label that said 3 while the action recomputed 8 from `duplicateGroups` would destroy 5
+    /// copies the user never saw. `applyRecommendedDuplicates` requires the scope for that reason.
+    @ViewBuilder
+    private func applyAllButton(_ groups: [DuplicateGroup]) -> some View {
+        let batch = groups.filter { $0.isRecommendedForBatch }
+        if !batch.isEmpty {
+            Button { applyRecommended(batch) } label: {
+                Label("Apply \(batch.count) recommended", systemImage: "checkmark.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(syncManager.isFindingDuplicates)
+            .help("Moves the redundant copies of \(batch.count) byte-identical group\(batch.count == 1 ? "" : "s")"
+                  + (isFiltered ? " — the ones your search left showing —" : "")
+                  + " to the Trash. Undo with ⌘Z.")
+        }
+    }
+
+    /// "Fix all N", scoped to the FILTERED risky names. `onNormalize` has always taken its rows
+    /// explicitly, so this one was safe by construction — it just needs the filtered array.
+    @ViewBuilder
+    private func fixAllButton(_ risky: [RiskyName]) -> some View {
+        if !risky.isEmpty {
+            Button { onNormalizeNames(risky) } label: {
+                Label("Fix all \(risky.count)", systemImage: "checkmark.circle.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(syncManager.isNormalizingNames)
+            .help("Renames "
+                  + (isFiltered
+                     ? "the \(risky.count) name\(risky.count == 1 ? "" : "s") your search left showing"
+                     : "every risky name above")
+                  + " to its cloud-safe form. Never overwrites an existing file, and the whole pass "
+                  + "undoes with a single ⌘Z.")
+        }
+    }
+
+    private var rescanNamesButton: some View {
+        rescanButton(moved: targetMoved(from: syncManager.nameScanRoot?.path),
+                     movedIcon: NameNormalizeGlyph.lens, disabled: syncManager.isScanningNames,
+                     action: onScanNames,
+                     movedHelp: "Scan “\(scanTargetName)” for risky names — the folder now focused above")
+    }
+
+    private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
+
+    private var reanalyzeStorageButton: some View {
+        rescanButton(moved: targetMoved(from: syncManager.storageLensRoot?.path),
+                     movedIcon: "chart.pie.fill", disabled: syncManager.isBuildingStorageLens,
+                     action: onBuildStorage,
+                     movedHelp: "Analyze “\(scanTargetName)” — the folder now focused above")
+    }
+
+    private var newRuleButton: some View {
+        // Reuses the host's existing rule-editor sheet (the one "Remember" opens a learned rule
+        // in), so a blank rule and a taught rule are reviewed through exactly one editor.
+        Button { reviewingAutomationRule = AutomationRule(name: "") } label: {
+            Label("New rule", systemImage: AutomationsGlyph.newRule)
+        }
+        .chromeButtonStyle(glassLevel)
+        .controlSize(.small)
+        .help("Write a plain-words rule for where loose files belong")
+    }
+
+    private var runnableRuleCount: Int {
+        syncManager.automationRules.filter { $0.enabled && $0.isRunnable }.count
+    }
+
+    private var previewAllButton: some View {
+        Button {
+            automationsState.viewingResults = true
+            onPreviewAutomations(nil)
+        } label: {
+            Label("Preview all", systemImage: AutomationsGlyph.preview)
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.small)
-        .disabled(syncManager.isFindingDuplicates)
+        .disabled(runnableRuleCount == 0 || automationDestinationRoot == nil)
+        // Name the ACTUAL blocker: with no provider root there is nothing to preview over, and
+        // telling the user to add conditions to already-complete rules is a dead end.
+        .help(automationDestinationRoot == nil
+              ? "Focus a provider folder first — the preview runs over the focused folder."
+              : runnableRuleCount == 0
+              ? "Add a rule with a condition and a destination to preview it."
+              : "Dry-run the enabled rules over the focused folder. A preview — nothing moves until you confirm.")
     }
 
     // MARK: Content card
 
     @ViewBuilder
-    private func contentCard(dupGroups: [DuplicateGroup]) -> some View {
+    private func contentCard(rows: FilteredRows) -> some View {
         VStack(spacing: 0) {
             switch lens {
-            case .duplicates: duplicatesContent(dupGroups: dupGroups)
-            case .rename: renameContent
-            case .filing: filingContent
-            case .automations: automationsContent
+            case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
+            case .rename: renameContent(risky: rows.risky)
+            case .filing: filingContent(filing: rows.filing)
+            case .automations: automationsContent(rules: rows.rules)
             case .storage: EmptyView()   // rendered by `body` as StorageLensView, never through here
             }
         }
@@ -792,24 +989,24 @@ public struct TidyView: View {
         } else if syncManager.duplicateGroups.isEmpty {
             cleanState
         } else if dupGroups.isEmpty {
-            noMatchesState
+            noMatchesState(total: syncManager.duplicateGroups.count, noun: "duplicate group")
         } else {
             groupList(dupGroups: dupGroups)
         }
     }
 
-    /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): groups exist,
-    /// but the search/filter hide them all — name the cause and offer one click out, instead of a
-    /// blank list that reads like there are no duplicates.
-    private var noMatchesState: some View {
-        let total = syncManager.duplicateGroups.count
-        return EmptyStateView(
+    /// Filtered-to-empty dead end (mirrors the Activity Log's "No matching entries"): rows exist,
+    /// but the search hides them all — name the cause and offer one click out, instead of a blank
+    /// list that reads like the lens found nothing.
+    private func noMatchesState(total: Int, noun: String) -> some View {
+        EmptyStateView(
             icon: "line.3.horizontal.decrease.circle",
-            title: "No groups match",
-            message: "The current search and filter hide all \(total) duplicate \(total == 1 ? "group" : "groups"). Clear them to see the results again.",
-            primary: .init("Clear Filters", systemImage: "xmark.circle") {
-                dupSearchText = ""
-                filter = .all
+            title: "Nothing matches",
+            message: "The current search hides all \(total) \(noun)\(total == 1 ? "" : "s"). Clear it to see the results again.",
+            primary: .init("Clear Search", systemImage: "xmark.circle") {
+                searchQueries[lens] = ""
+                searchExpandedLenses.remove(lens)
+                if lens == .duplicates { filter = .all }
             }
         )
     }
@@ -899,8 +1096,17 @@ public struct TidyView: View {
     // MARK: Filing content
 
     @ViewBuilder
-    private var filingContent: some View {
+    private func filingContent(filing: [FilingSuggestion]) -> some View {
         VStack(spacing: 0) {
+            // The Cloud Filing spend row lives here now, at the top of the content, rather than as
+            // a third row of the header: the header is a fixed two-row ladder (that's what makes it
+            // 81pt in every lens), and this row is a footnote about what the last scan cost — not a
+            // control. It kept its place above the list, and its History button, unchanged.
+            if spendTotals.scans > 0 {
+                filingSpendRow
+                    .padding(.horizontal, 12)
+                    .padding(.top, 10)
+            }
             // The teach prompt sits above every Filing state (not just the list) so it survives
             // filing the last loose file — the card that triggered it is already gone. The rule offer
             // (after a "File here") takes precedence over the legacy override "Remember" prompt.
@@ -927,8 +1133,10 @@ public struct TidyView: View {
                     filingIntroState
                 } else if syncManager.filingSuggestions.isEmpty {
                     filingCleanState
+                } else if filing.isEmpty {
+                    noMatchesState(total: syncManager.filingSuggestions.count, noun: "loose file")
                 } else {
-                    filingList
+                    filingList(filing)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -938,31 +1146,47 @@ public struct TidyView: View {
     }
 
     /// The "Rename" lens (the un-folded Name Normalizer): finds and fixes cloud-hostile names.
-    private var renameContent: some View {
-        RenameLens(
-            syncManager: syncManager,
-            providerName: providerName,
-            accent: glassHue.accentColor,
-            densityMetrics: densityMetrics,
-            onScan: onScanNames,
-            onNormalize: onNormalizeNames,
-            onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
-            onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
-        )
+    /// Its results header is gone — the shared card above carries its controls and counts now — so
+    /// it takes the filtered rows and renders only its list and states.
+    @ViewBuilder
+    private func renameContent(risky: [RiskyName]) -> some View {
+        if syncManager.hasScannedNames, !syncManager.isScanningNames,
+           !syncManager.riskyNames.isEmpty, risky.isEmpty {
+            noMatchesState(total: syncManager.riskyNames.count, noun: "risky name")
+        } else {
+            RenameLens(
+                syncManager: syncManager,
+                risky: risky,
+                providerName: providerName,
+                accent: glassHue.accentColor,
+                densityMetrics: densityMetrics,
+                onScan: onScanNames,
+                onNormalize: onNormalizeNames,
+                onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
+                onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }
+            )
+        }
     }
 
-    /// N2 — the Automations lens. Self-contained (its own rule-list / previewing /
-    /// results states and rule editor live in ``AutomationsLens``), so the host only threads the
-    /// dry-run trigger through — it owns the focused-folder root the preview scans.
-    private var automationsContent: some View {
-        AutomationsLens(
-            syncManager: syncManager,
-            providerName: providerName,
-            destinationRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
-            onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
-            onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
-            onPreview: onPreviewAutomations
-        )
+    /// N2 — the Automations lens. Its rules header is gone (the shared card carries New rule /
+    /// Preview all), so the host threads in the filtered rules and the shared `viewingResults`
+    /// state the card's Preview button has to flip.
+    @ViewBuilder
+    private func automationsContent(rules: [AutomationRule]) -> some View {
+        if !syncManager.automationRules.isEmpty, rules.isEmpty, !automationsState.viewingResults {
+            noMatchesState(total: syncManager.automationRules.count, noun: "rule")
+        } else {
+            AutomationsLens(
+                syncManager: syncManager,
+                state: automationsState,
+                rules: rules,
+                providerName: providerName,
+                destinationRoot: automationDestinationRoot.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) },
+                onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } },
+                onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
+                onPreview: onPreviewAutomations
+            )
+        }
     }
 
     /// Learns the correction as an automation (a "mentions" rule), dismisses the prompt, and opens
@@ -1002,12 +1226,14 @@ public struct TidyView: View {
         reviewingAutomationRule = rule
     }
 
-    private var filingList: some View {
+    private func filingList(_ filing: [FilingSuggestion]) -> some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: densityMetrics.cardListSpacing) {
                 // Grouped by confidence (High / Medium / Low) so the list reads as "these are sure,
                 // these are maybes, these need you" rather than one undifferentiated wall of cards.
-                ForEach(FilingSuggestionGrouping.sections(syncManager.filingSuggestions)) { section in
+                // Sectioned from the FILTERED rows, so a tier the query empties loses its header
+                // too rather than heading nothing.
+                ForEach(FilingSuggestionGrouping.sections(filing)) { section in
                     filingSectionHeader(section)
                     ForEach(section.suggestions) { suggestion in
                         filingCard(suggestion)
@@ -1018,7 +1244,7 @@ public struct TidyView: View {
             .padding(densityMetrics.cardListPadding)
             // Slide + fade a filed/dismissed card out and settle the list (H4). Keyed on the id list
             // so only a card leaving animates; an emptied tier's header falls away in the same pass.
-            .animation(listSettle, value: syncManager.filingSuggestions.map(\.id))
+            .animation(listSettle, value: filing.map(\.id))
         }
         .scrollContentBackground(.hidden)
     }
@@ -1170,8 +1396,10 @@ public struct TidyView: View {
         }
     }
 
-    private func applyRecommendedFiling() {
-        let batch = syncManager.filingSuggestions.filter { $0.isBatchEligible }
+    /// Files `batch` — the exact array `fileAllButton` counted. Never re-derived from
+    /// `syncManager.filingSuggestions`: under a query that's a different, larger set, and the
+    /// confirmation the user reads names this one.
+    private func applyRecommendedFiling(_ batch: [FilingSuggestion]) {
         guard !batch.isEmpty else { return }
         let newFolders = batch.filter { $0.best?.isNew == true }.count
         let folderNote = newFolders > 0 ? " Creates \(newFolders) new folder\(newFolders == 1 ? "" : "s")." : ""
@@ -1182,7 +1410,7 @@ public struct TidyView: View {
         )
         guard ok else { return }
         filedThisSession = true
-        Task { await syncManager.applyRecommendedFiling() }
+        Task { await syncManager.applyRecommendedFiling(batch) }
     }
 
     // MARK: Actions
@@ -1218,8 +1446,10 @@ public struct TidyView: View {
         }
     }
 
-    private func applyRecommended() {
-        let groups = syncManager.duplicateGroups.filter { $0.isRecommendedForBatch }
+    /// Trashes the redundant copies of `groups` — the exact array `applyAllButton` counted. Never
+    /// re-derived from `syncManager.duplicateGroups`: under a query that's a different, larger set,
+    /// and this dialog's counts must describe what will actually happen.
+    private func applyRecommended(_ groups: [DuplicateGroup]) {
         guard !groups.isEmpty else { return }
         let bytes = groups.reduce(0) { $0 + $1.reclaimableBytes }
         let copies = groups.reduce(0) { $0 + $1.recommendedRemovalPaths.count }
@@ -1236,7 +1466,7 @@ public struct TidyView: View {
         // returns Void, so we measure the delta rather than trust the dialog's promised total.
         let before = syncManager.duplicateSummary.reclaimableBytes
         Task {
-            await syncManager.applyRecommendedDuplicates()
+            await syncManager.applyRecommendedDuplicates(groups)
             creditReclaim(before - syncManager.duplicateSummary.reclaimableBytes)
         }
     }

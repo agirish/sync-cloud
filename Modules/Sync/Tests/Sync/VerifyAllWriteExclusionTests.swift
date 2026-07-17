@@ -177,7 +177,7 @@ import Foundation
         manager.filingSuggestions = [s]
 
         manager.isVerifyAllRunning = true
-        await manager.applyRecommendedFiling()
+        await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
 
         #expect(manager.banner?.message == "Wait for Verify All to finish before filing")
         #expect(manager.banner?.severity == .warning)

@@ -264,10 +264,28 @@ extension FileSyncManager {
         return true
     }
 
-    /// Applies the recommended removal for every batch-eligible group (byte-identical only).
-    /// Versions, name-only, and overlapping groups are deliberately left for a per-group look.
-    public func applyRecommendedDuplicates() async {
-        let eligible = duplicateGroups.filter { $0.isRecommendedForBatch }
+    /// Every group eligible for the recommended batch, unfiltered — the honest "all of them"
+    /// scope. The Duplicates lens deliberately does NOT pass this: its button scopes to whatever
+    /// the search left on screen (see `applyRecommendedDuplicates`).
+    public var recommendedDuplicateGroups: [DuplicateGroup] {
+        duplicateGroups.filter { $0.isRecommendedForBatch }
+    }
+
+    /// Applies the recommended removal to `scope` — the byte-identical groups among it. Versions,
+    /// name-only, and overlapping groups are deliberately left for a per-group look.
+    ///
+    /// `scope` is REQUIRED, and that is the safety property, not a style choice. This used to read
+    /// `duplicateGroups` itself, which was safe only while the button that called it always meant
+    /// "all of them". Now that a search can narrow the list, the button says "Trash all 3" over 3
+    /// visible rows — and a method recomputing its own targets from the unfiltered `duplicateGroups`
+    /// would have trashed all 8, destroying 5 items the user could not see. Making the caller name
+    /// the exact collection is what makes that unwriteable rather than merely untested: the count
+    /// on the button and the array iterated here are one value, passed in.
+    ///
+    /// The group's own eligibility and keeper checks still apply on top, so a caller that passes a
+    /// name-only group can't talk this into trashing it.
+    public func applyRecommendedDuplicates(_ scope: [DuplicateGroup]) async {
+        let eligible = scope.filter { $0.isRecommendedForBatch }
         let batch = eligible.filter { keeperStillExists($0) }
         let paths = batch.flatMap { $0.recommendedRemovalPaths }
         guard !paths.isEmpty else {

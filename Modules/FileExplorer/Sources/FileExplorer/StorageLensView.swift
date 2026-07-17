@@ -9,8 +9,8 @@ import Design
 /// three ranked lists (largest files, long-untouched files, and reclaim candidates). The only
 /// action it offers is a Finder reveal: it never moves, deletes, or evicts a file. Rendered as the
 /// Tidy workspace's read-only Storage lens.
-public struct StorageLensView: View {
-    @ObservedObject public var syncManager: FileSyncManager
+struct StorageLensView: View {
+    @ObservedObject var syncManager: FileSyncManager
 
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
@@ -25,21 +25,26 @@ public struct StorageLensView: View {
     @State private var collapsed: Set<StorageSection> = []
 
     private let providerName: String?
+    /// The header card's live query. Filters the three ranked lists — NOT the treemap, which is a
+    /// part-of-whole picture whose proportions a subset would misstate (see `StorageSearch`).
+    private let query: StorageSearch.Query
     private let onBuild: () -> Void
     /// Reveals a path in Finder (NSWorkspace). The honest extent of "offload" in this landing.
     private let onReveal: (String) -> Void
     /// Presents a Quick Look preview for a file path. nil hides the per-row Preview button.
     private let onQuickLook: ((String) -> Void)?
 
-    public init(
+    init(
         syncManager: FileSyncManager,
         providerName: String? = nil,
+        query: StorageSearch.Query = StorageSearch.parse(""),
         onBuild: @escaping () -> Void,
         onReveal: @escaping (String) -> Void,
         onQuickLook: ((String) -> Void)? = nil
     ) {
         self.syncManager = syncManager
         self.providerName = providerName
+        self.query = query
         self.onBuild = onBuild
         self.onReveal = onReveal
         self.onQuickLook = onQuickLook
@@ -54,85 +59,12 @@ public struct StorageLensView: View {
     private var report: StorageLensReport? { syncManager.storageLensReport }
     private var hasReport: Bool { report != nil }
 
-    public var body: some View {
-        // spacing 0: the cards inset themselves by half a gutter each (see `cardGutter`).
-        VStack(spacing: 0) {
-            // Only show the toolbar card once there's a report to summarize; in the intro / building
-            // states it would otherwise render as an empty bar (the lens picker that used to fill it
-            // now heads the Tidy workspace, above this view).
-            if hasReport { toolbarCard }
-            contentCard
-        }
-    }
-
-    // MARK: Toolbar card
-
-    private var toolbarCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Spacer(minLength: 0)
-                if hasReport, !syncManager.isBuildingStorageLens {
-                    Button(action: onBuild) {
-                        Label("Re-analyze", systemImage: "arrow.clockwise")
-                    }
-                    .chromeButtonStyle(glassLevel)
-                    .controlSize(.small)
-                    .help("Walk this folder again and rebuild the storage picture")
-                }
-            }
-            if let report, hasReport {
-                summaryRow(report)
-            }
-        }
-        .padding(12)
-        .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
-    }
-
-    private func summaryRow(_ report: StorageLensReport) -> some View {
-        HStack(spacing: 8) {
-            scannedFolderChip(syncManager.storageLensRoot?.path)
-            totalPill(report.totalBytes)
-            StatPill(count: report.largest.count, label: "largest", color: .blue, systemImage: "arrow.up.circle")
-            if !report.reclaimCandidates.isEmpty {
-                StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
-                         color: .green, systemImage: "internaldrive")
-            }
-            Spacer(minLength: 8)
-        }
-    }
-
-    /// The total-size chip. Not a `StatPill` — its value is a byte string, not a count, so it must
-    /// not render a leading "0".
-    private func totalPill(_ bytes: Int) -> some View {
-        let color = glassHue.accentColor
-        return HStack(spacing: 6) {
-            Image(systemName: "externaldrive")
-                .font(.system(size: 11, weight: .bold))
-                .symbolRenderingMode(.hierarchical)
-            Text("\(FileSyncManager.formatBytes(bytes)) total")
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-        }
-        .foregroundStyle(color)
-        .padding(.horizontal, 10).padding(.vertical, 4)
-        .background(Capsule(style: .continuous).fill(color.opacity(0.14)))
-        .overlay(Capsule(style: .continuous).strokeBorder(color.opacity(0.45), lineWidth: 0.5))
-        .fixedSize()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(FileSyncManager.formatBytes(bytes)) total")
-    }
-
-    /// A leading chip naming the folder the current report was built from.
-    @ViewBuilder
-    private func scannedFolderChip(_ root: String?) -> some View {
-        if let root {
-            let name = (root as NSString).lastPathComponent
-            Label(name, systemImage: "folder")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .help("This picture is for “\(name)”")
-        }
+    var body: some View {
+        // The toolbar card that used to head this view is gone: Tidy's shared LensHeaderCard now
+        // carries Storage's Re-analyze control, its total/largest/reclaim pills and its search, so
+        // this view renders the content card alone. That's what makes Storage's header the same
+        // 81pt as the other four lenses — it used to have no header at all until a report landed.
+        contentCard
     }
 
     // MARK: Content card
@@ -195,10 +127,14 @@ public struct StorageLensView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    // The treemap takes the report's own nodes, unfiltered and deliberately so:
+                    // it answers "where does my space go?" for the whole scanned tree, and drawing
+                    // it from a query's subset would silently change what every proportion in it
+                    // means. The ranked lists below are what the query narrows.
                     treemapSection(report)
-                    listSection(.largest, entries: report.largest)
-                    listSection(.stale, entries: report.stale)
-                    listSection(.reclaim, entries: report.reclaimCandidates)
+                    listSection(.largest, entries: report.largest.filter { query.matches($0) })
+                    listSection(.stale, entries: report.stale.filter { query.matches($0) })
+                    listSection(.reclaim, entries: report.reclaimCandidates.filter { query.matches($0) })
                 }
                 .padding(densityMetrics.cardListPadding)
             }
@@ -262,7 +198,9 @@ public struct StorageLensView: View {
 
             if !isCollapsed {
                 if entries.isEmpty {
-                    Text(section.emptyText)
+                    // Under a live query the section's own empty text would lie — "Nothing here"
+                    // claims the scan found none, when the query is what hid them.
+                    Text(query.isEmpty ? section.emptyText : "No files here match your search.")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 26)

@@ -27,6 +27,10 @@ struct RenameLens: View {
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @ObservedObject var syncManager: FileSyncManager
+    /// The risky names to list — already filtered by the header card's search. The lens never
+    /// reads `syncManager.riskyNames` for its list, so what's on screen is exactly what the header
+    /// counted and what "Fix all N" acts on.
+    let risky: [RiskyName]
     let providerName: String?
     let accent: Color
     let densityMetrics: ListDensityMetrics
@@ -92,13 +96,14 @@ struct RenameLens: View {
         )
     }
 
+    /// The list only. Its header row is gone — the shared LensHeaderCard above carries this lens's
+    /// count, its Rescan / Fix all controls, and its search — which is what lets the workspace's
+    /// header height be a promise rather than a per-lens accident.
     private var resultsState: some View {
         VStack(spacing: 0) {
-            resultsHeader
-            Divider().opacity(0.5)
             ScrollView {
                 LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                    ForEach(syncManager.riskyNames) { risky in
+                    ForEach(risky) { risky in
                         RiskyNameCard(
                             risky: risky,
                             accent: accent,
@@ -113,40 +118,10 @@ struct RenameLens: View {
                     }
                 }
                 .padding(densityMetrics.cardListPadding)
-                .animation(.easeInOut(duration: 0.22), value: syncManager.riskyNames.map(\.id))
+                .animation(.easeInOut(duration: 0.22), value: risky.map(\.id))
             }
             .scrollContentBackground(.hidden)
         }
-    }
-
-    private var resultsHeader: some View {
-        let count = syncManager.riskyNames.count
-        return HStack(spacing: 10) {
-            Image(systemName: NameNormalizeGlyph.risky)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(SemanticColor.warning)
-            Text("\(count) risky name\(count == 1 ? "" : "s") found")
-                .font(.system(size: 13, weight: .semibold))
-                .monospacedDigit()
-            Text("→ review & fix in one pass")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Button(action: onScan) { Label("Rescan", systemImage: "arrow.clockwise") }
-                .chromeButtonStyle(glassLevel)
-                .controlSize(.small)
-                .disabled(syncManager.isNormalizingNames)
-                .help("Scan the focused folder again")
-            Button(action: { onNormalize(syncManager.riskyNames) }) {
-                Label("Fix all \(count)", systemImage: "checkmark.circle.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(syncManager.isNormalizingNames)
-            .help("Renames every risky name above to its cloud-safe form. Never overwrites an existing "
-                  + "file, and the whole pass undoes with a single ⌘Z.")
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 }
 

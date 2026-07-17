@@ -633,14 +633,28 @@ extension FileSyncManager {
 
     /// Files every batch-eligible suggestion (a confident home derived from the filename) into its
     /// best destination, as one undoable batch.
-    public func applyRecommendedFiling() async {
+    /// Every suggestion eligible for the blind batch, unfiltered — the honest "all of them" scope.
+    /// The Organize lens deliberately does NOT pass this: its button scopes to whatever the search
+    /// left on screen (see `applyRecommendedFiling`).
+    public var batchEligibleFilingSuggestions: [FilingSuggestion] {
+        filingSuggestions.filter { $0.isBatchEligible }
+    }
+
+    /// Files the batch-eligible suggestions among `scope` into their suggested homes.
+    ///
+    /// `scope` is REQUIRED for the same reason as `applyRecommendedDuplicates`: a search can now
+    /// narrow this list, so a method that recomputed its own targets from the unfiltered
+    /// `filingSuggestions` would move files the button never counted and the user could not see.
+    /// The count on the button and the array iterated here are one value, passed in. Eligibility
+    /// is still re-checked here, so a caller can't talk this into filing an unsure suggestion.
+    public func applyRecommendedFiling(_ scope: [FilingSuggestion]) async {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): filing moves files Verify All may be hashing.
         guard !isVerifyAllRunning else {
             banner = .warning("Wait for Verify All to finish before filing")
             return
         }
-        let batch = filingSuggestions.filter { $0.isBatchEligible }
+        let batch = scope.filter { $0.isBatchEligible }
         guard !batch.isEmpty else { return }
         var moves: [MoveItemState] = []
         var failures = 0

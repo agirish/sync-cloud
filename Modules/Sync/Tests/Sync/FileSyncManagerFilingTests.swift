@@ -73,7 +73,7 @@ final class Flag: @unchecked Sendable { var value = false }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         #expect(manager.filingSuggestions.count == 2)
 
-        await manager.applyRecommendedFiling()
+        await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
 
         // The Tesla file moved; the unrecognized one stays put and stays in the list.
         #expect(FileManager.default.fileExists(atPath: junkPath.path))
@@ -138,7 +138,7 @@ final class Flag: @unchecked Sendable { var value = false }
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
         #expect(manager.filingSuggestions.filter { $0.isBatchEligible }.count == 2)
 
-        await manager.applyRecommendedFiling()
+        await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
         #expect(!FileManager.default.fileExists(atPath: tesla.path))
         #expect(!FileManager.default.fileExists(atPath: toyota.path))
 
@@ -166,7 +166,7 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(scan?.hasConfidentHome == true)     // content gave it a home
         #expect(scan?.isBatchEligible == false)     // but content-derived → not batch-eligible
 
-        await manager.applyRecommendedFiling()
+        await manager.applyRecommendedFiling(manager.batchEligibleFilingSuggestions)
         #expect(FileManager.default.fileExists(atPath: srcPath.path))   // the batch did NOT move it
     }
 

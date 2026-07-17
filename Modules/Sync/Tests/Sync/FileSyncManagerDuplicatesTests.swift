@@ -176,7 +176,7 @@ import Combine
             grp(.overlapping(sharedFraction: 0.9), keeper: "/a/Inv", redundant: ["/b/Inv"], reclaim: 400),
         ]
 
-        await manager.applyRecommendedDuplicates()
+        await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
         await waitUntil("identical redundant trashed") { mockFM.virtualDisk["/b/x"] == nil }
 
         #expect(mockFM.trashedPaths.count == 1)                       // only the identical copy
@@ -236,7 +236,7 @@ import Combine
             grp(.identical, keeper: "/a/y", redundant: ["/b/y"], reclaim: 1000),
         ]
 
-        await manager.applyRecommendedDuplicates()
+        await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
 
         #expect(mockFM.virtualDisk["/b/x"] == nil, "intact group's copy is trashed")
         #expect(mockFM.virtualDisk["/b/y"] != nil, "keeper-less group's copy must never be trashed")
@@ -256,7 +256,7 @@ import Combine
         }
         manager.duplicateGroups = [grp(.identical, keeper: "/a/x", redundant: ["/b/x"], reclaim: 1000)]
 
-        await manager.applyRecommendedDuplicates()
+        await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
 
         #expect(mockFM.virtualDisk["/b/x"] != nil, "declined permanent delete leaves the copy on disk")
         #expect(manager.duplicateGroups.count == 1, "a group whose copies survived must stay listed")
@@ -840,7 +840,7 @@ import Combine
         manager.duplicateGroups = [group]
 
         // "Apply recommended" must never touch a name-only group.
-        await manager.applyRecommendedDuplicates()
+        await manager.applyRecommendedDuplicates(manager.recommendedDuplicateGroups)
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.duplicateGroups.count == 1)
 

@@ -60,6 +60,20 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
 
 // MARK: - Automations lens
 
+/// The Automations lens's host-owned view state.
+///
+/// It lives outside the lens because the lens's controls ride ``TidyView``'s shared header card
+/// now: the "Preview all" button is rendered up there and has to be able to flip this lens into
+/// its results view. Owned by the host as a `@StateObject`, so it survives the lens being
+/// rebuilt.
+@MainActor
+public final class AutomationsLensState: ObservableObject {
+    /// True once the user has asked to see dry-run results — keeps the results view up until they
+    /// go back.
+    @Published public var viewingResults = false
+    public init() {}
+}
+
 /// The Automations workspace (N2): the one home for the user's rules — authored plain-words
 /// automations and rules taught by example (the migrated "remembered" rules, now `mentions`
 /// conditions). Rules steer Organize's suggestions on every scan; here they can also be dry-run
@@ -68,6 +82,11 @@ func automationConditionChipText(_ condition: AutomationCondition) -> String {
 /// previewing / results states.
 public struct AutomationsLens: View {
     @ObservedObject public var syncManager: FileSyncManager
+    @ObservedObject private var state: AutomationsLensState
+    /// The rules to list — already filtered by the header card's search. The lens never reads
+    /// `syncManager.automationRules` for its list, so what's on screen is exactly what the
+    /// header counted.
+    private let rules: [AutomationRule]
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
@@ -89,10 +108,9 @@ public struct AutomationsLens: View {
     /// Reveal a matched file in Finder (absolute path). nil hides the Reveal affordances.
     private let onReveal: ((String) -> Void)?
 
-    /// The rule being created or edited in the sheet, if any.
+    /// The rule being created or edited in the sheet, if any. A per-card Edit opens this; the
+    /// header card's "New rule" goes through the host's own editor sheet instead.
     @State private var editingRule: AutomationRule?
-    /// True once the user has asked to see results — keeps the results view up until they go back.
-    @State private var viewingResults = false
 
     /// Per-file "ask each time" filing: the actionable rows to step through, the current index, and
     /// the ones approved so far. `isFiling` drives the review card; the approved set is applied as one
@@ -104,6 +122,8 @@ public struct AutomationsLens: View {
 
     public init(
         syncManager: FileSyncManager,
+        state: AutomationsLensState,
+        rules: [AutomationRule],
         providerName: String? = nil,
         destinationRoot: URL? = nil,
         onQuickLook: ((String) -> Void)? = nil,
@@ -111,6 +131,8 @@ public struct AutomationsLens: View {
         onPreview: @escaping (UUID?) -> Void
     ) {
         self.syncManager = syncManager
+        self.state = state
+        self.rules = rules
         self.providerName = providerName
         self.destinationRoot = destinationRoot
         self.onQuickLook = onQuickLook
@@ -132,7 +154,7 @@ public struct AutomationsLens: View {
                 previewingState
             } else if isFiling, filingIndex < filingQueue.count {
                 filingReviewState
-            } else if viewingResults, let report = syncManager.automationDryRun {
+            } else if state.viewingResults, let report = syncManager.automationDryRun {
                 resultsState(report)
             } else {
                 rulesState
@@ -157,7 +179,7 @@ public struct AutomationsLens: View {
     private func newRule() { editingRule = AutomationRule(name: "") }
 
     private func runPreview(only: UUID? = nil) {
-        viewingResults = true
+        state.viewingResults = true
         onPreview(only)
     }
 
@@ -175,12 +197,14 @@ public struct AutomationsLens: View {
                 primary: .init("New rule", systemImage: AutomationsGlyph.newRule, handler: newRule)
             )
         } else {
+            // No header row here any more: the shared LensHeaderCard above carries this lens's
+            // count, its New rule / Preview all controls, and its search. This card renders the
+            // list only — which is also what makes the workspace's header height a promise
+            // instead of a per-lens accident.
             VStack(spacing: 0) {
-                rulesHeader
-                Divider().opacity(0.5)
                 ScrollView {
                     LazyVStack(spacing: densityMetrics.cardListSpacing) {
-                        ForEach(syncManager.automationRules) { rule in
+                        ForEach(rules) { rule in
                             AutomationRuleCard(
                                 rule: rule,
                                 accent: accent,
@@ -202,42 +226,11 @@ public struct AutomationsLens: View {
                         }
                     }
                     .padding(densityMetrics.cardListPadding)
-                    .animation(.easeInOut(duration: 0.2), value: syncManager.automationRules.map(\.id))
+                    .animation(.easeInOut(duration: 0.2), value: rules.map(\.id))
                 }
                 .scrollContentBackground(.hidden)
             }
         }
-    }
-
-    private var rulesHeader: some View {
-        let count = syncManager.automationRules.count
-        return HStack(spacing: 10) {
-            Image(systemName: AutomationsGlyph.lens)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(accent)
-            Text("\(count) automation\(count == 1 ? "" : "s")")
-                .font(.system(size: 13, weight: .semibold))
-                .monospacedDigit()
-            Text("· previews first — files only what you confirm")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 8)
-            Button(action: newRule) { Label("New rule", systemImage: AutomationsGlyph.newRule) }
-                .chromeButtonStyle(glassLevel)
-                .controlSize(.small)
-            Button(action: { runPreview(only: nil) }) { Label("Preview all", systemImage: AutomationsGlyph.preview) }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(runnableRuleCount == 0 || destinationRoot == nil)
-                // Name the ACTUAL blocker: with no provider root there is nothing to preview over,
-                // and telling the user to add conditions to already-complete rules is a dead end.
-                .help(destinationRoot == nil
-                      ? "Focus a provider folder first — the preview runs over the focused folder."
-                      : runnableRuleCount == 0
-                      ? "Add a rule with a condition and a destination to preview it."
-                      : "Dry-run the enabled rules over the focused folder in \(provider). A preview — nothing moves until you confirm.")
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
     }
 
     // MARK: Previewing
@@ -272,7 +265,7 @@ public struct AutomationsLens: View {
                     tint: .secondary,
                     title: "No files matched your rules",
                     message: "Nothing in \((report.root as NSString).lastPathComponent) matched an enabled rule. Adjust a rule or preview a different folder.",
-                    secondary: .init("Back to rules", systemImage: "chevron.left", handler: { viewingResults = false })
+                    secondary: .init("Back to rules", systemImage: "chevron.left", handler: { state.viewingResults = false })
                 )
             } else {
                 ScrollView {
@@ -300,7 +293,7 @@ public struct AutomationsLens: View {
 
     private func resultsHeader(_ report: AutomationDryRunReport) -> some View {
         HStack(spacing: 10) {
-            Button(action: { viewingResults = false }) { Label("Rules", systemImage: "chevron.left") }
+            Button(action: { state.viewingResults = false }) { Label("Rules", systemImage: "chevron.left") }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
             Text("Previewed \((report.root as NSString).lastPathComponent)")
