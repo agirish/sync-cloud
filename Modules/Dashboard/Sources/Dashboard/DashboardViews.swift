@@ -193,6 +193,16 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+        // Pinned, not intrinsic — this header and Tidy's `LensHeaderCard` both read
+        // `headerHeight`, so the pane's header↔list boundary and the card's bottom edge land on
+        // the same rule (83.5 = cardInset + headerHeight) instead of merely happening to agree.
+        //
+        // They did NOT agree before this: measured, the intrinsic height was 80 at a comfortable
+        // width, 68 once the nav cluster stepped down to `.mini` in a ~250pt pane, and 66 with no
+        // provider — so the line the two surfaces were supposed to share drifted by up to 15pt,
+        // worst exactly when panes are narrow. The extra point (80 → 81) is slack absorbed by the
+        // symmetric vertical padding; the narrow cases gain real air and stop breaking the line.
+        .frame(height: LiquidGlass.headerHeight)
         .contentSurface(hue: glassHue, tint: surfaceTint)
     }
 

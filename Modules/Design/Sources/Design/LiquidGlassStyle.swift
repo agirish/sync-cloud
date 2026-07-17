@@ -270,6 +270,20 @@ public enum LiquidGlass {
     /// What one card insets itself by, and what the content root pads by — half a gutter each, so
     /// every pairing (card↔card, card↔window edge) sums to `cardGutter`.
     public static var cardInset: CGFloat { cardGutter / 2 }
+
+    /// The resting VISIBLE height of a header — the file panes' `PaneHeader` and the Tidy
+    /// workspace's `LensHeaderCard` both land here, so the pane's header↔list boundary and the
+    /// lens card's bottom edge sit on the same rule across the window.
+    ///
+    /// Both headers inset themselves by `cardInset`, so each occupies `headerHeight + 2 *
+    /// cardInset` in its parent and its bottom edge falls at `cardInset + headerHeight` — 83.5.
+    /// That shared line is the whole point of the constant; it was a coincidence of two intrinsic
+    /// layouts before, which is why it kept drifting.
+    ///
+    /// `LensHeaderMetrics` derives its row geometry to match this, and both are asserted against
+    /// the LAID-OUT `fittingSize` rather than against each other — a constant agreeing with
+    /// itself proves nothing (see `4b1f611`).
+    public static let headerHeight: CGFloat = 81
     /// Corner radius for smaller elements (badges, buttons, inputs).
     public static let smallCornerRadius: CGFloat = 10
 
