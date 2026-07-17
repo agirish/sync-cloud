@@ -1,5 +1,7 @@
 import Testing
 import Foundation
+import AppKit
+import SwiftUI
 @testable import Design
 
 /// The Appearance model's two controls and the migration onto them.
@@ -174,5 +176,107 @@ struct GlassLevelTests {
         // to make a dense file view airy.
         #expect(LiquidGlass.cardGutter >= 4)
         #expect(LiquidGlass.cardGutter <= 8)
+    }
+
+    // MARK: - Every card helper actually applies the inset
+    //
+    // `cardInsetIsHalfAGutterSoEveryGapMatches` above only checks arithmetic on the constant. It
+    // stayed green for the whole time `bottomSectionCard` applied no inset at all — the Differences,
+    // Tidy and Storage stacks rendered flush at 0 and nothing failed. These measure the laid-out
+    // result instead: a card helper must grow its subject by exactly one gutter (two insets), which
+    // is the property the gap model actually depends on.
+
+    /// Lays a view out through a real `NSHostingView` — the same path the snapshot harness uses —
+    /// and reports the size SwiftUI settles on.
+    @MainActor
+    private func laidOutSize(_ view: some View) -> CGSize {
+        NSHostingView(rootView: AnyView(view)).fittingSize
+    }
+
+    private static let subject = CGSize(width: 100, height: 40)
+
+    @MainActor
+    private func expectGrowsByOneGutter(_ decorated: some View, _ label: Comment) {
+        let size = laidOutSize(decorated)
+        #expect(size.width == Self.subject.width + LiquidGlass.cardGutter, label)
+        #expect(size.height == Self.subject.height + LiquidGlass.cardGutter, label)
+    }
+
+    private var bare: some View {
+        Color.clear.frame(width: Self.subject.width, height: Self.subject.height)
+    }
+
+    @MainActor
+    @Test func bareSubjectMeasuresAtItsOwnSize() {
+        // Pins the measurement itself, so a failure below can only mean the modifier.
+        #expect(laidOutSize(bare) == Self.subject)
+    }
+
+    // Each of these sweeps every level rather than taking `@Test(arguments:)`, which would need
+    // `GlassLevel: Sendable` — a production change to suit a test.
+
+    @MainActor
+    @Test func surfaceCardInsetsItselfByHalfAGutter() {
+        for level in GlassLevel.allCases {
+            expectGrowsByOneGutter(bare.surfaceCard(level), "surfaceCard at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func bottomSectionCardInsetsItselfInCards() {
+        // The regression: this helper was the only one 62ef02d never gave an inset, while
+        // DifferencesView had already dropped to `spacing: 0` on the promise that it had one.
+        for level in GlassLevel.allCases {
+            expectGrowsByOneGutter(
+                bare.bottomSectionCard(.cards, level: level), "bottomSectionCard(.cards) at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func bottomSectionCardInsetsItselfInUnified() {
+        // Unified frames its panes region with `panesRegionFrame`, which does inset — so without
+        // this the bottom stack sat 2.5 wider per side than the panes above it.
+        for level in GlassLevel.allCases {
+            expectGrowsByOneGutter(
+                bare.bottomSectionCard(.unified, level: level), "bottomSectionCard(.unified) at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func panesRegionFrameInsetsItselfInUnified() {
+        for level in GlassLevel.allCases {
+            expectGrowsByOneGutter(
+                bare.panesRegionFrame(.unified, level: level), "panesRegionFrame(.unified) at \(level)")
+        }
+    }
+
+    @MainActor
+    @Test func cardsOnlyHelpersAreNoOpsInUnified() {
+        // `paneCardIfNeeded` no-ops in Unified — which is what keeps the provider-header split a
+        // Cards-only idiom, and what makes Cards read as the more separated of the two styles.
+        #expect(laidOutSize(bare.paneCardIfNeeded(.unified, level: .frosted)) == Self.subject)
+        #expect(laidOutSize(bare.panesRegionFrame(.cards, level: .frosted)) == Self.subject)
+    }
+
+    @MainActor
+    @Test func paneCardIfNeededInsetsItselfInCards() {
+        expectGrowsByOneGutter(bare.paneCardIfNeeded(.cards, level: .frosted), "paneCardIfNeeded(.cards)")
+    }
+
+    @MainActor
+    @Test func twoStackedCardsComeToExactlyOneGutter() {
+        // The end-to-end property every bottom stack relies on: stacked at `spacing: 0`, two
+        // sections' facing insets sum to one gutter and no more.
+        let stack = VStack(spacing: 0) {
+            bare.bottomSectionCard(.cards, level: .frosted)
+            bare.bottomSectionCard(.cards, level: .frosted)
+        }
+        let height = laidOutSize(stack).height
+        let cardHeight = Self.subject.height + LiquidGlass.cardGutter
+        #expect(height == cardHeight * 2)
+        // Total padding across the stack is two gutters, laid out as: half a gutter above, the two
+        // facing insets meeting as one full gutter between the subjects, half a gutter below. That
+        // decomposition is what makes card↔card and card↔window-edge agree. Pre-fix this was 0.
+        #expect(height - Self.subject.height * 2 == LiquidGlass.cardGutter * 2)
     }
 }

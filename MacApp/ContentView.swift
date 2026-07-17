@@ -1123,9 +1123,17 @@ struct ContentView: View {
                 lastScanDate: layoutMode == .compare ? syncManager.lastScanDate : nil,
                 showHiddenFiles: $syncManager.showHiddenFiles
             )
+            // Cards gives the provider header its own card, so the chrome reads as a separate
+            // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
+            // already has. The gap arithmetic needs no new number: each card insets itself by half
+            // a gutter, so header↔list comes to one `cardGutter`, and pane↔pane and pane↔window
+            // edge stay exactly where they were. In Unified `paneCardIfNeeded` is a no-op, so the
+            // pane stays one continuous surface and the two styles read differently — which is the
+            // point of having both.
+            .paneCardIfNeeded(surfaceStyle, level: glassLevel)
             treeView(pane)
+                .paneCardIfNeeded(surfaceStyle, level: glassLevel)
         }
-        .paneCardIfNeeded(surfaceStyle, level: glassLevel)
         // The file actions (Copy/Move/Compare/New Folder/Delete) live here now, not in the titlebar:
         // a contextual bar on whichever pane holds the selection, so the buttons name their target.
         .overlay(alignment: .bottom) {

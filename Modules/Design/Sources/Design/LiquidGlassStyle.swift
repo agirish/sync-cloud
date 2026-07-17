@@ -457,6 +457,11 @@ public extension View {
     /// self-contained card: applies the tint wash, then frames it — a floating card for `.cards`,
     /// or a clipped hairline-outlined region for `.unified`. Sections are stacked with a gap so
     /// the toolbar reads separately from the data.
+    ///
+    /// Like `surfaceCard` and `panesRegionFrame`, this insets itself by `cardInset` — half a
+    /// gutter — so two stacked sections come to exactly one `cardGutter` between them and line up
+    /// with the pane cards at the window edge. Callers stack these at `spacing: 0` and add no
+    /// padding of their own.
     @ViewBuilder
     func bottomSectionCard(_ style: SurfaceStyle, level: GlassLevel, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
         let radius = LiquidGlass.cardCornerRadius
@@ -471,15 +476,18 @@ public extension View {
                 glassed
                     .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
                     .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+                    .padding(LiquidGlass.cardInset)
             } else {
-                glassed
+                glassed.padding(LiquidGlass.cardInset)
             }
         case .unified:
             // Unified blends into the window glass, so only `.solid` contributes a fill here.
             let based = level == .solid
                 ? AnyView(filled.glassSurface(.solid, cornerRadius: radius))
                 : AnyView(filled)
-            based.overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
+            based
+                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
+                .padding(LiquidGlass.cardInset)
         }
     }
 }
