@@ -168,12 +168,22 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
         }
     }
 
-    /// The level overlay chrome actually renders at. Settings, Help, the first-run card and the
-    /// operation banner are the only surfaces with dense app content behind them rather than the
-    /// window's gradient, and clear glass over text is two layers of text competing — so `.clear`
-    /// resolves to `.frosted` there. Apple draws the same line: Control Center is glass, alerts
-    /// and sheets are not. `.frosted` and `.solid` pass through untouched.
-    public var flooredForOverlay: GlassLevel {
+    /// The level *chrome* renders at — any surface that must stay legible over a backdrop it
+    /// doesn't control. `.clear` resolves to `.frosted`; `.frosted` and `.solid` pass through, so
+    /// applying this is a no-op everywhere except Clear.
+    ///
+    /// Two kinds of surface need it, for the same reason:
+    ///
+    /// - **Overlays** (Settings, Help, first-run, the operation banner) sit over dense app content
+    ///   rather than the window's own background, and clear glass over text is two layers of text
+    ///   competing — this panel rendered at ~9% opacity before the floor existed.
+    /// - **Bars** (pane headers, the workspace toolbars) host controls. A button's fill is a thin
+    ///   tint wash with no material of its own, so on clear glass it has nothing to read against
+    ///   and the control stops looking like a control.
+    ///
+    /// Apple draws the same line both times: Control Center is glass but alerts are not, and a
+    /// transparent window frosts its toolbar and sidebar while leaving only the content clear.
+    public var flooredForChrome: GlassLevel {
         self == .clear ? .frosted : self
     }
 
@@ -321,8 +331,15 @@ public extension View {
         let opacities: [Double] = [0.06 + 0.16 * t, 0.05 + 0.14 * t, 0.04 + 0.10 * t]
         let gradientColors = zip(colors, opacities).map { $0.0.opacity($0.1) }
 
+        // At `.clear` let the desktop through instead of painting a flat base — the thinMaterial
+        // below is opaque enough to hide it, so the two are mutually exclusive.
+        let seeThrough = level == .clear
+
         self.background {
             ZStack {
+                BehindWindowGlass(isEnabled: seeThrough)
+                    .ignoresSafeArea()
+
                 LinearGradient(
                     colors: gradientColors,
                     startPoint: .topLeading,
@@ -330,10 +347,12 @@ public extension View {
                 )
                 .ignoresSafeArea()
 
-                // Keep a base material so content remains readable in light/dark.
-                Color.clear
-                    .background(.thinMaterial.opacity(0.45 + 0.20 * t))
-                    .ignoresSafeArea()
+                if !seeThrough {
+                    // Keep a base material so content remains readable in light/dark.
+                    Color.clear
+                        .background(.thinMaterial.opacity(0.45 + 0.20 * t))
+                        .ignoresSafeArea()
+                }
             }
         }
     }
@@ -358,11 +377,11 @@ public extension View {
     }
 
     /// Frosted glass card style for floating overlay chrome (Settings, Help, the first-run card,
-    /// the operation banner). Applies `flooredForOverlay`, so a `.clear` app never produces an
+    /// the operation banner). Applies `flooredForChrome`, so a `.clear` app never produces an
     /// unreadable dialog — these are the only surfaces with live content behind them.
     @ViewBuilder
     func glassCardStyle(level: GlassLevel) -> some View {
-        let resolved = level.flooredForOverlay
+        let resolved = level.flooredForChrome
         let shape = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
         if resolved.needsExplicitChrome {
             self
@@ -384,6 +403,36 @@ public extension View {
     @ViewBuilder
     func glassBarStyle(level: GlassLevel) -> some View {
         self.glassSurface(level, cornerRadius: LiquidGlass.smallCornerRadius)
+    }
+
+    /// The button style for a bar of controls, resolved from the level.
+    ///
+    /// At `.clear` the card behind these buttons is see-through to the desktop, and a bordered
+    /// button's fill is too faint to survive that — the control stops reading as a control. Native
+    /// Liquid Glass gives each button its own material instead, so the *card* stays clear and only
+    /// the buttons frost. Everywhere else `.bordered` is untouched.
+    ///
+    /// Deliberately per-control rather than a frosted band behind the whole bar: a band would make
+    /// the bar opaque, which is the transparency the level asked for being taken back.
+    @ViewBuilder
+    func chromeButtonStyle(_ level: GlassLevel) -> some View {
+        if level == .clear, #available(macOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+    }
+
+    /// Gives a non-button chrome element (a status pill, a count badge) its own material at
+    /// `.clear`, for the same reason as `chromeButtonStyle`: its fill is a thin tint wash, and on
+    /// a see-through card there's nothing behind it to read against. No-op otherwise.
+    @ViewBuilder
+    func chromePillFrost(_ level: GlassLevel) -> some View {
+        if level == .clear {
+            self.background(.regularMaterial, in: Capsule(style: .continuous))
+        } else {
+            self
+        }
     }
 
     /// The accent-color wash driven by the Tint slider (`tint`, 0...1). Applies to every shape and
@@ -462,8 +511,17 @@ public extension View {
     /// gutter — so two stacked sections come to exactly one `cardGutter` between them and line up
     /// with the pane cards at the window edge. Callers stack these at `spacing: 0` and add no
     /// padding of their own.
+    ///
+    /// Every section takes the level verbatim, toolbars included — a toolbar's *card* is as clear
+    /// as the table's. Its buttons get their own material via `chromeButtonStyle` instead, so the
+    /// bar doesn't turn into an opaque band across a window the user asked to see through.
     @ViewBuilder
-    func bottomSectionCard(_ style: SurfaceStyle, level: GlassLevel, hue: LiquidGlassHue = .blue, tint: Double = 0) -> some View {
+    func bottomSectionCard(
+        _ style: SurfaceStyle,
+        level: GlassLevel,
+        hue: LiquidGlassHue = .blue,
+        tint: Double = 0
+    ) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         let filled = self

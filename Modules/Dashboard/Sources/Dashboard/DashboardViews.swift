@@ -46,6 +46,10 @@ public struct PaneHeader: View {
     @Binding public var showHiddenFiles: Bool
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint.
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized. Read here
+    /// only to frost this header's own controls at Clear — the header paints no surface itself.
+    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     private var glassHue: LiquidGlassHue {
@@ -78,6 +82,7 @@ public struct PaneHeader: View {
                 .foregroundStyle(tint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(tint.opacity(freshness.isStale ? 0.14 : 0.1), in: Capsule())
+                .chromePillFrost(glassLevel)
 
                 if let onRefresh {
                     // Same guard as the Scan button below: the pill triggers the same action,
@@ -306,6 +311,6 @@ public struct PaneHeader: View {
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
         }
-        .buttonStyle(.bordered)
+        .chromeButtonStyle(glassLevel)
     }
 }

@@ -803,7 +803,7 @@ struct ContentView: View {
     }
 
     /// The Settings card. It picks up the accent tint and the glass material like every other
-    /// surface, but `glassCardStyle` applies `flooredForOverlay` — this is the one panel with the
+    /// surface, but `glassCardStyle` applies `flooredForChrome` — this is the one panel with the
     /// whole app behind it rather than the window's gradient, and clear glass over content is two
     /// layers of text competing (it rendered at ~9% opacity before the floor existed). Radius,
     /// clip and shadow come from the shared LiquidGlass system rather than hardcoded values.
@@ -1414,7 +1414,11 @@ struct ContentView: View {
         // tallest content with room to spare (content stays vertically centered, nothing clips), so
         // the bar reads at one constant height across every tab.
         .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .leading)
-        .background(.bar)
+        // `.bar` is opaque, which at Clear would leave a solid band across the top of a window the
+        // user asked to see through. Drop it there and let the desktop read behind the tabs; the
+        // controls carry their own material (`chromeButtonStyle`), so they still stand off it.
+        // Every other level keeps `.bar` exactly as before.
+        .background(glassLevel == .clear ? AnyShapeStyle(.clear) : AnyShapeStyle(.bar))
         .overlay(alignment: .bottom) { Divider() }
     }
 

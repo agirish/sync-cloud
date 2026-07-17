@@ -383,7 +383,7 @@ public struct DifferencesView: View {
                 Label(targets.isSelectionScoped ? "Review \(targets.targets.count)…" : "Review…", systemImage: "checklist")
                     .lineLimit(1)
             }
-            .buttonStyle(.bordered)
+            .chromeButtonStyle(glassLevel)
             .disabled(isSyncActionBlocked)
             .help("Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy")
         }
@@ -426,7 +426,7 @@ public struct DifferencesView: View {
             } label: {
                 Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
             }
-            .buttonStyle(.bordered)
+            .chromeButtonStyle(glassLevel)
             .disabled(isSyncActionBlocked)
             // Same explanation as the review card's Verify, scoped to what the bulk run
             // actually covers: only date-only differences whose sizes match are checksummed.
@@ -486,7 +486,7 @@ public struct DifferencesView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .buttonStyle(.bordered)
+            .chromeButtonStyle(glassLevel)
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
             .disabled(reviewStore.isActing || isSyncActionBlocked)
@@ -497,7 +497,7 @@ public struct DifferencesView: View {
         } label: {
             Label("Exit Review", systemImage: "xmark.circle")
         }
-        .buttonStyle(.bordered)
+        .chromeButtonStyle(glassLevel)
         .help("Stop reviewing (esc)")
     }
 

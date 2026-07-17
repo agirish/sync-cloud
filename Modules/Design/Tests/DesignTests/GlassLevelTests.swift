@@ -11,24 +11,33 @@ import SwiftUI
 /// app behind it read straight through — its only fill was the ~9% accent tint wash.
 struct GlassLevelTests {
 
-    // MARK: - The overlay legibility floor
+    // MARK: - The chrome legibility floor
 
-    @Test func clearIsFlooredToFrostedForOverlays() {
-        // The whole point: overlay chrome is the only surface with dense app content behind it,
-        // so it can never resolve to no-frost glass, however clear the rest of the app is.
-        #expect(GlassLevel.clear.flooredForOverlay == .frosted)
+    @Test func clearIsFlooredToFrostedForChrome() {
+        // Chrome is anything that must stay legible over a backdrop it doesn't control: overlays
+        // (app content behind them) and bars (controls whose only fill is a thin tint wash). It
+        // can never resolve to no-frost glass, however clear the rest of the app is.
+        #expect(GlassLevel.clear.flooredForChrome == .frosted)
     }
 
     @Test func frostedAndSolidPassThroughTheFloorUnchanged() {
-        // The floor raises `.clear` and touches nothing else — an opaque Settings panel must stay
-        // opaque, not get quietly downgraded to glass.
-        #expect(GlassLevel.frosted.flooredForOverlay == .frosted)
-        #expect(GlassLevel.solid.flooredForOverlay == .solid)
+        // The floor raises `.clear` and touches nothing else. This is what lets `chromeFrost` and
+        // `hostsControls` be applied unconditionally: at Frosted/Solid the surface underneath
+        // already backs the controls, and stacking a second material would just look heavy.
+        #expect(GlassLevel.frosted.flooredForChrome == .frosted)
+        #expect(GlassLevel.solid.flooredForChrome == .solid)
+    }
+
+    @Test func onlyClearNeedsChromeFrosting() {
+        // Pins the branch `chromeFrost` keys off: it adds a layer for exactly one level, so a
+        // level added later can't silently start stacking materials inside the pane cards.
+        let needsFrosting = GlassLevel.allCases.filter { $0.flooredForChrome != $0 }
+        #expect(needsFrosting == [.clear])
     }
 
     @Test func flooringIsIdempotent() {
         for level in GlassLevel.allCases {
-            #expect(level.flooredForOverlay.flooredForOverlay == level.flooredForOverlay)
+            #expect(level.flooredForChrome.flooredForChrome == level.flooredForChrome)
         }
     }
 
