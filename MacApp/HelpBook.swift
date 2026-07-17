@@ -234,11 +234,13 @@ enum HelpBook {
                 related: ["scan", "staying-safe"]
             )),
             Topic(id: "appearance", title: "Appearance", systemImage: "paintbrush", article: Article(
-                intro: "Tune how SyncCloud looks — surface style, translucency, provider hues, and list density.",
+                intro: "Tune how SyncCloud looks — theme, surface style, translucency, provider hues, and list density.",
                 blocks: [
                     .bullets([
-                        "Content surface — Unified, Framed, or Solid panes.",
-                        "Glass intensity and accent tint for the translucent surfaces.",
+                        "Theme — System follows macOS (including its light/dark schedule); Light and Dark pin SyncCloud regardless of the system setting.",
+                        "Accent color and tint for the translucent surfaces.",
+                        "Glass effect — Clear, Frosted, or Solid surfaces.",
+                        "Content surface — Unified or Cards panes.",
                         "List density — comfortable or compact rows across the file panes and lists.",
                     ]),
                 ],

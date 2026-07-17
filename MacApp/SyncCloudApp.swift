@@ -68,6 +68,11 @@ struct SyncCloudApp: App {
         // noted above are harmless.
         LiquidGlass.migrateLegacyAppearance()
 
+        // Pin the app's light/dark theme before any window exists, so a pinned appearance is what
+        // the first frame draws rather than a flash of the system one. Settings re-applies on
+        // change; `.system` (the default) assigns nil, which is AppKit for "follow macOS".
+        AppAppearance.applyPersisted()
+
         let manager = FileSyncManager()
         // The Sync package is UI-free: its seam defaults fail safe (skip collisions, refuse
         // permanent deletes). Wire the real NSAlert-backed prompts here, at the app boundary.

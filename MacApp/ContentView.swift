@@ -70,6 +70,9 @@ struct ContentView: View {
     /// survive both — and this ContentView itself, which a window close + Dock reopen recreates.
     @ObservedObject var reviewStore: ReviewSessionStore
     
+    /// Read here purely to drive the theme applier below — unlike the other Appearance keys,
+    /// nothing in this view renders from it; the appearance lives on NSApp, not in the view tree.
+    @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw: String = AppearanceMode.system.rawValue
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
@@ -268,6 +271,12 @@ struct ContentView: View {
             if isOpen { showHelp = false }
         }
         .quickLookPreview($quickLookURL)
+        // The theme is the one Appearance control no view can render on its own: it lives on
+        // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
+        // and the separate Activity Log / Sync History windows) follow it too. Applied from the
+        // root view rather than from the Settings picker so it re-applies whoever writes the key
+        // and whether or not the Settings overlay happens to be on screen; App.init covers launch.
+        .onChange(of: appearanceModeRaw) { AppAppearance.applyPersisted() }
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
     }
 

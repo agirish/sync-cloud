@@ -599,12 +599,20 @@ struct GeneralSettingsTab: View {
 
 // MARK: - Appearance
 
-/// Accent hue, glass material and surface shape, all shared with MacApp through UserDefaults.
+/// Theme, accent hue, glass material and surface shape, all shared with MacApp through
+/// UserDefaults.
 ///
-/// Glass effect (material) and Content surface (shape) are deliberately separate controls: any
-/// level combines with any shape. They were entangled before — "Solid" appeared in the shape
-/// picker and silently overrode the material one.
+/// Theme (light/dark), Glass effect (material) and Content surface (shape) are deliberately
+/// separate controls: any combination is valid. The latter two were entangled before — "Solid"
+/// appeared in the shape picker and silently overrode the material one.
+///
+/// Theme leads the tab because it is the broadest of the four: the others all decide how a
+/// surface reads *within* an appearance, so choosing light vs dark first is what makes them
+/// meaningful. Unlike the others it renders nothing here — `ContentView` pushes it to NSApp.
 struct AppearanceSettingsTab: View {
+    @AppStorage(LiquidGlass.appearanceModeKey) private var appearanceModeRaw: String = AppearanceMode.system.rawValue
+    /// The resolved theme; `.system` (follow macOS) if unrecognized.
+    private var appearanceMode: AppearanceMode { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -623,6 +631,20 @@ struct AppearanceSettingsTab: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Theme", selection: $appearanceModeRaw) {
+                    ForEach(AppearanceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text(appearanceMode.detail)
+            }
+
             Section("Accent color") {
                 HStack(spacing: 8) {
                     ForEach(LiquidGlassHue.allCases) { hue in

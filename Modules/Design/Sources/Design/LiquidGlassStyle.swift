@@ -268,6 +268,9 @@ public enum LiquidGlass {
     /// UserDefaults key for the selected `GlassLevel` (raw value).
     public static let levelKey = "glassLevel"
 
+    /// UserDefaults key for the selected `AppearanceMode` (raw value) — light/dark/system.
+    public static let appearanceModeKey = "appearanceMode"
+
     /// UserDefaults key for the retired `liquidGlassIntensity` Double. Read only by
     /// `migrateLegacyAppearance`, which clears it.
     public static let intensityKey = "liquidGlassIntensity"
