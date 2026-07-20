@@ -252,11 +252,26 @@ public enum AutomationEvaluator {
             guard let d = facts.modificationDate else { return nil }
             return String(format: "%02d", cal.component(.month, from: d))
         }
+        // {yyyy-mm} takes BOTH components from ONE clock — the mtime. {year} alone may prefer
+        // the filename's year (Taxes/2023 for a 2023 form downloaded in 2024), but the month
+        // can only come from the mtime, and composing filename-2023 with mtime-May-2024 minted
+        // "2023-05" — a date belonging to neither source, blind-filed into by batch-eligible
+        // rules. A filename year that CONTRADICTS the mtime year makes the composite
+        // unknowable: resolve to nil so the leftover-token sweep flags it instead.
+        func yearMonth() -> String? {
+            guard let d = facts.modificationDate else { return nil }
+            let mtimeYear = String(cal.component(.year, from: d))
+            if let named = FilingEngine.filenameYear(in: FilingEngine.fileTokens(facts.name), now: now),
+               named != mtimeYear {
+                return nil
+            }
+            return "\(mtimeYear)-\(String(format: "%02d", cal.component(.month, from: d)))"
+        }
 
         // Ordered so a failed lookup can report the exact token. Each replacement is skipped (left in
         // place) when it can't resolve; the leftover-token sweep below then flags it.
         let substitutions: [(token: String, value: String?)] = [
-            ("{yyyy-mm}", (year() != nil && month() != nil) ? "\(year()!)-\(month()!)" : nil),
+            ("{yyyy-mm}", yearMonth()),
             ("{year}", year()),
             ("{month}", month()),
             ("{kind}", FileKind.of(fileName: facts.name)?.label),

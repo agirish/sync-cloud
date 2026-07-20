@@ -140,6 +140,30 @@ import Testing
                 == .resolved("Files/PDF"))
     }
 
+    @Test func yearMonthTokenNeverMixesYearSources() {
+        // {yyyy-mm} must take BOTH components from one clock. {year} alone may prefer the
+        // filename's year (Taxes/2023 for a 2023 form downloaded in 2024), but the month can
+        // only come from the mtime — composing filename-2023 with mtime-May-2024 minted
+        // "2023-05", a date belonging to neither source, and batch-eligible rules blind-filed
+        // into it. A filename year that CONTRADICTS the mtime year makes the composite
+        // unknowable → unresolved (flagged, never blind-filed).
+        let contradicting = facts("chase-statement-2023.pdf", modified: now)   // now = 2024
+        #expect(AutomationEvaluator.resolveDestination("Docs/{yyyy-mm}", for: contradicting,
+                                                       providerName: nil, now: now)
+                == .unresolved(token: "{yyyy-mm}"))
+
+        // A filename year AGREEING with the mtime year resolves — from the mtime.
+        let agreeing = facts("chase-statement-2024.pdf", modified: now)
+        #expect(AutomationEvaluator.resolveDestination("Docs/{yyyy-mm}", for: agreeing,
+                                                       providerName: nil, now: now)
+                == .resolved("Docs/2024-07"))
+
+        // {year} alone keeps its filename preference (the round-4 pinned behavior).
+        #expect(AutomationEvaluator.resolveDestination("Docs/{year}", for: contradicting,
+                                                       providerName: nil, now: now)
+                == .resolved("Docs/2023"))
+    }
+
     @Test func unresolvableTokensAreReported() {
         // No provider → {provider} can't fill.
         #expect(AutomationEvaluator.resolveDestination("{provider}/x", for: facts("a.pdf", modified: now),
