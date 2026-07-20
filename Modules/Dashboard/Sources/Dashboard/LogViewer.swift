@@ -240,7 +240,16 @@ public struct LogViewer: View {
                 .disabled(filtered.isEmpty)
                 .help("Copy the \(filtered.count) shown \(filtered.count == 1 ? "entry" : "entries") to the clipboard")
 
-                Button(action: { logger.clearLogs() }) {
+                Button(action: {
+                    logger.clearLogs()
+                    // The on-disk file was just truncated: history parsed from the PRE-clear
+                    // file must not stay on screen (nor keep paging out deleted entries, nor
+                    // pin the "Show older history" button away for the window's lifetime —
+                    // it only reappears while loadedHistory is nil). Reset to the
+                    // never-loaded state; a re-click re-reads the now-empty file honestly.
+                    loadedHistory = nil
+                    historyLimit = Self.historyPageSize
+                }) {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
