@@ -40,6 +40,25 @@ import Testing
         #expect(AutomationRuleEditor.canonicalized(.contentContains("Final Draft")) == .contentContains("Final Draft"))
     }
 
+    @Test func saveGateBlocksAnUnmatchableMentionsRowEvenWhenOtherConditionsRun() {
+        // The gate the warning row promises. The dangerous shape is an ALL-OF rule where a
+        // complete second condition makes the rule runnable while the mentions row would
+        // canonicalize to nothing: saving would silently broaden "kind is PDF AND mentions
+        // 'the'" to EVERY PDF (batch-eligible rules then blind-file on it). isRunnable alone
+        // let exactly that through — canSave must not.
+        #expect(!AutomationRuleEditor.canSave(
+            isRunnable: true,
+            conditions: [.kindIs(.pdf), .mentionsAll(["the"])]))
+        // Matchable mentions plus a runnable rule saves as before.
+        #expect(AutomationRuleEditor.canSave(
+            isRunnable: true,
+            conditions: [.kindIs(.pdf), .mentionsAll(["tesla"])]))
+        // A blank mentions row is plain "incomplete" — it gates via isRunnable, not this check.
+        #expect(!AutomationRuleEditor.canSave(
+            isRunnable: false,
+            conditions: [.mentionsAll([""])]))
+    }
+
     @Test func unmatchableMentionsRowsAreDetected() {
         // Visible text that canonicalizes to NOTHING (stopwords, bare numbers, 1-char fragments)
         // must block Save — silently dropping the condition would broaden an all-of rule.

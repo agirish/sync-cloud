@@ -128,6 +128,15 @@ struct AutomationRuleEditor: View {
         rows.contains { Self.isUnmatchableMentions($0.condition) }
     }
 
+    /// The Save gate: runnable AND no unmatchable-mentions row. The second half is what makes
+    /// the `isUnmatchableMentions` warning's promise real — canonicalization would save such a
+    /// row as `.mentionsAll([])`, which the evaluator ignores, silently BROADENING an all-of
+    /// rule to whatever its other conditions match (and batch-eligible rules then blind-file on
+    /// it). `internal` so tests can pin the gate without a view.
+    nonisolated static func canSave(isRunnable: Bool, conditions: [AutomationCondition]) -> Bool {
+        isRunnable && !conditions.contains(where: isUnmatchableMentions)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -372,7 +381,9 @@ struct AutomationRuleEditor: View {
             Button("Save") { onSave(assembled) }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(!assembled.isRunnable)
+                // Gate on the RAW rows, not `assembled`: canonicalization already stripped the
+                // unmatchable row there, which is exactly the silent broadening being blocked.
+                .disabled(!Self.canSave(isRunnable: assembled.isRunnable, conditions: rows.map(\.condition)))
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
     }
