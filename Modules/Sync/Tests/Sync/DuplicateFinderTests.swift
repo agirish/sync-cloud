@@ -316,6 +316,48 @@ import Testing
         #expect(!groups[0].recommendedRemovalPaths.contains("/root/2019/IMG_0001.jpg"))
     }
 
+    @Test func hardLinkedEntriesCollapseToOneCopy() {
+        // Two directory entries of one inode are the SAME file: grouping them reported the
+        // file's full size as reclaimable, and "resolving" trashed a link that freed nothing.
+        func identity(_ token: String) -> DuplicateFinder.FileIdentity {
+            DuplicateFinder.FileIdentity(volume: "vol1" as NSString, file: token as NSString)
+        }
+        let tree = [
+            dir("/root/Docs", [
+                file("/root/Docs/a.bin", size: 50_000),
+                file("/root/Docs/b.bin", size: 50_000),      // hard link to a.bin
+                file("/root/Docs/c.bin", size: 50_000),      // real independent copy
+            ]),
+        ]
+        let hashes = ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H", "/root/Docs/c.bin": "H"]
+        let identities = [
+            "/root/Docs/a.bin": identity("inode-1"),
+            "/root/Docs/b.bin": identity("inode-1"),
+            "/root/Docs/c.bin": identity("inode-2"),
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes, fileIdentities: identities)
+        let identical = groups.filter { $0.matchType == .identical }
+        #expect(identical.count == 1)
+        #expect(identical[0].copies.count == 2)               // one link representative + c.bin
+        #expect(identical[0].reclaimableBytes == 50_000)      // ONE real copy's bytes, not two
+
+        // Links only (no independent copy): nothing to reclaim, no group at all.
+        let linksOnly = DuplicateFinder.findGroups(
+            tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
+                                      file("/root/Docs/b.bin", size: 50_000)])],
+            fileHashes: ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H"],
+            fileIdentities: ["/root/Docs/a.bin": identity("inode-1"),
+                             "/root/Docs/b.bin": identity("inode-1")])
+        #expect(!linksOnly.contains { $0.matchType == .identical })
+
+        // No identity metadata → prior behavior exactly (distinct files, both group).
+        let unknown = DuplicateFinder.findGroups(
+            tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
+                                      file("/root/Docs/b.bin", size: 50_000)])],
+            fileHashes: ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H"])
+        #expect(unknown.contains { $0.matchType == .identical })
+    }
+
     @Test func independentMarkerClustersInDifferentFoldersNeverPoolUnmarkedOriginals() {
         // Markers in TWO different folders are two independent duplication events (ClientA
         // duplicated its report; ClientB duplicated its own), not one document's history.
@@ -338,13 +380,47 @@ import Testing
             "/root/ClientB/report.pdf": "B", "/root/ClientB/report copy 2.pdf": "B2",
         ]
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
-        for g in groups where g.matchType == .versions {
-            #expect(!g.copies.contains { $0.path == "/root/ClientA/report.pdf" })
-            #expect(!g.copies.contains { $0.path == "/root/ClientB/report.pdf" })
+        // One group PER folder, each pairing the marked copy with ITS OWN original — never a
+        // cross-folder mix that would let ClientB's newer file adjudicate ClientA's history.
+        let versions = groups.filter { $0.matchType == .versions }
+        #expect(versions.count == 2)
+        for g in versions {
+            let parents = Set(g.copies.map { ($0.path as NSString).deletingLastPathComponent })
+            #expect(parents.count == 1)   // no group spans folders
         }
+        // Each folder's original is the newest there → keeper; only the marked copies are
+        // recommended for removal.
         let removals = Set(groups.flatMap(\.recommendedRemovalPaths))
-        #expect(!removals.contains("/root/ClientA/report.pdf"))
-        #expect(!removals.contains("/root/ClientB/report.pdf"))
+        #expect(removals == ["/root/ClientA/report copy.pdf", "/root/ClientB/report copy 2.pdf"])
+    }
+
+    @Test func multiParentBucketKeepsEachBearersOwnOriginalInItsGroup() {
+        // The refinement's other half: when one folder holds a true original + marked copy and
+        // ANOTHER folder holds a lone marked copy, the same-parent pair must still group
+        // (round-5 semantics per folder) — dropping the original there would let "keep newest"
+        // adjudicate among stale marked copies with the real newest revision invisible. The
+        // lone bearer has no same-stem company and pools with no one → stays ungrouped.
+        let tree = [
+            dir("/root/Docs", [
+                file("/root/Docs/report.pdf", size: 9_000, modified: Date(timeIntervalSince1970: 3_000_000)),
+                file("/root/Docs/report v2.pdf", size: 9_100, modified: Date(timeIntervalSince1970: 2_000_000)),
+            ]),
+            dir("/root/Desktop", [
+                file("/root/Desktop/report copy 2.pdf", size: 9_600, modified: Date(timeIntervalSince1970: 1_000_000)),
+                file("/root/Desktop/desk-notes.txt", size: 8_192),
+            ]),
+        ]
+        let hashes = [
+            "/root/Docs/report.pdf": "R3", "/root/Docs/report v2.pdf": "R2",
+            "/root/Desktop/report copy 2.pdf": "R1", "/root/Desktop/desk-notes.txt": "N",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        let versions = groups.filter { $0.matchType == .versions }
+        #expect(versions.count == 1)
+        #expect(Set(versions[0].copies.map(\.path)) ==
+                ["/root/Docs/report.pdf", "/root/Docs/report v2.pdf"])
+        #expect(versions[0].keeper.path == "/root/Docs/report.pdf")   // the newest IS the original
+        #expect(!groups.flatMap(\.recommendedRemovalPaths).contains("/root/Desktop/report copy 2.pdf"))
     }
 
     @Test func unmarkedCrossFolderMemberNeverSuppliesTheDriftEvidence() {

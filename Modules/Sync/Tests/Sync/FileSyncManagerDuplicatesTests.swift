@@ -589,6 +589,120 @@ import Combine
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
     }
 
+    @Test func realHardLinksShareAnIdentityAndNeverGroup() throws {
+        // End-to-end on a real volume: link(2) entries resolve to one FileIdentity, and the
+        // finder collapses them — no group, zero phantom reclaimable bytes.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let a = base.appendingPathComponent("Docs/a.bin")
+        let b = base.appendingPathComponent("Docs/b.bin")
+        try write(a, bytes: 5000, fill: 0x41)
+        try FileManager.default.linkItem(at: a, to: b)
+
+        let ids = FileSyncManager.fileIdentities(for: [a.path, b.path])
+        #expect(ids[a.path] != nil)
+        #expect(ids[a.path] == ids[b.path])   // one inode, one identity
+
+        let tree = [FileNode(id: base.appendingPathComponent("Docs").path, name: "Docs", isDirectory: true,
+                             children: [
+                                FileNode(id: a.path, name: "a.bin", isDirectory: false, children: nil,
+                                         modificationDate: Date(), fileSize: 5000),
+                                FileNode(id: b.path, name: "b.bin", isDirectory: false, children: nil,
+                                         modificationDate: Date(), fileSize: 5000),
+                             ], modificationDate: Date(), fileSize: nil)]
+        let groups = DuplicateFinder.findGroups(
+            tree: tree, fileHashes: [a.path: "H", b.path: "H"], fileIdentities: ids)
+        #expect(!groups.contains { $0.matchType == .identical })
+    }
+
+    @Test func planMergeFoldsCaseOnInsensitiveKeeperVolumes() async throws {
+        // On a case-insensitive keeper volume "A.txt" and "a.txt" are one on-disk name. With
+        // exact-case keys the same-location check missed the collision: byte-identical content
+        // copied anyway and uniquified to a junk "a 2.txt" on the FIRST run — and the retry
+        // skip missed it too, so retries kept minting more. Folded keys treat it as the
+        // same-location duplicate it is.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x59)
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
+
+        let plan = await FileSyncManager.planMerge(
+            from: redundant, into: keeper, caseSensitiveVolume: false, fileManager: FileManager.default)
+        #expect(plan.steps.isEmpty)   // same location modulo case, same bytes — nothing to copy
+    }
+
+    @Test func planMergeRetrySkipHonorsCaseFoldedCollisions() async throws {
+        // The retry shape of the case fold: run 1 collided "a.txt" against keeper "A.txt"
+        // (different content) and landed "a 2.txt"; the retry must see the folded name as
+        // taken AND the bytes as present, and plan nothing.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x41)
+        try write(keeper.appendingPathComponent("a 2.txt"), bytes: 5000, fill: 0x59)
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
+
+        let plan = await FileSyncManager.planMerge(
+            from: redundant, into: keeper, caseSensitiveVolume: false, fileManager: FileManager.default)
+        #expect(plan.steps.isEmpty)
+    }
+
+    @Test func planMergeKeepsExactCaseSemanticsOnSensitiveVolumes() async throws {
+        // The default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct
+        // names there, so the byte-identical source still copies under its own name.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("A.txt"), bytes: 5000, fill: 0x59)
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
+
+        let plan = await FileSyncManager.planMerge(
+            from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
+    }
+
+    @Test func planMergeNeverLetsASymlinkVouchForContent() async throws {
+        // A keeper-folder symlink hashes as its TARGET's bytes. If it fed the parent hash-set,
+        // the retry skip would fire for content whose only real copy is the redundant folder —
+        // the fold "completes", the trash step removes the redundant copy, and the keeper is
+        // left holding a dangling link. Links must contribute to neither keeper map.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x5A)      // name-holder, content Z
+        try write(redundant.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x59)   // content Y — only real copy
+        try FileManager.default.createSymbolicLink(
+            at: keeper.appendingPathComponent("alias.txt"),
+            withDestinationURL: redundant.appendingPathComponent("b.txt"))
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        // Y must still be copied: the link's hash (Y, via the target) may not count as
+        // "already in the folder".
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["b.txt"])
+    }
+
+    @Test func planMergeRetrySkipSeesDirectoryAndUnhashedNameHolders() async throws {
+        // The "name taken" gate must trigger on what the COPY loop's fileExists collides
+        // with — any on-disk entry, including a directory (which the hash maps can never
+        // hold). Run 1: source file "sub" collided with keeper DIRECTORY "sub", landed
+        // uniquified as "sub 2". The retry must skip, not mint "sub 3".
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("sub/inner.txt"), bytes: 5000, fill: 0x49)  // DIR holds the name
+        try write(keeper.appendingPathComponent("sub 2"), bytes: 5000, fill: 0x59)          // run 1's landing
+        try write(redundant.appendingPathComponent("sub"), bytes: 5000, fill: 0x59)         // same content, still in source
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.isEmpty)
+    }
+
     @Test func mergeSourceDriftedFlagsNewAndChangedFilesButNotRemovals() {
         typealias Snap = FileSyncManager.MergeFileSnapshot
         let t1 = Date(timeIntervalSince1970: 1_000_000)

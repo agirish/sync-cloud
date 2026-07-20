@@ -144,8 +144,17 @@ extension FileSyncManager {
             fileHashes[f.id] = realHashes[f.id] ?? DuplicateFinder.unknownSignature(forPath: f.id)
         }
 
+        // Volume+inode per candidate, so hard links collapse to one copy instead of forming a
+        // "duplicate" whose removal frees nothing. Stat-only metadata reads, off the main actor.
+        let identityPaths = candidatePaths
+        let fileIdentities = await Task.detached(priority: .userInitiated) {
+            Self.fileIdentities(for: identityPaths)
+        }.value
+        if Task.isCancelled { return }
+
         // 3. Group (pure), then drop anything the user has kept separate.
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options)
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options,
+                                                fileIdentities: fileIdentities)
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
@@ -386,10 +395,11 @@ extension FileSyncManager {
             }
 
             let rURL = URL(fileURLWithPath: redundant.path)
-            let plan = await Self.planMerge(from: rURL, into: keeperURL, fileManager: fm)
-            // Merge targets all land under the keeper — collapse reserved-key case on a
-            // case-insensitive keeper volume (same reason as the bulk sync path).
+            // Resolved BEFORE planning: the plan's same-location and retry-skip checks compare
+            // relative paths with the keeper volume's own case semantics (same reason the copy
+            // loop below collapses reserved-key case on a case-insensitive keeper volume).
             let keeperCaseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: keeperURL)
+            let plan = await Self.planMerge(from: rURL, into: keeperURL, caseSensitiveVolume: keeperCaseSensitive, fileManager: fm)
             let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
             let progressRef = ProgressRef(progress)   // NSProgress is thread-safe; the ref is the Sendable wrapper
 
@@ -484,6 +494,26 @@ extension FileSyncManager {
         return true
     }
 
+    /// Volume + file-resource identity per path — the same pairing the scan's directory-cycle
+    /// guard uses — so the finder can recognize two directory entries of ONE inode (hard links).
+    /// Paths that can't be statted are simply absent: the finder treats unknown identities as
+    /// distinct files, which at worst over-reports a duplicate, never hides one. Reads through
+    /// URL resource values (not the injectable FileManaging), so mock-backed tests see no
+    /// identities and keep their exact pre-existing grouping behavior.
+    nonisolated static func fileIdentities(for paths: [String]) -> [String: DuplicateFinder.FileIdentity] {
+        var out: [String: DuplicateFinder.FileIdentity] = [:]
+        out.reserveCapacity(paths.count)
+        for path in paths {
+            let url = URL(fileURLWithPath: path)
+            if let rv = try? url.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
+               let volume = rv.volumeIdentifier as? NSObject,
+               let file = rv.fileResourceIdentifier as? NSObject {
+                out[path] = DuplicateFinder.FileIdentity(volume: volume, file: file)
+            }
+        }
+        return out
+    }
+
     /// Whether two paths are the same or one contains the other.
     nonisolated static func pathsOverlap(_ a: String, _ b: String) -> Bool {
         a == b || a.isInsideDirectory(anyOf: [b]) || b.isInsideDirectory(anyOf: [a])
@@ -496,22 +526,48 @@ extension FileSyncManager {
     /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
-        from rURL: URL, into kURL: URL, fileManager fm: FileManaging
+        from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot]) {
-        let kItems = flattenFilesWithRelativePaths(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
+        let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
+        let kItems = flattenFilesWithRelativePaths(kTree)
         let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
-        // this exact content *at the same location*, not merely somewhere. The per-parent hash
-        // sets serve the retry-skip below: hashFiles omits unhashable files entirely (no
-        // placeholder values), so a set hit is always a real SHA-256 match.
+        // this exact content *at the same location*, not merely somewhere. "Same location" uses
+        // the keeper VOLUME's case semantics: on a case-insensitive volume "A.txt" and "a.txt"
+        // are one on-disk name, so keys fold — an exact-case key would miss the collision, copy,
+        // and uniquify a junk sibling (and the retry-skip below would then never see it). The
+        // per-parent hash sets serve that retry-skip: hashFiles omits unhashable files entirely
+        // (no placeholder values), so a set hit is always a real SHA-256 match.
+        let relKey: (String) -> String = caseSensitiveVolume ? { $0 } : { $0.lowercased() }
         var keeperHashByRel: [String: String] = [:]
         var keeperHashesByParent: [String: Set<String>] = [:]
         for k in kItems {
+            // A symlink hashes as its TARGET's bytes, so it may vouch for nothing: counting a
+            // keeper-folder link as "content present" lets the skip fire for bytes whose only
+            // real copy is the redundant folder the merge is about to trash — leaving the
+            // keeper a dangling link. (DuplicateFinder excludes links from copies for the same
+            // reason.) attributesOfItem is lstat-semantics: it reports the link itself.
+            if (try? fm.attributesOfItem(atPath: k.id))?[.type] as? FileAttributeType == .typeSymbolicLink {
+                continue
+            }
             if let h = kHashesByPath[k.id] {
-                keeperHashByRel[k.rel] = h
-                keeperHashesByParent[(k.rel as NSString).deletingLastPathComponent, default: []].insert(h)
+                keeperHashByRel[relKey(k.rel)] = h
+                keeperHashesByParent[relKey((k.rel as NSString).deletingLastPathComponent), default: []].insert(h)
             }
         }
+        // Every keeper rel path — files, FOLDERS, unhashable files — for the "name taken" gate:
+        // the copy loop decides collisions with fileExists, which a directory or a too-large
+        // file triggers exactly like a hashed file, so the gate must see what fileExists sees
+        // (the hash maps alone missed those name-holders and re-minted junk per retry).
+        var keeperNames = Set<String>()
+        func collectRels(_ nodes: [FileNode], prefix: String) {
+            for n in nodes {
+                let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+                keeperNames.insert(relKey(rel))
+                if n.isDirectory { collectRels(n.children ?? [], prefix: rel) }
+            }
+        }
+        collectRels(kTree, prefix: "")
 
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
@@ -524,16 +580,22 @@ extension FileSyncManager {
             // when its bytes happen to also live elsewhere in the keeper, so the merge never
             // silently drops a meaningfully-named file (a later Tidy scan can reconcile any
             // resulting byte-duplicate — losing a filename is the worse surprise).
+            // An UNHASHABLE source file (too large, unreadable, cloud-only) is deliberately
+            // re-planned every run: its content can't be proven landed, and the trash step's
+            // safety rests on this run's own copy. A cancelled run's prior landing then sits
+            // as a junk sibling — the price of never skipping unverified content.
             if let h = rHashes[item.id] {
-                if keeperHashByRel[item.rel] == h { continue }
-                // Retry idempotence: the destination NAME is taken by different content, but the
-                // same bytes already live in that folder under another name — the collision-
-                // uniquify outcome of a previous (cancelled/failed) run of this very merge.
-                // Copying again would mint "x 2"/"x 3" junk on every retry, against the cancel
-                // banner's "a retry skips what landed". The name-preserving principle above is
-                // not violated: with the name taken, this fold could only ever land junk-named.
-                if keeperHashByRel[item.rel] != nil,
-                   keeperHashesByParent[(item.rel as NSString).deletingLastPathComponent]?.contains(h) == true {
+                if keeperHashByRel[relKey(item.rel)] == h { continue }
+                // Retry idempotence: the destination NAME is taken (by anything fileExists
+                // would collide with — a different-content file, a folder, an unhashable
+                // file), and the same bytes already live in that folder under another name —
+                // the collision-uniquify outcome of a previous (cancelled/failed) run of this
+                // very merge. Copying again would mint "x 2"/"x 3" junk on every retry,
+                // against the cancel banner's "a retry skips what landed". The name-preserving
+                // principle above is not violated: with the name taken, this fold could only
+                // ever land junk-named.
+                if keeperNames.contains(relKey(item.rel)),
+                   keeperHashesByParent[relKey((item.rel as NSString).deletingLastPathComponent)]?.contains(h) == true {
                     continue
                 }
             }

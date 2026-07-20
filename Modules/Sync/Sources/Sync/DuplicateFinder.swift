@@ -337,7 +337,8 @@ public enum DuplicateFinder {
     public static func findGroups(
         tree: [FileNode],
         fileHashes: [String: String],
-        options: DuplicateFinderOptions = .init()
+        options: DuplicateFinderOptions = .init(),
+        fileIdentities: [String: FileIdentity] = [:]
     ) -> [DuplicateGroup] {
         var files: [NodeInfo] = []
         var dirs: [NodeInfo] = []
@@ -354,7 +355,7 @@ public enum DuplicateFinder {
 
         groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots)
         groups += overlappingAndNameOnlyGroups(dirs, options: options, coveredRoots: &coveredRoots)
-        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
+        groups += identicalFileGroups(files, options: options, fileIdentities: fileIdentities, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
         if options.detectVersions {
             groups += versionGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
         }
@@ -578,9 +579,32 @@ public enum DuplicateFinder {
 
     // MARK: Identical files
 
+    /// One on-disk file's identity (volume + inode), used to collapse hard links: two directory
+    /// entries of one inode are the SAME file, not a duplicate pair — trashing either frees
+    /// nothing (the surviving link keeps the blocks). Equality goes through `isEqual` (the
+    /// resource-identifier contract), not object identity.
+    public struct FileIdentity: Hashable, @unchecked Sendable {
+        let volume: NSObject
+        let file: NSObject
+
+        public init(volume: NSObject, file: NSObject) {
+            self.volume = volume
+            self.file = file
+        }
+
+        public static func == (a: FileIdentity, b: FileIdentity) -> Bool {
+            a.volume.isEqual(b.volume) && a.file.isEqual(b.file)
+        }
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(volume.hash)
+            hasher.combine(file.hash)
+        }
+    }
+
     private static func identicalFileGroups(
         _ files: [NodeInfo],
         options: DuplicateFinderOptions,
+        fileIdentities: [String: FileIdentity],
         coveredRoots: Set<String>,
         groupedFilePaths: inout Set<String>
     ) -> [DuplicateGroup] {
@@ -592,7 +616,26 @@ public enum DuplicateFinder {
         }
 
         var groups: [DuplicateGroup] = []
-        for members in buckets.values where members.count >= 2 {
+        for bucketMembers in buckets.values where bucketMembers.count >= 2 {
+            // Collapse hard links: entries sharing a known identity reduce to the one
+            // representative the keeper heuristic prefers — a "group" of links would report
+            // the file's full size as reclaimable and resolve to a no-op trash with a
+            // success banner. Unknown identities (no stat) stay distinct: claiming two real
+            // files are one link needs proof, and over-reporting beats hiding a duplicate.
+            var byIdentity: [FileIdentity: NodeInfo] = [:]
+            var members: [NodeInfo] = []
+            for m in bucketMembers {
+                guard let id = fileIdentities[m.path] else { members.append(m); continue }
+                if let current = byIdentity[id] {
+                    if preferAsKeeper(m, over: current) { byIdentity[id] = m }
+                } else {
+                    byIdentity[id] = m
+                }
+            }
+            // Dictionary order is unstable — sort the representatives so group membership and
+            // keeper choice stay deterministic run to run.
+            members.append(contentsOf: byIdentity.values.sorted { $0.path < $1.path })
+            guard members.count >= 2 else { continue }
             let keeperIdx = chooseKeeper(members)
             let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
             let keeper = ordered[0]
@@ -650,52 +693,69 @@ public enum DuplicateFinder {
             // folder are independent events (ClientA duplicated its report; ClientB its own),
             // not one document's history. Pooling every marker folder's plain siblings made the
             // newest file anywhere the keeper and recommended trashing another folder's unmarked
-            // original. With multiple marker parents, only the marker-bearers themselves join —
-            // their names carry their own evidence (the save-as-into-Downloads case) — and every
-            // unmarked sibling stays out.
+            // original. With multiple marker parents, each marker folder that has same-stem
+            // company forms its OWN group (round-5 same-parent semantics, per folder) — pairing
+            // every copy with ITS original, never another folder's. Only LONE bearers (no
+            // same-stem sibling beside them) still pool cross-folder: their marker names carry
+            // their own evidence (the save-as-into-Downloads case), and unmarked files never
+            // ride along with that pool.
             let sameParent = Set(bucket.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
-            let members: [NodeInfo]
+            let memberClusters: [[NodeInfo]]
             if sameParent {
-                members = bucket   // same-stem siblings: the round-4 same-parent path, unchanged
+                memberClusters = [bucket]   // same-stem siblings: the round-4 same-parent path, unchanged
             } else {
                 let markerBearers = bucket.filter { hasVersionMarker($0.name) }
                 let markerParents = Set(markerBearers.map { ($0.path as NSString).deletingLastPathComponent })
                 guard !markerParents.isEmpty else { continue }
                 if markerParents.count == 1 {
-                    members = bucket.filter {
+                    memberClusters = [bucket.filter {
                         hasVersionMarker($0.name)
                             || markerParents.contains(($0.path as NSString).deletingLastPathComponent)
-                    }
+                    }]
                 } else {
-                    members = markerBearers
+                    var clusters: [[NodeInfo]] = []
+                    var loneBearerPool: [NodeInfo] = []
+                    for parent in markerParents.sorted() {
+                        let inParent = bucket.filter { ($0.path as NSString).deletingLastPathComponent == parent }
+                        if inParent.count >= 2 {
+                            clusters.append(inParent)
+                        } else {
+                            loneBearerPool.append(contentsOf: inParent)   // the bearer itself (its parent came from it)
+                        }
+                    }
+                    if loneBearerPool.count >= 2 { clusters.append(loneBearerPool) }
+                    memberClusters = clusters
                 }
             }
-            guard members.count >= 2 else { continue }
-            // Only PROVEN drift: at least two distinct REAL contents (identical bytes were already
-            // grouped). Placeholder ("u:" unknown) and missing signatures are not evidence of
-            // difference — two byte-identical files that were merely too large (or cloud-only) to
-            // hash must not be claimed as drifted versions. Unknown-hash members may ride along in
-            // a group that real hashes justify, but can never stand one up by themselves.
-            let realHashes = Set(members.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
-            guard realHashes.count >= 2 else { continue }
+            for members in memberClusters {
+                guard members.count >= 2 else { continue }
+                // Only PROVEN drift: at least two distinct REAL contents (identical bytes were
+                // already grouped). Placeholder ("u:" unknown) and missing signatures are not
+                // evidence of difference — two byte-identical files that were merely too large
+                // (or cloud-only) to hash must not be claimed as drifted versions. Unknown-hash
+                // members may ride along in a group that real hashes justify, but can never
+                // stand one up by themselves.
+                let realHashes = Set(members.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
+                guard realHashes.count >= 2 else { continue }
 
-            // Keeper = the newest version.
-            let keeperIdx = newestIndex(members)
-            let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
-            let keeper = ordered[0]
-            let copies = ordered.enumerated().map { idx, info in
-                makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                // Keeper = the newest version.
+                let keeperIdx = newestIndex(members)
+                let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
+                let keeper = ordered[0]
+                let copies = ordered.enumerated().map { idx, info in
+                    makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                }
+                let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
+                let (stem, ext) = versionStem(keeper.name) ?? (keeper.name, "")
+                groups.append(DuplicateGroup(
+                    matchType: .versions,
+                    name: ext.isEmpty ? stem : "\(stem).\(ext)",
+                    isDirectory: false,
+                    copies: copies,
+                    reclaimableBytes: reclaimable
+                ))
+                for c in copies { groupedFilePaths.insert(c.path) }
             }
-            let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
-            let (stem, ext) = versionStem(keeper.name) ?? (keeper.name, "")
-            groups.append(DuplicateGroup(
-                matchType: .versions,
-                name: ext.isEmpty ? stem : "\(stem).\(ext)",
-                isDirectory: false,
-                copies: copies,
-                reclaimableBytes: reclaimable
-            ))
-            for c in copies { groupedFilePaths.insert(c.path) }
         }
         return groups
     }
