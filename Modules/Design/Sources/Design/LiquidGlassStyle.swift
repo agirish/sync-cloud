@@ -19,6 +19,10 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
     case purple
     case indigo
     case slate
+    /// A true neutral gray — the monochrome accent. Unlike `.none` (no wash, controls follow the
+    /// system accent) and `.slate` (a cool blue-gray), Graphite washes the surfaces in a colorless
+    /// gray, for a fully monochrome-but-still-tinted look using the same machinery as every hue.
+    case graphite
 
     public var id: String { rawValue }
 
@@ -35,6 +39,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
         case .purple: return "Purple"
         case .indigo: return "Indigo"
         case .slate: return "Slate"
+        case .graphite: return "Graphite"
         }
     }
 
@@ -53,6 +58,7 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
         case .purple: return Color(red: 0.55, green: 0.35, blue: 0.95)
         case .indigo: return Color(red: 0.4, green: 0.35, blue: 0.9)
         case .slate: return Color(red: 0.4, green: 0.45, blue: 0.55)
+        case .graphite: return Color(red: 0.53, green: 0.54, blue: 0.56)
         }
     }
 
@@ -121,6 +127,13 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
                 Color(red: 0.5, green: 0.55, blue: 0.65),
                 Color(red: 0.4, green: 0.45, blue: 0.55),
                 Color(red: 0.25, green: 0.3, blue: 0.4)
+            ]
+        case .graphite:
+            // A neutral gray triad — no hue, so the wash reads as a true colorless monochrome.
+            return [
+                Color(red: 0.6, green: 0.61, blue: 0.63),
+                Color(red: 0.45, green: 0.46, blue: 0.48),
+                Color(red: 0.29, green: 0.3, blue: 0.32)
             ]
         }
     }

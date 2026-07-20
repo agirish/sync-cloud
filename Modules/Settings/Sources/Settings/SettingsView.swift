@@ -651,7 +651,8 @@ struct AppearanceSettingsTab: View {
             }
 
             Section("Accent color") {
-                HStack(spacing: 8) {
+                // Twelve hues share this row; the tighter spacing gives each swatch more room.
+                HStack(spacing: 5) {
                     ForEach(LiquidGlassHue.allCases) { hue in
                         HueOptionView(
                             hue: hue,
@@ -770,6 +771,10 @@ private struct HueOptionView: View {
                 Text(hue.displayName)
                     .font(.caption2.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? .primary : .secondary)
+                    // Twelve hues share one row; the longest name ("Graphite") shrinks to stay on a
+                    // single line rather than wrapping in its narrow slot.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
