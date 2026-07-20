@@ -380,6 +380,10 @@ class SyncCloudAppDelegate: NSObject, NSApplicationDelegate {
 
         switch Self.quitDecision(activeOperations: activeOperations, warnBeforeQuit: warnBeforeQuit) {
         case .allowNoActiveOperations:
+            // Counterpart to the launch breadcrumb: a clean quit gets a closing line, so a log that
+            // simply stops with no shutdown line reads as a crash or force-kill, not a normal exit.
+            // (The two "Quit Anyway" paths below already emit a distinctive last line of their own.)
+            Logger.shared.info("SyncCloud is quitting")
             // Even a clean quit must flush: the writer runs at background qos with no implicit
             // flush, so the launch breadcrumb and any late lines from this session could be lost
             // between the last append and process exit if we terminated without draining.

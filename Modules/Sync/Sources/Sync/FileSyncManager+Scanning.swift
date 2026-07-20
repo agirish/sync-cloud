@@ -348,7 +348,9 @@ extension FileSyncManager {
             // a newer one that arrived while the drain's task was waiting to run.
             if let queued = pendingScanRequest, queued.generation > request.generation { return }
             pendingScanRequest = request
-            Logger.shared.warning("Scan already in progress, queueing latest request.")
+            // Routine coalescing (the user triggered scans in quick succession, or a refresh
+            // landed mid-scan) — a diagnostic, not a warning, so it stays out of the warnings filter.
+            Logger.shared.debug("Scan already in progress; queued the latest request")
             return
         }
         await executeScan(request)

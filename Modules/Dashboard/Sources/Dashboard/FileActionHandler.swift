@@ -130,7 +130,7 @@ public class FileActionHandler {
     public func copyItems(_ nodes: [FileNode], fromLeft: Bool, leftProviderId: String, rightProviderId: String) {
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
-        Logger.shared.info("User initiating copy of \(nodes.count) items")
+        Logger.shared.info("User initiated copy of \(nodes.count) item(s)")
         Task {
             guard let roots = await transferRoots(fromLeft: fromLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) else { return }
             let copiedNodes = await syncManager.copyItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
@@ -148,7 +148,7 @@ public class FileActionHandler {
 
         let targetDisplayName = providerDisplayName(forProviderId: fromLeft ? rightProviderId : leftProviderId)
 
-        Logger.shared.info("User initiating move of \(nodes.count) items")
+        Logger.shared.info("User initiated move of \(nodes.count) item(s)")
         let movedNodes = await syncManager.moveItems(nodes: nodes, fromLeft: fromLeft, leftRoot: roots.left, rightRoot: roots.right)
         setTransferBanner(verb: "Moved", movedNodes, to: targetDisplayName)
         return movedNodes
@@ -201,7 +201,7 @@ public class FileActionHandler {
     /// `moveItems` above — no prompt here).
     public func moveItems(_ nodes: [FileNode], toPath destinationPath: String) {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
-        Logger.shared.info("User initiating move of \(nodes.count) items to a dropped-on directory")
+        Logger.shared.info("User initiated move of \(nodes.count) item(s) to a dropped-on directory")
         Task {
             let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
             setTransferBanner(verb: "Moved", movedNodes, to: destDisplayName)
@@ -220,14 +220,14 @@ public class FileActionHandler {
     }
     
     public func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) {
-        Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) items to internal clipboard.")
+        Logger.shared.info("User \(isCut ? "cut" : "copied") \(nodes.count) item(s) to the internal clipboard")
         syncManager.clipboardNodes = nodes
         syncManager.clipboardIsCut = isCut
     }
     
     public func pasteItems(_ nodes: [FileNode], toPath destinationPath: String, isCut: Bool) {
         let destDisplayName = providerDisplayName(forPath: destinationPath)
-        Logger.shared.info("User pasting \(nodes.count) items (isCut: \(isCut))")
+        Logger.shared.info("User pasted \(nodes.count) item(s) (\(isCut ? "move" : "copy"))")
         Task {
             if isCut {
                 let movedNodes = await syncManager.moveItems(nodes: nodes, toPath: destinationPath)
@@ -320,9 +320,9 @@ public class FileActionHandler {
     public func confirmDelete(_ nodes: [FileNode]) {
         if GeneralSettings.shouldConfirmBeforeDelete(defaults) {
             guard deleteConfirmer(nodes.map { $0.name }) else { return }
-            Logger.shared.info("User confirmed deletion of \(nodes.count) items")
+            Logger.shared.info("User confirmed deletion of \(nodes.count) item(s)")
         } else {
-            Logger.shared.info("User deleted \(nodes.count) items (confirmation disabled in Settings)")
+            Logger.shared.info("User deleted \(nodes.count) item(s) (confirmation disabled in Settings)")
         }
         Task {
             await syncManager.deleteItems(at: nodes.map { $0.id })

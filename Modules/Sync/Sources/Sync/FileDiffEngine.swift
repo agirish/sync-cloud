@@ -291,7 +291,7 @@ public struct FileDiffEngine {
                 } catch {
                     unreadableCount += 1
                     if unreadableSamples.count < maxIndividuallyLogged {
-                        unreadableSamples.append("Error reading resource values for \(fileURL): \(error)")
+                        unreadableSamples.append("Scan: could not read \(fileURL.path) (\(error.localizedDescription)) — omitted from the comparison")
                     }
                 }
             }
@@ -320,10 +320,13 @@ public struct FileDiffEngine {
             let samples = unreadableSamples
             let root = url.path
             Task { @MainActor in
+                // A per-entry read failure during a scan is benign — the item is shown as
+                // unexplored, not lost — so it is a warning, not an app-level error. Matches the
+                // tree builder's "could not list …" path (see FileSyncManager+Scanning).
                 if count <= maxIndividuallyLogged {
-                    for message in samples { Logger.shared.error(message) }
+                    for message in samples { Logger.shared.warning(message) }
                 } else {
-                    Logger.shared.error("Scan: \(count) entries unreadable under \(root); first: \(samples.joined(separator: " | "))")
+                    Logger.shared.warning("Scan: \(count) entries unreadable under \(root); first: \(samples.joined(separator: " | "))")
                 }
             }
         }
@@ -703,7 +706,7 @@ public struct FileDiffEngine {
             typeMismatchDirs: typeMismatchDirs
         ).sorted { $0.relativePath < $1.relativePath }
         Task { @MainActor in
-            Logger.shared.debug("Computed differences: \(result.count) items requiring action.")
+            Logger.shared.debug("Computed differences: \(result.count) item(s) requiring action")
         }
         return result
     }

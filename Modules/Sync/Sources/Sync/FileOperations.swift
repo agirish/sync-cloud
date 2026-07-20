@@ -300,6 +300,8 @@ extension FileSyncManager {
             // (count in the message, remaining reasons logged) instead of pretending the first
             // error was the only one.
             let items = result.errors.count == 1 ? "the selected items" : "\(result.errors.count) items"
+            // `present` below logs the first error (its logDescription); log only the rest here so
+            // the persistent record covers every failure without double-logging the first one.
             for error in result.errors.dropFirst() {
                 Logger.shared.error("\(isMove ? "Move" : "Copy") Failed: \(error.localizedDescription)")
             }
@@ -311,9 +313,9 @@ extension FileSyncManager {
             // .info, not .debug: a copy/move is a data mutation that belongs in a normal-level
             // audit trail, not just a diagnostic one.
             if transferredNodes.count == prunedNodes.count {
-                Logger.shared.info("\(verb) \(transferredNodes.count) items \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) item(s) \(destinationDescription)")
             } else {
-                Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) items \(destinationDescription)")
+                Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) item(s) \(destinationDescription)")
             }
         }
 

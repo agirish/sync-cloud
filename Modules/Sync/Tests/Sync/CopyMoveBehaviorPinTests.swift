@@ -53,7 +53,7 @@ import Events
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 items between panes"))
+        #expect(await loggerContains("Copied 1 item(s) between panes"))
     }
 
     /// Moving onto itself is skipped (with a debug trace), returns no moved nodes, and registers
@@ -74,7 +74,7 @@ import Events
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == false)
         #expect(await loggerContains("Skipping move of \"pinSameMovePane.txt\": source and destination are the same location."))
-        #expect(await loggerContains("Moved 0 of 1 items between panes"))
+        #expect(await loggerContains("Moved 0 of 1 item(s) between panes"))
     }
 
     /// Copy-to-path onto the source directory keeps both, same as the pane variant.
@@ -94,7 +94,7 @@ import Events
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.canUndo == true)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 items to /src"))
+        #expect(await loggerContains("Copied 1 item(s) to /src"))
     }
 
     /// Move-to-path onto the source directory is skipped: nothing moves, nothing to undo.
@@ -143,7 +143,7 @@ import Events
         #expect(mockFM.virtualDisk["/dst/pcBB 2.txt"] == nil)
         #expect(manager.currentError == nil)
         #expect(manager.undoManager?.undoActionName == "Copy 2 Items")
-        #expect(await loggerContains("Copied 2 of 3 items between panes"))
+        #expect(await loggerContains("Copied 2 of 3 item(s) between panes"))
     }
 
     /// Same shape for the pane move: partial log, Move undo registrar, and undo restores the
@@ -170,7 +170,7 @@ import Events
         #expect(mockFM.virtualDisk["/src/pmA.txt"] == nil)
         #expect(mockFM.virtualDisk["/src/pmBB.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Move 1 Items")
-        #expect(await loggerContains("Moved 1 of 2 items between panes"))
+        #expect(await loggerContains("Moved 1 of 2 item(s) between panes"))
 
         // The Move registrar really is wired: undo brings the file back to its source.
         manager.undoManager?.undo()
@@ -203,7 +203,7 @@ import Events
         #expect(copied.map(\.name) == ["ptA.txt"])
         #expect(mockFM.virtualDisk["/dst/ptA.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Copy 1 Items")
-        #expect(await loggerContains("Copied 1 of 2 items to /dst"))
+        #expect(await loggerContains("Copied 1 of 2 item(s) to /dst"))
     }
 
     /// moveItems(toPath:)'s final log had drifted from its three siblings: it reported the
@@ -230,7 +230,7 @@ import Events
         #expect(mockFM.virtualDisk["/dst/pdA.txt"] != nil)
         #expect(mockFM.virtualDisk["/src/pdBB.txt"] != nil)
         #expect(manager.undoManager?.undoActionName == "Move 1 Items")
-        #expect(await loggerContains("Moved 1 of 2 items to /dst"))
+        #expect(await loggerContains("Moved 1 of 2 item(s) to /dst"))
     }
 
     /// Full-count happy-path logs for the two move variants (the copy ones are pinned above).
@@ -250,8 +250,8 @@ import Events
         await manager.moveItems(nodes: [paneNode], fromLeft: true, leftRoot: "/src", rightRoot: "/dstPane", fileManager: mockFM)
         await manager.moveItems(nodes: [pathNode], toPath: "/dstPath", fileManager: mockFM)
 
-        #expect(await loggerContains("Moved 1 items between panes"))
-        #expect(await loggerContains("Moved 1 items to /dstPath"))
+        #expect(await loggerContains("Moved 1 item(s) between panes"))
+        #expect(await loggerContains("Moved 1 item(s) to /dstPath"))
     }
 
     // MARK: - Error messages per family

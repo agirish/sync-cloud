@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Pins the bulk-failure alert aggregation: `currentError` holds one error at a time, so a
@@ -61,6 +62,48 @@ import Foundation
         #expect(error.title == "Sync Failed")
         #expect(error.message == "Couldn't sync \"only.txt\".")
         #expect(error.path == "/src/only.txt")
+    }
+
+    /// A bulk run whose ONLY failure is a single file must still land in the persistent audit log,
+    /// not just the (ephemeral) alert. The single-failure branch relies on `present()` to write the
+    /// error line — unlike the `> 1` branch, it logs no line of its own — so these tests guard the
+    /// invariant end-to-end: if either the branch stops calling `present()` or `present()` stops
+    /// logging, a one-file failure would silently vanish from the log and these would fail.
+    @MainActor
+    @Test func testSyncAllSingleFailureIsLoggedAsError() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        let diff = makeMissingSourceDiff("onlySyncLog.txt")
+        manager.rawDifferences = [diff]
+        manager.differences = [diff]
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(await loggerHasError(containing: "onlySyncLog.txt"))
+    }
+
+    @MainActor
+    @Test func testBulkCopySingleFailureIsLoggedAsError() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+
+        await manager.bulkCopyDifferencesLeftToRight([makeMissingSourceDiff("onlyCopyLog.txt")])
+
+        #expect(await loggerHasError(containing: "onlyCopyLog.txt"))
+    }
+
+    /// True when the shared Logger holds an ERROR entry whose message contains `fragment`.
+    /// Awaiting a fresh log task first guarantees everything enqueued before it is visible; the
+    /// fragment is a per-test unique file name, so accumulated cross-test entries can't false-match.
+    @MainActor
+    private func loggerHasError(containing fragment: String) async -> Bool {
+        await Logger.shared.debug("bulk-failure-test flush marker").value
+        return Logger.shared.entries.contains { $0.level == .error && $0.message.contains(fragment) }
     }
 
     @Test func testBulkFailedConstructorShape() {
