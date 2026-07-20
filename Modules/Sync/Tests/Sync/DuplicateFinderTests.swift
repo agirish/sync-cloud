@@ -316,6 +316,37 @@ import Testing
         #expect(!groups[0].recommendedRemovalPaths.contains("/root/2019/IMG_0001.jpg"))
     }
 
+    @Test func independentMarkerClustersInDifferentFoldersNeverPoolUnmarkedOriginals() {
+        // Markers in TWO different folders are two independent duplication events (ClientA
+        // duplicated its report; ClientB duplicated its own), not one document's history.
+        // Pooling both folders' plain files into one group made the newest file anywhere the
+        // keeper and recommended trashing the OTHER folder's unmarked original — an unrelated
+        // document. Only the marker-bearers may group cross-folder (their names carry their
+        // own evidence); each folder's unmarked report.pdf must never ride along.
+        let tree = [
+            dir("/root/ClientA", [
+                file("/root/ClientA/report.pdf", size: 9_000, modified: Date(timeIntervalSince1970: 1_500_000)),
+                file("/root/ClientA/report copy.pdf", size: 9_100, modified: Date(timeIntervalSince1970: 1_000_000)),
+            ]),
+            dir("/root/ClientB", [
+                file("/root/ClientB/report.pdf", size: 9_500, modified: Date(timeIntervalSince1970: 2_500_000)),
+                file("/root/ClientB/report copy 2.pdf", size: 9_600, modified: Date(timeIntervalSince1970: 2_000_000)),
+            ]),
+        ]
+        let hashes = [
+            "/root/ClientA/report.pdf": "A", "/root/ClientA/report copy.pdf": "A2",
+            "/root/ClientB/report.pdf": "B", "/root/ClientB/report copy 2.pdf": "B2",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        for g in groups where g.matchType == .versions {
+            #expect(!g.copies.contains { $0.path == "/root/ClientA/report.pdf" })
+            #expect(!g.copies.contains { $0.path == "/root/ClientB/report.pdf" })
+        }
+        let removals = Set(groups.flatMap(\.recommendedRemovalPaths))
+        #expect(!removals.contains("/root/ClientA/report.pdf"))
+        #expect(!removals.contains("/root/ClientB/report.pdf"))
+    }
+
     @Test func unmarkedCrossFolderMemberNeverSuppliesTheDriftEvidence() {
         // The excluded member's hash must not count as "distinct real contents": here the two
         // same-parent members are byte-identical (already claimed by the identical pass), so no

@@ -645,17 +645,29 @@ public enum DuplicateFinder {
             // /2023/IMG_0001.jpg + "/2023/IMG_0001 copy.jpg" + /2019/IMG_0001.jpg and recommend
             // trashing the unrelated 2019 photo. So cross-folder members join only on their OWN
             // marker (or by sharing a marker-bearer's parent); the rest of the bucket is dropped.
+            //
+            // And a parent's vouching stops at ONE duplication site: markers in more than one
+            // folder are independent events (ClientA duplicated its report; ClientB its own),
+            // not one document's history. Pooling every marker folder's plain siblings made the
+            // newest file anywhere the keeper and recommended trashing another folder's unmarked
+            // original. With multiple marker parents, only the marker-bearers themselves join —
+            // their names carry their own evidence (the save-as-into-Downloads case) — and every
+            // unmarked sibling stays out.
             let sameParent = Set(bucket.map { ($0.path as NSString).deletingLastPathComponent }).count == 1
             let members: [NodeInfo]
             if sameParent {
                 members = bucket   // same-stem siblings: the round-4 same-parent path, unchanged
             } else {
-                let markerParents = Set(bucket.filter { hasVersionMarker($0.name) }
-                    .map { ($0.path as NSString).deletingLastPathComponent })
+                let markerBearers = bucket.filter { hasVersionMarker($0.name) }
+                let markerParents = Set(markerBearers.map { ($0.path as NSString).deletingLastPathComponent })
                 guard !markerParents.isEmpty else { continue }
-                members = bucket.filter {
-                    hasVersionMarker($0.name)
-                        || markerParents.contains(($0.path as NSString).deletingLastPathComponent)
+                if markerParents.count == 1 {
+                    members = bucket.filter {
+                        hasVersionMarker($0.name)
+                            || markerParents.contains(($0.path as NSString).deletingLastPathComponent)
+                    }
+                } else {
+                    members = markerBearers
                 }
             }
             guard members.count >= 2 else { continue }
