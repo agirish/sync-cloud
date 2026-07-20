@@ -90,7 +90,7 @@ public class FileActionHandler {
             return
         }
 
-        Logger.shared.info("User focusing folder: \(relPath)")
+        Logger.shared.info("User focused folder: \(relPath.isEmpty ? "root" : relPath)")
         // Honor the breadcrumb "Link both panes" toggle here too. The feature promises the panes
         // stay in lock-step "while drilling down," but drilling into a folder from the file list
         // lands here — not on a breadcrumb crumb — so without this check only clicking an ancestor

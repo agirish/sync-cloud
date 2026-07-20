@@ -320,9 +320,11 @@ public struct FileDiffEngine {
             let samples = unreadableSamples
             let root = url.path
             Task { @MainActor in
-                // A per-entry read failure during a scan is benign — the item is shown as
-                // unexplored, not lost — so it is a warning, not an app-level error. Matches the
-                // tree builder's "could not list …" path (see FileSyncManager+Scanning).
+                // A per-entry read failure omits that item from the comparison (unlike an unreadable
+                // directory, which is marked unexplored above). It is an environmental condition —
+                // permission denied or a transient FS error the app cannot act on — and the count is
+                // surfaced here, so it is a warning, not an app-level error. Matches the tree
+                // builder's "could not list …" path (see FileSyncManager+Scanning).
                 if count <= maxIndividuallyLogged {
                     for message in samples { Logger.shared.warning(message) }
                 } else {
