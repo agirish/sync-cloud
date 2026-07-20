@@ -98,11 +98,29 @@ public class FileSyncManager: ObservableObject {
     /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
     /// Also snapshots the run's undo-group name (each op site registers its undo BEFORE calling
     /// this) so "Undo Last Run" can later confirm it's still the top of the stack.
-    func recordSyncHistory(_ records: [SyncHistoryRecord]) {
+    ///
+    /// `pairedWithUndo: false` appends to the durable store WITHOUT touching the pairing — for
+    /// runs that registered no undo group covering exactly these records (an all-permanent
+    /// delete: nothing reached the Trash, so nothing was registered). Snapshotting there would
+    /// pair these records with whatever action happens to sit on top of the stack — and "Undo
+    /// Last Run" would then describe this run while reversing that unrelated one. The previous
+    /// pairing stays live: its group is still the top, so it still describes what undo() does.
+    func recordSyncHistory(_ records: [SyncHistoryRecord], pairedWithUndo: Bool = true) {
         guard !records.isEmpty else { return }
         syncHistoryStore.appendBatch(records)
+        guard pairedWithUndo else { return }
         lastRecordedRunUndoName = undoManager?.undoActionName
         lastRecordedRunRecords = records
+    }
+
+    /// Drops the run-undo pairing. Called on every direct `UndoManager` undo/redo (the
+    /// `undoManager` didSet wires the notifications): a manual ⌘Z can pop run B and leave run
+    /// A's *identically named* group ("Sync run") on top, where the name gate alone would pass —
+    /// previewing B's records while reversing A. Identity can't be checked by name, so any
+    /// undo/redo outside `undoLastSyncRun` (which clears the pairing itself) invalidates it.
+    private func invalidateRunUndoPairing() {
+        lastRecordedRunUndoName = nil
+        lastRecordedRunRecords = []
     }
 
     /// A preview of what "Undo Last Run" would reverse, or nil when it must not act: nil unless the
@@ -714,8 +732,28 @@ public class FileSyncManager: ObservableObject {
     @Published public var clipboardNodes: [FileNode] = []
     @Published public var clipboardIsCut: Bool = false
     
-    /// Global UndoManager injected from SwiftUI environment
-    public var undoManager: UndoManager?
+    /// Global UndoManager injected from SwiftUI environment. Re-wires the did-undo/did-redo
+    /// observers that keep the "Undo Last Run" pairing honest (see `invalidateRunUndoPairing`).
+    public var undoManager: UndoManager? {
+        didSet {
+            guard undoManager !== oldValue else { return }
+            undoStackObservers.forEach { NotificationCenter.default.removeObserver($0) }
+            undoStackObservers = []
+            guard let undoManager else { return }
+            for name in [NSNotification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+                undoStackObservers.append(NotificationCenter.default.addObserver(
+                    forName: name, object: undoManager, queue: .main
+                ) { [weak self] _ in
+                    // Delivered synchronously on the main queue (undo/redo run on the main
+                    // actor), so hopping is safe. undoLastSyncRun's own undo() also lands
+                    // here — it clears the pairing itself right after, so this is a no-op.
+                    MainActor.assumeIsolated { self?.invalidateRunUndoPairing() }
+                })
+            }
+        }
+    }
+    /// Tokens for the did-undo/did-redo observers on the injected `undoManager`.
+    private var undoStackObservers: [NSObjectProtocol] = []
     
     /// Last failure from a file operation, structured for a rich alert (title, message,
     /// affected path, underlying reason, retryability). Cleared when the user dismisses the alert.

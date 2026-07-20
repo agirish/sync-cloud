@@ -58,6 +58,80 @@ import Events
         #expect(manager.lastSyncRunUndoPreview == nil)       // consumed — can't reverse it twice
     }
 
+    @Test func manualUndoOfASameNamedRunClosesTheGate() {
+        // Every bulk run registers under the same literal name ("Sync run"), so the name gate
+        // alone can't tell two runs apart. After one manual ⌘Z reverses run B, run A's
+        // identically-named group sits on top — the stale pairing would pass the gate while the
+        // preview still describes run B's records and undo() would reverse run A. The pairing
+        // must die with the manual undo instead.
+        let manager = isolatedManager()
+        let markerA = Marker(), markerB = Marker()
+        registerRun(manager, name: "Sync run", marker: markerA)
+        manager.recordSyncHistory([record(run: UUID())])
+        registerRun(manager, name: "Sync run", marker: markerB)
+        let runB = UUID()
+        manager.recordSyncHistory([record(run: runB), record(run: runB)])
+
+        manager.undoManager!.undo()                          // manual ⌘Z — reverses run B
+        #expect(markerB.undone == true)
+
+        #expect(manager.lastSyncRunUndoPreview == nil)       // top is run A's group, not run B's
+        manager.undoLastSyncRun()
+        #expect(markerA.undone == false)                     // run A must NOT be reversed
+        #expect(manager.banner?.severity == .warning)
+    }
+
+    @Test func historyWithoutAnUndoNeverRepointsTheGate() {
+        // An all-permanent delete records durable history but registers no undo (nothing
+        // reached the Trash). Pairing those records with the stack's current top would make
+        // "Undo Last Run" describe the delete while reversing the unrelated action on top.
+        // The unpaired record must leave the previous run's (still correct) pairing intact.
+        let manager = isolatedManager()
+        let marker = Marker()
+        registerRun(manager, name: "Copy 1 Items", marker: marker)
+        let copyRun = UUID()
+        manager.recordSyncHistory([record(.copy, run: copyRun)])
+
+        manager.recordSyncHistory([record(.delete, run: UUID())], pairedWithUndo: false)
+
+        let preview = manager.lastSyncRunUndoPreview
+        #expect(preview?.actionName == "Copy 1 Items")
+        #expect(preview?.records.first?.runId == copyRun)    // still the copy's records
+        #expect(preview?.records.first?.action == .copy)     // never the delete's
+    }
+
+    @Test func allPermanentDeleteDoesNotHijackThePreviousRunsPairing() async throws {
+        // End-to-end shape of the funnel above: copy a file (registers "Copy 1 Items"), then
+        // delete another file on a volume where trashing fails and the user confirms the
+        // permanent fallback. The delete's records must not pair with the copy's undo group.
+        // Unlike the gate tests, the real op sites register their undos through the manager's
+        // own grouping — so this manager keeps the UndoManager's default event grouping.
+        let manager = isolatedManager()
+        manager.undoManager = UndoManager()
+        manager.collisionResolver = { _ in .replace }
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/src/g.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"] != nil)
+        #expect(manager.lastSyncRunUndoPreview?.actionName == "Copy 1 Items")
+
+        // Trash-less volume: trashing g.txt fails non-transiently; the user confirms.
+        mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+        manager.permanentDeleteConfirmer = { _ in true }
+        _ = await manager.deleteItems(at: ["/src/g.txt"], fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/src/g.txt"] == nil)     // permanently deleted
+
+        // The gate still points at the copy — preview and reversal agree.
+        let preview = manager.lastSyncRunUndoPreview
+        #expect(preview?.actionName == "Copy 1 Items")
+        #expect(preview?.records.allSatisfy { $0.action == .copy } == true)
+    }
+
     // MARK: gate — negative (the bug this fixes)
 
     @Test func refusesAndNamesTheActionWhenANonSyncActionIsOnTop() {

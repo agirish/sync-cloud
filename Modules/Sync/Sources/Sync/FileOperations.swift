@@ -629,7 +629,11 @@ extension FileSyncManager {
                     direction: nil
                 )
             }
-            recordSyncHistory(records)
+            // Pair with the undo stack only when EVERY removed item reached the Trash — that's
+            // when the restore-undo registered above covers exactly these records. A permanent
+            // delete registers nothing for its items (mirrors the banner's undoable flag), so
+            // pairing would attach these records to whatever action sits on top of the stack.
+            recordSyncHistory(records, pairedWithUndo: successfullyTrashed.count == items.count)
         }
 
         if let progress, self.activeProgress === progress {
