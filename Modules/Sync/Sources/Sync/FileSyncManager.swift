@@ -118,7 +118,12 @@ public class FileSyncManager: ObservableObject {
     /// A's *identically named* group ("Sync run") on top, where the name gate alone would pass —
     /// previewing B's records while reversing A. Identity can't be checked by name, so any
     /// undo/redo outside `undoLastSyncRun` (which clears the pairing itself) invalidates it.
-    private func invalidateRunUndoPairing() {
+    ///
+    /// Also called (internal, from `deleteItems`) when an op registers an undo group WITHOUT
+    /// arming the pairing — a mixed delete pushes a "Delete <trashedCount> Items" group whose
+    /// name can collide with an earlier armed delete's, and the stale pairing would pass the
+    /// name gate over the wrong group.
+    func invalidateRunUndoPairing() {
         lastRecordedRunUndoName = nil
         lastRecordedRunRecords = []
     }
@@ -149,9 +154,16 @@ public class FileSyncManager: ObservableObject {
         guard let preview = lastSyncRunUndoPreview else {
             if undoManager.canUndo {
                 let top = undoManager.undoActionName
-                banner = .warning(top.isEmpty
-                    ? "The most recent action isn't a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
-                    : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
+                // A DEAD pairing (a manual ⌘Z/⇧⌘Z or a partial delete invalidated it) is not a
+                // name mismatch: the top may well be named "Sync run", and the old text — "the
+                // most recent action is “Sync run”, not a sync run" — contradicted itself.
+                if lastRecordedRunUndoName == nil {
+                    banner = .warning("The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) to step back.")
+                } else {
+                    banner = .warning(top.isEmpty
+                        ? "The most recent action isn't a sync run — use Edit ▸ Undo (⌘Z) to reverse it."
+                        : "The most recent action is “\(top)”, not a sync run — use Edit ▸ Undo (⌘Z) to reverse it.")
+                }
             } else {
                 banner = .warning("There's no recent sync run to undo — the undo history resets when SyncCloud restarts.")
             }
@@ -737,6 +749,11 @@ public class FileSyncManager: ObservableObject {
     public var undoManager: UndoManager? {
         didSet {
             guard undoManager !== oldValue else { return }
+            // A DIFFERENT manager means a different stack: a pairing armed against the old
+            // instance must not be validated against the new one's identically-named groups
+            // (a window reopen swaps managers; the first unpaired registration on the fresh
+            // stack would otherwise resurrect the stale preview).
+            invalidateRunUndoPairing()
             undoStackObservers.forEach { NotificationCenter.default.removeObserver($0) }
             undoStackObservers = []
             guard let undoManager else { return }

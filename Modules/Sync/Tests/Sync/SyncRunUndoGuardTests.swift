@@ -79,6 +79,37 @@ import Events
         manager.undoLastSyncRun()
         #expect(markerA.undone == false)                     // run A must NOT be reversed
         #expect(manager.banner?.severity == .warning)
+        // Honest refusal: the top IS named "Sync run", so the old "…is “Sync run”, not a sync
+        // run" text contradicted itself. A dead pairing reads as history-changed instead.
+        #expect(manager.banner?.message.contains("undo history changed") == true)
+    }
+
+    @Test func manualRedoAlsoClosesTheGate() {
+        // ⇧⌘Z re-registers the run's group under a fresh registration the pairing knows
+        // nothing about — the gate must stay closed after a redo, exactly as after an undo.
+        let manager = isolatedManager()
+        let marker = Marker()
+        registerRun(manager, name: "Sync run", marker: marker)
+        manager.recordSyncHistory([record(run: UUID())])
+
+        manager.undoManager!.undo()
+        manager.undoManager!.redo()
+        #expect(manager.lastSyncRunUndoPreview == nil)
+    }
+
+    @Test func swappingTheUndoManagerDropsThePairing() {
+        // A window reopen injects a NEW UndoManager: a pairing armed against the old stack
+        // must not be validated against the new one's identically-named groups.
+        let manager = isolatedManager()
+        let marker = Marker()
+        registerRun(manager, name: "Sync run", marker: marker)
+        manager.recordSyncHistory([record(run: UUID())])
+        #expect(manager.lastSyncRunUndoPreview != nil)
+
+        let fresh = UndoManager()
+        fresh.groupsByEvent = false
+        manager.undoManager = fresh
+        #expect(manager.lastSyncRunUndoPreview == nil)
     }
 
     @Test func historyWithoutAnUndoNeverRepointsTheGate() {
@@ -130,6 +161,34 @@ import Events
         let preview = manager.lastSyncRunUndoPreview
         #expect(preview?.actionName == "Copy 1 Items")
         #expect(preview?.records.allSatisfy { $0.action == .copy } == true)
+    }
+
+    @Test func mixedDeleteInvalidatesAStalePairingUnderACollidingName() async throws {
+        // The delete undo's action name embeds the TRASHED count ("Delete 1 Items"), so two
+        // consecutive deletes can push identically-named groups: run 1 deletes one item (all
+        // trashed, pairing armed), run 2 deletes two items of which only one reaches the Trash
+        // (mixed → not armed, but a NEW group named "Delete 1 Items" now tops the stack). The
+        // stale run-1 pairing would pass the name gate and preview run 1's paths while undo()
+        // restored run 2's item. A mixed delete must invalidate the stale pairing outright.
+        let manager = isolatedManager()
+        manager.undoManager = UndoManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/src/b.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        mockFM.virtualDisk["/src/c.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: [FileAttributeKey.size: 100], contents: nil)
+        manager.permanentDeleteConfirmer = { _ in true }
+
+        _ = await manager.deleteItems(at: ["/src/a.txt"], fileManager: mockFM)
+        #expect(manager.lastSyncRunUndoPreview?.actionName == "Delete 1 Items")   // run 1 armed
+
+        // Run 2: one of the two trashes, the other goes permanent → group also "Delete 1 Items".
+        mockFM.trashErrorOnce = NSError(domain: NSCocoaErrorDomain, code: NSFeatureUnsupportedError)
+        _ = await manager.deleteItems(at: ["/src/b.txt", "/src/c.txt"], fileManager: mockFM)
+
+        // The stack top is run 2's partial group; run 1's pairing must be dead, not matching
+        // the colliding name.
+        #expect(manager.lastSyncRunUndoPreview == nil)
     }
 
     // MARK: gate — negative (the bug this fixes)

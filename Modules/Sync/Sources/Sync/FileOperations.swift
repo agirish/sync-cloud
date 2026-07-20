@@ -633,6 +633,16 @@ extension FileSyncManager {
             // when the restore-undo registered above covers exactly these records. A permanent
             // delete registers nothing for its items (mirrors the banner's undoable flag), so
             // pairing would attach these records to whatever action sits on top of the stack.
+            //
+            // A MIXED batch (some trashed, some permanent) did register a partial group above,
+            // named by its TRASHED count — which can collide with an earlier armed delete's
+            // name ("Delete 1 Items" after "Delete 1 Items"). That group now tops the stack,
+            // so any surviving pairing is stale and must die: the name gate cannot tell the
+            // two groups apart. All-permanent registers nothing, so the previous pairing's
+            // group is still the top and stays valid.
+            if !successfullyTrashed.isEmpty && successfullyTrashed.count != items.count {
+                invalidateRunUndoPairing()
+            }
             recordSyncHistory(records, pairedWithUndo: successfullyTrashed.count == items.count)
         }
 

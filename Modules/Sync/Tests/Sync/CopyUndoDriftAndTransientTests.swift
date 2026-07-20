@@ -97,6 +97,61 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
+    // MARK: Vanished copies
+
+    /// A copied DIRECTORY the user already deleted themselves must not raise the phantom
+    /// permanent-delete prompt on ⌘Z: directories carry no size snapshot (the drift guard is
+    /// files-only by design), so the missing item used to fall through to `trashItem`, whose
+    /// no-such-file error is NOT in the transient list — escalating to a "permanently delete?"
+    /// confirmation naming an item that is not on disk.
+    @MainActor
+    @Test func copyUndoOfVanishedDirectorySkipsThePermanentDeletePrompt() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/folder"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/folder/inner.txt"] = file(50)
+
+        var promptFired = false
+        manager.permanentDeleteConfirmer = { _ in promptFired = true; return true }
+
+        let node = FileNode(id: "/src/folder", name: "folder", isDirectory: true)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/folder"] != nil)
+
+        // The user deletes the copy in Finder, then presses ⌘Z.
+        try mockFM.removeItem(at: URL(fileURLWithPath: "/dst/folder"))
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(promptFired == false)                        // no phantom "permanently delete?"
+        #expect(mockFM.virtualDisk["/dst/folder"] == nil)    // still gone; nothing resurrected
+    }
+
+    /// The vanished-copy undo still restores the overwritten backup: the destination path is
+    /// free, so the original the copy displaced belongs back — skipping it stranded the backup
+    /// in the Trash forever.
+    @MainActor
+    @Test func copyUndoOfVanishedFileRestoresTheOverwrittenBackup() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/f.txt"] = file(100)
+        mockFM.virtualDisk["/dst/f.txt"] = file(5)           // will be displaced into the backup
+
+        let node = FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)
+        await manager.copyItems(nodes: [node], toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 100)
+
+        try mockFM.removeItem(at: URL(fileURLWithPath: "/dst/f.txt"))
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        // The displaced original is back at its path.
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5)
+    }
+
     // MARK: Transient trash failures
 
     /// A transiently busy copy (EBUSY on trash) must NOT reach the permanent-delete prompt:

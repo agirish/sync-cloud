@@ -232,8 +232,41 @@ extension FileSyncManager {
                         var restored = 0
                         var restoreFailures = 0
                         var leftInPlace = 0
+                        var vanished = 0
                         var undoneCopies: [(source: URL, destination: URL)] = []
+                        // Destinations THIS run already put into their pre-batch state. A batch
+                        // can register one path twice (the second copy replaced the first): after
+                        // item 1's trash, item 2 finds its destination "gone" — but not
+                        // externally-gone, and restoring ITS backup would resurrect the
+                        // intermediate copy item 1 just removed.
+                        var handledDestinations = Set<String>()
                         for item in items {
+                            if handledDestinations.contains(item.destination.path) {
+                                logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled by an earlier item of this run — skipping its duplicate registration")
+                                continue
+                            }
+                            // A copy the user already deleted themselves: nothing to trash. For
+                            // directories this used to fall through to trashItem (their nil size
+                            // snapshot skips the drift guard below), whose no-such-file error is
+                            // not transient — escalating to a permanent-delete prompt naming an
+                            // item that isn't on disk; for files, the drift guard refused with a
+                            // "changed" banner. Either way the overwritten backup stayed
+                            // stranded. The undo's goal at this path is already met: restore the
+                            // backup, keep the item in the redo params (a redo re-copies it),
+                            // and log the breadcrumb. (registerCreateFolderUndo guards its
+                            // missing-folder case the same way.)
+                            if !fm.fileExists(atPath: item.destination.path) {
+                                vanished += 1
+                                handledDestinations.insert(item.destination.path)
+                                logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
+                                undoneCopies.append((source: item.source, destination: item.destination))
+                                switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
+                                case .restored: restored += 1
+                                case .failed: restoreFailures += 1
+                                case .nothingToRestore: break
+                                }
+                                continue
+                            }
                             // "Still the same item?" drift guard (mirrors the move-undo's occupied
                             // check and the delete-undo's occupant refusal): if the destination's
                             // byte size no longer matches the registration-time snapshot, the item
@@ -260,6 +293,7 @@ extension FileSyncManager {
                                 continue
                             }
                             removed += 1
+                            handledDestinations.insert(item.destination.path)
                             undoneCopies.append((source: item.source, destination: item.destination))
 
                             switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
@@ -287,6 +321,7 @@ extension FileSyncManager {
                                     continue
                                 }
                                 removed += 1
+                                handledDestinations.insert(item.destination.path)
                                 undoneCopies.append((source: item.source, destination: item.destination))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
@@ -297,7 +332,7 @@ extension FileSyncManager {
                         }
 
                         await redoParamResolver.resolve(undoneCopies)
-                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
+                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
                 }
             }
         }
