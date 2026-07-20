@@ -39,7 +39,13 @@ public enum AutomationRuleProposer {
         guard !dest.isEmpty else { return nil }
 
         let nameTokens = tokens(in: (fileName as NSString).deletingPathExtension)
-        let destTokens = Set(dest.split(whereSeparator: { $0 == "/" }).flatMap { tokens(in: String($0)) })
+        // Folded: `tokens(in:)` preserves case, and the overlap test must be case-blind on BOTH
+        // sides — comparing a lowercased name token against original-case dest tokens meant a
+        // capitalized folder ("Acme", "T-Mobile") never anchored, and the fallback's longest
+        // token could propose an unrelated term for the rule.
+        let destTokens = Set(dest.split(whereSeparator: { $0 == "/" })
+            .flatMap { tokens(in: String($0)) }
+            .map { $0.lowercased() })
 
         // The strongest signal: a name token that also names (part of) the destination folder.
         let shared = nameTokens.first(where: { destTokens.contains($0.lowercased()) })

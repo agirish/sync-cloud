@@ -19,6 +19,18 @@ import Foundation
         #expect(p?.destinationTemplate == "Home/Utilities/T-Mobile")
     }
 
+    @Test func testSharedTokenWinsRegardlessOfCase() {
+        // "acme" (name, lowercase) names the "Acme" destination folder — the shared anchor must
+        // fire across the case difference. Without folding BOTH sides the anchor stayed nil
+        // (the name token was lowercased but the dest tokens kept their case) and the fallback
+        // picked the longest non-stop token ("march") — proposing a rule that files every
+        // March-named file into Vendors/Acme and drops the vendor link entirely. The T-Mobile
+        // test above can't catch this: its shared token IS the longest token, so the fallback
+        // coincidentally lands on the same answer.
+        let p = propose("acme-invoice-march.pdf", into: "Vendors/Acme")
+        #expect(p?.defaultCondition == .nameMatches("*acme*"))
+    }
+
     @Test func testDestinationIsProviderRelativeAndTrimmed() {
         let p = propose("Kaiser-EOB.pdf", into: "/Medical/Kaiser/")
         #expect(p?.destinationTemplate == "Medical/Kaiser")
