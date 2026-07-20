@@ -14,6 +14,9 @@ struct PaneActionDelegate: FileActionDelegate {
     let isLeft: Bool
     let leftProviderId: String
     let rightProviderId: String
+    /// True when this delegate serves the Tidy single-source rail: there is no visible sibling
+    /// pane, so linked navigation (the 🔗 toggle) must not drag the hidden right pane along.
+    let isSingleSource: Bool
     let forceRefreshAction: () -> Void
     /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
     let onGetInfo: (String) -> Void
@@ -21,7 +24,7 @@ struct PaneActionDelegate: FileActionDelegate {
     func handleRefresh() {
         forceRefreshAction()
     }
-    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
+    func handleFocus(_ node: FileNode) { handler?.focusFolder(node, isLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, suppressLinkedNavigation: isSingleSource) }
     func handleCopy(_ nodes: [FileNode]) { handler?.copyItems(nodes, fromLeft: isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId) }
     func handleMove(_ nodes: [FileNode]) { 
         Task {

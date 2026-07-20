@@ -1110,7 +1110,11 @@ struct ContentView: View {
                 onBack: { syncManager.goBack(isLeft: isLeft) },
                 onForward: { syncManager.goForward(isLeft: isLeft) },
                 onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
-                onNavigateBoth: { syncManager.focusBoth(relativePath: $0) },
+                // The Tidy rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
+                // must behave as plain navigation there, never drive the hidden right pane.
+                onNavigateBoth: layoutMode == .singleSource
+                    ? { syncManager.focusOn(relativePath: $0, isLeft: isLeft) }
+                    : { syncManager.focusBoth(relativePath: $0) },
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
@@ -1371,7 +1375,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),

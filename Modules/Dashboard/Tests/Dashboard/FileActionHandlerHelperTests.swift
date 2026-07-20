@@ -38,6 +38,28 @@ import Settings
     }
 
     @MainActor
+    @Test func testFocusFolderNeverDrivesTheSiblingFromTheSingleSourceRail() {
+        // The Tidy rail reuses the left pane's plumbing but has NO visible sibling: with 🔗
+        // linked, drilling the rail must not drag the hidden right pane along (its history
+        // grows, its saved focus is overwritten for the next launch, and FolderJumpStore
+        // records "Recent" folders the user never visited). The rail's delegate passes
+        // suppressLinkedNavigation.
+        UserDefaults.standard.set(true, forKey: PaneLinkPreference.defaultsKey)
+        defer { UserDefaults.standard.removeObject(forKey: PaneLinkPreference.defaultsKey) }
+        let manager = FileSyncManager()
+        let settings = SettingsManager(autoDiscover: false)
+        let handler = FileActionHandler(syncManager: manager, settings: settings)
+
+        let root = settings.path(for: "iCloud")
+        let node = FileNode(id: "\(root)/Projects/Sync", name: "Sync", isDirectory: true)
+
+        handler.focusFolder(node, isLeft: true, leftProviderId: "iCloud", rightProviderId: "iCloud",
+                            suppressLinkedNavigation: true)
+        #expect(manager.leftRelativePath == "Projects/Sync")
+        #expect(manager.rightRelativePath == "")   // the hidden pane stayed put
+    }
+
+    @MainActor
     @Test func testFocusFolderMovesBothPanesWhenLinked() {
         // With "Link both panes" on, drilling into a folder from the file list must move the
         // sibling pane to the same relative path — the bug where only breadcrumb clicks honored it.

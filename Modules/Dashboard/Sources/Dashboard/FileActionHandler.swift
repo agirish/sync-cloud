@@ -64,7 +64,7 @@ public class FileActionHandler {
     ///   - isLeft: `true` if the folder is in the left pane, `false` if in the right.
     ///   - leftProviderId: Current left-pane provider ID (for path lookup).
     ///   - rightProviderId: Current right-pane provider ID.
-    public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String) {
+    public func focusFolder(_ node: FileNode, isLeft: Bool, leftProviderId: String, rightProviderId: String, suppressLinkedNavigation: Bool = false) {
         let side = isLeft ? "left" : "right"
         let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
         // path(for:) returns "" for a provider that vanished from settings; "" prefix-matches
@@ -95,7 +95,12 @@ public class FileActionHandler {
         // stay in lock-step "while drilling down," but drilling into a folder from the file list
         // lands here — not on a breadcrumb crumb — so without this check only clicking an ancestor
         // crumb ever moved the sibling pane. When linked, drive both panes to the same subfolder.
-        if PaneLinkPreference.isLinked {
+        //
+        // `suppressLinkedNavigation` is the Tidy rail's opt-out: the rail reuses the left pane's
+        // plumbing but has NO visible sibling — honoring the link there silently dragged the
+        // hidden right pane along (growing its history, overwriting its saved focus for the next
+        // launch, and recording "Recent" folders the user never visited).
+        if PaneLinkPreference.isLinked && !suppressLinkedNavigation {
             syncManager.focusBoth(relativePath: relPath)
         } else {
             syncManager.focusOn(relativePath: relPath, isLeft: isLeft)
