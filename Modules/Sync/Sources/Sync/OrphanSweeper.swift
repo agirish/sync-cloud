@@ -1,3 +1,4 @@
+import Events
 import Foundation
 
 /// Conservative cleanup of orphaned working files left behind by a crash or force-quit
@@ -5,8 +6,11 @@ import Foundation
 ///
 /// `safeCopyItem` / `safeMoveItem` stage content in `.tmp_<UUID>` siblings of the
 /// destination and remove them on every normal exit path (`defer`), so a surviving
-/// `.tmp_` artifact is by definition garbage: a partial duplicate of a source that still
-/// exists. Two gates keep the sweep from ever touching live data:
+/// `.tmp_` artifact is almost always garbage: a partial duplicate of a source that still
+/// exists. ALMOST — one path deliberately preserves a temp that is the only copy of a
+/// consumed source (`replaceDestinationByMoving`'s double failure), which is why the sweep
+/// only ever Trashes (recoverable), never unlinks. Two gates keep the sweep from touching
+/// live data:
 /// - the name must be exactly `.tmp_` followed by a parseable UUID — a user file that
 ///   merely starts with ".tmp_" never matches, and
 /// - the artifact must be older than `minimumAge`, so an in-flight operation's staging
@@ -85,10 +89,11 @@ public enum OrphanSweeper {
         }
     }
 
-    /// Deletes the given artifacts, preferring Trash with a `removeItem` fallback — safe
-    /// here because a `.tmp_` artifact is a partial duplicate of a source that still
-    /// exists. Re-checks the name pattern as defense in depth: only exact `.tmp_<UUID>`
-    /// names are ever deleted, whatever the caller passed.
+    /// Trashes the given artifacts — Trash ONLY, no `removeItem` fallback: a `.tmp_` can be
+    /// the preserved only copy of a consumed source (`replaceDestinationByMoving`'s double
+    /// failure), so the sweep must stay recoverable. On a Trash-less volume the artifact
+    /// simply survives to the next sweep. Re-checks the name pattern as defense in depth:
+    /// only exact `.tmp_<UUID>` names are ever touched, whatever the caller passed.
     /// - Returns: The number of artifacts actually removed.
     @discardableResult
     public static func removeTempArtifacts(atPaths paths: [String], fileManager: FileManaging) -> Int {
@@ -100,8 +105,8 @@ public enum OrphanSweeper {
                 try fileManager.trashItem(at: url, resultingItemURL: nil)
                 removed += 1
             } catch {
-                if (try? fileManager.removeItem(at: url)) != nil {
-                    removed += 1
+                Task { @MainActor in
+                    Logger.shared.debug("Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left for the next sweep")
                 }
             }
         }

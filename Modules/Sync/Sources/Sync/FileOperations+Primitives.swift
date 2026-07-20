@@ -292,7 +292,13 @@ extension FileSyncManager {
     ) throws -> URL? {
         let targetDirectory = destinationURL.deletingLastPathComponent()
         let tempURL = targetDirectory.appendingPathComponent(".tmp_\(UUID().uuidString)")
-        defer { try? fileManager.removeItem(at: tempURL) }
+        // The staged temp is normally transient and swept on every exit. The ONE exception is
+        // the double failure below (replace failed AND the restoring move-back failed with the
+        // source already consumed): the temp then holds the only copy of the source's content
+        // and must survive this scope — sweeping it would permanently destroy the source, not
+        // even via the Trash.
+        var tempHoldsOnlyCopyOfSource = false
+        defer { if !tempHoldsOnlyCopyOfSource { try? fileManager.removeItem(at: tempURL) } }
 
         // Stage the source onto the destination's volume. Same-volume: a rename consumes the
         // source. Cross-volume (EXDEV): copy, and remember the original still needs cleanup.
@@ -316,7 +322,19 @@ extension FileSyncManager {
             // already moved the source into the staged temp (which `defer` will delete), so restore
             // it — a failed replace must never destroy the source.
             if sourceConsumed {
-                try? fileManager.moveItem(at: tempURL, to: sourceURL)
+                do {
+                    try fileManager.moveItem(at: tempURL, to: sourceURL)
+                } catch {
+                    // The move-back failed too (something re-took the source path — a cloud
+                    // daemon re-materializing a placeholder does exactly this — or the temp is
+                    // busy). The temp is now the only copy of the source's content: keep it,
+                    // and say exactly where it is. OrphanSweeper's later sweep only Trashes
+                    // (recoverable); nothing may unlink it outright.
+                    tempHoldsOnlyCopyOfSource = true
+                    Task { @MainActor in
+                        Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path) — its content is preserved at \(tempURL.path)")
+                    }
+                }
             }
             throw error
         }

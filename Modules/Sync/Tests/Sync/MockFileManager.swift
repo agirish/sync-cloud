@@ -116,6 +116,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
 
     public var shouldFailMove: Bool = false
     public var shouldFailMoveOnTempRename: Bool = false
+    /// Counted variant of `shouldFailMoveOnTempRename`, for pinning flows where SEVERAL
+    /// consecutive `.tmp_` moves must fail (the replace swap-in AND the restoring move-back).
+    public var tempRenameFailuresRemaining: Int = 0
 
     public func moveItem(at srcURL: URL, to dstURL: URL) throws {
         try sync {
@@ -125,8 +128,9 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
                 throw NSError(domain: NSPOSIXErrorDomain, code: Int(EXDEV), userInfo: nil)
             }
 
-            if shouldFailMoveOnTempRename && srcURL.path.contains(".tmp_") {
+            if (shouldFailMoveOnTempRename || tempRenameFailuresRemaining > 0) && srcURL.path.contains(".tmp_") {
                 shouldFailMoveOnTempRename = false
+                if tempRenameFailuresRemaining > 0 { tempRenameFailuresRemaining -= 1 }
                 throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError, userInfo: nil)
             }
 

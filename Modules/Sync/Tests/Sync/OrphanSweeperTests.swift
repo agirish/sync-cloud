@@ -105,7 +105,11 @@ import Testing
         #expect(fm.attemptedRemovePaths.isEmpty)
     }
 
-    @Test func testRemoveFallsBackToRemoveItemOnTrashlessVolumes() {
+    @Test func testRemoveNeverUnlinksWhenTrashIsUnavailable() {
+        // The sweep is Trash-only by design: a surviving `.tmp_` can be the preserved only
+        // copy of a consumed source (replaceDestinationByMoving's double failure), so a
+        // failed trash must leave it on disk for the next sweep — never permanently unlink
+        // (the old removeItem fallback destroyed it unrecoverably).
         let fm = MockFileManager()
         fm.shouldFailTrash = true
         let tmp = "/root/.tmp_\(UUID().uuidString)"
@@ -113,8 +117,9 @@ import Testing
 
         let removed = OrphanSweeper.removeTempArtifacts(atPaths: [tmp], fileManager: fm)
 
-        #expect(removed == 1)
-        #expect(fm.virtualDisk[tmp] == nil)
+        #expect(removed == 0)
+        #expect(fm.virtualDisk[tmp] != nil)      // survives, recoverable
+        #expect(fm.attemptedRemovePaths.isEmpty) // removeItem never even attempted
     }
 
     // MARK: - End to end on a real temp directory (the production data path:

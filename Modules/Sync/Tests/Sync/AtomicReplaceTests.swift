@@ -164,6 +164,35 @@ import Foundation
         #expect(inner.virtualDisk.keys.contains { $0.contains(".rollback_") } == false)
     }
 
+    @Test func testSafeMoveDoubleFailurePreservesConsumedSourceInTemp() async throws {
+        // Same-volume staging consumed the source; the replace failed; the restoring move-back
+        // ALSO failed (a cloud daemon re-materializing the source path, or holding the temp
+        // busy, does exactly this). The staged `.tmp_` now holds the ONLY copy of the source's
+        // content — cleanup must leave it on disk. Removing it (the old unconditional defer)
+        // permanently destroyed the source, not even via the Trash.
+        let inner = MockFileManager()
+        try inner.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try inner.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        seed(inner, path: "/src/data.bin", size: 100)
+        seed(inner, path: "/dst/data.bin", size: 5)
+
+        inner.tempRenameFailuresRemaining = 2   // the swap-in fails, then the move-back fails
+
+        #expect(throws: (any Error).self) {
+            try FileSyncManager.safeMoveItem(
+                at: URL(fileURLWithPath: "/src/data.bin"),
+                to: URL(fileURLWithPath: "/dst/data.bin"),
+                fileManager: inner
+            )
+        }
+
+        // The destination is untouched, and the consumed source's bytes survive in the
+        // preserved temp (the source path itself could not be restored).
+        #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 5)
+        let tempSurvivor = inner.virtualDisk.first { $0.key.contains(".tmp_") }
+        #expect(tempSurvivor?.value.attributes?[FileAttributeKey.size] as? Int == 100)
+    }
+
     /// Cross-volume move (EXDEV on the staging rename) that REPLACES an existing destination and
     /// SUCCEEDS: the source is copied onto the destination's volume, atomically swapped in, then the
     /// original is cleaned from its own volume. Realistic case — moving a file off an external drive
