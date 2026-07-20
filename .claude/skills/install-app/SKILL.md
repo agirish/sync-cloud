@@ -20,4 +20,9 @@ Install the most recent SyncCloud build into /Applications:
    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP" && rm -rf "$APP"
    ```
 6. If Spotlight still shows extra SyncCloud entries, other sessions' worktree builds left bundles behind — find them with `mdfind "kMDItemFSName == 'SyncCloud.app'"` and delete any DerivedData copies not part of an active build (`pgrep -fl xcodebuild` first).
-7. Confirm by reporting the installed binary's timestamp.
+7. Launch the freshly installed app and **verify it actually started** — a silent `open` exit is not proof:
+   ```bash
+   open /Applications/SyncCloud.app && sleep 2 && pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud'
+   ```
+   If `pgrep` prints nothing, the app failed to launch — investigate (check Console/`~/sync-cloud.log`) rather than reporting success.
+8. Confirm by reporting the installed binary's timestamp and that the app is running.
