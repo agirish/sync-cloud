@@ -575,8 +575,9 @@ public extension View {
 /// a deep, faintly-cool near-black gradient *under* the material so the ground grades with depth, and
 /// a soft pool of the accent hue at the top edge *over* the material so the accent actually reads —
 /// and thins the material so that deep base shows through. The accent diagonal also lifts its opacity
-/// in dark to survive the darker base. `.clear` (see-through) still skips the material entirely; only
-/// its diagonal wash strengthens.
+/// in dark to survive the darker base. `.clear` stays see-through — it skips the opaque material,
+/// but in dark still takes a translucent veil of that base plus a toned-down glow, so it reads as
+/// deep moody glass over the desktop rather than a pale wash.
 private struct LiquidGlassBackground: ViewModifier {
     let level: GlassLevel
     let hue: LiquidGlassHue
@@ -585,8 +586,8 @@ private struct LiquidGlassBackground: ViewModifier {
     func body(content: Content) -> some View {
         let dark = scheme == .dark
         let t = level.backgroundIntensity
-        // At `.clear` let the desktop through instead of painting a base — the material below is
-        // opaque enough to hide it, so the two are mutually exclusive.
+        // `.clear` keeps the window see-through: the opaque material stays off, and in dark the deep
+        // base drops to a translucent veil (below) rather than a solid ground.
         let seeThrough = level == .clear
 
         let opacities: [Double] = dark
@@ -599,15 +600,19 @@ private struct LiquidGlassBackground: ViewModifier {
                 BehindWindowGlass(isEnabled: seeThrough)
                     .ignoresSafeArea()
 
-                // Dark-only deep base: a near-black, faintly-cool gradient beneath the material so
-                // the ground reads as graded depth rather than one muddy plane.
-                if !seeThrough && dark {
+                // Dark deep base: a near-black, faintly-cool gradient. When the window is opaque
+                // (`.frosted`/`.solid`) it's the full ground the material sits on. At `.clear` it
+                // drops to a translucent veil over the behind-window vibrancy — the desktop still
+                // reads through, but as deep, moody glass rather than a pale wash (Clear made bolder
+                // without giving up see-through).
+                if dark {
                     LinearGradient(
                         colors: [Color(red: 0.065, green: 0.082, blue: 0.115),
                                  Color(red: 0.02, green: 0.027, blue: 0.043)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
+                    .opacity(seeThrough ? 0.55 : 1)
                     .ignoresSafeArea()
                 }
 
@@ -626,11 +631,13 @@ private struct LiquidGlassBackground: ViewModifier {
                         .ignoresSafeArea()
                 }
 
-                // Dark-only accent glow: a soft pool of the hue at the top, over the material so the
-                // accent reads. `.none` opts out (it defers to the system accent).
-                if !seeThrough && dark && hue != .none {
+                // Dark accent glow: a soft pool of the hue at the top so the accent reads. Fires at
+                // every dark level now, `.clear` included — there at a lower strength, since it sits
+                // over the veil + desktop rather than an opaque material. `.none` opts out (it defers
+                // to the system accent).
+                if dark && hue != .none {
                     RadialGradient(
-                        colors: [hue.accentColor.opacity(0.26 + 0.10 * t), .clear],
+                        colors: [hue.accentColor.opacity(seeThrough ? 0.18 : 0.26 + 0.10 * t), .clear],
                         center: .top,
                         startRadius: 0,
                         endRadius: 700
