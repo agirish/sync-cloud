@@ -103,6 +103,12 @@ struct DuplicateReviewCoordinator {
             targetLeft: providerId, targetRight: providerId)
         pendingSwapProviderChanges += plan.suppressCount
         applyProviderPinAssignments(plan)
+        // The suppression above also skips the id onChange's ignore-store re-key — the ONLY
+        // other place it happens — so re-key here, or the pinned same-provider comparison
+        // filters its diff through the OLD pair's remembered ignores (hiding real differences
+        // from the very review that decides whether a copy is safe to trash).
+        syncManager.ignoredItemsStore?.activate(
+            pairKey: IgnoredItemsStore.pairKey(providerId, providerId))
         // The suppression above also skips resetNavigation's comparison invalidation, so drop the
         // OLD comparison's differences here — they carry absolute paths for roots the panes are
         // about to stop showing, and would stay actionable until the re-diff lands. Targeted so
@@ -216,6 +222,10 @@ struct DuplicateReviewCoordinator {
             targetLeft: saved.leftProviderId, targetRight: saved.rightProviderId)
         pendingSwapProviderChanges += plan.suppressCount
         applyProviderPinAssignments(plan)
+        // Mirror of compareCopies' re-key, in the restore direction: the suppressed onChange
+        // won't re-activate the original pair's ignore store, so do it here.
+        syncManager.ignoredItemsStore?.activate(
+            pairKey: IgnoredItemsStore.pairKey(saved.leftProviderId, saved.rightProviderId))
         // Same targeted invalidation as compareCopies: the review's diff of the two copies must
         // not stay actionable while the restored panes' trees load (the suppression above skips
         // the full reset that would normally clear it — and would also wipe the Tidy results).

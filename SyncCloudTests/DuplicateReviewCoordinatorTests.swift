@@ -139,6 +139,35 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.refreshCount == 1)
     }
 
+    @Test func compareCopiesRekeysIgnoreStoreAndRestoreRekeysItBack() throws {
+        // The pin suppresses the provider-id onChange handlers — the ONLY other place the
+        // durable ignore store is re-keyed. Without an explicit re-key here, the pinned
+        // same-provider review filters its diff through the OLD pair's remembered ignores: a
+        // file the user ignored for iCloud↔Dropbox silently vanishes from the iCloud↔iCloud
+        // duplicate review they're using to decide "identical — trash the right copy".
+        let harness = Harness()
+        let suite = "DuplicateReviewCoordinatorTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(["CrossPair/report.pdf"], forKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
+        defaults.set(["SamePair/notes.txt"], forKey: IgnoredItemsStore.pairKey("icloud", "icloud"))
+        let store = IgnoredItemsStore(userDefaults: defaults)
+        store.activate(pairKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
+        harness.syncManager.ignoredItemsStore = store
+        #expect(store.rootRelativePaths == ["CrossPair/report.pdf"])
+
+        harness.coordinator.compareCopies(
+            keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
+            delete: duplicateCopy(path: "/scan/root/Backup/Docs", keeper: false))
+
+        // Pinned to icloud↔icloud: the review reads THAT pair's ignores, not the old pair's.
+        #expect(store.rootRelativePaths == ["SamePair/notes.txt"])
+
+        // Done → restore: the original pair's ignores come back with the original providers.
+        harness.coordinator.endDuplicateReview()
+        #expect(store.rootRelativePaths == ["CrossPair/report.pdf"])
+    }
+
     @Test func comparingASecondPairKeepsTheOriginalRestoreSnapshot() throws {
         let harness = Harness()
         let original = SavedCompareState(
