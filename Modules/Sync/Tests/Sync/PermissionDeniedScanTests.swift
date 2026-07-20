@@ -110,6 +110,103 @@ import Testing
         #expect(diffs.contains { $0.relativePath == "really-missing.txt" && $0.type == .missingOnRight })
     }
 
+    @Test func unreadableDirectoryWithCaseVariantNameStillSuppressesMissingRows() throws {
+        guard !runningAsRoot else { return }
+        // The pairing matches ancestors across case variants, so the suppression must too:
+        // left readable "Shared" with content, right UNREADABLE "shared". The unexplored set
+        // holds the right-side spelling; an exact-string ancestor lookup missed it and minted
+        // actionable Missing rows into a folder nobody can read.
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(leftBase.appendingPathComponent("Shared/doc.txt"), text: "content")
+        try write(leftBase.appendingPathComponent("Shared/sub/deep.txt"), text: "content")
+        try write(leftBase.appendingPathComponent("really-missing.txt"), text: "content")
+        let rightLocked = rightBase.appendingPathComponent("shared")
+        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
+        try chmod(rightLocked, 0o000)
+        defer {
+            try? chmod(rightLocked, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        #expect(!diffs.contains { $0.relativePath.hasPrefix("Shared/") },
+                "phantom rows under a case-variant unreadable folder: \(diffs.map(\.relativePath))")
+        #expect(diffs.contains { $0.relativePath == "really-missing.txt" && $0.type == .missingOnRight })
+    }
+
+    @Test func unreadableDirectoryWithNearNameVariantStillSuppressesMissingRows() throws {
+        guard !runningAsRoot else { return }
+        // Near-name shape of the same hole: right's unreadable folder is "shared " (trailing
+        // space). The near-name machinery pairs the two dirs — and then REMAPPED the phantom
+        // child rows to target paths inside the unreadable variant.
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
+        let rightLocked = rightBase.appendingPathComponent("shared ")
+        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
+        try chmod(rightLocked, 0o000)
+        defer {
+            try? chmod(rightLocked, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        #expect(!diffs.contains { $0.relativePath.hasPrefix("shared/") },
+                "phantom rows under a near-name unreadable folder: \(diffs.map(\.relativePath))")
+    }
+
+    @Test func readableExactFolderBesideAnUnreadableVariantStillReportsItsMissing() throws {
+        guard !runningAsRoot else { return }
+        // Negative control for the folded suppression: the right side has BOTH a readable
+        // exact-spelling "shared" (empty) and an unreadable "shared " variant. The missing row
+        // for left's shared/doc.txt targets the READABLE folder and must survive — folding
+        // may only suppress when no exact-spelling entry owns the ancestor.
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(leftBase.appendingPathComponent("shared/doc.txt"), text: "content")
+        try FileManager.default.createDirectory(
+            at: rightBase.appendingPathComponent("shared"), withIntermediateDirectories: true)
+        let rightLocked = rightBase.appendingPathComponent("shared ")
+        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
+        try chmod(rightLocked, 0o000)
+        defer {
+            try? chmod(rightLocked, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        #expect(diffs.contains { $0.relativePath == "shared/doc.txt" && $0.type == .missingOnRight },
+                "the legit row into the readable exact folder was over-suppressed: \(diffs.map(\.relativePath))")
+    }
+
     @Test func unreadableDirectoryOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
         guard !runningAsRoot else { return }
         let leftBase = try makeTempDir()

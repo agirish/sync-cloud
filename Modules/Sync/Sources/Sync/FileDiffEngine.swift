@@ -450,6 +450,33 @@ public struct FileDiffEngine {
         // it would mint the very doppelganger folder the name-conflict row exists to prevent.
         var nearNameDirPairs: [String: String] = [:]
 
+        // The unexplored-ancestor suppression under the SAME folding the pair matching uses:
+        // the unexplored sets hold each side's OWN spelling, but pairing matches ancestor
+        // folders across case variants and invisible name differences — so "Docs/x.txt" on the
+        // left must recognize an unreadable right-side "docs" (case variant) or "Docs␣"
+        // (near-name) as its unknowable counterpart, or the engine mints actionable Missing
+        // rows into a folder nobody can read (and the near-name remap then re-aims them INTO
+        // it). Folding only applies when NO exact-spelling entry on the other side owns the
+        // ancestor: a readable exact folder beside an unreadable variant legitimately receives
+        // the row. nearNameKey folds case exactly when the comparison does.
+        func suppressionKey(_ path: String) -> String {
+            ProviderNameRules.nearNameKey(forRelativePath: path, foldCase: caseInsensitive)
+        }
+        let unexploredLeftDirKeys = Set(unexploredLeftDirs.map(suppressionKey))
+        let unexploredRightDirKeys = Set(unexploredRightDirs.map(suppressionKey))
+        func hasUnexploredFoldedAncestor(
+            of relativePath: String, keys: Set<String>, otherSide: [String: FileInfo]
+        ) -> Bool {
+            guard !keys.isEmpty else { return false }
+            var prefix = ""
+            for component in relativePath.split(separator: "/").dropLast() {
+                prefix = prefix.isEmpty ? String(component) : prefix + "/" + String(component)
+                if otherSide[prefix] != nil { continue }   // exact entry owns this level
+                if keys.contains(suppressionKey(prefix)) { return true }
+            }
+            return false
+        }
+
         // 1. Files on left but not on right (or compare if exists)
         for (relativePath, leftFile) in leftFilesInfo {
             // Exact-case match first; on case-insensitive volumes fall back to a case-variant match.
@@ -620,6 +647,8 @@ public struct FileDiffEngine {
                 // not missing.
                 if rightRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredRightDirs) != nil { continue }
+                if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredRightDirKeys,
+                                               otherSide: rightFilesInfo) { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
                 let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
@@ -646,6 +675,8 @@ public struct FileDiffEngine {
                 // unlistable, absence on the left is unknowable — no phantom Missing row.
                 if leftRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredLeftDirs) != nil { continue }
+                if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredLeftDirKeys,
+                                               otherSide: leftFilesInfo) { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
