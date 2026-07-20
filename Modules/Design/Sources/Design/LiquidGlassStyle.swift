@@ -341,37 +341,13 @@ public enum LiquidGlass {
 public extension View {
     /// Applies an app-level background that makes Liquid Glass visible by providing subtle
     /// color/content behind it.
-    @ViewBuilder
+    ///
+    /// Routed through `LiquidGlassBackground` so it can read `@Environment(\.colorScheme)`: the
+    /// shared light-tuned constants collapse to a flat gray slab on a dark appearance, so dark
+    /// gets a deep graded near-black base *under* the material and a soft accent glow *over* it,
+    /// and the accent diagonal lifts its opacity to survive the darker base. Light is unchanged.
     func liquidGlassAppBackground(level: GlassLevel, hue: LiquidGlassHue = .blue) -> some View {
-        let t = level.backgroundIntensity
-        let colors = hue.gradientColors
-        let opacities: [Double] = [0.06 + 0.16 * t, 0.05 + 0.14 * t, 0.04 + 0.10 * t]
-        let gradientColors = zip(colors, opacities).map { $0.0.opacity($0.1) }
-
-        // At `.clear` let the desktop through instead of painting a flat base — the thinMaterial
-        // below is opaque enough to hide it, so the two are mutually exclusive.
-        let seeThrough = level == .clear
-
-        self.background {
-            ZStack {
-                BehindWindowGlass(isEnabled: seeThrough)
-                    .ignoresSafeArea()
-
-                LinearGradient(
-                    colors: gradientColors,
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
-
-                if !seeThrough {
-                    // Keep a base material so content remains readable in light/dark.
-                    Color.clear
-                        .background(.thinMaterial.opacity(0.45 + 0.20 * t))
-                        .ignoresSafeArea()
-                }
-            }
-        }
+        modifier(LiquidGlassBackground(level: level, hue: hue))
     }
 
     /// The material fill for one content surface. This is the single place the level → appearance
@@ -396,36 +372,32 @@ public extension View {
     /// Frosted glass card style for floating overlay chrome (Settings, Help, the first-run card,
     /// the operation banner). Applies `flooredForChrome`, so a `.clear` app never produces an
     /// unreadable dialog — these are the only surfaces with live content behind them.
-    @ViewBuilder
+    ///
+    /// The border + shadow route through `OverlayCardChrome` so dark can go bold: a top-lit white
+    /// specular hairline and a deeper, larger shadow that lifts the card off the dimmed backdrop
+    /// (the light-tuned `cardShadow` is nearly invisible on a dark scrim). Light keeps exactly its
+    /// old chrome — the soft `cardShadow` on the explicit-chrome path, and nothing on native glass.
     func glassCardStyle(level: GlassLevel) -> some View {
         let resolved = level.flooredForChrome
-        let shape = RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-        if resolved.needsExplicitChrome {
-            self
-                .glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
-                .clipShape(shape)
-                .shadow(
-                    color: LiquidGlass.cardShadow.color,
-                    radius: LiquidGlass.cardShadow.radius,
-                    x: LiquidGlass.cardShadow.x,
-                    y: LiquidGlass.cardShadow.y
-                )
-        } else {
-            // Clip here too: `.glassEffect` shapes only the effect, not the view's own
-            // backgrounds, and every caller stacks `contentSurface`'s square tint wash under
-            // this — unclipped it pokes past the rounded corners at any Tint above zero
-            // (surfaceCard and bottomSectionCard clip for exactly the same reason).
-            self
-                .clipShape(shape)
-                .glassSurface(resolved, cornerRadius: LiquidGlass.cardCornerRadius)
-        }
+        let radius = LiquidGlass.cardCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        // `.glassEffect` shapes only the effect, not the view's own backgrounds, and every caller
+        // stacks `contentSurface`'s square tint wash under this — so clip either way, or it pokes
+        // past the rounded corners at any Tint above zero (surfaceCard/bottomSectionCard do the
+        // same). The explicit-chrome path clips *after* filling; native glass clips first.
+        let filled: AnyView = resolved.needsExplicitChrome
+            ? AnyView(self.glassSurface(resolved, cornerRadius: radius).clipShape(shape))
+            : AnyView(self.clipShape(shape).glassSurface(resolved, cornerRadius: radius))
+        return filled.modifier(
+            OverlayCardChrome(cornerRadius: radius, lightShadow: resolved.needsExplicitChrome))
     }
 
     /// Lighter glass style for bars and inline panels. These sit over the window's own background
-    /// rather than over content, so they take the level verbatim — no floor.
-    @ViewBuilder
+    /// rather than over content, so they take the level verbatim — no floor. Dark adds a top-lit
+    /// specular hairline (via `GlassBarStyle`) so the bar reads as distinct glass chrome against
+    /// the deep background; light is unchanged.
     func glassBarStyle(level: GlassLevel) -> some View {
-        self.glassSurface(level, cornerRadius: LiquidGlass.smallCornerRadius)
+        modifier(GlassBarStyle(level: level))
     }
 
     /// The button style for a bar of controls, resolved from the level.
@@ -476,21 +448,23 @@ public extension View {
     /// Floating-card decoration for the `.cards` shape: the level's fill, rounded corners, and an
     /// outer gutter so the background shows between cards. Native Liquid Glass draws its own edge
     /// and shadow; `.solid` and the macOS 15 fallback draw theirs explicitly.
-    @ViewBuilder
+    ///
+    /// The hairline + shadow route through `DarkBoldCardChrome`: dark swaps the faint `.quaternary`
+    /// edge for a top-lit white specular hairline and deepens the shadow so each card lifts off the
+    /// deep background. Light is unchanged — the explicit-chrome path keeps its `.quaternary`
+    /// hairline + soft shadow, native glass keeps neither.
     func surfaceCard(_ level: GlassLevel, cornerRadius: CGFloat = LiquidGlass.cardCornerRadius) -> some View {
         // Clip the content to the card shape first — the pane's contentSurface tint wash is a
         // square fill, and without this it pokes past the rounded corners into the gutters
         // (bottomSectionCard already clips the same way).
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let filled = self.clipShape(shape).glassSurface(level, cornerRadius: cornerRadius)
-        if level.needsExplicitChrome {
-            filled
-                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-                .padding(LiquidGlass.cardInset)
-        } else {
-            filled.padding(LiquidGlass.cardInset)
-        }
+        let explicit = level.needsExplicitChrome
+        return self.clipShape(shape)
+            .glassSurface(level, cornerRadius: cornerRadius)
+            .modifier(DarkBoldCardChrome(
+                cornerRadius: cornerRadius,
+                lightBorder: explicit, lightShadow: explicit, darkShadow: true))
+            .padding(LiquidGlass.cardInset)
     }
 
     /// Wraps a file pane as a floating card for `.cards`; leaves it untouched otherwise.
@@ -520,7 +494,9 @@ public extension View {
                 : AnyView(self)
             based
                 .clipShape(shape)
-                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
+                .modifier(DarkBoldCardChrome(
+                    cornerRadius: radius,
+                    lightBorder: true, lightShadow: false, darkShadow: false))
                 .padding(LiquidGlass.cardInset)
         }
     }
@@ -552,23 +528,194 @@ public extension View {
             .clipShape(shape)
         switch style {
         case .cards:
-            let glassed = filled.glassSurface(level, cornerRadius: radius)
-            if level.needsExplicitChrome {
-                glassed
-                    .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
-                    .shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
-                    .padding(LiquidGlass.cardInset)
-            } else {
-                glassed.padding(LiquidGlass.cardInset)
-            }
+            let explicit = level.needsExplicitChrome
+            filled.glassSurface(level, cornerRadius: radius)
+                .modifier(DarkBoldCardChrome(
+                    cornerRadius: radius,
+                    lightBorder: explicit, lightShadow: explicit, darkShadow: true))
+                .padding(LiquidGlass.cardInset)
         case .unified:
             // Unified blends into the window glass, so only `.solid` contributes a fill here.
             let based = level == .solid
                 ? AnyView(filled.glassSurface(.solid, cornerRadius: radius))
                 : AnyView(filled)
             based
-                .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
+                .modifier(DarkBoldCardChrome(
+                    cornerRadius: radius,
+                    lightBorder: true, lightShadow: false, darkShadow: false))
                 .padding(LiquidGlass.cardInset)
+        }
+    }
+}
+
+// MARK: - Appearance-aware chrome (the dark-mode "bold" re-tune)
+//
+// The Liquid Glass surfaces above were tuned once, for light: a single set of constants that reads
+// as a flat gray slab on a dark appearance. These modifiers give each surface a bold dark variant —
+// a deep graded base + accent glow behind the app, top-lit white specular hairlines on the cards and
+// bars, and deeper shadows that lift chrome off the dark ground. Every one is a `ViewModifier` (not
+// a free function) purely so it can read `@Environment(\.colorScheme)`; the light branch of each
+// reproduces the original rendering exactly, so only dark changes.
+
+/// The app background. **Light** reproduces the original exactly: the accent diagonal gradient over a
+/// `.thinMaterial` base at `0.45 + 0.20·t`. **Dark** adds the two things the flat slab was missing —
+/// a deep, faintly-cool near-black gradient *under* the material so the ground grades with depth, and
+/// a soft pool of the accent hue at the top edge *over* the material so the accent actually reads —
+/// and thins the material so that deep base shows through. The accent diagonal also lifts its opacity
+/// in dark to survive the darker base. `.clear` (see-through) still skips the material entirely; only
+/// its diagonal wash strengthens.
+private struct LiquidGlassBackground: ViewModifier {
+    let level: GlassLevel
+    let hue: LiquidGlassHue
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark
+        let t = level.backgroundIntensity
+        // At `.clear` let the desktop through instead of painting a base — the material below is
+        // opaque enough to hide it, so the two are mutually exclusive.
+        let seeThrough = level == .clear
+
+        let opacities: [Double] = dark
+            ? [0.19 + 0.28 * t, 0.15 + 0.23 * t, 0.10 + 0.16 * t]
+            : [0.06 + 0.16 * t, 0.05 + 0.14 * t, 0.04 + 0.10 * t]
+        let gradientColors = zip(hue.gradientColors, opacities).map { $0.0.opacity($0.1) }
+
+        content.background {
+            ZStack {
+                BehindWindowGlass(isEnabled: seeThrough)
+                    .ignoresSafeArea()
+
+                // Dark-only deep base: a near-black, faintly-cool gradient beneath the material so
+                // the ground reads as graded depth rather than one muddy plane.
+                if !seeThrough && dark {
+                    LinearGradient(
+                        colors: [Color(red: 0.065, green: 0.082, blue: 0.115),
+                                 Color(red: 0.02, green: 0.027, blue: 0.043)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .ignoresSafeArea()
+                }
+
+                LinearGradient(
+                    colors: gradientColors,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                if !seeThrough {
+                    // Base material so content stays readable. Dark thins it so the deep base reads
+                    // through instead of flattening back to system gray.
+                    Color.clear
+                        .background(.thinMaterial.opacity((dark ? 0.27 : 0.45) + 0.20 * t))
+                        .ignoresSafeArea()
+                }
+
+                // Dark-only accent glow: a soft pool of the hue at the top, over the material so the
+                // accent reads. `.none` opts out (it defers to the system accent).
+                if !seeThrough && dark && hue != .none {
+                    RadialGradient(
+                        colors: [hue.accentColor.opacity(0.26 + 0.10 * t), .clear],
+                        center: .top,
+                        startRadius: 0,
+                        endRadius: 700
+                    )
+                    .blendMode(.plusLighter)
+                    .ignoresSafeArea()
+                }
+            }
+        }
+    }
+}
+
+/// Border + shadow for a floating overlay card (Settings, Help, the operation banner, the ⌘K
+/// palette) sitting over a dimmed backdrop. Dark draws a top-lit white specular hairline and a
+/// deeper, larger shadow so the card lifts off the scrim — the light-tuned `cardShadow` is nearly
+/// invisible on a dark backdrop. Light keeps the original: no border either way, and the soft
+/// `cardShadow` only where the explicit-chrome path drew it (native glass drew its own edge/shadow).
+private struct OverlayCardChrome: ViewModifier {
+    let cornerRadius: CGFloat
+    let lightShadow: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if scheme == .dark {
+            content
+                .overlay(shape.strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.24), .white.opacity(0.06)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1))
+                .shadow(color: .black.opacity(0.55), radius: 34, y: 12)
+        } else if lightShadow {
+            content.shadow(
+                color: LiquidGlass.cardShadow.color,
+                radius: LiquidGlass.cardShadow.radius,
+                x: LiquidGlass.cardShadow.x,
+                y: LiquidGlass.cardShadow.y)
+        } else {
+            content
+        }
+    }
+}
+
+/// Bar/panel glass with a dark-only top-lit specular hairline, so a bar reads as distinct glass
+/// chrome against the deep dark background. Light takes the level's surface verbatim, unchanged.
+private struct GlassBarStyle: ViewModifier {
+    let level: GlassLevel
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: LiquidGlass.smallCornerRadius, style: .continuous)
+        content
+            .glassSurface(level, cornerRadius: LiquidGlass.smallCornerRadius)
+            .overlay {
+                if scheme == .dark {
+                    shape.strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.03)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
+                }
+            }
+    }
+}
+
+/// Hairline + shadow for content cards (file panes, bottom-workspace sections). Dark swaps the
+/// faint `.quaternary` edge for a top-lit white specular hairline and — where `darkShadow` — a deep
+/// shadow that lifts the card off the dark ground, so the workspace reads as bold layered glass
+/// rather than flat gray. Light is reproduced exactly per call site: `lightBorder` draws the old
+/// `.quaternary` hairline, `lightShadow` the old soft shadow, and both are off on native glass.
+private struct DarkBoldCardChrome: ViewModifier {
+    let cornerRadius: CGFloat
+    let lightBorder: Bool
+    let lightShadow: Bool
+    let darkShadow: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let dark = scheme == .dark
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let bordered = content.overlay {
+            if dark {
+                shape.strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.05)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+            } else if lightBorder {
+                shape.strokeBorder(.quaternary, lineWidth: 0.5)
+            }
+        }
+        if dark && darkShadow {
+            bordered.shadow(color: .black.opacity(0.45), radius: 16, y: 8)
+        } else if !dark && lightShadow {
+            bordered.shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
+        } else {
+            bordered
         }
     }
 }
