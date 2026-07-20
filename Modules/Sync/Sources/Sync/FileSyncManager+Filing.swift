@@ -182,7 +182,16 @@ extension FileSyncManager {
         // things worse than the keyword engine alone.
         if filingUsesAI, let classifier = filingClassifier {
             let remembered = Set(suggestions.filter { $0.best?.remembered == true }.map { $0.filePath })
-            let toClassify = looseFiles.filter { !remembered.contains($0.id) }
+            // Same ignoredNames/minFileSize filters the suggestion engine applied: an
+            // unfiltered list sent ".DS_Store" & co. into the PAID request (name in the
+            // prompt, a slot against the classification cap) and any verdict for them was
+            // discarded anyway — no suggestion exists for filtered names. Junk-heavy folders
+            // pushed real files past the cap, losing their classification outright.
+            let toClassify = looseFiles.filter {
+                !remembered.contains($0.id)
+                    && !options.ignoredNames.contains($0.name)
+                    && ($0.fileSize ?? 0) >= options.minFileSize
+            }
             if !toClassify.isEmpty {
                 updateScan(\.filingScanLifecycle, epoch: epoch,
                            status: FilingScanPhase.findingHomes.status)

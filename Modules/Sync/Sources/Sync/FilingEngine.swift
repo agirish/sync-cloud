@@ -377,7 +377,13 @@ public enum FilingEngine {
             sizeBytes: file.fileSize ?? 0,
             modificationDate: file.modificationDate,
             isDirectory: file.isDirectory,
-            snippet: snippet,
+            // Lowercased HERE, the one choke point on the scan path: the facts contract says
+            // "already lowercased" but the Organize scan hands over the extractor's raw text
+            // (the dry-run lowercases its own) — and `contentContains` matches case-sensitively
+            // against a lowercased needle, so raw "Invoice" never matched "invoice" in the scan
+            // while the Automations preview said it would. nameTokens lowercases internally, so
+            // the derived contentTokens are unchanged either way.
+            snippet: snippet?.lowercased(),
             contentTokens: snippet.map { nameTokens($0) } ?? contentTokens)
     }
 

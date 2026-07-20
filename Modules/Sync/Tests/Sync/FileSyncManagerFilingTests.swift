@@ -493,6 +493,22 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(!(unresolved.first?.candidates.contains { $0.remembered } ?? false))
     }
 
+    /// The Organize scan hands suggest() the extractor's RAW text while the dry-run preview
+    /// lowercases before evaluating — one rule must answer the same on both surfaces. The choke
+    /// point (automationFacts) lowercases, so a PDF whose text reads "Invoice #4321" (no
+    /// lowercase occurrence anywhere) still matches `text contains "invoice"` in the scan.
+    @Test func contentContainsMatchesRawCapitalizedScanSnippets() {
+        let file = FileNode(id: "/p/Inbox/scan9.pdf", name: "scan9.pdf", isDirectory: false,
+                            children: nil, modificationDate: Date(), fileSize: 5000)
+        let rule = AutomationRule(name: "Invoices", conditions: [.contentContains("invoice")],
+                                  destinationTemplate: "/p/Invoices")
+        let steered = FilingEngine.suggest(looseFiles: [file], taxonomy: [], providerRoot: "/p",
+                                           automations: [rule],
+                                           automationSnippets: [file.id: "Invoice #4321 — Total Due"])
+        #expect(steered.first?.best?.path == "/p/Invoices")
+        #expect(steered.first?.best?.fromContent == true)   // content-derived → medium, no blind batch
+    }
+
     /// A rule whose match rests only on the file's CONTENT is capped to medium and kept out of the
     /// blind batch — the same cap every content-derived signal gets.
     @Test func contentOnlyRuleMatchIsMediumAndNotBatchEligible() {
@@ -575,6 +591,33 @@ final class Flag: @unchecked Sendable { var value = false }
     }
 
     // MARK: Intelligent classifier (AI)
+
+    @MainActor
+    @Test func classifierNeverSeesIgnoredOrUndersizedFiles() async throws {
+        // Phase 3 must apply the same ignoredNames/minFileSize filters the suggestion engine
+        // applies: an unfiltered candidate list put ".DS_Store" into the PAID classifier
+        // request (its name in the prompt, its slot against the 150-file cloud / 25-file
+        // on-device cap), and any verdict for it was then silently discarded because no
+        // suggestion exists for filtered names. Junk-heavy folders pushed real files past
+        // the cap, losing their classification outright.
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Documents/Stuff/.keep"), bytes: 1)
+        try write(root.appendingPathComponent("Downloads/.DS_Store"), bytes: 500)
+        try write(root.appendingPathComponent("Downloads/mystery-scan-0042.pdf"))
+
+        final class Names: @unchecked Sendable { var value: [String] = [] }
+        let seen = Names()
+        let manager = FileSyncManager()
+        manager.filingClassifier = { _, files in
+            seen.value = files.map(\.fileName)
+            return [:]
+        }
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
+
+        #expect(seen.value.contains("mystery-scan-0042.pdf"))   // real files still classified
+        #expect(!seen.value.contains(".DS_Store"))              // junk never reaches the model
+    }
 
     @MainActor
     @Test func classifierVerdictDrivesTheSuggestion() async throws {
