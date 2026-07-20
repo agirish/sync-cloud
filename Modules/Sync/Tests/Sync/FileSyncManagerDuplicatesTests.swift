@@ -540,6 +540,55 @@ import Combine
         #expect(plan.sourceSnapshot["shared.txt"]?.modificationDate != nil)
     }
 
+    @Test func planMergeRetrySkipsCollisionUniquifiedContentAlreadyInTheFolder() async throws {
+        // Retry idempotence: run 1 hit a collision at Keeper/a.txt (different content held the
+        // name), so the fold landed at the uniquified sibling "a 2.txt". A retry re-plans from
+        // scratch — it must recognize the content already landed IN THAT FOLDER and skip,
+        // not mint "a 3.txt" on every retry (the cancel banner promises "a retry skips what
+        // landed").
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)     // different content holds the name
+        try write(keeper.appendingPathComponent("a 2.txt"), bytes: 5000, fill: 0x59)   // run 1's uniquified landing
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)  // same content, still in the source
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.isEmpty)   // the content already landed — nothing left to copy
+    }
+
+    @Test func planMergeStillCopiesOnAFreshCollision() async throws {
+        // The complement: the name is taken by different content and the source's bytes are
+        // NOT yet anywhere in that folder — the fold must still copy (landing uniquified).
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x41)
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
+    }
+
+    @Test func planMergeCopiesWhenNameIsFreeEvenIfBytesExistUnderAnotherName() async throws {
+        // The name-preserving principle survives the retry fix: destination name FREE, but the
+        // bytes happen to live in that folder under the user's own different name — copy
+        // anyway. Losing a meaningfully-named file is the worse surprise; a later Tidy scan
+        // reconciles byte-duplicates. (The retry skip applies ONLY when the name is taken,
+        // where the fold could never have kept the name anyway.)
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("b.txt"), bytes: 5000, fill: 0x59)     // same bytes, user's own name
+        try write(redundant.appendingPathComponent("a.txt"), bytes: 5000, fill: 0x59)  // name free in keeper
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
+    }
+
     @Test func mergeSourceDriftedFlagsNewAndChangedFilesButNotRemovals() {
         typealias Snap = FileSyncManager.MergeFileSnapshot
         let t1 = Date(timeIntervalSince1970: 1_000_000)

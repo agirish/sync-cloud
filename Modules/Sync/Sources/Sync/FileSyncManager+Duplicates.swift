@@ -501,9 +501,17 @@ extension FileSyncManager {
         let kItems = flattenFilesWithRelativePaths(await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil))
         let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
-        // this exact content *at the same location*, not merely somewhere.
+        // this exact content *at the same location*, not merely somewhere. The per-parent hash
+        // sets serve the retry-skip below: hashFiles omits unhashable files entirely (no
+        // placeholder values), so a set hit is always a real SHA-256 match.
         var keeperHashByRel: [String: String] = [:]
-        for k in kItems { if let h = kHashesByPath[k.id] { keeperHashByRel[k.rel] = h } }
+        var keeperHashesByParent: [String: Set<String>] = [:]
+        for k in kItems {
+            if let h = kHashesByPath[k.id] {
+                keeperHashByRel[k.rel] = h
+                keeperHashesByParent[(k.rel as NSString).deletingLastPathComponent, default: []].insert(h)
+            }
+        }
 
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
@@ -516,7 +524,19 @@ extension FileSyncManager {
             // when its bytes happen to also live elsewhere in the keeper, so the merge never
             // silently drops a meaningfully-named file (a later Tidy scan can reconcile any
             // resulting byte-duplicate — losing a filename is the worse surprise).
-            if let h = rHashes[item.id], keeperHashByRel[item.rel] == h { continue }
+            if let h = rHashes[item.id] {
+                if keeperHashByRel[item.rel] == h { continue }
+                // Retry idempotence: the destination NAME is taken by different content, but the
+                // same bytes already live in that folder under another name — the collision-
+                // uniquify outcome of a previous (cancelled/failed) run of this very merge.
+                // Copying again would mint "x 2"/"x 3" junk on every retry, against the cancel
+                // banner's "a retry skips what landed". The name-preserving principle above is
+                // not violated: with the name taken, this fold could only ever land junk-named.
+                if keeperHashByRel[item.rel] != nil,
+                   keeperHashesByParent[(item.rel as NSString).deletingLastPathComponent]?.contains(h) == true {
+                    continue
+                }
+            }
             steps.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
         return (steps, fileSnapshotsByRelativePath(rTree))
