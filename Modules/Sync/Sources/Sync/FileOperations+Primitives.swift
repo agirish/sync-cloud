@@ -321,6 +321,9 @@ extension FileSyncManager {
             // The atomic replace failed with the destination intact. But a same-volume rename has
             // already moved the source into the staged temp (which `defer` will delete), so restore
             // it — a failed replace must never destroy the source.
+            // Named binding: the inner catch below shadows `error` with the move-back failure,
+            // and both the rethrow and the enrichment must carry the REPLACE failure.
+            let replaceError = error
             if sourceConsumed {
                 do {
                     try fileManager.moveItem(at: tempURL, to: sourceURL)
@@ -328,15 +331,39 @@ extension FileSyncManager {
                     // The move-back failed too (something re-took the source path — a cloud
                     // daemon re-materializing a placeholder does exactly this — or the temp is
                     // busy). The temp is now the only copy of the source's content: keep it,
-                    // and say exactly where it is. OrphanSweeper's later sweep only Trashes
-                    // (recoverable); nothing may unlink it outright.
+                    // and say exactly where it is — in the ALERT the caller shows, not only the
+                    // log, because a bare "Move Failed" reads as "nothing changed" while the
+                    // source is in fact gone from its path. OrphanSweeper's later sweep only
+                    // Trashes (recoverable); nothing may unlink it outright.
                     tempHoldsOnlyCopyOfSource = true
-                    Task { @MainActor in
-                        Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path) — its content is preserved at \(tempURL.path)")
+                    let detail: String
+                    if fileManager.fileExists(atPath: tempURL.path) {
+                        // Reset the sweeper's age clock: minimumAge reads the file's mtime, and
+                        // the staging RENAME preserved the original's — a temp staged from any
+                        // hour-old file was sweep-eligible on the very next refresh, making the
+                        // "preserved at" pointer stale within minutes. Touching grants the full
+                        // grace hour at the logged path (after which the sweep Trashes it,
+                        // still recoverable).
+                        try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: tempURL.path)
+                        detail = "The original could not be put back at its path; its content is preserved in the hidden file “\(tempURL.lastPathComponent)” next to the destination."
+                    } else {
+                        // replaceItem may consume the staged item into the system's
+                        // item-replacement directory before failing — then the temp is gone
+                        // from its staging path through no act of ours. Say so honestly
+                        // instead of pointing at a path that holds nothing.
+                        detail = "The original could not be put back at its path, and the staged copy is no longer at its staging location — macOS may have moved it to a temporary item-replacement folder."
                     }
+                    Task { @MainActor in
+                        Logger.shared.error("Replace of \(destinationURL.path) failed and the source could not be restored to \(sourceURL.path). \(detail)")
+                    }
+                    let ns = replaceError as NSError
+                    throw NSError(domain: ns.domain, code: ns.code, userInfo: [
+                        NSLocalizedDescriptionKey: "\(replaceError.localizedDescription) \(detail)",
+                        NSUnderlyingErrorKey: replaceError,
+                    ])
                 }
             }
-            throw error
+            throw replaceError
         }
 
         // Cross-volume: the source was copied, not consumed, so remove the original now that the

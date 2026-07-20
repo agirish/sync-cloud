@@ -37,6 +37,9 @@ import Foundation
         func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
             try inner.attributesOfItem(atPath: path)
         }
+        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+            try inner.setAttributes(attributes, ofItemAtPath: path)
+        }
         func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
             try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
         }
@@ -178,19 +181,28 @@ import Foundation
 
         inner.tempRenameFailuresRemaining = 2   // the swap-in fails, then the move-back fails
 
-        #expect(throws: (any Error).self) {
-            try FileSyncManager.safeMoveItem(
+        var thrown: Error?
+        do {
+            _ = try FileSyncManager.safeMoveItem(
                 at: URL(fileURLWithPath: "/src/data.bin"),
                 to: URL(fileURLWithPath: "/dst/data.bin"),
                 fileManager: inner
             )
-        }
+        } catch { thrown = error }
 
         // The destination is untouched, and the consumed source's bytes survive in the
         // preserved temp (the source path itself could not be restored).
         #expect(inner.virtualDisk["/dst/data.bin"]?.attributes?[FileAttributeKey.size] as? Int == 5)
         let tempSurvivor = inner.virtualDisk.first { $0.key.contains(".tmp_") }
         #expect(tempSurvivor?.value.attributes?[FileAttributeKey.size] as? Int == 100)
+        // The preservation reset the sweeper's age clock: the staging RENAME kept the
+        // original's mtime, which would have made an hour-old source sweep-eligible on the
+        // very next refresh — stranding the "preserved at" pointer within minutes.
+        let touchedDate = tempSurvivor?.value.attributes?[FileAttributeKey.modificationDate] as? Date
+        #expect(touchedDate != nil && abs(touchedDate!.timeIntervalSinceNow) < 60)
+        // And the failure the user sees names the preservation — a bare "Move Failed" reads
+        // as "nothing changed" while the source is in fact gone from its path.
+        #expect(thrown?.localizedDescription.contains("preserved in the hidden file") == true)
     }
 
     /// Cross-volume move (EXDEV on the staging rename) that REPLACES an existing destination and

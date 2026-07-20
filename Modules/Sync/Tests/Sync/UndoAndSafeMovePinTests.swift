@@ -51,6 +51,9 @@ import Foundation
         func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
             try inner.attributesOfItem(atPath: path)
         }
+        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+            try inner.setAttributes(attributes, ofItemAtPath: path)
+        }
         func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey: Any]?) throws {
             try inner.createDirectory(at: url, withIntermediateDirectories: createIntermediates, attributes: attributes)
         }

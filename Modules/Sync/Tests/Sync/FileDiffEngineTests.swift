@@ -824,6 +824,9 @@ import Foundation
             }
             return try inner.attributesOfItem(atPath: path)
         }
+        func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {
+            try inner.setAttributes(attributes, ofItemAtPath: path)
+        }
         func fileExists(atPath path: String) -> Bool { inner.fileExists(atPath: path) }
         func fileExists(atPath path: String, isDirectory: UnsafeMutablePointer<ObjCBool>?) -> Bool {
             inner.fileExists(atPath: path, isDirectory: isDirectory)

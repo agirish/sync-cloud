@@ -64,6 +64,17 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         }
     }
 
+    public func setAttributes(_ attributes: [FileAttributeKey : Any], ofItemAtPath path: String) throws {
+        try sync {
+            guard let stub = virtualDisk[path] else {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError)
+            }
+            var merged = stub.attributes ?? [:]
+            for (k, v) in attributes { merged[k] = v }
+            virtualDisk[path] = FileStub(isDirectory: stub.isDirectory, attributes: merged, contents: stub.contents)
+        }
+    }
+
     public func createDirectory(at url: URL, withIntermediateDirectories createIntermediates: Bool, attributes: [FileAttributeKey : Any]?) throws {
         try sync {
             let path = url.path

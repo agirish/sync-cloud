@@ -1504,7 +1504,7 @@ struct AdvancedSettingsTab: View {
             } header: {
                 Text("Maintenance")
             } footer: {
-                Text("Interrupted copies can leave .tmp_ working files behind; they're removed automatically once they're an hour old. Recovery backups (.rollback_) are never touched.")
+                Text("Interrupted copies can leave .tmp_ working files behind; they're moved to the Trash automatically once they're an hour old. Recovery backups (.rollback_) are never touched.")
             }
 
             if let onResetAllSettings {

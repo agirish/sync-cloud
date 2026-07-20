@@ -45,6 +45,7 @@ import Foundation
             inner.fileExists(atPath: p, isDirectory: d)
         }
         func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
+        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
         func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
             try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
         }
