@@ -207,6 +207,41 @@ import Testing
                 "the legit row into the readable exact folder was over-suppressed: \(diffs.map(\.relativePath))")
     }
 
+    @Test func readableCaseVariantOwnerBesideAnUnreadableVariantStillReports() throws {
+        guard !runningAsRoot else { return }
+        // The readable owner of the ancestor can itself be a CASE-VARIANT spelling: left
+        // "Docs/x.txt", right has readable "docs" (empty) AND unreadable "Docs " (trailing
+        // space). The pairing matches left "Docs" with readable "docs" — so the child row is
+        // legitimate and must survive. An exact-spelling-only gate missed the readable owner
+        // (rightFilesInfo["Docs"] is nil), hit the unexplored folded key, and suppressed the
+        // very row the pairing's own decision says is actionable.
+        let leftBase = try makeTempDir()
+        let rightBase = try makeTempDir()
+        try write(leftBase.appendingPathComponent("Docs/x.txt"), text: "content")
+        try FileManager.default.createDirectory(
+            at: rightBase.appendingPathComponent("docs"), withIntermediateDirectories: true)
+        let rightLocked = rightBase.appendingPathComponent("Docs ")
+        try FileManager.default.createDirectory(at: rightLocked, withIntermediateDirectories: true)
+        try chmod(rightLocked, 0o000)
+        defer {
+            try? chmod(rightLocked, 0o755)
+            try? FileManager.default.removeItem(at: leftBase)
+            try? FileManager.default.removeItem(at: rightBase)
+        }
+
+        let left = CloudProvider(id: "L", displayName: "Left", imageName: "folder", path: leftBase.path, type: .iCloud)
+        let right = CloudProvider(id: "R", displayName: "Right", imageName: "folder", path: rightBase.path, type: .iCloud)
+        let diffs = FileDiffEngine.computeDifferences(
+            left: left, leftURL: leftBase,
+            right: right, rightURL: rightBase,
+            leftFilesInfo: try FileDiffEngine.getFilesInDirectory(leftBase),
+            rightFilesInfo: try FileDiffEngine.getFilesInDirectory(rightBase),
+            caseInsensitive: true)
+
+        #expect(diffs.contains { $0.relativePath == "Docs/x.txt" && $0.type == .missingOnRight },
+                "over-suppressed the row into the readable case-variant owner: \(diffs.map(\.relativePath))")
+    }
+
     @Test func unreadableDirectoryOnTheLeftSuppressesMissingOnLeftRowsToo() throws {
         guard !runningAsRoot else { return }
         let leftBase = try makeTempDir()

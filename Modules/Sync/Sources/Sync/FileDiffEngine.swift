@@ -464,15 +464,29 @@ public struct FileDiffEngine {
         }
         let unexploredLeftDirKeys = Set(unexploredLeftDirs.map(suppressionKey))
         let unexploredRightDirKeys = Set(unexploredRightDirs.map(suppressionKey))
+        // READABLE dirs under the same fold: the owner of an ancestor level can itself be a
+        // case/near-name variant (left "Docs" pairing with a readable right "docs"), and a
+        // readable owner — exact OR variant — means the row legitimately targets it. Only
+        // levels owned by NO readable spelling defer to the unexplored variant. Readable wins
+        // ties by design: over-reporting into a readable folder beats hiding a real difference.
+        func readableDirKeys(_ side: [String: FileInfo]) -> Set<String> {
+            Set(side.compactMap { key, info in
+                info.isDirectory && !info.isUnexplored ? suppressionKey(key) : nil
+            })
+        }
+        let readableLeftDirKeys = readableDirKeys(leftFilesInfo)
+        let readableRightDirKeys = readableDirKeys(rightFilesInfo)
         func hasUnexploredFoldedAncestor(
-            of relativePath: String, keys: Set<String>, otherSide: [String: FileInfo]
+            of relativePath: String, keys: Set<String>, otherSide: [String: FileInfo], readableKeys: Set<String>
         ) -> Bool {
             guard !keys.isEmpty else { return false }
             var prefix = ""
             for component in relativePath.split(separator: "/").dropLast() {
                 prefix = prefix.isEmpty ? String(component) : prefix + "/" + String(component)
-                if otherSide[prefix] != nil { continue }   // exact entry owns this level
-                if keys.contains(suppressionKey(prefix)) { return true }
+                if otherSide[prefix] != nil { continue }             // exact entry owns this level
+                let key = suppressionKey(prefix)
+                if readableKeys.contains(key) { continue }           // a readable variant owns it
+                if keys.contains(key) { return true }
             }
             return false
         }
@@ -648,7 +662,8 @@ public struct FileDiffEngine {
                 if rightRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredRightDirs) != nil { continue }
                 if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredRightDirKeys,
-                                               otherSide: rightFilesInfo) { continue }
+                                               otherSide: rightFilesInfo,
+                                               readableKeys: readableRightDirKeys) { continue }
                 // missing on right
                 if leftFile.isDirectory { missingOnRightDirs.insert(relativePath) }
                 let rightExpectedPath = rightURL.appendingPathComponent(relativePath).path
@@ -676,7 +691,8 @@ public struct FileDiffEngine {
                 if leftRootUnreadable { continue }
                 if topMostAncestor(of: relativePath, in: unexploredLeftDirs) != nil { continue }
                 if hasUnexploredFoldedAncestor(of: relativePath, keys: unexploredLeftDirKeys,
-                                               otherSide: leftFilesInfo) { continue }
+                                               otherSide: leftFilesInfo,
+                                               readableKeys: readableLeftDirKeys) { continue }
                 if rightFile.isDirectory { missingOnLeftDirs.insert(relativePath) }
                 let leftExpectedPath = leftURL.appendingPathComponent(relativePath).path
                 diffs.append(FileDifference(
