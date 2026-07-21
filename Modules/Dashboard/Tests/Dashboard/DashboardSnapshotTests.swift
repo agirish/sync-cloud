@@ -89,6 +89,32 @@ import Events
             named: "severities")
     }
 
+    /// The compact-density twin of `logRowsAllSeverities`: the same four entries collapsed to
+    /// one truncating baseline row each, and — deliberately — NO dimmed `Location:` tail on
+    /// the error row (compact drops the developer breadcrumb; it survives in the log file and
+    /// in Copy). Pins the H7 single-line collapse against silent regression.
+    @Test func logRowsAllSeveritiesCompact() {
+        let at = Date(timeIntervalSince1970: 1_780_315_200) // 2026-06-01 12:00:00 UTC
+        assertViewSnapshot(
+            of: VStack(alignment: .leading, spacing: 0) {
+                LogEntryRow(entry: LogEntry(
+                    timestamp: at, level: .debug,
+                    message: "Scan enumerated 1,204 items under ~/iCloud Drive"), density: .compact)
+                LogEntryRow(entry: LogEntry(
+                    timestamp: at, level: .info,
+                    message: "Copied Invoice-2026-06.pdf to OneDrive/Documents"), density: .compact)
+                LogEntryRow(entry: LogEntry(
+                    timestamp: at, level: .warning,
+                    message: "Skipped cloud-only file (not downloaded): Budget.xlsx"), density: .compact)
+                LogEntryRow(entry: LogEntry(
+                    timestamp: at, level: .error,
+                    message: "Move failed: destination folder is read-only | Location: FileSyncManager.swift:412 / moveItem(_:to:)"), density: .compact)
+            }
+            .padding(12),
+            size: CGSize(width: 560, height: 150),
+            named: "severities-compact")
+    }
+
     // MARK: Fixtures
 
     private static func header(providerName: String, lastScan: Date?) -> PaneHeader {

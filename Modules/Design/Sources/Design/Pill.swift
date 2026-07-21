@@ -63,6 +63,12 @@ public extension View {
 /// The ready-made pill for the common case: an optional SF Symbol plus one run of text,
 /// tinted throughout. Numeric text opts into `monospacedDigit` so counts don't jiggle.
 public struct Pill: View {
+    /// Gap between the pill's runs (icon / number / label). Part of the C1 geometry contract
+    /// like the paddings on `PillVariant`: hand-assembled pills that mirror this recipe (the
+    /// Log window's level chips) and the snapshot references both bake it in, so a tweak here
+    /// is a deliberate, test-visible restyle — not a drive-by.
+    public static let contentSpacing: CGFloat = 5
+
     private let variant: PillVariant
     private let tint: Color
     private let systemImage: String?
@@ -95,7 +101,7 @@ public struct Pill: View {
     }
 
     public var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: Self.contentSpacing) {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(variant.iconFont)

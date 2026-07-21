@@ -25,5 +25,8 @@ import Foundation
         #expect(PillVariant.fillOpacity == 0.14)
         #expect(PillVariant.strokeOpacity == 0.45)
         #expect(PillVariant.strokeWidth == 0.5)
+        // The icon/number/label gap — the exact number whose unpinned change once forced a
+        // snapshot re-record. Hand-assembled mirrors (the Log level chips) bake it in too.
+        #expect(Pill.contentSpacing == 5)
     }
 }

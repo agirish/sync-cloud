@@ -97,6 +97,22 @@ import Testing
             named: "filtered-no-matches")
     }
 
+    /// The `path:` slot with a path far wider than the canvas: it must stay a SINGLE
+    /// monospaced line, middle-truncated (leading root and trailing leaf both visible) —
+    /// never wrap or center like the prose slots. This was the one initializer slot with no
+    /// pixel pin at all.
+    @Test func emptyStateLongPathTruncatesMiddle() {
+        assertViewSnapshot(
+            of: EmptyStateView(
+                icon: "externaldrive.badge.questionmark",
+                title: "Folder not found",
+                message: "The scanned folder is no longer at its recorded location.",
+                path: "/Users/test/Library/Mobile Documents/com~apple~CloudDocs/Projects/2026/Quarterly Reports/Q2/Drafts",
+                primary: .init("Choose Folder…") {}),
+            size: CGSize(width: 420, height: 280),
+            named: "long-path")
+    }
+
     /// The C5 compact layout for narrow hosts (Details sidebar, file-pane placeholder):
     /// smaller icon, tighter spacing, small-size action button.
     @Test func emptyStateCompactSidebar() {

@@ -24,7 +24,11 @@ import SwiftUI
         #expect(action.systemImage == nil)
     }
 
-    @Test func viewConstructsWithEverySlotFilled() {
+    /// Every caller shape constructs — one compile-and-run pin per variant, in one test
+    /// (the view stores everything privately and renders pure layout, so there is nothing
+    /// further to assert here; the VISUAL contract, including the `path:` slot's middle
+    /// truncation, is pinned by `DesignSnapshotTests`).
+    @Test func everyCallerShapeConstructs() {
         // The full L4 template: provider-named title, job explanation, safety-contract
         // caption, one primary action plus a quieter secondary.
         _ = EmptyStateView(
@@ -36,19 +40,22 @@ import SwiftUI
             primary: .init("Find Duplicates", systemImage: "wand.and.stars") {},
             secondary: .init("Scan again", systemImage: "arrow.clockwise") {}
         )
-    }
-
-    @Test func viewConstructsFullyPassive() {
         // The Log's shape: icon + title + message, no caption, no actions.
         _ = EmptyStateView(icon: "doc.text", title: "No log entries yet",
                            message: "Activity shows up here.")
-    }
-
-    @Test func viewConstructsCompact() {
         // The narrow-host shape (Details sidebar, pane placeholders): same slots,
         // tighter layout.
         _ = EmptyStateView(icon: "info.circle", title: "No item selected",
                            message: "Select a file or folder in either pane.",
                            layout: .compact)
+        // The missing-root shape: the `path:` slot (monospaced, middle-truncated file-system
+        // detail) — previously the one initializer slot no test ever exercised.
+        _ = EmptyStateView(
+            icon: "externaldrive.badge.questionmark",
+            title: "Folder not found",
+            message: "The scanned folder is no longer at its recorded location.",
+            path: "/Users/test/Library/Mobile Documents/com~apple~CloudDocs/Projects",
+            primary: .init("Choose Folder…") {}
+        )
     }
 }
