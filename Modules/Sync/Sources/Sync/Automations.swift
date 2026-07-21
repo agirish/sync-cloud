@@ -197,12 +197,18 @@ public struct AutomationRule: Sendable, Equatable, Codable, Identifiable, Hashab
         self.destinationTemplate = destinationTemplate
     }
 
-    /// A rule is runnable only when it has a name, at least one complete condition, and a
-    /// destination — a half-built rule is saved (so edits aren't lost) but never previews.
+    /// A rule is runnable only when it has a name, a destination, and conditions the
+    /// evaluator can actually satisfy: ANY-OF needs at least one complete condition; ALL-OF
+    /// needs EVERY condition complete — matches() proves "all" over nothing less, so an
+    /// all-of rule with a half-built row is inert and must read as incomplete everywhere
+    /// (card pill, preview gating, runnable count) rather than promising its complete half.
     public var isRunnable: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !destinationTemplate.trimmingCharacters(in: .whitespaces).isEmpty
-            && conditions.contains { $0.isComplete }
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty,
+              !destinationTemplate.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        switch matchMode {
+        case .all: return !conditions.isEmpty && conditions.allSatisfy { $0.isComplete }
+        case .any: return conditions.contains { $0.isComplete }
+        }
     }
 
     /// True when any (complete) condition reads file text — the preview then fetches a snippet.

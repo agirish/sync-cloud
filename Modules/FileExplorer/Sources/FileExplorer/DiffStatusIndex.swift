@@ -104,13 +104,17 @@ public struct DiffStatusIndex: Equatable, Sendable {
     }
 
     /// Number of differences anywhere beneath this directory node (0 for files
-    /// and for directories with no differing descendants). Exact key first; on a
-    /// case-insensitive pane a miss falls back to the folded key, so the destination
-    /// folder of a case-variant ancestor chain still shows its badge.
+    /// and for directories with no differing descendants). On a folding pane the FOLDED map
+    /// is authoritative, not a fallback: one real folder's differences can be keyed under two
+    /// casings at once (existing pairs under the pane's real spelling via sideAlignedPath,
+    /// missing rows under the source side's spelling), and an exact-first shortcut returned
+    /// only its own casing's share — undercounting the very badge the fold exists to fix. On
+    /// exact panes the folded map is empty and the exact key answers as before.
     public func containedDiffCount(forNodeId id: String) -> Int {
-        if let exact = containedDiffCounts[id] { return exact }
-        guard !foldedContainedDiffCounts.isEmpty else { return 0 }
-        return foldedContainedDiffCounts[Self.foldedKey(id)] ?? 0
+        if !foldedContainedDiffCounts.isEmpty {
+            return foldedContainedDiffCounts[Self.foldedKey(id)] ?? 0
+        }
+        return containedDiffCounts[id] ?? 0
     }
 
     /// Case + Unicode fold for the fallback map (APFS/HFS+ lookups are

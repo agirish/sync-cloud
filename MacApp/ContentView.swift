@@ -467,7 +467,14 @@ struct ContentView: View {
                 // folder differing only in case showed no contained-diff badge. One stat per
                 // rebuild, on the detached walk with the rest of the work.
                 func foldsCase(_ root: String) -> Bool {
-                    !root.isEmpty && !FileSyncManager.volumeSupportsCaseSensitiveNames(for: URL(fileURLWithPath: root))
+                    // Only a DEFINITE insensitive answer enables folding: the ??-false helper
+                    // reads a vanished/unmounted root as "insensitive", enabling merges on a
+                    // volume of unknown semantics during a transient state.
+                    guard !root.isEmpty,
+                          let sensitive = try? URL(fileURLWithPath: root).resourceValues(
+                              forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames
+                    else { return false }
+                    return !sensitive
                 }
                 return (DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot,
                                         foldsCase: foldsCase(inputs.leftRoot)),

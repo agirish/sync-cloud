@@ -206,7 +206,14 @@ public struct LogViewer: View {
         // fixed session-start timestamp, NOT `entries.first` — the memory cache is trimmed to the
         // newest N, so after a busy session `entries.first` drifts into the current session and
         // would pull current-session lines (and the ms-truncated launch breadcrumb) into "history".
-        let boundary = logger.sessionStart
+        // Floored to the on-disk MILLISECOND precision: the writer rounds timestamps to ms,
+        // so the session's first line (logged microseconds after sessionStart) can serialize
+        // BELOW the raw boundary on ~half of launches — classifying the launch breadcrumb as
+        // "history" and showing (and copying) it twice. Flooring keeps every line whose
+        // rounded timestamp equals the boundary's ms on the session side; genuine history is
+        // seconds older and unaffected.
+        let raw = logger.sessionStart.timeIntervalSinceReferenceDate
+        let boundary = Date(timeIntervalSinceReferenceDate: (raw * 1000).rounded(.down) / 1000)
         let fileURL = logger.logFileURL
         // Generation guard: Clear Logs mid-flight resets the history state, and a completion
         // parsed from the PRE-clear file must not overwrite that reset — it would resurrect
@@ -256,21 +263,20 @@ public struct LogViewer: View {
                 .disabled(filtered.isEmpty && visibleHistory.isEmpty)
                 .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
 
-                Button(action: {
-                    logger.clearLogs()
-                    // The on-disk file was just truncated: history parsed from the PRE-clear
-                    // file must not stay on screen (nor keep paging out deleted entries, nor
-                    // pin the "Show older history" button away for the window's lifetime —
-                    // it only reappears while loadedHistory is nil). Reset to the
-                    // never-loaded state; a re-click re-reads the now-empty file honestly.
-                    // The generation bump makes any IN-FLIGHT load discard its pre-clear
-                    // result instead of overwriting this reset.
+                // The history reset rides the Logger's own notification, NOT this button:
+                // Settings has its own Clear Logs door, and a reset wired to one button left
+                // the other door resurrecting deleted history rows. The on-disk file was
+                // truncated, so parsed history must drop (and the reload button reappear —
+                // it only renders while loadedHistory is nil); the generation bump makes any
+                // IN-FLIGHT load discard its pre-clear parse instead of overwriting the reset.
+                Button(action: { logger.clearLogs() }) {
+                    Image(systemName: "trash")
+                }
+                .onReceive(NotificationCenter.default.publisher(for: Logger.didClearLogsNotification)) { _ in
                     historyLoadGeneration += 1
                     loadedHistory = nil
                     historyLimit = Self.historyPageSize
                     isLoadingHistory = false
-                }) {
-                    Image(systemName: "trash")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

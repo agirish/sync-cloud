@@ -761,8 +761,11 @@ public class FileSyncManager: ObservableObject {
             // A DIFFERENT manager means a different stack: a pairing armed against the old
             // instance must not be validated against the new one's identically-named groups
             // (a window reopen swaps managers; the first unpaired registration on the fresh
-            // stack would otherwise resurrect the stale preview).
+            // stack would otherwise resurrect the stale preview). The armed-this-session
+            // flag resets too: the old stack's runs are unreachable through the new one, so
+            // the "history changed" advice would point at nothing.
             invalidateRunUndoPairing()
+            hasArmedRunPairingThisSession = false
             undoStackObservers.forEach { NotificationCenter.default.removeObserver($0) }
             undoStackObservers = []
             guard let undoManager else { return }

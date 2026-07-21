@@ -201,6 +201,12 @@ public enum AutomationEvaluator {
     /// content condition optimistically as satisfied. Used to decide whether fetching the file's
     /// (expensive) text is worth it: if this is false, the snippet can be skipped entirely.
     public static func couldMatchPendingContent(_ rule: AutomationRule, _ facts: AutomationFileFacts, now: Date) -> Bool {
+        // Mirrors matches(): an ALL-OF rule with any incomplete condition can never match, so
+        // its content is never worth reading — without this, a permanently inert rule kept
+        // triggering PDFKit/OCR extraction for every loose file on every scan and preview.
+        if rule.matchMode == .all, rule.conditions.contains(where: { !$0.isComplete }) {
+            return false
+        }
         let active = rule.conditions.filter { $0.isComplete }
         guard !active.isEmpty else { return false }
         func value(_ c: AutomationCondition) -> Bool { c.requiresContent ? true : matches(c, facts, now: now) }

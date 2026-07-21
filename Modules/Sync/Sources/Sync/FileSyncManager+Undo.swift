@@ -250,10 +250,38 @@ extension FileSyncManager {
                         var handledDestinations = Set<String>()
                         var handledFoldedDestinations = Set<String>()
                         var duplicateRegistrations = 0
+                        // The fold decision is per destination PARENT, resolved once and CACHED:
+                        // keys must be stable across the run (a parent vanishing mid-undo must
+                        // not change set membership), and the answer must come from a real
+                        // volume — resourceValues throws for a vanished path, and a fixed
+                        // fallback inverts the guard's rule exactly when the vanished branch
+                        // needs it (fail→fold skipped a REAL second file's restore on a
+                        // case-sensitive volume). Walking up to the nearest existing ancestor
+                        // answers for the volume the path lives on; volume semantics don't
+                        // change within a subtree. Total failure ("/" unanswerable) stays
+                        // exact-only: never skip a possibly-real file.
+                        var foldsByParent: [String: Bool] = [:]
+                        func volumeFoldsCase(underParent parent: URL) -> Bool {
+                            if let cached = foldsByParent[parent.path] { return cached }
+                            var probe = parent
+                            var folds = false
+                            while true {
+                                if let sensitive = try? probe.resourceValues(
+                                    forKeys: [.volumeSupportsCaseSensitiveNamesKey]).volumeSupportsCaseSensitiveNames {
+                                    folds = !sensitive
+                                    break
+                                }
+                                let up = probe.deletingLastPathComponent()
+                                if up.path == probe.path { break }
+                                probe = up
+                            }
+                            foldsByParent[parent.path] = folds
+                            return folds
+                        }
                         func foldedKey(_ url: URL) -> String {
                             let precomposed = url.path.precomposedStringWithCanonicalMapping
-                            let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: url.deletingLastPathComponent())
-                            return caseSensitive ? precomposed : precomposed.lowercased()
+                            return volumeFoldsCase(underParent: url.deletingLastPathComponent())
+                                ? precomposed.lowercased() : precomposed
                         }
                         func markHandled(_ url: URL) {
                             handledDestinations.insert(url.path)
@@ -327,11 +355,15 @@ extension FileSyncManager {
                             }
                         }
 
-                        if !trashFailures.isEmpty {
+                        // Items whose destination an earlier (successful) attempt already put
+                        // into its pre-batch state are settled — the prompt must not ask the
+                        // user to confirm permanently deleting a file the loop would then skip.
+                        let confirmableFailures = trashFailures.filter { !alreadyHandled($0.destination) }
+                        if !confirmableFailures.isEmpty {
                             // The prompt lists each on-disk file ONCE: a duplicate-registered
                             // path (both attempts failed trash) must not read as two files.
                             var promptedFolded = Set<String>()
-                            let promptNames = trashFailures.compactMap { item -> String? in
+                            let promptNames = confirmableFailures.compactMap { item -> String? in
                                 promptedFolded.insert(foldedKey(item.destination)).inserted
                                     ? item.destination.lastPathComponent : nil
                             }
@@ -342,7 +374,7 @@ extension FileSyncManager {
                                 await redoParamResolver.resolve(undoneCopies)
                                 return
                             }
-                            for item in trashFailures {
+                            for item in confirmableFailures {
                                 // Same duplicate guard as the main loop — on a Trash-less
                                 // volume BOTH registrations of one path land here, and without
                                 // this check item B's removeItem permanently unlinked the

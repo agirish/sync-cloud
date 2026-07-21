@@ -300,12 +300,18 @@ public class Logger: ObservableObject {
     }
     
     /// Empties the public memory array and overwrites the local disk file with an empty sequence.
+    /// Posted after `clearLogs()` empties the session list and truncates the file, so every
+    /// viewer holding parsed on-disk history (a separate window, possibly cleared from
+    /// Settings) can drop it — the reset must not depend on WHICH button cleared.
+    public static let didClearLogsNotification = Notification.Name("SyncCloudLoggerDidClearLogs")
+
     public func clearLogs() {
         // Drop entries still sitting in the handoff queue too: without this, lines enqueued just
         // before the clear would flush into `entries` afterward and "resurrect" in the UI.
         _ = pendingEntries.drain()
         entries.removeAll()
         logWriter.clear()
+        NotificationCenter.default.post(name: Self.didClearLogsNotification, object: nil)
     }
     
     /// Synchronously drains the disk writer's background queue so every line enqueued before this

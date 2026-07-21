@@ -65,11 +65,26 @@ private func diff(
 
         let folding = DiffStatusIndex(differences: differences, rootPath: "/r", foldsCase: true)
         #expect(folding.containedDiffCount(forNodeId: "/r/docs") == 1)
-        #expect(folding.containedDiffCount(forNodeId: "/r/Docs") == 1)   // exact still wins first
+        #expect(folding.containedDiffCount(forNodeId: "/r/Docs") == 1)   // any casing answers
 
         let exact = DiffStatusIndex(differences: differences, rootPath: "/r")
         #expect(exact.containedDiffCount(forNodeId: "/r/docs") == 0)
         #expect(exact.containedDiffCount(forNodeId: "/r/Docs") == 1)
+    }
+
+    @Test func testFoldedCountsMergeSplitCasingsOfOneRealFolder() {
+        // One real folder's differences can be keyed under TWO casings at once: an existing
+        // pair keys under the pane's real spelling (sideAlignedPath), while a missing row's
+        // expected path carries the source side's spelling. The exact-first shortcut returned
+        // only its own casing's share (1 of 2) — on a folding pane the folded sum is
+        // authoritative, whatever casing the node id uses.
+        let differences = [
+            diff("Docs/x.txt", type: .missingOnRight),     // source-cased ancestor: /r/Docs
+            diff("docs/y.txt", type: .differentDates),     // pane-cased ancestor:   /r/docs
+        ]
+        let folding = DiffStatusIndex(differences: differences, rootPath: "/r", foldsCase: true)
+        #expect(folding.containedDiffCount(forNodeId: "/r/docs") == 2)
+        #expect(folding.containedDiffCount(forNodeId: "/r/Docs") == 2)
     }
 
     @Test func testNameConflictBadgesBothSidesRealSpellings() {
