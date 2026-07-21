@@ -144,17 +144,19 @@ extension FileSyncManager {
             fileHashes[f.id] = realHashes[f.id] ?? DuplicateFinder.unknownSignature(forPath: f.id)
         }
 
-        // Volume+inode per candidate, so hard links collapse to one copy instead of forming a
-        // "duplicate" whose removal frees nothing. Stat-only metadata reads, off the main actor.
-        let identityPaths = candidatePaths
-        let fileIdentities = await Task.detached(priority: .userInitiated) {
-            Self.fileIdentities(for: identityPaths)
+        // Hard-linked candidates (link count > 1) are dropped from grouping entirely: a
+        // directory entry is not the bytes, so no single-path offer about one is truthful —
+        // whether the sibling link is inside the scan or beyond it. Stat-only metadata reads,
+        // off the main actor.
+        let linkCheckPaths = candidatePaths
+        let multiLinkPaths = await Task.detached(priority: .userInitiated) {
+            Self.multiLinkPaths(among: linkCheckPaths)
         }.value
         if Task.isCancelled { return }
 
         // 3. Group (pure), then drop anything the user has kept separate.
         let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: fileHashes, options: options,
-                                                fileIdentities: fileIdentities)
+                                                multiLinkPaths: multiLinkPaths)
         if Task.isCancelled { return }
         let ignored = ignoredDuplicateKeys
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
@@ -494,21 +496,18 @@ extension FileSyncManager {
         return true
     }
 
-    /// Volume + file-resource identity per path — the same pairing the scan's directory-cycle
-    /// guard uses — so the finder can recognize two directory entries of ONE inode (hard links).
-    /// Paths that can't be statted are simply absent: the finder treats unknown identities as
-    /// distinct files, which at worst over-reports a duplicate, never hides one. Reads through
-    /// URL resource values (not the injectable FileManaging), so mock-backed tests see no
-    /// identities and keep their exact pre-existing grouping behavior.
-    nonisolated static func fileIdentities(for paths: [String]) -> [String: DuplicateFinder.FileIdentity] {
-        var out: [String: DuplicateFinder.FileIdentity] = [:]
-        out.reserveCapacity(paths.count)
+    /// The paths whose file has MORE THAN ONE directory entry (hard links), via the link count —
+    /// which also catches an inode whose sibling entry lies OUTSIDE the scan root, something an
+    /// in-scope identity comparison can't see. Paths that can't be statted are simply absent:
+    /// unknown stays in candidacy, which at worst over-reports a duplicate, never hides one.
+    /// Reads through URL resource values (not the injectable FileManaging), so mock-backed
+    /// tests see no link counts and keep their exact pre-existing grouping behavior.
+    nonisolated static func multiLinkPaths(among paths: [String]) -> Set<String> {
+        var out = Set<String>()
         for path in paths {
             let url = URL(fileURLWithPath: path)
-            if let rv = try? url.resourceValues(forKeys: [.volumeIdentifierKey, .fileResourceIdentifierKey]),
-               let volume = rv.volumeIdentifier as? NSObject,
-               let file = rv.fileResourceIdentifier as? NSObject {
-                out[path] = DuplicateFinder.FileIdentity(volume: volume, file: file)
+            if let count = (try? url.resourceValues(forKeys: [.linkCountKey]))?.linkCount, count > 1 {
+                out.insert(path)
             }
         }
         return out
@@ -529,45 +528,58 @@ extension FileSyncManager {
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
-        let kItems = flattenFilesWithRelativePaths(kTree)
-        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
         // this exact content *at the same location*, not merely somewhere. "Same location" uses
-        // the keeper VOLUME's case semantics: on a case-insensitive volume "A.txt" and "a.txt"
-        // are one on-disk name, so keys fold — an exact-case key would miss the collision, copy,
-        // and uniquify a junk sibling (and the retry-skip below would then never see it). The
-        // per-parent hash sets serve that retry-skip: hashFiles omits unhashable files entirely
-        // (no placeholder values), so a set hit is always a real SHA-256 match.
-        let relKey: (String) -> String = caseSensitiveVolume ? { $0 } : { $0.lowercased() }
+        // the keeper VOLUME's name semantics: case folds on a case-insensitive volume ("A.txt"
+        // and "a.txt" are one on-disk name — an exact-case key missed the collision, copied,
+        // and uniquified a junk sibling the retry-skip then never saw), and Unicode always
+        // precomposes (APFS/HFS+ lookups are normalization-insensitive regardless of case
+        // sensitivity, and providers mix NFC/NFD forms — the same reason nearNameKey folds NFC).
+        let relKey: (String) -> String = caseSensitiveVolume
+            ? { $0.precomposedStringWithCanonicalMapping }
+            : { $0.precomposedStringWithCanonicalMapping.lowercased() }
+
+        // ONE pruning walk builds the keeper's whole view, so the symlink invariant has a
+        // single choke point: a symlink ENTRY (file or directory — lstat semantics) may vouch
+        // for nothing. Its own NAME still counts as taken (fileExists collides with a link),
+        // but its content — and, for a linked DIRECTORY, its entire followed subtree, which
+        // buildTree deliberately walks as ordinary files — must feed neither hash map nor the
+        // name set: counting through-the-link content as "present in the keeper" lets the
+        // skip fire for bytes whose only real copy is the redundant folder the merge is about
+        // to trash, leaving the keeper a dangling link over Trash-recoverable content.
+        //
+        // keeperNames carries every surviving rel — files, FOLDERS, unhashable files — for the
+        // "name taken" gate: the copy loop decides collisions with fileExists, which a
+        // directory or a too-large file triggers exactly like a hashed file. The per-parent
+        // hash sets serve the retry-skip: hashFiles omits unhashable files entirely (no
+        // placeholder values), so a set hit is always a real SHA-256 match.
+        var kItems: [(rel: String, id: String)] = []
+        var keeperNames = Set<String>()
+        func collectKeeperView(_ nodes: [FileNode], prefix: String) {
+            for n in nodes {
+                let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
+                keeperNames.insert(relKey(rel))
+                if (try? fm.attributesOfItem(atPath: n.id))?[.type] as? FileAttributeType == .typeSymbolicLink {
+                    continue   // the entry's name is taken; everything beyond it is not the keeper's
+                }
+                if n.isDirectory {
+                    collectKeeperView(n.children ?? [], prefix: rel)
+                } else {
+                    kItems.append((rel: rel, id: n.id))
+                }
+            }
+        }
+        collectKeeperView(kTree, prefix: "")
+
+        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         var keeperHashByRel: [String: String] = [:]
         var keeperHashesByParent: [String: Set<String>] = [:]
         for k in kItems {
-            // A symlink hashes as its TARGET's bytes, so it may vouch for nothing: counting a
-            // keeper-folder link as "content present" lets the skip fire for bytes whose only
-            // real copy is the redundant folder the merge is about to trash — leaving the
-            // keeper a dangling link. (DuplicateFinder excludes links from copies for the same
-            // reason.) attributesOfItem is lstat-semantics: it reports the link itself.
-            if (try? fm.attributesOfItem(atPath: k.id))?[.type] as? FileAttributeType == .typeSymbolicLink {
-                continue
-            }
             if let h = kHashesByPath[k.id] {
                 keeperHashByRel[relKey(k.rel)] = h
                 keeperHashesByParent[relKey((k.rel as NSString).deletingLastPathComponent), default: []].insert(h)
             }
         }
-        // Every keeper rel path — files, FOLDERS, unhashable files — for the "name taken" gate:
-        // the copy loop decides collisions with fileExists, which a directory or a too-large
-        // file triggers exactly like a hashed file, so the gate must see what fileExists sees
-        // (the hash maps alone missed those name-holders and re-minted junk per retry).
-        var keeperNames = Set<String>()
-        func collectRels(_ nodes: [FileNode], prefix: String) {
-            for n in nodes {
-                let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
-                keeperNames.insert(relKey(rel))
-                if n.isDirectory { collectRels(n.children ?? [], prefix: rel) }
-            }
-        }
-        collectRels(kTree, prefix: "")
 
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)

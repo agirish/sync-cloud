@@ -316,41 +316,40 @@ import Testing
         #expect(!groups[0].recommendedRemovalPaths.contains("/root/2019/IMG_0001.jpg"))
     }
 
-    @Test func hardLinkedEntriesCollapseToOneCopy() {
-        // Two directory entries of one inode are the SAME file: grouping them reported the
-        // file's full size as reclaimable, and "resolving" trashed a link that freed nothing.
-        func identity(_ token: String) -> DuplicateFinder.FileIdentity {
-            DuplicateFinder.FileIdentity(volume: "vol1" as NSString, file: token as NSString)
-        }
-        let tree = [
-            dir("/root/Docs", [
-                file("/root/Docs/a.bin", size: 50_000),
-                file("/root/Docs/b.bin", size: 50_000),      // hard link to a.bin
-                file("/root/Docs/c.bin", size: 50_000),      // real independent copy
-            ]),
-        ]
-        let hashes = ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H", "/root/Docs/c.bin": "H"]
-        let identities = [
-            "/root/Docs/a.bin": identity("inode-1"),
-            "/root/Docs/b.bin": identity("inode-1"),
-            "/root/Docs/c.bin": identity("inode-2"),
-        ]
-        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes, fileIdentities: identities)
-        let identical = groups.filter { $0.matchType == .identical }
-        #expect(identical.count == 1)
-        #expect(identical[0].copies.count == 2)               // one link representative + c.bin
-        #expect(identical[0].reclaimableBytes == 50_000)      // ONE real copy's bytes, not two
+    @Test func hardLinkedEntriesLeaveDuplicateCandidacyEntirely() {
+        // A directory entry is not the bytes: with the single-path copy model, EVERY offer
+        // about a hard-linked file is a lie — trashing one link frees nothing (a sibling
+        // entry, in or out of the scan, keeps the blocks), and a "resolved" group leaves the
+        // duplicate content on disk. Multi-link files are dropped before ANY pass; a per-pass
+        // collapse protected `identical` but un-claimed the links for `versions`.
+        let multiLink: Set<String> = ["/root/Docs/a.bin", "/root/Docs/b.bin"]
 
-        // Links only (no independent copy): nothing to reclaim, no group at all.
-        let linksOnly = DuplicateFinder.findGroups(
+        // Links beside a real independent copy: no truthful offer exists → no group. (The old
+        // collapse grouped keeper + one link and claimed the link's bytes reclaimable — a
+        // Time-Machine-shaped no-op trash.)
+        let withRealCopy = DuplicateFinder.findGroups(
             tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
-                                      file("/root/Docs/b.bin", size: 50_000)])],
-            fileHashes: ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H"],
-            fileIdentities: ["/root/Docs/a.bin": identity("inode-1"),
-                             "/root/Docs/b.bin": identity("inode-1")])
-        #expect(!linksOnly.contains { $0.matchType == .identical })
+                                      file("/root/Docs/b.bin", size: 50_000),
+                                      file("/root/Docs/c.bin", size: 50_000)])],
+            fileHashes: ["/root/Docs/a.bin": "H", "/root/Docs/b.bin": "H", "/root/Docs/c.bin": "H"],
+            multiLinkPaths: multiLink)
+        #expect(!withRealCopy.contains { $0.matchType == .identical })
 
-        // No identity metadata → prior behavior exactly (distinct files, both group).
+        // The versions pass is protected by the SAME drop: linked "report.pdf"/"report
+        // copy.pdf" (one inode) plus a real drifted v2 must not form a versions group that
+        // recommends trashing a link and counts its bytes as reclaimable.
+        let versionsShape = DuplicateFinder.findGroups(
+            tree: [dir("/root/Docs", [file("/root/Docs/report.pdf", size: 50_000),
+                                      file("/root/Docs/report copy.pdf", size: 50_000),
+                                      file("/root/Docs/report v2.pdf", size: 51_000)])],
+            fileHashes: ["/root/Docs/report.pdf": "H", "/root/Docs/report copy.pdf": "H",
+                         "/root/Docs/report v2.pdf": "G"],
+            multiLinkPaths: ["/root/Docs/report.pdf", "/root/Docs/report copy.pdf"])
+        #expect(!versionsShape.contains { g in
+            g.copies.contains { $0.path.contains("report.pdf") || $0.path.contains("report copy.pdf") }
+        })
+
+        // No link-count metadata → prior behavior exactly (distinct files, both group).
         let unknown = DuplicateFinder.findGroups(
             tree: [dir("/root/Docs", [file("/root/Docs/a.bin", size: 50_000),
                                       file("/root/Docs/b.bin", size: 50_000)])],
@@ -392,6 +391,38 @@ import Testing
         // recommended for removal.
         let removals = Set(groups.flatMap(\.recommendedRemovalPaths))
         #expect(removals == ["/root/ClientA/report copy.pdf", "/root/ClientB/report copy 2.pdf"])
+    }
+
+    @Test func bearersOfHashStarvedClustersStillPoolCrossFolder() {
+        // A marker folder with same-stem company forms a per-folder cluster — but when that
+        // cluster can't prove drift (its companions are unknown-hash: too large, cloud-only),
+        // the guard kills it, and the bearer must FALL THROUGH to the cross-folder pool
+        // rather than silently vanish: its marked name still carries its own evidence, and a
+        // lone bearer elsewhere may prove the drift the home folder couldn't.
+        let old = Date(timeIntervalSince1970: 1_000_000)
+        let new = Date(timeIntervalSince1970: 2_000_000)
+        let tree = [
+            dir("/root/Docs", [
+                file("/root/Docs/report copy.pdf", size: 9_000, modified: old),
+                file("/root/Docs/report.pdf", size: 9_100, modified: old),   // unknown hash
+            ]),
+            dir("/root/Desktop", [
+                file("/root/Desktop/report copy 2.pdf", size: 9_200, modified: new),
+                file("/root/Desktop/d-notes.txt", size: 8_192),
+            ]),
+        ]
+        let hashes = [   // Docs/report.pdf deliberately absent → no real signature
+            "/root/Docs/report copy.pdf": "A",
+            "/root/Desktop/report copy 2.pdf": "B",
+            "/root/Desktop/d-notes.txt": "N",
+        ]
+        let groups = DuplicateFinder.findGroups(tree: tree, fileHashes: hashes)
+        let versions = groups.filter { $0.matchType == .versions }
+        #expect(versions.count == 1)
+        #expect(Set(versions[0].copies.map(\.path)) ==
+                ["/root/Docs/report copy.pdf", "/root/Desktop/report copy 2.pdf"])
+        // The unknown-hash original never rides along with the cross-folder pool.
+        #expect(!versions[0].copies.contains { $0.path == "/root/Docs/report.pdf" })
     }
 
     @Test func multiParentBucketKeepsEachBearersOwnOriginalInItsGroup() {

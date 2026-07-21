@@ -589,19 +589,21 @@ import Combine
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
     }
 
-    @Test func realHardLinksShareAnIdentityAndNeverGroup() throws {
-        // End-to-end on a real volume: link(2) entries resolve to one FileIdentity, and the
-        // finder collapses them — no group, zero phantom reclaimable bytes.
+    @Test func realHardLinksAreDetectedByLinkCountAndNeverGroup() throws {
+        // End-to-end on a real volume: link(2) entries carry linkCount 2, land in
+        // multiLinkPaths, and the finder drops them — no group, zero phantom reclaimable.
+        // A singly-linked file is NOT flagged (the negative control).
         let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let a = base.appendingPathComponent("Docs/a.bin")
         let b = base.appendingPathComponent("Docs/b.bin")
+        let c = base.appendingPathComponent("Docs/c.bin")
         try write(a, bytes: 5000, fill: 0x41)
         try FileManager.default.linkItem(at: a, to: b)
+        try write(c, bytes: 5000, fill: 0x41)
 
-        let ids = FileSyncManager.fileIdentities(for: [a.path, b.path])
-        #expect(ids[a.path] != nil)
-        #expect(ids[a.path] == ids[b.path])   // one inode, one identity
+        let flagged = FileSyncManager.multiLinkPaths(among: [a.path, b.path, c.path])
+        #expect(flagged == [a.path, b.path])   // both link entries; the real file stays
 
         let tree = [FileNode(id: base.appendingPathComponent("Docs").path, name: "Docs", isDirectory: true,
                              children: [
@@ -609,9 +611,11 @@ import Combine
                                          modificationDate: Date(), fileSize: 5000),
                                 FileNode(id: b.path, name: "b.bin", isDirectory: false, children: nil,
                                          modificationDate: Date(), fileSize: 5000),
+                                FileNode(id: c.path, name: "c.bin", isDirectory: false, children: nil,
+                                         modificationDate: Date(), fileSize: 5000),
                              ], modificationDate: Date(), fileSize: nil)]
         let groups = DuplicateFinder.findGroups(
-            tree: tree, fileHashes: [a.path: "H", b.path: "H"], fileIdentities: ids)
+            tree: tree, fileHashes: [a.path: "H", b.path: "H", c.path: "H"], multiLinkPaths: flagged)
         #expect(!groups.contains { $0.matchType == .identical })
     }
 
@@ -650,6 +654,22 @@ import Combine
         #expect(plan.steps.isEmpty)
     }
 
+    @Test func planMergeFoldsUnicodeNormalizationVariants() async throws {
+        // APFS/HFS+ name lookups are normalization-insensitive on EVERY volume (providers mix
+        // NFC and NFD forms — the diff engine's nearNameKey precomposes for the same reason),
+        // so an NFD keeper name and an NFC source rel are one on-disk name: byte-identical
+        // content must hit the same-location skip, not copy-and-uniquify a junk sibling.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("cafe\u{0301}.txt"), bytes: 5000, fill: 0x59)   // NFD é
+        try write(redundant.appendingPathComponent("caf\u{E9}.txt"), bytes: 5000, fill: 0x59)   // NFC é
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.isEmpty)
+    }
+
     @Test func planMergeKeepsExactCaseSemanticsOnSensitiveVolumes() async throws {
         // The default (case-sensitive) path is untouched: "A.txt" and "a.txt" are distinct
         // names there, so the byte-identical source still copies under its own name.
@@ -663,6 +683,27 @@ import Combine
         let plan = await FileSyncManager.planMerge(
             from: redundant, into: keeper, fileManager: FileManager.default)
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
+    }
+
+    @Test func planMergeNeverLetsASymlinkedDirectoryVouchForContent() async throws {
+        // buildTree deliberately FOLLOWS symlinked directories, so a keeper link-dir's children
+        // arrive as ordinary files — and fed the maps as if the keeper owned them. With
+        // Keeper/sub → Redundant/sub, the same-rel skip then saw every sub/ file as "already
+        // in the keeper", planned nothing, and the trash step removed the only real copy —
+        // leaving the keeper holding a dangling link. The whole linked subtree must be pruned
+        // from the keeper's view.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        try write(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
+        try write(redundant.appendingPathComponent("sub/f.txt"), bytes: 5000, fill: 0x59)  // only real copy
+        try FileManager.default.createSymbolicLink(
+            at: keeper.appendingPathComponent("sub"),
+            withDestinationURL: redundant.appendingPathComponent("sub"))
+
+        let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
+        #expect(plan.steps.map { $0.src.lastPathComponent } == ["f.txt"])   // Y must still copy
     }
 
     @Test func planMergeNeverLetsASymlinkVouchForContent() async throws {

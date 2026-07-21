@@ -338,12 +338,23 @@ public enum DuplicateFinder {
         tree: [FileNode],
         fileHashes: [String: String],
         options: DuplicateFinderOptions = .init(),
-        fileIdentities: [String: FileIdentity] = [:]
+        multiLinkPaths: Set<String> = []
     ) -> [DuplicateGroup] {
         var files: [NodeInfo] = []
         var dirs: [NodeInfo] = []
         for node in tree {
             _ = collect(node, depth: 0, fileHashes: fileHashes, options: options, files: &files, dirs: &dirs)
+        }
+        // Hard-linked files (link count > 1) leave duplicate candidacy ENTIRELY, before any
+        // pass: a directory entry is not the bytes, so every offer the single-path copy model
+        // could make about one is a lie — trashing one link frees nothing (a sibling entry, in
+        // or out of the scan, keeps the blocks), "identical" links aren't a duplicate pair, and
+        // a versions group must not adjudicate history between an inode and itself. One drop
+        // here protects the identical AND versions passes alike; a per-pass collapse protected
+        // one and un-claimed the links for the other. Unknown link counts (no stat) stay in:
+        // over-reporting a duplicate beats hiding one.
+        if !multiLinkPaths.isEmpty {
+            files.removeAll { multiLinkPaths.contains($0.path) }
         }
 
         var groups: [DuplicateGroup] = []
@@ -355,7 +366,7 @@ public enum DuplicateFinder {
 
         groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots)
         groups += overlappingAndNameOnlyGroups(dirs, options: options, coveredRoots: &coveredRoots)
-        groups += identicalFileGroups(files, options: options, fileIdentities: fileIdentities, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
+        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
         if options.detectVersions {
             groups += versionGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
         }
@@ -579,32 +590,9 @@ public enum DuplicateFinder {
 
     // MARK: Identical files
 
-    /// One on-disk file's identity (volume + inode), used to collapse hard links: two directory
-    /// entries of one inode are the SAME file, not a duplicate pair — trashing either frees
-    /// nothing (the surviving link keeps the blocks). Equality goes through `isEqual` (the
-    /// resource-identifier contract), not object identity.
-    public struct FileIdentity: Hashable, @unchecked Sendable {
-        let volume: NSObject
-        let file: NSObject
-
-        public init(volume: NSObject, file: NSObject) {
-            self.volume = volume
-            self.file = file
-        }
-
-        public static func == (a: FileIdentity, b: FileIdentity) -> Bool {
-            a.volume.isEqual(b.volume) && a.file.isEqual(b.file)
-        }
-        public func hash(into hasher: inout Hasher) {
-            hasher.combine(volume.hash)
-            hasher.combine(file.hash)
-        }
-    }
-
     private static func identicalFileGroups(
         _ files: [NodeInfo],
         options: DuplicateFinderOptions,
-        fileIdentities: [String: FileIdentity],
         coveredRoots: Set<String>,
         groupedFilePaths: inout Set<String>
     ) -> [DuplicateGroup] {
@@ -616,26 +604,7 @@ public enum DuplicateFinder {
         }
 
         var groups: [DuplicateGroup] = []
-        for bucketMembers in buckets.values where bucketMembers.count >= 2 {
-            // Collapse hard links: entries sharing a known identity reduce to the one
-            // representative the keeper heuristic prefers — a "group" of links would report
-            // the file's full size as reclaimable and resolve to a no-op trash with a
-            // success banner. Unknown identities (no stat) stay distinct: claiming two real
-            // files are one link needs proof, and over-reporting beats hiding a duplicate.
-            var byIdentity: [FileIdentity: NodeInfo] = [:]
-            var members: [NodeInfo] = []
-            for m in bucketMembers {
-                guard let id = fileIdentities[m.path] else { members.append(m); continue }
-                if let current = byIdentity[id] {
-                    if preferAsKeeper(m, over: current) { byIdentity[id] = m }
-                } else {
-                    byIdentity[id] = m
-                }
-            }
-            // Dictionary order is unstable — sort the representatives so group membership and
-            // keeper choice stay deterministic run to run.
-            members.append(contentsOf: byIdentity.values.sorted { $0.path < $1.path })
-            guard members.count >= 2 else { continue }
+        for members in buckets.values where members.count >= 2 {
             let keeperIdx = chooseKeeper(members)
             let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
             let keeper = ordered[0]
@@ -717,10 +686,18 @@ public enum DuplicateFinder {
                     var loneBearerPool: [NodeInfo] = []
                     for parent in markerParents.sorted() {
                         let inParent = bucket.filter { ($0.path as NSString).deletingLastPathComponent == parent }
-                        if inParent.count >= 2 {
+                        // A cluster that cannot PROVE drift (fewer than two real hashes — its
+                        // companions are too large or cloud-only to hash) will die at the guard
+                        // below; its bearers then fall through to the cross-folder pool instead
+                        // of silently vanishing — a marked name still carries its own evidence,
+                        // and a lone bearer elsewhere may prove the drift the home folder
+                        // couldn't. Unmarked companions never follow them into the pool.
+                        let provableDrift = Set(inParent.compactMap { $0.signature }
+                            .filter { !isUnknownSignature($0) }).count >= 2
+                        if inParent.count >= 2 && provableDrift {
                             clusters.append(inParent)
                         } else {
-                            loneBearerPool.append(contentsOf: inParent)   // the bearer itself (its parent came from it)
+                            loneBearerPool.append(contentsOf: inParent.filter { hasVersionMarker($0.name) })
                         }
                     }
                     if loneBearerPool.count >= 2 { clusters.append(loneBearerPool) }
