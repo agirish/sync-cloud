@@ -49,19 +49,23 @@ import Testing
 
     @Test func listsOnlyTheReasonsThatOccurred() {
         let largeOnly = TidyScanSkipNote.text(Skips(tooLarge: 2, cloudOnly: 0))
-        #expect(largeOnly == "2 files couldn't be content-checked: 2 too large to hash. Identical copies among them are not detected.")
+        #expect(largeOnly == "2 files outside duplicate detection: 2 too large to hash. Duplicates among them are not detected.")
         let cloudOnly = TidyScanSkipNote.text(Skips(tooLarge: 0, cloudOnly: 3))
-        #expect(cloudOnly == "3 files couldn't be content-checked: 3 cloud-only (not downloaded). Identical copies among them are not detected.")
+        #expect(cloudOnly == "3 files outside duplicate detection: 3 cloud-only (not downloaded). Duplicates among them are not detected.")
+        // Hard links joined the ledger in round 6: dropped files must never just quietly
+        // shrink the results ("over-report beats hide" applies to the accounting too).
+        let links = TidyScanSkipNote.text(Skips(multiLink: 2))
+        #expect(links == "2 files outside duplicate detection: 2 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
     @Test func combinesBothReasonsWithATotal() {
-        let both = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2))
-        #expect(both == "3 files couldn't be content-checked: 1 too large to hash, 2 cloud-only (not downloaded). Identical copies among them are not detected.")
+        let both = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 2, multiLink: 3))
+        #expect(both == "6 files outside duplicate detection: 1 too large to hash, 2 cloud-only (not downloaded), 3 hard-linked (trashing a link frees nothing). Duplicates among them are not detected.")
     }
 
     @Test func singularTotalDropsThePluralS() {
         let one = TidyScanSkipNote.text(Skips(tooLarge: 1, cloudOnly: 0))
-        #expect(one?.hasPrefix("1 file couldn't be content-checked") == true)
+        #expect(one?.hasPrefix("1 file outside duplicate detection") == true)
     }
 }
 

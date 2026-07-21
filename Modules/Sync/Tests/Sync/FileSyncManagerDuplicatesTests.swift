@@ -589,6 +589,35 @@ import Combine
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
     }
 
+    @MainActor
+    @Test func uniqueSizeHardLinksNeverEnterVersionsGroups() async throws {
+        // The nlink filter must cover EVERY file the passes admit, not only size-colliding
+        // hash candidates: a hard-linked file with a UNIQUE size skipped the stat entirely,
+        // rode into a versions bucket as an unknown-hash member, and was recommended for
+        // removal with its bytes counted reclaimable — trashing a link frees nothing (its
+        // sibling entry here lies OUTSIDE the scan root, which only nlink can see).
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let root = base.appendingPathComponent("Root")
+        try write(root.appendingPathComponent("Docs/report.pdf"), bytes: 9_000, fill: 0x41)
+        try write(root.appendingPathComponent("Docs/report copy.pdf"), bytes: 9_000, fill: 0x42)
+        let outside = base.appendingPathComponent("outside-v2.bin")
+        try write(outside, bytes: 9_050, fill: 0x43)                      // unique size
+        try FileManager.default.linkItem(at: outside, to: root.appendingPathComponent("Docs/report v2.pdf"))
+
+        let manager = FileSyncManager()
+        manager.startFindDuplicates(root: root)
+        await manager.duplicateScanTask?.value
+
+        #expect(!manager.duplicateGroups.contains { g in
+            g.copies.contains { $0.path.hasSuffix("report v2.pdf") }
+        })
+        // The two real files keep their own versions group — the drop is surgical.
+        #expect(manager.duplicateGroups.contains { g in
+            g.matchType == .versions && g.copies.contains { $0.path.hasSuffix("report copy.pdf") }
+        })
+    }
+
     @Test func realHardLinksAreDetectedByLinkCountAndNeverGroup() throws {
         // End-to-end on a real volume: link(2) entries carry linkCount 2, land in
         // multiLinkPaths, and the finder drops them — no group, zero phantom reclaimable.
@@ -685,13 +714,53 @@ import Combine
         #expect(plan.steps.map { $0.src.lastPathComponent } == ["a.txt"])
     }
 
+    @MainActor
+    @Test func mergeRefusesWhenAKeeperSymlinkDirWouldReceiveTheFold() async throws {
+        // Pruning the linked subtree from the maps was only half the fix: the plan still AIMED
+        // steps under the link and the copy loop wrote THROUGH it — into whatever it points at
+        // (an external folder silently received the "folded" file and the trash then ran; a
+        // link into the source minted junk per retry and the fold could never complete). Any
+        // step descending through a keeper symlink dir now refuses the merge up front: nothing
+        // is copied, nothing is trashed, the group stays, and the banner names the link.
+        let base = try makeCanonicalTempRoot(prefix: "TidyTest")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let keeper = base.appendingPathComponent("Keeper")
+        let redundant = base.appendingPathComponent("Redundant")
+        let elsewhere = base.appendingPathComponent("Elsewhere")
+        try write(keeper.appendingPathComponent("own.txt"), bytes: 5000, fill: 0x4B)
+        try write(redundant.appendingPathComponent("sub/y.txt"), bytes: 5000, fill: 0x59)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: keeper.appendingPathComponent("sub"),
+                                                   withDestinationURL: elsewhere)
+
+        let manager = FileSyncManager()
+        let k = DuplicateCopy(id: keeper.path, name: "Keeper", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 0, depth: 0, isRecommendedKeeper: true)
+        let r = DuplicateCopy(id: redundant.path, name: "Redundant", isDirectory: true, size: 5000, itemCount: 1,
+                              modificationDate: nil, uniqueItemCount: 1, depth: 0, isRecommendedKeeper: false)
+        let group = DuplicateGroup(matchType: .overlapping(sharedFraction: 0.5), name: "Keeper",
+                                   isDirectory: true, copies: [k, r], reclaimableBytes: 5000)
+        manager.duplicateGroups = [group]
+
+        let ok = await manager.mergeDuplicateGroup(group)
+
+        #expect(ok == false)
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.banner?.message.contains("sub") == true)      // names the linked folder
+        #expect(FileManager.default.fileExists(atPath: redundant.appendingPathComponent("sub/y.txt").path))
+        #expect(!FileManager.default.fileExists(atPath: elsewhere.appendingPathComponent("y.txt").path))
+        #expect(manager.duplicateGroups.contains { $0.id == group.id })   // group stays listed
+    }
+
     @Test func planMergeNeverLetsASymlinkedDirectoryVouchForContent() async throws {
         // buildTree deliberately FOLLOWS symlinked directories, so a keeper link-dir's children
         // arrive as ordinary files — and fed the maps as if the keeper owned them. With
         // Keeper/sub → Redundant/sub, the same-rel skip then saw every sub/ file as "already
         // in the keeper", planned nothing, and the trash step removed the only real copy —
-        // leaving the keeper holding a dangling link. The whole linked subtree must be pruned
-        // from the keeper's view.
+        // leaving the keeper holding a dangling link. The whole linked subtree is pruned from
+        // the keeper's view — and the step is returned BLOCKED, not planned: a planned copy
+        // would write THROUGH the link (round 6's finding — here straight back into the
+        // source, where the self-collision minted junk per retry).
         let base = try makeCanonicalTempRoot(prefix: "TidyTest")
         defer { try? FileManager.default.removeItem(at: base) }
         let keeper = base.appendingPathComponent("Keeper")
@@ -703,7 +772,8 @@ import Combine
             withDestinationURL: redundant.appendingPathComponent("sub"))
 
         let plan = await FileSyncManager.planMerge(from: redundant, into: keeper, fileManager: FileManager.default)
-        #expect(plan.steps.map { $0.src.lastPathComponent } == ["f.txt"])   // Y must still copy
+        #expect(plan.steps.isEmpty)                       // never aimed through the link…
+        #expect(plan.blockedLinkedDirs == ["sub"])        // …surfaced for the caller's refusal
     }
 
     @Test func planMergeNeverLetsASymlinkVouchForContent() async throws {

@@ -482,8 +482,9 @@ enum TidyScanSkipNote {
         var reasons: [String] = []
         if skips.tooLarge > 0 { reasons.append("\(skips.tooLarge) too large to hash") }
         if skips.cloudOnly > 0 { reasons.append("\(skips.cloudOnly) cloud-only (not downloaded)") }
+        if skips.multiLink > 0 { reasons.append("\(skips.multiLink) hard-linked (trashing a link frees nothing)") }
         let plural = skips.total != 1
-        return "\(skips.total) file\(plural ? "s" : "") couldn't be content-checked: \(reasons.joined(separator: ", ")). Identical copies among them are not detected."
+        return "\(skips.total) file\(plural ? "s" : "") outside duplicate detection: \(reasons.joined(separator: ", ")). Duplicates among them are not detected."
     }
 }
 

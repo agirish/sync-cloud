@@ -17,11 +17,16 @@ extension FileSyncManager {
         /// Candidates skipped because they are cloud-only (dataless) placeholders that hashing
         /// would force-download.
         public var cloudOnly: Int
-        public var total: Int { tooLarge + cloudOnly }
+        /// Files excluded because they are hard links (link count > 1): a directory entry is
+        /// not the bytes, so no single-path duplicate offer about one is truthful. Counted so
+        /// a Time-Machine-shaped tree doesn't just quietly report fewer duplicates.
+        public var multiLink: Int
+        public var total: Int { tooLarge + cloudOnly + multiLink }
 
-        public init(tooLarge: Int = 0, cloudOnly: Int = 0) {
+        public init(tooLarge: Int = 0, cloudOnly: Int = 0, multiLink: Int = 0) {
             self.tooLarge = tooLarge
             self.cloudOnly = cloudOnly
+            self.multiLink = multiLink
         }
     }
 
@@ -144,11 +149,14 @@ extension FileSyncManager {
             fileHashes[f.id] = realHashes[f.id] ?? DuplicateFinder.unknownSignature(forPath: f.id)
         }
 
-        // Hard-linked candidates (link count > 1) are dropped from grouping entirely: a
-        // directory entry is not the bytes, so no single-path offer about one is truthful —
-        // whether the sibling link is inside the scan or beyond it. Stat-only metadata reads,
-        // off the main actor.
-        let linkCheckPaths = candidatePaths
+        // Hard-linked files (link count > 1) are dropped from grouping entirely: a directory
+        // entry is not the bytes, so no single-path offer about one is truthful — whether the
+        // sibling link is inside the scan or beyond it. Statted over ALL scanned files, not
+        // just the size-colliding hash candidates: the versions pass admits ANY file ≥
+        // minFileSize (unknown-hash members ride along in a group real hashes justify), so a
+        // unique-size link skipped by a candidates-only stat rode straight into a versions
+        // group and was recommended for removal. Stat-only metadata reads, off the main actor.
+        let linkCheckPaths = allFiles.map { $0.id }
         let multiLinkPaths = await Task.detached(priority: .userInitiated) {
             Self.multiLinkPaths(among: linkCheckPaths)
         }.value
@@ -162,7 +170,8 @@ extension FileSyncManager {
         // Set BEFORE duplicateGroups so its @Published publish is observed with a matching value
         // (like duplicateScanRoot, it labels what's on screen, not the in-flight scan).
         duplicateScanSkips = DuplicateScanSkips(tooLarge: hashOutcome.skippedTooLarge,
-                                                cloudOnly: hashOutcome.skippedCloudOnly)
+                                                cloudOnly: hashOutcome.skippedCloudOnly,
+                                                multiLink: multiLinkPaths.count)
         self.duplicateGroups = groups.filter { !ignored.contains($0.ignoreKey) }
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
@@ -171,7 +180,7 @@ extension FileSyncManager {
         Logger.shared.info("Tidy: scanned \(root.lastPathComponent) — \(summary.groupCount) duplicate group(s), \(Self.formatBytes(summary.reclaimableBytes)) reclaimable")
         let skips = duplicateScanSkips
         if skips.total > 0 {
-            Logger.shared.info("Tidy: \(skips.total) candidate file(s) could not be content-verified — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded); identical copies among them are not detected")
+            Logger.shared.info("Tidy: \(skips.total) file(s) outside duplicate detection — \(skips.tooLarge) over the \(Self.formatBytes(maxBytesToHash)) hash limit, \(skips.cloudOnly) cloud-only (not downloaded), \(skips.multiLink) hard-linked (trashing a link frees nothing); duplicates among them are not detected")
         }
     }
 
@@ -402,6 +411,18 @@ extension FileSyncManager {
             // loop below collapses reserved-key case on a case-insensitive keeper volume).
             let keeperCaseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: keeperURL)
             let plan = await Self.planMerge(from: rURL, into: keeperURL, caseSensitiveVolume: keeperCaseSensitive, fileManager: fm)
+            // Steps aimed under a keeper SYMLINK folder can't run safely — the copy would write
+            // through the link (into an external folder, or into the source itself, where the
+            // self-collision minted junk per retry) — and skipping them silently would let the
+            // trash step destroy content that never landed. Refuse the whole copy: nothing is
+            // copied or trashed, the group stays listed, and the banner names the link.
+            guard plan.blockedLinkedDirs.isEmpty else {
+                let dirs = plan.blockedLinkedDirs.map { "“\($0)”" }.joined(separator: ", ")
+                Logger.shared.warning("Tidy merge: “\(redundant.name)” needs files under \(dirs) in \(keeperURL.lastPathComponent), which \(plan.blockedLinkedDirs.count == 1 ? "is a symlinked folder" : "are symlinked folders") — refusing to write through the link")
+                banner = .warning("Can't merge “\(group.name)”: \(dirs) in “\(keeperURL.lastPathComponent)” \(plan.blockedLinkedDirs.count == 1 ? "is a symbolic link" : "are symbolic links") — the fold would write through it. Resolve the link, then rescan.")
+                allTrashed = false
+                continue
+            }
             let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
             let progressRef = ProgressRef(progress)   // NSProgress is thread-safe; the ref is the Sendable wrapper
 
@@ -526,7 +547,7 @@ extension FileSyncManager {
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
         from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging
-    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot]) {
+    ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot], blockedLinkedDirs: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
         // this exact content *at the same location*, not merely somewhere. "Same location" uses
@@ -555,12 +576,22 @@ extension FileSyncManager {
         // placeholder values), so a set hit is always a real SHA-256 match.
         var kItems: [(rel: String, id: String)] = []
         var keeperNames = Set<String>()
+        // Folded rels of keeper entries that are SYMLINKED DIRECTORIES: pruning them from the
+        // maps is only half the invariant — a plan step aimed at a rel UNDER one would still
+        // write THROUGH the link (fileExists, uniquify, and the copy's temp staging all resolve
+        // intermediate links), landing "folded" files in whatever the link points at: an
+        // external folder the merge has no business modifying, or the SOURCE itself (where the
+        // self-collision uniquified junk per retry and the fold could never complete). Steps
+        // descending through one are returned as blocked instead, and the caller refuses.
+        var linkedDirRels = Set<String>()
         func collectKeeperView(_ nodes: [FileNode], prefix: String) {
             for n in nodes {
                 let rel = prefix.isEmpty ? n.name : prefix + "/" + n.name
                 keeperNames.insert(relKey(rel))
                 if (try? fm.attributesOfItem(atPath: n.id))?[.type] as? FileAttributeType == .typeSymbolicLink {
-                    continue   // the entry's name is taken; everything beyond it is not the keeper's
+                    // The entry's name is taken; everything beyond it is not the keeper's.
+                    if n.isDirectory { linkedDirRels.insert(relKey(rel)) }
+                    continue
                 }
                 if n.isDirectory {
                     collectKeeperView(n.children ?? [], prefix: rel)
@@ -570,6 +601,15 @@ extension FileSyncManager {
             }
         }
         collectKeeperView(kTree, prefix: "")
+        func descendsThroughLinkedDir(_ foldedRel: String) -> String? {
+            guard !linkedDirRels.isEmpty else { return nil }
+            var prefix = ""
+            for component in foldedRel.split(separator: "/").dropLast() {
+                prefix = prefix.isEmpty ? String(component) : prefix + "/" + String(component)
+                if linkedDirRels.contains(prefix) { return prefix }
+            }
+            return nil
+        }
 
         let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
         var keeperHashByRel: [String: String] = [:]
@@ -586,6 +626,7 @@ extension FileSyncManager {
         let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm)
 
         var steps: [(src: URL, dst: URL)] = []
+        var blockedLinkedDirs = Set<String>()
         for item in rItems {
             // Skip ONLY when the keeper already has this exact content at the SAME relative path —
             // a true same-location duplicate. A distinctly-named or -located file is folded in even
@@ -611,9 +652,16 @@ extension FileSyncManager {
                     continue
                 }
             }
+            // A destination under a keeper symlink-dir cannot be planned safely (see
+            // linkedDirRels above): record the linked dir and plan nothing for this item —
+            // the caller refuses the whole merge so the trash step can never run without it.
+            if let linkedDir = descendsThroughLinkedDir(relKey(item.rel)) {
+                blockedLinkedDirs.insert(linkedDir)
+                continue
+            }
             steps.append((src: URL(fileURLWithPath: item.id), dst: kURL.appendingPathComponent(item.rel)))
         }
-        return (steps, fileSnapshotsByRelativePath(rTree))
+        return (steps, fileSnapshotsByRelativePath(rTree), blockedLinkedDirs.sorted())
     }
 
     /// What the drift check knows about one file in the merge source: byte size AND modification
