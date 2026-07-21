@@ -126,4 +126,58 @@ import Testing
             size: CGSize(width: 420, height: 220),
             named: "mid-operation")
     }
+
+    // MARK: Glass surfaces — the dark "bold" re-tune
+
+    // Rendered at `.solid` on purpose: `.glassEffect` (the `.clear`/`.frosted` fill) doesn't render
+    // in a headless host, but the border + shadow the re-tune adds are plain SwiftUI and do — so at
+    // `.solid` these deterministically pin exactly what changed. Each captures the dark specular
+    // hairline / deep shadow AND the light `.quaternary` hairline / soft shadow it must preserve —
+    // the regression net the surfaces lacked (the other suites render inner components, never these
+    // wrappers).
+
+    /// A stand-in card body shared by the surface-chrome snapshots.
+    @ViewBuilder private func sampleCardBody() -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Documents", systemImage: "folder").font(.headline)
+            Text("128 items · 4.2 GB").font(.subheadline).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(width: 260, alignment: .leading)
+    }
+
+    /// A pane card (`surfaceCard`): dark gets the white specular hairline + deep lift shadow; light
+    /// keeps the `.quaternary` hairline + soft shadow.
+    @Test func surfaceCardChrome() {
+        assertViewSnapshot(
+            of: sampleCardBody().surfaceCard(.solid).padding(40),
+            size: CGSize(width: 360, height: 200),
+            named: "surface-card")
+    }
+
+    /// A bottom-workspace section (`bottomSectionCard`, cards shape) with an accent tint wash.
+    @Test func bottomSectionCardChrome() {
+        assertViewSnapshot(
+            of: sampleCardBody().bottomSectionCard(.cards, level: .solid, hue: .blue, tint: 0.3).padding(40),
+            size: CGSize(width: 360, height: 200),
+            named: "bottom-section-card")
+    }
+
+    /// A floating overlay card (`glassCardStyle`): dark gets the specular hairline + the deep r34
+    /// lift shadow (the heaviest of the set); light keeps the soft `cardShadow`.
+    @Test func overlayCardChrome() {
+        assertViewSnapshot(
+            of: sampleCardBody().glassCardStyle(level: .solid).padding(60),
+            size: CGSize(width: 400, height: 260),
+            named: "overlay-card")
+    }
+
+    /// A lens content card (`lensCard`): dark now gets the shared white specular hairline instead of
+    /// staying a flat `.quaternary` edge inside a bold section; light unchanged.
+    @Test func lensCardChrome() {
+        assertViewSnapshot(
+            of: sampleCardBody().lensCard().padding(24),
+            size: CGSize(width: 320, height: 150),
+            named: "lens-card")
+    }
 }

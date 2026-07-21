@@ -390,19 +390,23 @@ public extension View {
     /// specular hairline and a deeper, larger shadow that lifts the card off the dimmed backdrop
     /// (the light-tuned `cardShadow` is nearly invisible on a dark scrim). Light keeps exactly its
     /// old chrome — the soft `cardShadow` on the explicit-chrome path, and nothing on native glass.
+    @ViewBuilder
     func glassCardStyle(level: GlassLevel) -> some View {
         let resolved = level.flooredForChrome
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let chrome = OverlayCardChrome(cornerRadius: radius, lightShadow: resolved.needsExplicitChrome)
         // `.glassEffect` shapes only the effect, not the view's own backgrounds, and every caller
         // stacks `contentSurface`'s square tint wash under this — so clip either way, or it pokes
         // past the rounded corners at any Tint above zero (surfaceCard/bottomSectionCard do the
-        // same). The explicit-chrome path clips *after* filling; native glass clips first.
-        let filled: AnyView = resolved.needsExplicitChrome
-            ? AnyView(self.glassSurface(resolved, cornerRadius: radius).clipShape(shape))
-            : AnyView(self.clipShape(shape).glassSurface(resolved, cornerRadius: radius))
-        return filled.modifier(
-            OverlayCardChrome(cornerRadius: radius, lightShadow: resolved.needsExplicitChrome))
+        // same). The explicit-chrome path clips *after* filling; native glass clips first. Kept as
+        // two `@ViewBuilder` branches rather than an `AnyView` so the subtree keeps its structural
+        // identity (an erased card re-renders whole on every parent update — e.g. the banner tick).
+        if resolved.needsExplicitChrome {
+            self.glassSurface(resolved, cornerRadius: radius).clipShape(shape).modifier(chrome)
+        } else {
+            self.clipShape(shape).glassSurface(resolved, cornerRadius: radius).modifier(chrome)
+        }
     }
 
     /// Lighter glass style for bars and inline panels. These sit over the window's own background
@@ -704,11 +708,35 @@ private struct GlassBarStyle: ViewModifier {
     }
 }
 
-/// Hairline + shadow for content cards (file panes, bottom-workspace sections). Dark swaps the
-/// faint `.quaternary` edge for a top-lit white specular hairline and — where `darkShadow` — a deep
-/// shadow that lifts the card off the dark ground, so the workspace reads as bold layered glass
-/// rather than flat gray. Light is reproduced exactly per call site: `lightBorder` draws the old
-/// `.quaternary` hairline, `lightShadow` the old soft shadow, and both are off on native glass.
+/// The appearance-aware hairline every content card wears: a top-lit white specular gradient in dark
+/// (so the card reads as lit glass on the deep ground) and the faint `.quaternary` rule in light. One
+/// definition, so lens cards, pane/section cards and the bottom-workspace sections all edge
+/// identically — a card added later can't drift its own edge. `lightVisible` is false only on
+/// native-glass content cards, which draw no light border of their own (the glass draws its edge).
+struct CardHairline: ViewModifier {
+    var cornerRadius: CGFloat = LiquidGlass.cardCornerRadius
+    var lightVisible: Bool = true
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content.overlay {
+            if scheme == .dark {
+                shape.strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.05)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+            } else if lightVisible {
+                shape.strokeBorder(.quaternary, lineWidth: 0.5)
+            }
+        }
+    }
+}
+
+/// Hairline + shadow for content cards (file panes, bottom-workspace sections). The hairline is
+/// `CardHairline` (white specular in dark, `.quaternary` in light); this adds the depth on top — a
+/// deep dark-only lift where `darkShadow`, the old soft shadow in light where `lightShadow`.
+/// `lightBorder` forwards to the hairline (off on native glass, which draws its own edge).
 private struct DarkBoldCardChrome: ViewModifier {
     let cornerRadius: CGFloat
     let lightBorder: Bool
@@ -719,17 +747,7 @@ private struct DarkBoldCardChrome: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         let dark = scheme == .dark
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let bordered = content.overlay {
-            if dark {
-                shape.strokeBorder(
-                    LinearGradient(colors: [.white.opacity(0.20), .white.opacity(0.05)],
-                                   startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1)
-            } else if lightBorder {
-                shape.strokeBorder(.quaternary, lineWidth: 0.5)
-            }
-        }
+        let bordered = content.modifier(CardHairline(cornerRadius: cornerRadius, lightVisible: lightBorder))
         if dark && darkShadow {
             bordered.shadow(color: .black.opacity(0.45), radius: 16, y: 8)
         } else if !dark && lightShadow {
