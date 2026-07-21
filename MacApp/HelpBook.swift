@@ -135,11 +135,14 @@ enum HelpBook {
                 intro: "After a scan, every item that isn't identical on both sides appears here. A badge tells you what changed and which way a copy would go.",
                 blocks: [
                     .legend([
-                        LegendItem(systemImage: "arrow.right", mood: .copyRight, title: "Only on the left", detail: "Missing on the right — copy it over"),
-                        LegendItem(systemImage: "arrow.left", mood: .copyLeft, title: "Only on the right", detail: "Missing on the left — copy it back"),
-                        LegendItem(systemImage: "clock", mood: .warning, title: "Different date", detail: "One copy is newer than the other"),
-                        LegendItem(systemImage: "ruler", mood: .warning, title: "Different size", detail: "Same name, but the contents differ"),
-                        LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .caution, title: "Name conflict", detail: "Names differ only by spacing or letter case"),
+                        // The badge shapes below mirror DifferenceGlyph exactly (the filled card
+                        // variants) — the legend must show the symbols the list actually draws.
+                        LegendItem(systemImage: "arrow.right.circle.fill", mood: .copyRight, title: "Only on the left", detail: "Missing on the right — copy it over"),
+                        LegendItem(systemImage: "arrow.left.circle.fill", mood: .copyLeft, title: "Only on the right", detail: "Missing on the left — copy it back"),
+                        // One row, one badge: the list renders a single glyph for a date OR size
+                        // mismatch, so the legend doesn't invent two.
+                        LegendItem(systemImage: "arrow.triangle.2.circlepath", mood: .warning, title: "Different date or size", detail: "One copy is newer than the other, or the contents differ"),
+                        LegendItem(systemImage: "exclamationmark.triangle.fill", mood: .caution, title: "Name conflict", detail: "Same name once surrounding spaces, trailing dots, and Unicode form are normalized — or differing only by case where the volume ignores case"),
                     ]),
                     .tip("Select rows and press ⌘→ or ⌘← to copy them across. Add ⇧ to move instead of copy."),
                 ],
@@ -360,9 +363,10 @@ extension HelpBook.Mood {
         case .success: return SemanticColor.success
         case .neutral: return .secondary
         // The exact colors DifferenceGlyph paints in the real list (it's internal to
-        // FileExplorer, so the values are mirrored here): nameConflict = yellow, → = blue,
-        // ← = purple. The legend must describe what the list renders, not a nicer palette.
-        case .caution: return .yellow
+        // FileExplorer, so the values are mirrored here): nameConflict = caution-yellow,
+        // → = blue, ← = purple. The legend must describe what the list renders, not a
+        // nicer palette.
+        case .caution: return SemanticColor.caution
         case .copyRight: return .blue
         case .copyLeft: return .purple
         }
