@@ -12,6 +12,8 @@ import Testing
         #expect(SemanticColor.success == .green)
         #expect(SemanticColor.info == .blue)
         #expect(SemanticColor.warning == .orange)
+        // The judgment tier: softer than warning, never the same hue as it.
+        #expect(SemanticColor.caution == .yellow)
         #expect(SemanticColor.error == .red)
         // Deliberately its own hue: distinct from warning-orange AND from the app accent.
         #expect(SemanticColor.move == .purple)
@@ -19,7 +21,7 @@ import Testing
 
     @Test func meaningsNeverShareAColor() {
         let table = [SemanticColor.success, SemanticColor.info, SemanticColor.warning,
-                     SemanticColor.error, SemanticColor.move]
+                     SemanticColor.caution, SemanticColor.error, SemanticColor.move]
         for (i, a) in table.enumerated() {
             for b in table.dropFirst(i + 1) {
                 #expect(a != b)
