@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Design
 
 /// Single source of truth for how a difference type is drawn, shared by the
 /// tree-pane badges (FileRowView) and the Differences table (DifferencesView)
@@ -22,7 +23,9 @@ enum DifferenceGlyph {
         case .missingOnRight: return color(toRight: true)
         case .missingOnLeft: return color(toRight: false)
         case .differentDates: return .orange
-        case .nameConflict: return .yellow
+        // Caution, not warning: a name conflict needs the user's judgment (which spelling wins?),
+        // nothing was skipped or lost. Value-identical to the old raw .yellow.
+        case .nameConflict: return SemanticColor.caution
         }
     }
 

@@ -89,7 +89,7 @@ struct RenameLens: View {
     private var cleanState: some View {
         EmptyStateView(
             icon: NameNormalizeGlyph.allSafe,
-            tint: .green,
+            tint: SemanticColor.success,
             title: "No risky names — every name is cloud-safe",
             message: "Nothing in \(provider) would trip a cloud sync on its name. Scan again after adding files.",
             secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onScan)
@@ -265,9 +265,12 @@ private struct InvisibleMarkedName: View {
         }
     }
 
+    /// Caution (yellow), not warning (orange): a risky name is a "needs your judgment" find —
+    /// nothing was skipped or lost — matching the header's "risky names" pill so the whole
+    /// risky-name vocabulary sits in one tier. Wash strength shares the pill fill token.
     private func marker(_ glyph: String) -> some View {
         Text(glyph)
-            .foregroundStyle(SemanticColor.warning)
-            .background(SemanticColor.warning.opacity(0.16))
+            .foregroundStyle(SemanticColor.caution)
+            .background(SemanticColor.caution.opacity(PillVariant.fillOpacity))
     }
 }

@@ -119,7 +119,7 @@ struct StorageLensView: View {
         if report.totalBytes == 0 {
             EmptyStateView(
                 icon: "externaldrive.badge.checkmark",
-                tint: .green,
+                tint: SemanticColor.success,
                 title: "Nothing measurable here",
                 message: "No files with size were found in \(scannedName). Analyze again after adding files.",
                 secondary: .init("Analyze again", systemImage: "arrow.clockwise", handler: onBuild)

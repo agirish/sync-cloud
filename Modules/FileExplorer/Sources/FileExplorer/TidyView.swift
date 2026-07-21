@@ -70,7 +70,7 @@ enum TidyMatchStyle {
         switch type {
         case .identical: return SemanticColor.success
         case .overlapping: return SemanticColor.warning
-        case .nameOnly: return .yellow
+        case .nameOnly: return SemanticColor.caution
         case .versions: return .purple
         }
     }
@@ -87,7 +87,7 @@ enum TidyMatchStyle {
         case .all: return .secondary
         case .identical: return SemanticColor.success
         case .overlapping: return SemanticColor.warning
-        case .nameOnly: return .yellow
+        case .nameOnly: return SemanticColor.caution
         case .versions: return .purple
         }
     }
@@ -753,14 +753,14 @@ public struct TidyView: View {
         return Group {
             scannedFolderChip(syncManager.filingScanFolder)
             // "to file" = the loose files showing; "ready" = the ones with a confident home now.
-            StatPill(count: filing.count, label: "to file", color: .blue, systemImage: "doc")
-            StatPill(count: ready, label: "ready", color: .green, systemImage: "checkmark.circle")
+            StatPill(count: filing.count, label: "to file", color: SemanticColor.info, systemImage: "doc")
+            StatPill(count: ready, label: "ready", color: SemanticColor.success, systemImage: "checkmark.circle")
             if newFolders > 0 {
                 StatPill(count: newFolders, label: newFolders == 1 ? "new folder" : "new folders",
                          color: glassHue.accentColor, systemImage: "folder.badge.plus")
             }
             if unsure > 0 {
-                StatPill(count: unsure, label: "unsure", color: .yellow, systemImage: "questionmark.circle")
+                StatPill(count: unsure, label: "unsure", color: SemanticColor.caution, systemImage: "questionmark.circle")
             }
         }
     }
@@ -774,14 +774,14 @@ public struct TidyView: View {
         let needsReview = groups.filter { $0.matchType.kind == .nameOnly }.count
         return Group {
             scannedFolderChip(syncManager.duplicateScanRoot)
-            StatPill(count: groups.count, label: "groups", color: .blue, systemImage: "square.on.square")
+            StatPill(count: groups.count, label: "groups", color: SemanticColor.info, systemImage: "square.on.square")
             ReclaimPill(reclaimableBytes: reclaimable,
                         freedCaption: reclaim.freedCaption(FileSyncManager.formatBytes(reclaim.totalBytes)),
                         flashToken: reclaimFlashToken,
                         reduceMotion: reduceMotion)
             StatPill(count: redundant, label: "redundant", color: .secondary, systemImage: "doc.on.doc")
             if needsReview > 0 {
-                StatPill(count: needsReview, label: "need review", color: .yellow, systemImage: "exclamationmark.triangle")
+                StatPill(count: needsReview, label: "need review", color: SemanticColor.caution, systemImage: "exclamationmark.triangle")
             }
             // Scan-level counterpart to the per-group unverified note (TidyUnverifiedNote): files
             // the scan never content-verified at all, so identical copies among them are absent
@@ -789,7 +789,7 @@ public struct TidyView: View {
             // filtered: these files aren't rows, so no query can include or exclude them.
             if let skipNote = TidyScanSkipNote.text(syncManager.duplicateScanSkips) {
                 StatPill(count: syncManager.duplicateScanSkips.total, label: "skipped",
-                         color: .orange, systemImage: "eye.slash")
+                         color: SemanticColor.warning, systemImage: "eye.slash")
                     .help(skipNote)
                     .accessibilityLabel(skipNote)
             }
@@ -802,7 +802,7 @@ public struct TidyView: View {
         return Group {
             scannedFolderChip(syncManager.nameScanRoot?.path)
             StatPill(count: risky.count, label: risky.count == 1 ? "risky name" : "risky names",
-                     color: .yellow, systemImage: NameNormalizeGlyph.risky)
+                     color: SemanticColor.caution, systemImage: NameNormalizeGlyph.risky)
             if folders > 0 {
                 StatPill(count: folders, label: folders == 1 ? "folder" : "folders",
                          color: .secondary, systemImage: "folder")
@@ -818,7 +818,7 @@ public struct TidyView: View {
             scannedFolderChip(scanTargetFolder)
             StatPill(count: rules.count, label: rules.count == 1 ? "automation" : "automations",
                      color: glassHue.accentColor, systemImage: AutomationsGlyph.lens)
-            StatPill(count: enabled, label: "enabled", color: .green, systemImage: "checkmark.circle")
+            StatPill(count: enabled, label: "enabled", color: SemanticColor.success, systemImage: "checkmark.circle")
         }
     }
 
@@ -829,10 +829,10 @@ public struct TidyView: View {
             scannedFolderChip(syncManager.storageLensRoot?.path)
             Pill(.standard, tint: glassHue.accentColor, systemImage: "externaldrive",
                  text: "\(FileSyncManager.formatBytes(report.totalBytes)) total")
-            StatPill(count: report.largest.count, label: "largest", color: .blue, systemImage: "arrow.up.circle")
+            StatPill(count: report.largest.count, label: "largest", color: SemanticColor.info, systemImage: "arrow.up.circle")
             if !report.reclaimCandidates.isEmpty {
                 StatPill(count: report.reclaimCandidates.count, label: "to reclaim",
-                         color: .green, systemImage: "internaldrive")
+                         color: SemanticColor.success, systemImage: "internaldrive")
             }
         }
     }
@@ -1086,7 +1086,7 @@ public struct TidyView: View {
     private var cleanState: some View {
         EmptyStateView(
             icon: "checkmark.seal.fill",
-            tint: .green,
+            tint: SemanticColor.success,
             title: "No duplicates found",
             message: "Nothing repeats across \(providerName ?? "this provider"). Scan again after adding files.",
             secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindDuplicates)
@@ -1334,7 +1334,7 @@ public struct TidyView: View {
             // not a neutral empty one. Its own glyph (a full tray), never the duplicate finder's seal.
             EmptyStateView(
                 icon: FilingGlyph.allFiled,
-                tint: .green,
+                tint: SemanticColor.success,
                 title: "All filed",
                 message: "Every loose file in \(filingFolderName) is in its home now. Undo any move with ⌘Z, or scan again after adding more.",
                 secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onFindFilingSuggestions)
@@ -1534,21 +1534,21 @@ private struct ReclaimPill: View {
                 Text("· \(freedCaption)")
                     .font(.system(size: 11, weight: .medium))
                     .monospacedDigit()
-                    .foregroundStyle(Color.green.opacity(0.85))
+                    .foregroundStyle(SemanticColor.success.opacity(0.85))
                     .contentTransition(.numericText())
             }
         }
-        .foregroundStyle(Color.green)
+        .foregroundStyle(SemanticColor.success)
         // The standard pill surface, inlined so the glow can ride on top of the shared base
         // values: at rest (glow == 0) this is exactly `pillSurface(.standard)`.
         .padding(.horizontal, PillVariant.standard.horizontalPadding)
         .padding(.vertical, PillVariant.standard.verticalPadding)
         .background(Capsule(style: .continuous)
-            .fill(Color.green.opacity(PillVariant.fillOpacity + 0.30 * glow)))
+            .fill(SemanticColor.success.opacity(PillVariant.fillOpacity + 0.30 * glow)))
         .overlay(Capsule(style: .continuous)
-            .strokeBorder(Color.green.opacity(PillVariant.strokeOpacity + 0.45 * glow),
+            .strokeBorder(SemanticColor.success.opacity(PillVariant.strokeOpacity + 0.45 * glow),
                           lineWidth: PillVariant.strokeWidth + glow))
-        .shadow(color: Color.green.opacity(0.55 * glow), radius: 7 * glow)
+        .shadow(color: SemanticColor.success.opacity(0.55 * glow), radius: 7 * glow)
         .fixedSize()
         // Roll the numbers whenever they change (both the count-down and the count-up caption).
         .animation(.easeInOut(duration: 0.35), value: reclaimableBytes)
