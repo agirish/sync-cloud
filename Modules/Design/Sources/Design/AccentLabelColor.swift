@@ -18,6 +18,16 @@ public enum AccentLabel {
         relativeLuminance(red: red, green: green, blue: blue) > 0.30
     }
 
+    /// The strongest dimming an on-fill label (`onAccentLabel` / `onFillLabel(_:)`) can take and
+    /// still clear the WCAG large-text 3:1 floor over every glass hue. The binding pair is white
+    /// on Graphite (L = 0.25, the lightest fill that still keeps white text): full-strength white
+    /// composites to ~3.5:1 there, 0.9 lands at ~3.14:1, and the old ad-hoc 0.85 fell to ~2.97:1 —
+    /// under the floor. Secondary runs on an accent fill (the Log window's selected-chip count)
+    /// must dim with THIS constant, never a local literal;
+    /// `AccentLabelColorTests.everyGlassHueDimmedLabelClearsLargeTextContrast` pins the pairing
+    /// against future hue additions.
+    public static let dimmedOnFillOpacity: CGFloat = 0.9
+
     /// WCAG relative luminance of sRGB components (linearized, Rec. 709 weights).
     public static func relativeLuminance(red: CGFloat, green: CGFloat, blue: CGFloat) -> CGFloat {
         func linear(_ component: CGFloat) -> CGFloat {

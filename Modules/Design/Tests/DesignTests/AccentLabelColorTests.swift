@@ -57,6 +57,23 @@ import SwiftUI
         }
     }
 
+    /// The dimmed twin of the invariant above, for secondary runs on an accent fill (the Log
+    /// window's selected-chip count): the label dimmed to `AccentLabel.dimmedOnFillOpacity` must
+    /// STILL clear 3:1 on every hue. Graphite is the binding pair — white on it sits ~0.5 above
+    /// the floor at full strength, the old ad-hoc 0.85 dim fell to ~2.97:1, and 0.9 is the
+    /// strongest dimming that stays legal (~3.14:1). Pinned per-hue so a future hue addition
+    /// (or a "harmless" bump of the constant) can't slide back under the floor unnoticed.
+    @Test func everyGlassHueDimmedLabelClearsLargeTextContrast() {
+        for hue in LiquidGlassHue.allCases where hue != .none {
+            let fill = srgb(hue.accentColor)
+            let dimmed = SwiftUI.Color.onFillLabel(hue.accentColor)
+                .opacity(AccentLabel.dimmedOnFillOpacity)
+            let label = srgb(dimmed)
+            let ratio = contrast(luminance(of: composite(label, over: fill)), luminance(of: fill))
+            #expect(ratio >= 3.0, "\(hue) dimmed label is only \(ratio):1 on its own fill")
+        }
+    }
+
     // MARK: - Contrast helpers
 
     private func srgb(_ color: Color) -> NSColor {

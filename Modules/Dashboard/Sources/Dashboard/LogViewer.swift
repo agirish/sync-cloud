@@ -456,7 +456,11 @@ public struct LogViewer: View {
                 Text(label)
                 Text(count.formatted())
                     .monospacedDigit()
-                    .foregroundStyle(selected ? AnyShapeStyle(onAccent.opacity(0.85)) : AnyShapeStyle(.secondary))
+                    // Dimmed via the shared floor constant, not a local literal: 0.85 white on
+                    // the Graphite hue composited to ~2.97:1, under the 3:1 large-text minimum.
+                    .foregroundStyle(selected
+                        ? AnyShapeStyle(onAccent.opacity(AccentLabel.dimmedOnFillOpacity))
+                        : AnyShapeStyle(.secondary))
             }
             .font(.caption.weight(.medium))
             .padding(.horizontal, 10)
