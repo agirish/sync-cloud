@@ -97,6 +97,77 @@ import Foundation
         #expect(manager.banner == nil)
     }
 
+    // MARK: Duplicate registrations
+
+    /// The duplicate-registration guard must hold on the PERMANENT-delete path too: one path
+    /// registered twice (the second copy replaced the first) on a Trash-less volume puts BOTH
+    /// items into trashFailures. Without the guard there, item A's removeItem + backup restore
+    /// was followed by item B's removeItem PERMANENTLY UNLINKING the just-restored pre-batch
+    /// original — silent data loss with a clean log — and the confirmation prompt named the
+    /// same file twice.
+    @MainActor
+    @Test func copyUndoDuplicateRegistrationOnTrashlessVolumeRemovesOnce() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/srcA"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/srcB"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/srcA/f.txt"] = file(100)
+        mockFM.virtualDisk["/srcB/f.txt"] = file(200)
+        mockFM.virtualDisk["/dst/f.txt"] = file(5)      // the pre-batch original
+
+        // Installed BEFORE the copy: the undo registration captures the confirmer.
+        var promptedNames: [String] = []
+        manager.permanentDeleteConfirmer = { names in promptedNames = names; return true }
+
+        // One batch, two same-named sources: the replace resolver registers /dst/f.txt twice.
+        await manager.copyItems(nodes: [FileNode(id: "/srcA/f.txt", name: "f.txt", isDirectory: false),
+                                        FileNode(id: "/srcB/f.txt", name: "f.txt", isDirectory: false)],
+                                toPath: "/dst", fileManager: mockFM)
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 200)
+
+        mockFM.shouldFailTrash = true                    // Trash-less volume from here on
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(promptedNames == ["f.txt"])              // named once, not per registration
+        // The pre-batch original survived its restore — item B must not have unlinked it.
+        #expect(mockFM.virtualDisk["/dst/f.txt"]?.attributes?[FileAttributeKey.size] as? Int == 5)
+    }
+
+    /// The duplicate gate must also recognize CASE-VARIANT registrations of one on-disk file
+    /// (the destination volume folds case; the registered strings need not). After the first
+    /// variant is handled, the second's exact string misses the set — and the vanished branch
+    /// then restored ITS backup, resurrecting content the undo had just removed. The folded
+    /// check is volume-gated: on a case-sensitive destination two variants are two real files
+    /// and the exact behavior stands.
+    @MainActor
+    @Test func copyUndoCaseVariantDuplicateNeverResurrectsThroughTheVanishedBranch() async throws {
+        let manager = makeManager()
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/F.txt"] = file(100)
+        mockFM.virtualDisk["/src/f.txt"] = file(200)
+        mockFM.virtualDisk["/dst/f.txt"] = file(5)       // displaced by the second copy → its backup
+
+        await manager.copyItems(nodes: [FileNode(id: "/src/F.txt", name: "F.txt", isDirectory: false),
+                                        FileNode(id: "/src/f.txt", name: "f.txt", isDirectory: false)],
+                                toPath: "/dst", fileManager: mockFM)
+
+        // The user deletes the lowercase variant, then undoes. (The mock disk is exact-string,
+        // so the two variants are separate keys; the REAL destination volume — which gates the
+        // folded check — is the case-insensitive macOS default, where they name one file.)
+        try mockFM.removeItem(at: URL(fileURLWithPath: "/dst/f.txt"))
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        // The folded duplicate gate must swallow the second variant: no backup resurrection
+        // at the vanished path.
+        #expect(mockFM.virtualDisk["/dst/f.txt"] == nil)
+    }
+
     // MARK: Vanished copies
 
     /// A copied DIRECTORY the user already deleted themselves must not raise the phantom

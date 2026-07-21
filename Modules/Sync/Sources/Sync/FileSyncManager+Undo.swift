@@ -239,9 +239,33 @@ extension FileSyncManager {
                         // item 1's trash, item 2 finds its destination "gone" — but not
                         // externally-gone, and restoring ITS backup would resurrect the
                         // intermediate copy item 1 just removed.
+                        // Exact strings PLUS a folded form: a batch can register one on-disk
+                        // file under two spellings ("F.txt" then "f.txt" via the replace
+                        // prompt), and the second must be recognized as already handled or its
+                        // backup restore resurrects content this run just removed. Folding is
+                        // gated on the destination VOLUME's case semantics (per parent — on a
+                        // case-sensitive volume two variants are two real files and only the
+                        // exact match may skip); Unicode always precomposes (APFS/HFS+ lookups
+                        // are normalization-insensitive on every volume).
                         var handledDestinations = Set<String>()
+                        var handledFoldedDestinations = Set<String>()
+                        var duplicateRegistrations = 0
+                        func foldedKey(_ url: URL) -> String {
+                            let precomposed = url.path.precomposedStringWithCanonicalMapping
+                            let caseSensitive = FileSyncManager.volumeSupportsCaseSensitiveNames(for: url.deletingLastPathComponent())
+                            return caseSensitive ? precomposed : precomposed.lowercased()
+                        }
+                        func markHandled(_ url: URL) {
+                            handledDestinations.insert(url.path)
+                            handledFoldedDestinations.insert(foldedKey(url))
+                        }
+                        func alreadyHandled(_ url: URL) -> Bool {
+                            handledDestinations.contains(url.path)
+                                || handledFoldedDestinations.contains(foldedKey(url))
+                        }
                         for item in items {
-                            if handledDestinations.contains(item.destination.path) {
+                            if alreadyHandled(item.destination) {
+                                duplicateRegistrations += 1
                                 logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled by an earlier item of this run — skipping its duplicate registration")
                                 continue
                             }
@@ -257,7 +281,7 @@ extension FileSyncManager {
                             // missing-folder case the same way.)
                             if !fm.fileExists(atPath: item.destination.path) {
                                 vanished += 1
-                                handledDestinations.insert(item.destination.path)
+                                markHandled(item.destination)
                                 logger.info("Undo (\(actionName)): \(item.destination.lastPathComponent) is no longer on disk — nothing to remove")
                                 undoneCopies.append((source: item.source, destination: item.destination))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
@@ -293,7 +317,7 @@ extension FileSyncManager {
                                 continue
                             }
                             removed += 1
-                            handledDestinations.insert(item.destination.path)
+                            markHandled(item.destination)
                             undoneCopies.append((source: item.source, destination: item.destination))
 
                             switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
@@ -304,14 +328,30 @@ extension FileSyncManager {
                         }
 
                         if !trashFailures.isEmpty {
+                            // The prompt lists each on-disk file ONCE: a duplicate-registered
+                            // path (both attempts failed trash) must not read as two files.
+                            var promptedFolded = Set<String>()
+                            let promptNames = trashFailures.compactMap { item -> String? in
+                                promptedFolded.insert(foldedKey(item.destination)).inserted
+                                    ? item.destination.lastPathComponent : nil
+                            }
                             let confirmed = await MainActor.run {
-                                confirmPermanentDelete(trashFailures.map { $0.destination.lastPathComponent })
+                                confirmPermanentDelete(promptNames)
                             }
                             guard confirmed else {
                                 await redoParamResolver.resolve(undoneCopies)
                                 return
                             }
                             for item in trashFailures {
+                                // Same duplicate guard as the main loop — on a Trash-less
+                                // volume BOTH registrations of one path land here, and without
+                                // this check item B's removeItem permanently unlinked the
+                                // pre-batch original item A had just restored.
+                                if alreadyHandled(item.destination) {
+                                    duplicateRegistrations += 1
+                                    logger.debug("Undo (\(actionName)): \(item.destination.lastPathComponent) already handled — skipping its duplicate permanent-delete")
+                                    continue
+                                }
                                 do {
                                     try fm.removeItem(at: item.destination)
                                 } catch {
@@ -321,7 +361,7 @@ extension FileSyncManager {
                                     continue
                                 }
                                 removed += 1
-                                handledDestinations.insert(item.destination.path)
+                                markHandled(item.destination)
                                 undoneCopies.append((source: item.source, destination: item.destination))
                                 switch await FileSyncManager.restoreOverwrittenBackup(item.overwritten, to: item.destination, actionName: actionName, fileManager: fm, on: target) {
                                 case .restored: restored += 1
@@ -332,7 +372,7 @@ extension FileSyncManager {
                         }
 
                         await redoParamResolver.resolve(undoneCopies)
-                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
+                        logger.info("Undo (\(actionName)): removed \(removed) of \(items.count) copied item(s), \(vanished) already gone, \(duplicateRegistrations) duplicate registration(s) skipped, restored \(restored) overwritten original(s), \(restoreFailures) restore failure(s), \(leftInPlace) left in place (changed or busy)")
                 }
             }
         }
