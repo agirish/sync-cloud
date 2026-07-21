@@ -110,6 +110,30 @@ import Sync
             named: "expanded-identical-folders")
     }
 
+    /// Compact-density twin of the expanded card above (same fixture, same canvas): pins the
+    /// density behavior nothing else snapshots — tighter header/row padding and the hidden
+    /// secondary detail lines — so a compact regression can't hide behind a green comfortable run.
+    @Test func tidyGroupCardExpandedIdenticalFoldersCompact() {
+        let group = DuplicateGroup(
+            matchType: .identical,
+            name: "Tax 2025",
+            isDirectory: true,
+            copies: [
+                Self.copy(path: "/d/Documents/Tax 2025", keeper: true, isDirectory: true),
+                Self.copy(path: "/d/Desktop/Backup/Tax 2025", keeper: false, isDirectory: true),
+            ],
+            reclaimableBytes: 96_400_000)
+        assertViewSnapshot(
+            of: TidyGroupCard(
+                group: group, isExpanded: true, providerName: "iCloud Drive", scanRoot: "/d",
+                densityMetrics: ListDensity.compact.metrics,
+                onToggle: {}, onApply: {}, onReveal: {}, onKeepSeparate: {},
+                onChooseKeeper: { _ in }, onMerge: {})
+                .padding(12),
+            size: CGSize(width: 640, height: 330),
+            named: "expanded-identical-folders-compact")
+    }
+
     // MARK: ConditionChip + FlowLayout
 
     /// A rule's condition chips at card width: chips wrap onto new lines, and one over-wide

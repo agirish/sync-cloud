@@ -469,8 +469,11 @@ private struct TidyArt: View {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 22))
                         .foregroundStyle(SemanticColor.success)
-                        // The knockout disc behind the check tracks the appearance — a
-                        // hard-coded `.white` glowed against the dark-mode art.
+                        // The knockout disc behind the check adapts light/dark (a hard-coded
+                        // `.white` glowed against the dark-mode art). It does NOT exactly match
+                        // the frosted glass card it sits on — that backdrop runs darker than
+                        // `windowBackgroundColor` in dark mode — but the disc is almost fully
+                        // covered by the glyph, so the near-miss is invisible.
                         .background(Circle().fill(Color(nsColor: .windowBackgroundColor)).padding(2))
                         .offset(x: 7, y: 5)
                         .scaleEffect(appeared ? 1 : 0.2)

@@ -159,7 +159,11 @@ private struct RiskyNameCard: View {
                     } else {
                         // Compact drops the visible reason line — keep the "why is this risky"
                         // reachable: a tooltip on the rename row, and the same text for VoiceOver.
+                        // Combined first (the whyRow precedent): the rename row is a multi-element
+                        // HStack, and an `.accessibilityValue` on an uncombined container may never
+                        // be voiced because VO walks the children individually.
                         renameRow
+                            .accessibilityElement(children: .combine)
                             .help(risky.reason)
                             .accessibilityValue(risky.reason)
                     }

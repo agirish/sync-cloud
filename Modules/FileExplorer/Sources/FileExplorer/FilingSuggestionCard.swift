@@ -50,7 +50,11 @@ struct FilingSuggestionCard: View {
                         } else if let rationale = rationale(best) {
                             // Compact hides the whyRow (which carried the filing rationale for
                             // VoiceOver) — keep the "why here" reachable on the destination row.
+                            // Combined first (the whyRow precedent below): the destination row is
+                            // a multi-element HStack, and an `.accessibilityValue` on an uncombined
+                            // container may never be voiced — VO walks the children individually.
                             destinationRow(best)
+                                .accessibilityElement(children: .combine)
                                 .help(rationale)
                                 .accessibilityValue(rationale)
                         } else {
@@ -205,12 +209,22 @@ struct FilingSuggestionCard: View {
         Pill(.mini, tint: hueAccent, systemImage: "sparkles", text: "AI suggestion")
     }
 
-    /// The "why here" text the whyRow carries in comfortable density — reused as the compact
-    /// fallback (tooltip + VoiceOver value on the destination row) when the row is hidden.
+    /// The full "why here" rationale as one string: the stated reason (or the content-evidence
+    /// sentence when there's no prose reason) plus the neighbor-corroboration note when the
+    /// destination already holds similar files. The single source for BOTH the whyRow's VoiceOver
+    /// label and the compact fallback's tooltip/`accessibilityValue`, so the two surfaces can't
+    /// drift and compact keeps the "N similar files already here" detail.
     private func rationale(_ dest: FilingDestination) -> String? {
-        if let reason = dest.reasons.first { return reason }
-        if let token = dest.evidenceToken { return "Matched \(token) read from the file" }
-        return nil
+        let base: String
+        if let reason = dest.reasons.first {
+            base = reason
+        } else if let token = dest.evidenceToken {
+            base = "Matched \(token) read from the file"
+        } else {
+            return nil
+        }
+        guard let note = neighborNote(dest) else { return base }
+        return "\(base) · \(note)"
     }
 
     // MARK: G4 — legible content evidence
@@ -232,7 +246,7 @@ struct FilingSuggestionCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(dest.reasons.first ?? "Matched \(token) read from the file")
+            .accessibilityLabel(rationale(dest) ?? "Matched \(token) \(evidenceTail(dest))")
         } else if let reason = dest.reasons.first {
             HStack(alignment: .top, spacing: 6) {
                 Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(SemanticColor.info)
@@ -245,8 +259,16 @@ struct FilingSuggestionCard: View {
     /// The descriptive tail after the highlighted evidence chip, naming the neighbor corroboration
     /// ("N similar files already here") when the target already holds matching files.
     private func evidenceTail(_ dest: FilingDestination) -> String {
-        guard dest.neighborMatches > 0 else { return "read from the file" }
-        return "read from the file · \(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
+        guard let note = neighborNote(dest) else { return "read from the file" }
+        return "read from the file · \(note)"
+    }
+
+    /// "N similar file(s) already here" when the destination already holds matching files; nil
+    /// otherwise. Shared by the visible `evidenceTail` and the `rationale` string so the neighbor
+    /// wording exists exactly once.
+    private func neighborNote(_ dest: FilingDestination) -> String? {
+        guard dest.neighborMatches > 0 else { return nil }
+        return "\(dest.neighborMatches) similar file\(dest.neighborMatches == 1 ? "" : "s") already here"
     }
 
     /// The tier this card's confidence falls into — the single key shared by the chip and the meter
