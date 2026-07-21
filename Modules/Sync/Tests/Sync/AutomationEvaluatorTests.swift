@@ -105,15 +105,41 @@ import Testing
         #expect(!AutomationEvaluator.matches(allFail, f, now: now))
     }
 
-    @Test func incompleteConditionsAreIgnoredAndEmptyRuleNeverMatches() {
+    @Test func incompleteConditionsNeverMatchAndNeverBroaden() {
         // A rule with only an incomplete condition matches nothing.
         let empty = AutomationRule(name: "r", conditions: [.nameMatches("   ")], destinationTemplate: "X")
         #expect(!AutomationEvaluator.matches(empty, facts("a.pdf"), now: now))
-        // A complete condition alongside an incomplete one still evaluates on the complete one.
+        // ROUND-4 SEMANTICS CHANGE (this used to pin the opposite): an ALL-OF rule with an
+        // incomplete member no longer evaluates on the complete remainder — that silently
+        // broadened "kind is PDF AND text contains <blank>" to every PDF. All-of with any
+        // incomplete condition matches nothing; the half-built rule stays saved, just inert.
         let mixed = AutomationRule(name: "r", matchMode: .all,
                                    conditions: [.kindIs(.pdf), .contentContains("")],
                                    destinationTemplate: "X")
-        #expect(AutomationEvaluator.matches(mixed, facts("a.pdf"), now: now))
+        #expect(!AutomationEvaluator.matches(mixed, facts("a.pdf"), now: now))
+    }
+
+    @Test func allOfRuleWithAnIncompleteConditionNeverMatches() {
+        // "All of" cannot be proven when one condition is unevaluatable: filtering the
+        // incomplete row out silently BROADENED the rule to whatever the complete conditions
+        // match — "kind is PDF AND mentions <blank>" fired for every PDF (and an already-
+        // stored .mentionsAll([]) from the pre-gate editor did the same). An all-of rule with
+        // any incomplete condition now matches nothing; any-of still ignores incomplete
+        // disjuncts (dropping one only narrows).
+        let allOf = AutomationRule(name: "r", matchMode: .all,
+                                   conditions: [.kindIs(.pdf), .mentionsAll([""])],
+                                   destinationTemplate: "X")
+        #expect(!AutomationEvaluator.matches(allOf, facts("a.pdf"), now: now))
+
+        let anyOf = AutomationRule(name: "r", matchMode: .any,
+                                   conditions: [.kindIs(.pdf), .mentionsAll([""])],
+                                   destinationTemplate: "X")
+        #expect(AutomationEvaluator.matches(anyOf, facts("a.pdf"), now: now))
+
+        let complete = AutomationRule(name: "r", matchMode: .all,
+                                      conditions: [.kindIs(.pdf)],
+                                      destinationTemplate: "X")
+        #expect(AutomationEvaluator.matches(complete, facts("a.pdf"), now: now))
     }
 
     @Test func couldMatchPendingContentIsOptimisticAboutText() {
@@ -162,6 +188,22 @@ import Testing
         #expect(AutomationEvaluator.resolveDestination("Docs/{year}", for: contradicting,
                                                        providerName: nil, now: now)
                 == .resolved("Docs/2023"))
+
+        // The COMPOSITE ban must survive hand-composition: "{year}-{month}" (both tokens sit
+        // side by side in the Insert-token menu) resolved {year} from the filename and {month}
+        // from the mtime — minting the exact neither-source date {yyyy-mm} forbids. {month}
+        // therefore carries the same contradiction guard: when the filename names a different
+        // year, the document's month is unknowable and the token goes unresolved.
+        #expect(AutomationEvaluator.resolveDestination("Docs/{year}-{month}", for: contradicting,
+                                                       providerName: nil, now: now)
+                == .unresolved(token: "{month}"))
+        #expect(AutomationEvaluator.resolveDestination("Docs/{month}", for: contradicting,
+                                                       providerName: nil, now: now)
+                == .unresolved(token: "{month}"))
+        // Agreeing or absent filename years keep {month} resolving from the mtime.
+        #expect(AutomationEvaluator.resolveDestination("Docs/{year}-{month}", for: agreeing,
+                                                       providerName: nil, now: now)
+                == .resolved("Docs/2024-07"))
     }
 
     @Test func unresolvableTokensAreReported() {

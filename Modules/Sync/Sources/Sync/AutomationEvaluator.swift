@@ -179,9 +179,16 @@ public enum AutomationEvaluator {
         }
     }
 
-    /// Whether the whole rule matches the file. Incomplete conditions are ignored; a rule with no
-    /// complete conditions never matches.
+    /// Whether the whole rule matches the file. In ANY-OF mode incomplete conditions are ignored
+    /// (dropping a disjunct only narrows); in ALL-OF mode an incomplete condition makes the rule
+    /// match NOTHING — "all" cannot be proven when one condition is unevaluatable, and filtering
+    /// it out silently broadened the rule to whatever the complete conditions match (the trap the
+    /// editor's Save gate blocks going forward, and this closes for already-stored rules). A rule
+    /// with no complete conditions never matches.
     public static func matches(_ rule: AutomationRule, _ facts: AutomationFileFacts, now: Date) -> Bool {
+        if rule.matchMode == .all, rule.conditions.contains(where: { !$0.isComplete }) {
+            return false
+        }
         let active = rule.conditions.filter { $0.isComplete }
         guard !active.isEmpty else { return false }
         switch rule.matchMode {
@@ -250,6 +257,14 @@ public enum AutomationEvaluator {
         }
         func month() -> String? {
             guard let d = facts.modificationDate else { return nil }
+            // Same contradiction guard as {yyyy-mm}: the month can only come from the mtime,
+            // and when the filename names a DIFFERENT year the document's month is unknowable —
+            // resolving would let a hand-composed "{year}-{month}" template mint the exact
+            // neither-source date the composite token forbids.
+            if let named = FilingEngine.filenameYear(in: FilingEngine.fileTokens(facts.name), now: now),
+               named != String(cal.component(.year, from: d)) {
+                return nil
+            }
             return String(format: "%02d", cal.component(.month, from: d))
         }
         // {yyyy-mm} takes BOTH components from ONE clock — the mtime. {year} alone may prefer
