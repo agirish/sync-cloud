@@ -93,6 +93,11 @@ public class FileSyncManager: ObservableObject {
     /// carries Filing/rename/"New Folder" actions that are not sync runs and are not in the history.
     private(set) var lastRecordedRunUndoName: String?
     private(set) var lastRecordedRunRecords: [SyncHistoryRecord] = []
+    /// Whether any run armed the pairing this session — distinguishes "the pairing was
+    /// invalidated" (a manual ⌘Z, a mixed delete, a manager swap) from "no sync run ever
+    /// happened", so the refusal banner doesn't claim history changed "since the last sync
+    /// run" on a fresh launch that never had one.
+    private(set) var hasArmedRunPairingThisSession = false
 
     /// Records a run's history entries, if any. A thin funnel so every op site records the same
     /// way and a future change (e.g. off switch) has one place to live. Never fails the caller.
@@ -111,6 +116,7 @@ public class FileSyncManager: ObservableObject {
         guard pairedWithUndo else { return }
         lastRecordedRunUndoName = undoManager?.undoActionName
         lastRecordedRunRecords = records
+        hasArmedRunPairingThisSession = true
     }
 
     /// Drops the run-undo pairing. Called on every direct `UndoManager` undo/redo (the
@@ -157,7 +163,10 @@ public class FileSyncManager: ObservableObject {
                 // A DEAD pairing (a manual ⌘Z/⇧⌘Z or a partial delete invalidated it) is not a
                 // name mismatch: the top may well be named "Sync run", and the old text — "the
                 // most recent action is “Sync run”, not a sync run" — contradicted itself.
-                if lastRecordedRunUndoName == nil {
+                // NEVER-ARMED is different again: on a fresh launch with no sync run, "the undo
+                // history changed since the last sync run" would invent a run — name the top
+                // action instead (the pre-existing text, which is honest there).
+                if lastRecordedRunUndoName == nil && hasArmedRunPairingThisSession {
                     banner = .warning("The undo history changed since the last sync run — use Edit ▸ Undo (⌘Z) to step back.")
                 } else {
                     banner = .warning(top.isEmpty

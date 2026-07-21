@@ -144,6 +144,9 @@ public struct LogViewer: View {
     @State private var historyLimit = LogViewer.historyPageSize
     /// True while the file read/parse is in flight, so the button shows progress and can't double-fire.
     @State private var isLoadingHistory = false
+    /// Bumped by Clear Logs so an in-flight history load parsed from the PRE-clear file
+    /// discards its result instead of resurrecting deleted rows over the reset state.
+    @State private var historyLoadGeneration = 0
 
     /// Page size for the on-demand history: the first "Show older history" reveals this many, and each
     /// "Show more" reveals another page.
@@ -205,10 +208,16 @@ public struct LogViewer: View {
         // would pull current-session lines (and the ms-truncated launch breadcrumb) into "history".
         let boundary = logger.sessionStart
         let fileURL = logger.logFileURL
+        // Generation guard: Clear Logs mid-flight resets the history state, and a completion
+        // parsed from the PRE-clear file must not overwrite that reset — it would resurrect
+        // deleted rows AND (loadedHistory being non-nil again) hide the reload button for the
+        // window's lifetime.
+        let generation = historyLoadGeneration
         Task {
             let history = await Task.detached(priority: .userInitiated) {
                 LogHistoryLoader.loadOlderThan(boundary, fileURL: fileURL)
             }.value
+            guard generation == historyLoadGeneration else { return }
             historyLimit = Self.historyPageSize
             loadedHistory = history
             isLoadingHistory = false
@@ -247,8 +256,12 @@ public struct LogViewer: View {
                     // pin the "Show older history" button away for the window's lifetime —
                     // it only reappears while loadedHistory is nil). Reset to the
                     // never-loaded state; a re-click re-reads the now-empty file honestly.
+                    // The generation bump makes any IN-FLIGHT load discard its pre-clear
+                    // result instead of overwriting this reset.
+                    historyLoadGeneration += 1
                     loadedHistory = nil
                     historyLimit = Self.historyPageSize
+                    isLoadingHistory = false
                 }) {
                     Image(systemName: "trash")
                 }

@@ -343,9 +343,14 @@ extension FileSyncManager {
                         // hour-old file was sweep-eligible on the very next refresh, making the
                         // "preserved at" pointer stale within minutes. Touching grants the full
                         // grace hour at the logged path (after which the sweep Trashes it,
-                        // still recoverable).
-                        try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: tempURL.path)
-                        detail = "The original could not be put back at its path; its content is preserved in the hidden file “\(tempURL.lastPathComponent)” next to the destination."
+                        // still recoverable). A FAILED touch (busy temp — one of the very
+                        // causes of this branch) forfeits that grace, so the message must not
+                        // promise it.
+                        let touched = (try? fileManager.setAttributes(
+                            [.modificationDate: Date()], ofItemAtPath: tempURL.path)) != nil
+                        detail = touched
+                            ? "The original could not be put back at its path; its content is preserved in the hidden file “\(tempURL.lastPathComponent)” next to the destination."
+                            : "The original could not be put back at its path; its content is currently in the hidden file “\(tempURL.lastPathComponent)” next to the destination, which the periodic cleanup may soon move to the Trash — recover it from either place."
                     } else {
                         // replaceItem may consume the staged item into the system's
                         // item-replacement directory before failing — then the temp is gone
