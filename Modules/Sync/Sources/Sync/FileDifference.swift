@@ -103,7 +103,12 @@ public struct FileDifference: Identifiable, Equatable, Sendable {
             rightItemPath: leftItemPath,
             type: type.mirrored,
             action: action.mirrored,
-            description: Self.mirroredDescription(description),
+            // A .nameConflict description is side-neutral by construction — it quotes both
+            // leaf names PRECISELY (showing exact spellings is its purpose) and provider
+            // names travel with their files through a swap. The side-phrase rewrite must not
+            // touch it: a quoted file name containing "on right" would be rewritten into a
+            // name that doesn't exist, on the one row type built to show exact names.
+            description: type == .nameConflict ? description : Self.mirroredDescription(description),
             isSyncing: isSyncing,
             leftFileSize: rightFileSize,
             rightFileSize: leftFileSize,

@@ -20,9 +20,17 @@ public enum IgnoreRules {
     /// Case-insensitive wildcard match of one name component against one pattern.
     /// Iterative `*` backtracking (the classic two-pointer glob), so a pathological
     /// pattern can't recurse deeply.
+    ///
+    /// Both sides precompose (NFC) before the scalar walk: patterns arrive NFC from the
+    /// keyboard while on-disk names are often NFD (HFS+ heritage, NFD-normalizing providers),
+    /// and a scalar-exact comparison made an NFC "Résumé*" silently never match — the same
+    /// fold `ProviderNameRules.normalizedComponent` applies for the same reason. Precomposing
+    /// also lets `?` treat an accented letter as one unit for canonical cases; a grapheme that
+    /// stays multi-scalar even precomposed (emoji ZWJ sequences) still counts per scalar —
+    /// accepted, since such names in ignore patterns are vanishingly rare.
     static func nameMatches(_ name: String, pattern: String) -> Bool {
-        let n = Array(name.lowercased().unicodeScalars)
-        let p = Array(pattern.lowercased().unicodeScalars)
+        let n = Array(name.precomposedStringWithCanonicalMapping.lowercased().unicodeScalars)
+        let p = Array(pattern.precomposedStringWithCanonicalMapping.lowercased().unicodeScalars)
         var nIdx = 0, pIdx = 0
         var starIdx = -1, backtrackNIdx = 0
 

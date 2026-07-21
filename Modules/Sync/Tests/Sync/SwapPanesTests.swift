@@ -233,6 +233,25 @@ import Foundation
     /// Pin: `mirrored()` is an exact involution, and description mirroring flips only the
     /// side-relative phrase — provider names travel with their files and stay untouched, and
     /// direction-free descriptions pass through unchanged.
+    @Test func testMirroredNameConflictKeepsQuotedNamesVerbatim() async throws {
+        // A .nameConflict description quotes both leaf names PRECISELY (its whole purpose is
+        // showing exact spellings), and provider names travel with their files through a swap —
+        // the text is side-neutral by construction. The blanket "on right"→"on left" rewrite
+        // mangled any quoted file name containing those phrases: the one row type built to
+        // show exact names displayed names that don't exist.
+        let description = ProviderNameRules.nameConflictDescription(
+            leftName: "essay on right.txt", leftProvider: "iCloud",
+            rightName: "essay on right.txt.", rightProvider: "Dropbox")
+        let diff = FileDifference(
+            relativePath: "essay on right.txt",
+            leftItemPath: "/l/essay on right.txt",
+            rightItemPath: "/r/essay on right.txt.",
+            type: .nameConflict,
+            action: .copyToRight,
+            description: description)
+        #expect(diff.mirrored().description == description)   // verbatim, no side rewrite
+    }
+
     @Test func testMirroredDescriptionAndInvolution() async throws {
         #expect(FileDifference.mirroredDescription("Folder missing on right (iCloud)")
             == "Folder missing on left (iCloud)")
