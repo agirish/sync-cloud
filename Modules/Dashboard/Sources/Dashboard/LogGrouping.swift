@@ -103,7 +103,10 @@ enum LogGrouping {
                     id: run[0].id.uuidString, kind: kind, children: run,
                     level: level, timestamp: run[0].timestamp)))
             } else {
-                items.append(.entry(run[0]))
+                // EVERY entry of a too-short run stays visible. With the default minRun of 2
+                // this branch only ever sees a single entry, but appending just run[0] was a
+                // latent drop of entries 2..n should the threshold ever rise.
+                items.append(contentsOf: run.map { .entry($0) })
             }
             i = j
         }

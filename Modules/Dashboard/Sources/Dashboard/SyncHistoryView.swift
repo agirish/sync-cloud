@@ -378,6 +378,12 @@ private struct SyncHistoryRow: View {
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        // Pinned locale + calendar (the Logger's own rule): an unpinned fixed-format
+        // DateFormatter follows the system region, so a Buddhist-calendar region rendered
+        // years like 2569 — disagreeing with the same window's ISO-8601 CSV/JSON export.
+        // The timezone deliberately stays local: this column is display, not interchange.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter
     }()

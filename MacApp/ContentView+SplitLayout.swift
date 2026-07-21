@@ -162,6 +162,19 @@ extension ContentView {
                 paneColumn(isLeft: true)
                     .panesRegionFrame(surfaceStyle, level: glassLevel)
                     .frame(width: railWidth)
+                    // The same Space → Quick Look the comparison panes get (ShortcutsReference
+                    // promises it "in the panes", and the rail IS a pane) — scoped to the rail
+                    // column so the workspace's own Space handlers are untouched. The right
+                    // selection is explicitly empty: the hidden Compare pane's leftover
+                    // selection must not hijack the preview.
+                    .onKeyPress(.space) {
+                        guard let targetPath = PaneLogic.primarySelectionPath(
+                            leftSelection: syncManager.selectedLeftPaths,
+                            rightSelection: []
+                        ) else { return .ignored }
+                        quickLookURL = URL(fileURLWithPath: targetPath)
+                        return .handled
+                    }
                 bottomPaneView
                     .frame(width: totalWidth - railWidth)
             }

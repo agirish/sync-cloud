@@ -16,6 +16,13 @@ public struct DiffStatusIndex: Equatable, Sendable {
     private let statusByPath: [String: FileDifference.DifferenceType]
     /// Absolute path of a directory → number of differences anywhere beneath it.
     private let containedDiffCounts: [String: Int]
+    /// Case/NFC-folded directory path → count, the fallback for panes on case-insensitive
+    /// volumes: a MISSING row's expected path carries the SOURCE side's ancestor casing all
+    /// the way down, so the destination pane's real folder ("docs" receiving a copy credited
+    /// under "Docs") matched no exact key and showed no badge. Empty when `foldsCase` is
+    /// false — on a case-sensitive volume "Docs" and "docs" are distinct real folders and a
+    /// folded hit would badge the wrong one.
+    private let foldedContainedDiffCounts: [String: Int]
 
     /// Index with no differences: every lookup returns nil/zero.
     public static let empty = DiffStatusIndex(differences: [], rootPath: "")
@@ -24,11 +31,14 @@ public struct DiffStatusIndex: Equatable, Sendable {
     ///   - differences: Current diff results for the focused comparison.
     ///   - rootPath: Absolute path of this pane's comparison root (the folder whose
     ///     children the pane's tree shows). Trailing slashes are tolerated.
-    public init(differences: [FileDifference], rootPath: String) {
+    ///   - foldsCase: Pass true when this pane's volume is case-insensitive; enables the
+    ///     folded contained-count fallback described above.
+    public init(differences: [FileDifference], rootPath: String, foldsCase: Bool = false) {
         let root = Self.normalizedRoot(rootPath)
         guard !rootPath.isEmpty, !differences.isEmpty else {
             statusByPath = [:]
             containedDiffCounts = [:]
+            foldedContainedDiffCounts = [:]
             return
         }
 
@@ -76,6 +86,16 @@ public struct DiffStatusIndex: Equatable, Sendable {
 
         statusByPath = status
         containedDiffCounts = counts
+        if foldsCase {
+            var folded: [String: Int] = [:]
+            folded.reserveCapacity(counts.count)
+            for (path, count) in counts {
+                folded[Self.foldedKey(path), default: 0] += count
+            }
+            foldedContainedDiffCounts = folded
+        } else {
+            foldedContainedDiffCounts = [:]
+        }
     }
 
     /// Difference type for the node itself, or nil when the node is in sync.
@@ -84,9 +104,19 @@ public struct DiffStatusIndex: Equatable, Sendable {
     }
 
     /// Number of differences anywhere beneath this directory node (0 for files
-    /// and for directories with no differing descendants).
+    /// and for directories with no differing descendants). Exact key first; on a
+    /// case-insensitive pane a miss falls back to the folded key, so the destination
+    /// folder of a case-variant ancestor chain still shows its badge.
     public func containedDiffCount(forNodeId id: String) -> Int {
-        containedDiffCounts[id] ?? 0
+        if let exact = containedDiffCounts[id] { return exact }
+        guard !foldedContainedDiffCounts.isEmpty else { return 0 }
+        return foldedContainedDiffCounts[Self.foldedKey(id)] ?? 0
+    }
+
+    /// Case + Unicode fold for the fallback map (APFS/HFS+ lookups are
+    /// normalization-insensitive; case folds only on the volumes this map is built for).
+    private static func foldedKey(_ path: String) -> String {
+        path.precomposedStringWithCanonicalMapping.lowercased()
     }
 
     /// The absolute key to index a difference under. `relativePath` always carries

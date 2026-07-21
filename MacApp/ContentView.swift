@@ -462,8 +462,17 @@ struct ContentView: View {
         .task(id: diffIndexInputs) {
             let inputs = diffIndexInputs
             let (left, right) = await Task.detached(priority: .userInitiated) {
-                (DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot),
-                 DiffStatusIndex(differences: inputs.differences, rootPath: inputs.rightRoot))
+                // Per-pane case-fold gating for the folded badge fallback: a missing row's
+                // expected path carries the SOURCE side's ancestor casing, so a destination
+                // folder differing only in case showed no contained-diff badge. One stat per
+                // rebuild, on the detached walk with the rest of the work.
+                func foldsCase(_ root: String) -> Bool {
+                    !root.isEmpty && !FileSyncManager.volumeSupportsCaseSensitiveNames(for: URL(fileURLWithPath: root))
+                }
+                return (DiffStatusIndex(differences: inputs.differences, rootPath: inputs.leftRoot,
+                                        foldsCase: foldsCase(inputs.leftRoot)),
+                        DiffStatusIndex(differences: inputs.differences, rootPath: inputs.rightRoot,
+                                        foldsCase: foldsCase(inputs.rightRoot)))
             }.value
             guard !Task.isCancelled else { return }
             leftDiffIndex = left

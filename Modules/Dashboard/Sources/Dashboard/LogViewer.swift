@@ -241,13 +241,20 @@ public struct LogViewer: View {
                     .font(.headline)
                 Spacer()
 
-                Button(action: { copyVisibleEntries(filtered) }) {
+                // Copy covers EVERYTHING on screen — session rows AND any revealed "Earlier
+                // sessions" page. Session entries are all newer than the history boundary, so
+                // the concatenation stays globally newest-first and the copier's single
+                // reversed() yields one chronological paste. It also enables on history alone:
+                // a quiet session with 25 revealed history rows used to show a disabled Copy
+                // under a help text promising "the 25 shown entries".
+                let shownCount = filtered.count + visibleHistory.count
+                Button(action: { copyVisibleEntries(filtered + visibleHistory) }) {
                     Image(systemName: "doc.on.doc")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(filtered.isEmpty)
-                .help("Copy the \(filtered.count) shown \(filtered.count == 1 ? "entry" : "entries") to the clipboard")
+                .disabled(filtered.isEmpty && visibleHistory.isEmpty)
+                .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
 
                 Button(action: {
                     logger.clearLogs()

@@ -1478,9 +1478,15 @@ public struct TidyView: View {
         guard !syncManager.mergingGroupIDs.contains(group.id) else { return }
         let unique = group.redundantCopies.reduce(0) { $0 + $1.uniqueItemCount }
         let many = group.redundantCopies.count != 1
+        // "About": this figure is the scan's distinct-content estimate, while the merge plans
+        // its copies per relative path (re-hashing at merge time) — the two legitimately differ
+        // in both directions (same content under two names copies twice; content present in the
+        // keeper under another name at the same spot may skip). An exact promise here was
+        // routinely off by a file or two; the safety statement — nothing is trashed until
+        // everything landed — is the load-bearing part.
         let ok = NativeAlerts.confirmDestructive(
             messageText: "Merge \"\(group.name)\" into one folder?",
-            informativeText: "Copies \(unique) unique item\(unique == 1 ? "" : "s") into \"\(group.keeper.name)\", then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
+            informativeText: "Copies anything \"\(group.keeper.name)\" doesn't already have (about \(unique) item\(unique == 1 ? "" : "s")) into it, then moves the folded cop\(many ? "ies" : "y") to the Trash. Nothing is lost; undo with ⌘Z.",
             confirmTitle: "Merge"
         )
         guard ok else { return }

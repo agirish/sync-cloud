@@ -553,7 +553,10 @@ struct FileContextMenu: View {
             }
 
             if !isSingleSource, !otherSelection.isEmpty {
-                let otherSelectedNodes = otherTree.findNodes(at: otherSelection)
+                // Pruned like every other entry point: the transfer prunes downstream anyway,
+                // so an unpruned list here only mislabeled the count ("Copy 3 items" for a
+                // folder plus two of its own children, which transfer as 1).
+                let otherSelectedNodes = otherTree.findNodes(at: otherSelection).pruneNestedNodes()
                 if !otherSelectedNodes.isEmpty {
                     Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                         if otherSelectedNodes.count > 1 {

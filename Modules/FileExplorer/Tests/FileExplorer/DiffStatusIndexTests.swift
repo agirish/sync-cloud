@@ -55,6 +55,23 @@ private func diff(
         #expect(index.containedDiffCount(forNodeId: "/root/clean") == 0)
     }
 
+    @Test func testFoldedFallbackBadgesCaseVariantDestinationFolders() {
+        // A missing row's expected path carries the SOURCE side's ancestor casing ("Docs/x.txt"
+        // credited under <root>/Docs), so the destination pane's REAL folder — spelled "docs" —
+        // matched no exact key and showed no contained-diff badge. With foldsCase (the pane's
+        // volume is case-insensitive) the folded fallback finds it; without it (case-sensitive
+        // volume, where "Docs" and "docs" are distinct real folders) the exact behavior stands.
+        let differences = [diff("Docs/x.txt", type: .missingOnRight)]
+
+        let folding = DiffStatusIndex(differences: differences, rootPath: "/r", foldsCase: true)
+        #expect(folding.containedDiffCount(forNodeId: "/r/docs") == 1)
+        #expect(folding.containedDiffCount(forNodeId: "/r/Docs") == 1)   // exact still wins first
+
+        let exact = DiffStatusIndex(differences: differences, rootPath: "/r")
+        #expect(exact.containedDiffCount(forNodeId: "/r/docs") == 0)
+        #expect(exact.containedDiffCount(forNodeId: "/r/Docs") == 1)
+    }
+
     @Test func testNameConflictBadgesBothSidesRealSpellings() {
         // A name conflict's two sides spell the name differently; relativePath carries only
         // the LEFT spelling. Each pane's index must badge its OWN node's real path.
