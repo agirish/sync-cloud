@@ -1,0 +1,53 @@
+# Package test suites on every push to main, on the self-hosted Mac runner.
+#
+# Scope: the seven SPM packages only. Machine-pinned image snapshots
+# (*SnapshotTests suites; see Modules/Design/SNAPSHOTS.md) are excluded via
+# --skip — their reference PNGs are recorded on one machine and any other
+# renderer fails them spuriously. The suites still COMPILE here, so breakage
+# in snapshot test code is caught; only the pixel comparisons are skipped.
+# App-target tests (SyncCloudTests/, via xcodegen + xcodebuild) are a
+# possible phase 2.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Rapid successive landings: only the newest push per ref keeps running.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-tests:
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcode-select -p
+          swift --version
+
+      # Run every package even after a failure so one run reports ALL broken
+      # packages, not just the first.
+      - name: Run package suites (snapshots skipped)
+        run: |
+          set -uo pipefail
+          failed=()
+          for pkg in Modules/Sync Modules/Events Modules/Settings \
+                     Modules/Design Modules/Dashboard Modules/FileExplorer \
+                     SyncCloudCLI; do
+            echo "::group::${pkg}"
+            if ! swift test --package-path "${pkg}" --skip SnapshotTests; then
+              failed+=("${pkg}")
+            fi
+            echo "::endgroup::"
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "FAILED packages: ${failed[*]}"
+            exit 1
+          fi
