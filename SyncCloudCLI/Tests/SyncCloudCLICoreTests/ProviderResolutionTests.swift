@@ -18,6 +18,7 @@ private struct StubFileManager: FileManaging {
         return fileExists(atPath: path)
     }
     func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] { [:] }
+    func setAttributes(_ attributes: [FileAttributeKey: Any], ofItemAtPath path: String) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool, attributes: [FileAttributeKey: Any]?) throws {}
     func copyItem(at srcURL: URL, to dstURL: URL) throws {}
     func moveItem(at srcURL: URL, to dstURL: URL) throws {}
