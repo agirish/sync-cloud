@@ -82,3 +82,4 @@ These permissions are configured in the `Entitlements.plist` file.
 ## License
 
 This project is provided as-is for educational and personal use. 
+Package test suites run on every push via a self-hosted GitHub Actions runner — see [docs/ci.md](docs/ci.md).
