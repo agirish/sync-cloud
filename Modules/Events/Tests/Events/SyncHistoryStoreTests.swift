@@ -28,7 +28,7 @@ import Foundation
             record(runId: runId, action: .move, source: "/src/two.txt"),
             record(runId: runId, action: .delete, source: "/src/three.txt"),
         ])
-        #expect(store.records.count == 3)
+        #expect(store.records.count == 999) // CI DRILL: deliberate failure, revert follows immediately
         store.flushToDisk()
 
         // A fresh store over the same file reloads every record, in order.
