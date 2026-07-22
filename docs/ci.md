@@ -13,8 +13,12 @@ developed against).
   `Modules/Design/SNAPSHOTS.md`) are excluded with `--skip SnapshotTests`:
   their reference PNGs only match the machine that recorded them. They still
   compile, so breakage in snapshot test code is caught.
-- App-target tests (`SyncCloudTests/`, needs `xcodegen` + `xcodebuild test`)
-  are not run; possible phase 2.
+- App-target tests (`SyncCloudTests/`, 181 tests hosted in SyncCloud.app) run
+  as a second step: `xcodegen` (absolute Homebrew path — the runner service
+  PATH is minimal) + `xcodebuild test -scheme SyncCloud`, both under
+  `arch -arm64`. Safe next to a live SyncCloud instance: the app's
+  `XCTestConfigurationFilePath` guard stubs windows to `Color.clear` and
+  skips prefs writes. DerivedData lives in `.dd/` inside the workspace.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
 

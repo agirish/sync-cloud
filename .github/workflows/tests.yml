@@ -56,3 +56,18 @@ jobs:
             echo "FAILED packages: ${failed[*]}"
             exit 1
           fi
+
+      # App-target tests (SyncCloudTests, hosted in SyncCloud.app). Safe next
+      # to a live SyncCloud instance: the app's XCTestConfigurationFilePath
+      # guard stubs every window to Color.clear and skips prefs migration.
+      # xcodegen by absolute path — the runner service PATH lacks Homebrew.
+      # arch -arm64 for the same Rosetta exit-code reason as above.
+      # DerivedData stays inside the workspace so no Spotlight-visible app
+      # copy accumulates outside it.
+      - name: App-target tests (xcodegen + xcodebuild)
+        run: |
+          set -uo pipefail
+          arch -arm64 /opt/homebrew/bin/xcodegen
+          arch -arm64 xcodebuild test -project SyncCloud.xcodeproj \
+            -scheme SyncCloud -destination 'platform=macOS' \
+            -derivedDataPath .dd
