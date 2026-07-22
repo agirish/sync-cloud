@@ -22,6 +22,16 @@ developed against).
 - The loop runs every package even after a failure so one run reports all
   broken packages.
 
+## Per-commit verdicts
+
+`concurrency.cancel-in-progress` is **false**: every push gets its own run
+instead of newer pushes cancelling older ones. On the single self-hosted
+runner the runs serialize, so a burst of close landings each land a green/red
+verdict and a break is bisectable to the exact SHA — which matters because
+commits here get audited. A run is ~3.5 min on our own hardware, so the cost
+is negligible; if a long burst ever backs the queue up, cancel stale runs
+with `gh run cancel <id>`.
+
 ## Runner
 
 Registered as `synccloud-mac` (labels `self-hosted`, `macOS`), installed at

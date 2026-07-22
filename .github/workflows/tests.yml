@@ -5,8 +5,8 @@
 # --skip — their reference PNGs are recorded on one machine and any other
 # renderer fails them spuriously. The suites still COMPILE here, so breakage
 # in snapshot test code is caught; only the pixel comparisons are skipped.
-# App-target tests (SyncCloudTests/, via xcodegen + xcodebuild) are a
-# possible phase 2.
+# A second step runs the app-target tests (SyncCloudTests/, via xcodegen +
+# xcodebuild).
 
 name: tests
 
@@ -15,10 +15,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Rapid successive landings: only the newest push per ref keeps running.
+# Every commit gets its own verdict: bursts of landings queue and run
+# sequentially on the single self-hosted runner rather than cancelling each
+# other, so a break is bisectable to the exact SHA. A run is ~3.5 min and the
+# runner is our own hardware, so per-commit cost is negligible. (If a long
+# burst ever backs the queue up, cancel stale runs with `gh run cancel`.)
 concurrency:
   group: tests-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   package-tests:
