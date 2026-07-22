@@ -35,7 +35,15 @@ can wedge pre-exec, spinning one thread at 100% CPU (observed with the
 runner's .NET host; also reported against Ruby on 26.1). Symptom: a job step
 "runs" forever, `ps` shows a second `Runner.Worker spawnclient` process in
 state `R` at 100% CPU with a tiny footprint, and killing it only makes the
-worker fork another. `DOTNET_EnableWriteXorExecute=0` in the runner's `.env`
-does NOT fix it. If a run wedges: kill the `Runner.Worker` processes, restart
-the runner, re-run the workflow. Track the OS bug before blaming test code —
-every wedge so far happened in the runner agent, never in `swift test`.
+worker fork another. Ruled out by direct A/B on this machine:
+`DOTNET_EnableWriteXorExecute=0` (verified present in the worker's env, still
+wedged), LaunchAgent vs interactive `./run.sh` (both wedge). The arm64 agent
+wedged in 3 of 3 runs, at a different spawn each time.
+
+Current mitigation: the agent runs as the **osx-x64 build under Rosetta**
+(`~/actions-runner-synccloud-x64`, same registration — the `.runner` /
+`.credentials*` files are arch-independent and were copied over), which takes
+a different fork path through the translation layer. If a run wedges anyway:
+kill the `Runner.Worker` processes, restart the runner, re-run the workflow.
+Track the OS bug before blaming test code — every wedge so far happened in
+the runner agent, never in `swift test`.
