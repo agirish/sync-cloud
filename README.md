@@ -2,6 +2,8 @@
 
 [![tests](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml/badge.svg)](https://github.com/agirish/sync-cloud/actions/workflows/tests.yml)
 
+Package test suites run on every push via a self-hosted GitHub Actions runner — see [docs/ci.md](docs/ci.md).
+
 A macOS application (GUI) and a command line tool (CLI) for comparing and synchronizing two directories. SyncCloud identifies differences and helps you copy files to keep folders consistent.
 
 ## Features
@@ -81,5 +83,4 @@ These permissions are configured in the `Entitlements.plist` file.
 
 ## License
 
-This project is provided as-is for educational and personal use. 
-Package test suites run on every push via a self-hosted GitHub Actions runner — see [docs/ci.md](docs/ci.md).
+This project is provided as-is for educational and personal use.
