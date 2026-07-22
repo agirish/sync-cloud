@@ -42,7 +42,12 @@ jobs:
                      Modules/Design Modules/Dashboard Modules/FileExplorer \
                      SyncCloudCLI; do
             echo "::group::${pkg}"
-            if ! swift test --package-path "${pkg}" --skip SnapshotTests; then
+            # arch -arm64: the agent runs as the osx-x64 build under Rosetta
+            # (macOS 26 fork-bug dodge, see docs/ci.md); swift test inherits
+            # x86_64 from it and then exits 1 despite passing. Forcing the
+            # payload native fixes the exit code (verified both directions:
+            # green suite -> 0, mutated failing test -> 1).
+            if ! arch -arm64 swift test --package-path "${pkg}" --skip SnapshotTests; then
               failed+=("${pkg}")
             fi
             echo "::endgroup::"

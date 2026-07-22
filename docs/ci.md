@@ -47,3 +47,12 @@ a different fork path through the translation layer. If a run wedges anyway:
 kill the `Runner.Worker` processes, restart the runner, re-run the workflow.
 Track the OS bug before blaming test code — every wedge so far happened in
 the runner agent, never in `swift test`.
+
+### Rosetta corollary: `swift test` exit code lies under x86_64
+
+Under the x64 agent, `swift test` inherits x86_64 and then **exits 1 with
+every test passing** (isolated by A/B: same workspace + native arm64 → 0;
+x86_64 → 1; env and cwd innocent). The workflow therefore runs the payload
+as `arch -arm64 swift test …`. When checking test outcomes by hand, never
+judge from piped output (`… | tail`) — the pipe masks the real exit code;
+that mistake let this slip past local verification once already.
