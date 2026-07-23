@@ -31,6 +31,10 @@ struct PaneBreadcrumb: View {
     /// The pane's live show-hidden-files state, forwarded to the quick-jump menu so its sibling
     /// list matches what the pane shows.
     let showHidden: Bool
+    /// Whether to show the trailing "Link both panes" chain toggle. Only meaningful when there
+    /// are two panes to keep in lock-step (Compare); the single-source Tidy rail has no sibling,
+    /// so the toggle is hidden there.
+    var showsLinkToggle: Bool = true
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
 
@@ -92,7 +96,9 @@ struct PaneBreadcrumb: View {
                 onNavigate: { navigate(to: $0, isCurrent: false) }
             )
             Spacer(minLength: 0)
-            linkBothToggle
+            if showsLinkToggle {
+                linkBothToggle
+            }
         }
         .font(.caption)
     }
