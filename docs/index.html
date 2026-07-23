@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SyncCloud — compare, reconcile & tidy your cloud folders on macOS</title>
+<meta name="description" content="A native macOS app and CLI for comparing, reconciling, and tidying the folders you keep across iCloud Drive, OneDrive, Dropbox, and Google Drive — with duplicate finding, AI-assisted filing, a storage treemap, and undo-everything safety.">
+<link rel="icon" type="image/png" href="assets/icon-256.png">
+<meta property="og:title" content="SyncCloud for macOS">
+<meta property="og:description" content="Compare, reconcile & tidy your cloud folders — duplicates, AI filing, storage treemap, and undo-everything safety.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="assets/screenshots/hero-compare.png">
+<style>
+  :root{
+    --bg:#070a0f;
+    --bg-2:#0b1018;
+    --panel:rgba(255,255,255,.045);
+    --panel-2:rgba(255,255,255,.03);
+    --stroke:rgba(255,255,255,.09);
+    --stroke-strong:rgba(255,255,255,.16);
+    --ink:#eef2f7;
+    --ink-dim:#a7b0be;
+    --ink-faint:#6f7987;
+    --blue:#4c8dff;
+    --purple:#9a7bff;
+    --cyan:#37d0d6;
+    --green:#43c98a;
+    --amber:#f2b13c;
+    --grad:linear-gradient(120deg,#4c8dff 0%,#8a7bff 55%,#b06bff 100%);
+    --grad-soft:linear-gradient(120deg,rgba(76,141,255,.18),rgba(154,123,255,.14));
+    --radius:18px;
+    --radius-lg:26px;
+    --shadow:0 24px 60px -20px rgba(0,0,0,.75);
+    --maxw:1140px;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;font-family:var(--font);color:var(--ink);
+    background:var(--bg);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+    line-height:1.6;overflow-x:hidden;
+  }
+  /* ambient background glows */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(60vw 50vh at 78% -8%, rgba(120,110,255,.20), transparent 60%),
+      radial-gradient(55vw 45vh at 8% 6%, rgba(60,140,255,.16), transparent 60%),
+      radial-gradient(70vw 60vh at 50% 108%, rgba(70,120,255,.10), transparent 60%),
+      var(--bg);
+  }
+  body::after{
+    content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size:34px 34px;mask-image:linear-gradient(#000,transparent 75%);
+  }
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  /* ---------- nav ---------- */
+  header.nav{
+    position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+    background:rgba(9,12,18,.62);border-bottom:1px solid var(--stroke);
+  }
+  .nav-inner{display:flex;align-items:center;gap:22px;height:62px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.01em;font-size:17px}
+  .brand img{width:28px;height:28px;border-radius:7px}
+  .nav-links{display:flex;gap:26px;margin-left:auto;align-items:center}
+  .nav-links a{color:var(--ink-dim);font-size:14.5px;font-weight:500;transition:color .2s}
+  .nav-links a:hover{color:var(--ink)}
+  .btn{
+    display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14.5px;
+    padding:10px 18px;border-radius:11px;border:1px solid var(--stroke-strong);
+    background:var(--panel);color:var(--ink);transition:transform .15s ease,border-color .2s,background .2s;white-space:nowrap;
+  }
+  .btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.08)}
+  .btn.primary{background:var(--grad);border:none;color:#fff;box-shadow:0 10px 30px -10px rgba(90,120,255,.7)}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .nav .btn{padding:8px 15px}
+  @media(max-width:820px){.nav-links a:not(.btn){display:none}}
+
+  /* ---------- hero ---------- */
+  .hero{padding:82px 0 40px;text-align:center;position:relative}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:600;letter-spacing:.02em;
+    color:var(--ink-dim);padding:7px 15px;border:1px solid var(--stroke);border-radius:999px;
+    background:var(--panel-2);margin-bottom:26px;
+  }
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+  h1{
+    font-size:clamp(38px,6vw,68px);line-height:1.04;letter-spacing:-.03em;margin:0 0 22px;font-weight:720;
+  }
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .sub{max-width:680px;margin:0 auto 34px;font-size:clamp(16px,2.2vw,20px);color:var(--ink-dim)}
+  .cta{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:30px}
+  .providers{display:flex;gap:26px;justify-content:center;align-items:center;flex-wrap:wrap;color:var(--ink-faint);font-size:13px;font-weight:500}
+  .providers .logos{display:flex;gap:16px;align-items:center}
+  .providers img{width:26px;height:26px;filter:saturate(1.05)}
+
+  .shot-frame{
+    margin:52px auto 0;max-width:1040px;border-radius:var(--radius-lg);
+    border:1px solid var(--stroke);background:var(--panel-2);padding:10px;
+    box-shadow:var(--shadow);position:relative;
+  }
+  .shot-frame::before{
+    content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(120deg,rgba(120,150,255,.5),rgba(160,120,255,.15) 40%,transparent 70%);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;opacity:.8;
+  }
+  .shot-frame img{border-radius:calc(var(--radius-lg) - 10px);width:100%}
+
+  /* ---------- sections ---------- */
+  section{padding:74px 0;position:relative}
+  .sec-head{max-width:720px;margin:0 auto 52px;text-align:center}
+  .kicker{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin-bottom:14px}
+  h2{font-size:clamp(28px,4vw,42px);letter-spacing:-.025em;margin:0 0 16px;font-weight:700;line-height:1.1}
+  .sec-head p{font-size:17.5px;color:var(--ink-dim);margin:0}
+
+  /* feature split rows */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:56px;align-items:center;margin:0 auto}
+  .split + .split{margin-top:96px}
+  .split.rev .txt{order:2}
+  .split .txt h3{font-size:26px;letter-spacing:-.02em;margin:0 0 14px;font-weight:680}
+  .split .txt p{color:var(--ink-dim);font-size:16px;margin:0 0 20px}
+  .flist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:13px}
+  .flist li{display:flex;gap:12px;align-items:flex-start;font-size:15px;color:var(--ink)}
+  .flist .ic{flex:0 0 22px;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--grad-soft);border:1px solid var(--stroke);margin-top:1px;font-size:12px}
+  .media{border-radius:var(--radius);border:1px solid var(--stroke);background:var(--panel-2);padding:8px;box-shadow:var(--shadow)}
+  .media img{border-radius:calc(var(--radius) - 7px)}
+  .media.cap{padding-bottom:8px}
+  .media .capt{font-size:12.5px;color:var(--ink-faint);text-align:center;padding:10px 6px 4px}
+  @media(max-width:860px){
+    .split{grid-template-columns:1fr;gap:30px}
+    .split.rev .txt{order:0}
+  }
+
+  /* diff legend chips */
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+  .chip{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:550;padding:6px 12px;border-radius:999px;border:1px solid var(--stroke);background:var(--panel-2)}
+  .chip b{width:16px;height:16px;border-radius:5px;display:inline-block}
+
+  /* ---------- lens grid ---------- */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  @media(max-width:900px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:600px){.grid{grid-template-columns:1fr}}
+  .card{
+    border:1px solid var(--stroke);border-radius:var(--radius);background:var(--panel);
+    padding:26px 24px;transition:transform .18s ease,border-color .2s,background .2s;position:relative;overflow:hidden;
+  }
+  .card:hover{transform:translateY(-3px);border-color:var(--stroke-strong);background:rgba(255,255,255,.06)}
+  .card .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;margin-bottom:16px;
+    background:var(--grad-soft);border:1px solid var(--stroke)}
+  .card h4{margin:0 0 8px;font-size:18px;letter-spacing:-.01em;font-weight:640}
+  .card p{margin:0;color:var(--ink-dim);font-size:14.5px}
+  .card .tag{position:absolute;top:16px;right:16px;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--blue);background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.25);padding:3px 8px;border-radius:6px}
+
+  /* ---------- AI spotlight ---------- */
+  .spotlight{
+    border:1px solid var(--stroke);border-radius:var(--radius-lg);overflow:hidden;
+    background:linear-gradient(160deg,rgba(90,110,255,.14),rgba(150,110,255,.06) 55%,transparent);
+    box-shadow:var(--shadow);
+  }
+  .spotlight-inner{display:grid;grid-template-columns:1.05fr 1fr;gap:0}
+  .spotlight .pane{padding:44px}
+  .spotlight .shot{padding:22px;display:flex;align-items:center;background:rgba(0,0,0,.18);border-left:1px solid var(--stroke)}
+  .spotlight .shot img{border-radius:14px;border:1px solid var(--stroke);box-shadow:var(--shadow)}
+  .spotlight h2{margin-bottom:14px}
+  .spotlight p{color:var(--ink-dim);font-size:16px}
+  .pill-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+  .pill{font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--stroke);background:var(--panel-2);color:var(--ink)}
+  .pill .k{color:var(--ink-faint);font-weight:500}
+  @media(max-width:860px){.spotlight-inner{grid-template-columns:1fr}.spotlight .shot{border-left:none;border-top:1px solid var(--stroke)}}
+
+  /* ---------- safety grid ---------- */
+  .safe-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+  @media(max-width:900px){.safe-grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:520px){.safe-grid{grid-template-columns:1fr}}
+  .safe{border:1px solid var(--stroke);border-radius:14px;padding:22px;background:var(--panel-2)}
+  .safe .ico{font-size:22px;margin-bottom:12px}
+  .safe h4{margin:0 0 6px;font-size:16px;font-weight:620}
+  .safe p{margin:0;font-size:13.5px;color:var(--ink-dim)}
+
+  /* ---------- CLI ---------- */
+  .term{
+    border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden;background:#0a0e15;box-shadow:var(--shadow);max-width:780px;margin:0 auto;
+  }
+  .term .bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--stroke);background:rgba(255,255,255,.03)}
+  .term .bar i{width:12px;height:12px;border-radius:50%;display:inline-block}
+  .term .bar .r{background:#ff5f57}.term .bar .y{background:#febc2e}.term .bar .g{background:#28c840}
+  .term .bar span{margin-left:8px;color:var(--ink-faint);font-size:12.5px;font-family:ui-monospace,monospace}
+  .term pre{margin:0;padding:22px 22px 24px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;line-height:1.85}
+  .term .c{color:#5f6b7a}
+  .term .p{color:var(--green)}
+  .term .cmd{color:#e7ecf3}
+  .term .fl{color:var(--cyan)}
+  .term .o{color:var(--ink-dim)}
+
+  /* ---------- gallery ---------- */
+  .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media(max-width:720px){.gallery{grid-template-columns:1fr}}
+  .gallery figure{margin:0;border:1px solid var(--stroke);border-radius:var(--radius);overflow:hidden;background:var(--panel-2);box-shadow:var(--shadow)}
+  .gallery img{width:100%}
+  .gallery figcaption{padding:12px 16px;font-size:13px;color:var(--ink-dim);border-top:1px solid var(--stroke)}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--stroke);padding:48px 0 60px;margin-top:40px;color:var(--ink-faint);font-size:13.5px}
+  .foot-top{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .foot-links{display:flex;gap:26px;flex-wrap:wrap}
+  .foot-links a{color:var(--ink-dim)}
+  .foot-links a:hover{color:var(--ink)}
+  .disclaimer{margin-top:26px;max-width:720px;line-height:1.6}
+
+  .center{text-align:center}
+  .mt40{margin-top:40px}
+  @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="#top"><img src="assets/icon-256.png" alt="SyncCloud icon">SyncCloud</a>
+    <nav class="nav-links">
+      <a href="#compare">Compare</a>
+      <a href="#tidy">Tidy</a>
+      <a href="#ai">AI Filing</a>
+      <a href="#safety">Safety</a>
+      <a href="#cli">CLI</a>
+      <a class="btn" href="https://github.com/agirish/sync-cloud">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+<div class="hero wrap">
+  <div class="eyebrow"><span class="dot"></span> Native macOS · iCloud · OneDrive · Dropbox · Google Drive</div>
+  <h1>Keep your cloud folders<br><span class="g">in sync, and in order.</span></h1>
+  <p class="sub">SyncCloud compares two folders side by side and shows exactly what differs — then helps you tidy a single one: find duplicates, fix broken filenames, see where space goes, and auto-file loose documents. Everything is undoable.</p>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/agirish/sync-cloud">View on GitHub</a>
+    <a class="btn" href="#tidy">See what it does</a>
+  </div>
+  <div class="providers">
+    <span>Works with</span>
+    <span class="logos">
+      <img src="assets/logos/icloud.png" alt="iCloud Drive" title="iCloud Drive">
+      <img src="assets/logos/onedrive.png" alt="OneDrive" title="OneDrive">
+      <img src="assets/logos/dropbox.png" alt="Dropbox" title="Dropbox">
+      <img src="assets/logos/googledrive.png" alt="Google Drive" title="Google Drive">
+    </span>
+  </div>
+  <div class="shot-frame">
+    <img src="assets/screenshots/hero-compare.png" alt="SyncCloud comparing two cloud folders side by side">
+  </div>
+</div>
+
+<!-- ---------------- COMPARE ---------------- -->
+<section id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Compare</div>
+      <h2>Two folders, side by side — see exactly what differs</h2>
+      <p>Point each pane at a provider (or any folder) and scan. SyncCloud finds what's missing on either side, what's newer, and what only <em>looks</em> the same.</p>
+    </div>
+
+    <div class="split">
+      <div class="txt">
+        <h3>A difference list you can actually trust</h3>
+        <p>Every row is shape- and colour-coded, so status reads at a glance — and still reads without colour. A date tolerance absorbs the timestamp rounding cloud providers do, so you're not staring at hundreds of false differences.</p>
+        <ul class="flist">
+          <li><span class="ic">▸</span> <span><b>Missing on one side</b> — copy it across in the shown direction.</span></li>
+          <li><span class="ic">↻</span> <span><b>Changed</b> — newer date or different size, with the newer side flagged.</span></li>
+          <li><span class="ic">⚠</span> <span><b>Name conflicts</b> — items that differ only by an invisible trailing space, period, zero-width character, or Unicode form.</span></li>
+          <li><span class="ic">🔎</span> <span><b>Filter &amp; token search</b> — <code>kind:pdf</code>, <code>&gt;10mb</code>, <code>only:left</code>, with live counts.</span></li>
+        </ul>
+        <div class="legend">
+          <span class="chip"><b style="background:#4c8dff"></b> Copy → right</span>
+          <span class="chip"><b style="background:#9a7bff"></b> Copy ← left</span>
+          <span class="chip"><b style="background:#f2b13c"></b> Changed</span>
+          <span class="chip"><b style="background:#e9d94a"></b> Name conflict</span>
+        </div>
+      </div>
+      <div class="media"><img src="assets/screenshots/compare-diffs.png" alt="Differences list with direction-coded rows" loading="lazy"></div>
+    </div>
+
+    <div class="split rev">
+      <div class="txt">
+        <h3>Reconcile with confidence</h3>
+        <p>Copy or move in bulk, or step through changes one at a time in <b>Guided Review</b>. When two files are the same size but different dates, <b>content verification</b> checksums both sides and tells you whether they truly differ — then offers to reconcile the identical ones in one click.</p>
+        <ul class="flist">
+          <li><span class="ic">✓</span> <span><b>Guided Review</b> — Copy / Move / Skip each item with a running tally.</span></li>
+          <li><span class="ic">#</span> <span><b>SHA-256 verification</b> for same-size, date-only differences.</span></li>
+          <li><span class="ic">ℹ</span> <span><b>Details inspector</b> — kind, size, dates, permissions, Quick Look.</span></li>
+          <li><span class="ic">⌘</span> <span><b>Keyboard &amp; drag-drop</b> — <code>⌘→</code> copy, add <code>⇧</code> to move.</span></li>
+        </ul>
+      </div>
+      <div class="media"><img src="assets/screenshots/compare-undo.png" alt="An operation with a one-click Undo banner" loading="lazy"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- TIDY ---------------- -->
+<section id="tidy" style="background:linear-gradient(180deg,transparent,rgba(255,255,255,.015),transparent)">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Tidy</div>
+      <h2>Five tools to clean up a single cloud folder</h2>
+      <p>Switch a provider into the Tidy workspace and reach for whichever lens the mess calls for.</p>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="ico">🧬</div>
+        <h4>Duplicates</h4>
+        <p>Finds identical copies, overlapping folders, drifted versions, and name-only clashes. Picks a smart keeper, previews each copy, and reclaims space — always to the Trash, never the last copy.</p>
+      </div>
+      <div class="card">
+        <div class="ico">✏️</div>
+        <h4>Rename</h4>
+        <p>Detects filenames that break on a provider — OneDrive's forbidden characters, Dropbox's trailing spaces, zero-width and non-canonical Unicode — and fixes them, showing every invisible character first.</p>
+      </div>
+      <div class="card">
+        <span class="tag">AI optional</span>
+        <div class="ico">🗂️</div>
+        <h4>Organize</h4>
+        <p>Scans loose files and suggests which existing folder each one belongs in, filing it there safely. Starts fully offline; Apple Intelligence or Claude can sharpen the picks.</p>
+      </div>
+      <div class="card">
+        <div class="ico">⚙️</div>
+        <h4>Automations</h4>
+        <p>Deterministic, on-device rules — "when a file matches …, file it into <code>Taxes/{year}</code>." Dry-run preview before anything moves, and SyncCloud can learn a rule after you file by hand.</p>
+      </div>
+      <div class="card">
+        <div class="ico">📊</div>
+        <h4>Storage</h4>
+        <p>A read-only treemap of where your space actually goes, plus ranked lists of the largest files, long-untouched files, and reclaim candidates.</p>
+      </div>
+      <div class="card" style="background:var(--grad-soft)">
+        <div class="ico">🛟</div>
+        <h4>…and undo</h4>
+        <p>Every clean-up action across all five lenses is one grouped, reversible step. Trash-backed, atomic, and gone with a single <code>⌘Z</code>.</p>
+      </div>
+    </div>
+
+    <div class="split mt40" style="margin-top:72px">
+      <div class="media cap">
+        <img src="assets/screenshots/tidy-duplicates.png" alt="Duplicate groups with keeper preview" loading="lazy">
+        <div class="capt">Duplicates — identical, overlapping, versions & name-only, with a recommended keeper</div>
+      </div>
+      <div class="txt">
+        <h3>Reclaim space without losing anything</h3>
+        <p>SyncCloud content-hashes size-colliding files (SHA-256), never trusts names alone, and refuses to trash the last copy of anything. The keeper it recommends is the one <em>not</em> buried in <code>archive/</code>, <code>old/</code>, or <code>backup/</code> — and you can always pick a different one.</p>
+        <ul class="flist">
+          <li><span class="ic" style="background:rgba(67,201,138,.2)">✓</span> <span><b>Identical</b> — byte-for-byte, safe to collapse to one.</span></li>
+          <li><span class="ic" style="background:rgba(242,177,60,.2)">▤</span> <span><b>Overlapping</b> — folders sharing most content; fold the extras in.</span></li>
+          <li><span class="ic" style="background:rgba(154,123,255,.2)">↺</span> <span><b>Versions</b> — <code>Report</code>, <code>Report (1)</code>, <code>Report-final</code>; keep the newest.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="split rev" style="margin-top:72px">
+      <div class="media cap">
+        <img src="assets/screenshots/tidy-storage.png" alt="Storage treemap and reclaim lists" loading="lazy">
+        <div class="capt">Storage — a proportional treemap plus largest / untouched / reclaim lists</div>
+      </div>
+      <div class="txt">
+        <h3>See where the space went</h3>
+        <p>The Storage lens is strictly read-only — it never moves, deletes, or evicts anything. It just shows you a treemap of your biggest folders and three ranked lists: the largest files, the ones you haven't touched in over a year, and the big-and-idle reclaim candidates.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- AI SPOTLIGHT ---------------- -->
+<section id="ai">
+  <div class="wrap">
+    <div class="spotlight">
+      <div class="spotlight-inner">
+        <div class="pane">
+          <div class="kicker">Organize · AI-assisted filing</div>
+          <h2>It suggests where every loose file belongs</h2>
+          <p>Point Organize at a folder full of downloads and screenshots. A fast, fully-offline engine reads your existing folder names, the filenames, and — on device — a little of each file's text, then proposes a home for each one with a confidence rating and a plain-English reason.</p>
+          <p>Want sharper picks? Layer AI on top. It's optional, gated, and metered — and it only ever <em>leads</em> when it's more confident than the offline engine.</p>
+          <div class="pill-row">
+            <span class="pill"><span class="k">On-device:</span> Apple Intelligence</span>
+            <span class="pill"><span class="k">Cloud:</span> Claude Haiku / Sonnet / Opus</span>
+            <span class="pill"><span class="k">Key in:</span> macOS Keychain</span>
+            <span class="pill"><span class="k">Guardrail:</span> $ budget caps</span>
+          </div>
+          <ul class="flist" style="margin-top:24px">
+            <li><span class="ic">🔒</span> <span>On-device AI keeps everything on your Mac. Cloud AI is <b>off by default</b> and opt-in.</span></li>
+            <li><span class="ic">💵</span> <span>Every cloud scan shows an estimated cost first and stops at your monthly / total cap.</span></li>
+            <li><span class="ic">↩︎</span> <span>Nothing files without your say-so, and every move is one undo.</span></li>
+          </ul>
+        </div>
+        <div class="shot">
+          <img src="assets/screenshots/tidy-organize.png" alt="Organize suggesting folder homes for loose files" loading="lazy">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- SAFETY ---------------- -->
+<section id="safety" style="background:linear-gradient(180deg,transparent,rgba(255,255,255,.015),transparent)">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Safety by construction</div>
+      <h2>No single action can quietly lose data</h2>
+      <p>SyncCloud treats your files as irreplaceable. Every mutation is designed to be reversible — and to refuse and <em>report</em> when something is ambiguous rather than guess.</p>
+    </div>
+    <div class="safe-grid">
+      <div class="safe"><div class="ico">↩︎</div><h4>Undo everything</h4><p>Copy, move, delete, rename, new folder — each is a grouped <code>⌘Z</code> step, including "Undo Last Run".</p></div>
+      <div class="safe"><div class="ico">🗑️</div><h4>Trash, not gone</h4><p>Deletes go to the macOS Trash. Permanent delete only exists as a clearly-warned, Trash-less-volume fallback.</p></div>
+      <div class="safe"><div class="ico">⚛︎</div><h4>Atomic replace</h4><p>Overwrites stage to a temp file and swap in — the original is never momentarily missing, and a backup is kept.</p></div>
+      <div class="safe"><div class="ico">🧭</div><h4>Confirm & bound</h4><p>From/To confirmations, collision strategies, an invalid-name guard, and a path boundary that won't cross provider roots.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- CLI ---------------- -->
+<section id="cli">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">For power users</div>
+      <h2>A <code>git</code>-style CLI</h2>
+      <p>Scan and sync from the terminal or a script — no window required.</p>
+    </div>
+    <div class="term">
+      <div class="bar"><i class="r"></i><i class="y"></i><i class="g"></i><span>synccloud</span></div>
+<pre><span class="c"># discover the cloud providers on this Mac</span>
+<span class="p">$</span> <span class="cmd">synccloud providers</span>
+
+<span class="c"># compare two folders (a provider id/name or a path)</span>
+<span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">iCloud/Documents</span> <span class="fl">-R</span> <span class="o">OneDrive/Documents</span>
+<span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--verify</span>   <span class="c"># checksum same-size pairs</span>
+<span class="p">$</span> <span class="cmd">synccloud scan</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--json</span>     <span class="c"># machine-readable</span>
+
+<span class="c"># sync one direction, keeping both on collision (prompts unless --yes)</span>
+<span class="p">$</span> <span class="cmd">synccloud sync</span> <span class="fl">-L</span> <span class="o">~/A</span> <span class="fl">-R</span> <span class="o">~/B</span> <span class="fl">--direction</span> <span class="o">to-right</span> <span class="fl">--strategy</span> <span class="o">keep-both</span> <span class="fl">--yes</span></pre>
+    </div>
+  </div>
+</section>
+
+<!-- ---------------- GALLERY ---------------- -->
+<section id="gallery">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">A closer look</div>
+      <h2>Built to feel at home on macOS</h2>
+      <p>A Liquid-Glass interface with System / Light / Dark themes, 12 accent hues, and per-provider brand colours.</p>
+    </div>
+    <div class="gallery">
+      <figure><img src="assets/screenshots/tidy-organize.png" alt="Organize lens" loading="lazy"><figcaption>Organize — AI-assisted filing with per-file confidence and cost tracking</figcaption></figure>
+      <figure><img src="assets/screenshots/tidy-duplicates.png" alt="Duplicates lens" loading="lazy"><figcaption>Duplicates — reclaim space with a recommended keeper and Quick Look previews</figcaption></figure>
+      <figure><img src="assets/screenshots/settings.png" alt="Settings" loading="lazy"><figcaption>Settings — themes, providers, sync behaviour, AI budget caps</figcaption></figure>
+      <figure><img src="assets/screenshots/tidy-storage.png" alt="Storage treemap" loading="lazy"><figcaption>Storage — a proportional treemap of where space concentrates</figcaption></figure>
+    </div>
+    <div class="center mt40">
+      <a class="btn primary" href="https://github.com/agirish/sync-cloud">Get SyncCloud on GitHub</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="brand" href="#top"><img src="assets/icon-256.png" alt="" style="width:26px;height:26px;border-radius:6px">SyncCloud</a>
+      <nav class="foot-links">
+        <a href="https://github.com/agirish/sync-cloud">GitHub</a>
+        <a href="https://github.com/agirish/sync-cloud/blob/main/SyncCloudCLI/README.md">CLI docs</a>
+        <a href="https://github.com/agirish/sync-cloud/blob/main/ROADMAP.md">Roadmap</a>
+        <a href="https://github.com/agirish/sync-cloud/blob/main/docs/ci.md">CI</a>
+      </nav>
+    </div>
+    <p class="disclaimer">SyncCloud is an independent macOS project and is not affiliated with, endorsed by, or sponsored by Apple, Microsoft, Dropbox, Google, or Anthropic. Product names and logos are trademarks of their respective owners, shown here to indicate compatibility. Provided as-is for educational and personal use.</p>
+  </div>
+</footer>
+
+</body>
+</html>
