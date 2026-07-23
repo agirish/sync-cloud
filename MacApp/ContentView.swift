@@ -1173,6 +1173,14 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: barNodes.count)
+        // Escape clears this pane's selection — the file lists give no deselect gesture, so
+        // without this a folder picked in Compare could never be un-picked. Only swallow the key
+        // when there's actually a selection here; otherwise let it bubble (dialogs, etc.).
+        .onKeyPress(.escape) {
+            guard !barNodes.isEmpty else { return .ignored }
+            clearSelection(isLeft: isLeft)
+            return .handled
+        }
     }
 
     /// The Info inspector — the former Details tab, now a toggleable right-side panel showing metadata
@@ -1382,6 +1390,17 @@ struct ContentView: View {
                 }
             }
         )
+    }
+
+    /// Clears the selection in one pane. The single-pane-selected invariant means at most one
+    /// side is ever populated, so this is what both the Escape key and the action bar's ✕ call to
+    /// dismiss the current selection — the file lists themselves offer no deselect gesture.
+    func clearSelection(isLeft: Bool) {
+        if isLeft {
+            if !syncManager.selectedLeftPaths.isEmpty { syncManager.selectedLeftPaths = [] }
+        } else {
+            if !syncManager.selectedRightPaths.isEmpty { syncManager.selectedRightPaths = [] }
+        }
     }
 
     @ViewBuilder
