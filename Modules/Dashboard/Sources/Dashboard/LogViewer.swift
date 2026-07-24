@@ -363,7 +363,10 @@ public struct LogViewer: View {
                 }
                 .padding(16)
             }
-            .background(.regularMaterial.opacity(0.5))
+            // A faint accent wash instead of a white material slab, so the log list reads as an
+            // accent-tinted translucent surface over the window glass (like the dashboard tiles)
+            // rather than a bright white patch.
+            .background(hueAccent.opacity(0.05))
         }
         .frame(minWidth: 380)
         // A new filter/search is a fresh view of history — collapse back to the first page so the
@@ -373,6 +376,8 @@ public struct LogViewer: View {
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
         // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
+        // Keep the glass from graying out when this window isn't key (see the main window).
+        .environment(\.controlActiveState, .active)
     }
 
     // MARK: Token chips & suggestions

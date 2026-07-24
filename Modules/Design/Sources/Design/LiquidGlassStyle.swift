@@ -636,8 +636,10 @@ private struct LiquidGlassBackground: ViewModifier {
                 } else if !dark {
                     // Clear in light mode read as flat system gray (the behind-window vibrancy alone).
                     // A translucent white veil warms it toward a frosted white glass while keeping the
-                    // desktop showing through — "whiter and more transparent" without an opaque slab.
-                    Color.white.opacity(0.20)
+                    // desktop showing through. The panes are see-through glass, so this veil is what
+                    // whitens them too — hence a fairly strong wash to bury the gray. The hue gradient
+                    // above still leans it toward the accent rather than a dead white.
+                    Color.white.opacity(0.42)
                         .ignoresSafeArea()
                 }
 

@@ -301,6 +301,11 @@ struct ContentView: View {
         // and whether or not the Settings overlay happens to be on screen; App.init covers launch.
         .onChange(of: appearanceModeRaw) { AppAppearance.applyPersisted() }
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
+        // Render the glass as if the window were always key. SwiftUI materials/`glassEffect` thin out
+        // and desaturate to gray when the window loses focus (the whole surface visibly shifts as you
+        // click away); pinning the active state keeps the panes and chrome looking identical whether
+        // or not the app is frontmost.
+        .environment(\.controlActiveState, .active)
     }
 
     var body: some View {

@@ -119,9 +119,9 @@ extension ContentView {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        // Material base with a faint accent wash so the whole bar carries the app hue (the summary
-        // label and button icons are already accent); the border keeps its slightly stronger accent.
-        .background(Capsule().fill(.regularMaterial).overlay(Capsule().fill(accent.opacity(0.07))))
+        // Thin (glassier, more see-through) material base with a stronger accent wash so the whole
+        // bar carries the app hue rather than reading as a gray slab; the border keeps a bit more.
+        .background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(0.13))))
         .overlay(Capsule().strokeBorder(accent.opacity(0.45), lineWidth: 0.75))
         .shadow(color: .black.opacity(0.16), radius: 10, y: 2)
         .fixedSize(horizontal: false, vertical: true)
