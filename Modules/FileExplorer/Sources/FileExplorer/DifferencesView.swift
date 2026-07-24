@@ -309,7 +309,8 @@ public struct DifferencesView: View {
     private var collapseToggle: some View {
         if let isCollapsed {
             Button {
-                withAnimation(.easeOut(duration: 0.09)) { isCollapsed.wrappedValue.toggle() }
+                // Instant: the chevron should feel like a hard toggle, not an easing panel.
+                isCollapsed.wrappedValue.toggle()
             } label: {
                 Image(systemName: isCollapsed.wrappedValue ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .semibold))

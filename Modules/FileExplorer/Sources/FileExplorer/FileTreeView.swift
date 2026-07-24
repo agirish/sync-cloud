@@ -59,41 +59,18 @@ public struct FileTreeView: View {
     /// this folder" to a plain "Open".
     public let isSingleSource: Bool
 
-    /// Reports whether the floating selection action bar should dock at the TOP of this pane's list
-    /// rather than its usual bottom. It flips to the top whenever a selected row is currently within
-    /// the bottom band of the viewport (where a bottom-docked bar would hide it) — so the selection
-    /// stays visible as the user scrolls. `nil` on the Tidy rail, which has no action bar.
-    /// Reports where the action bar should dock: `atTop`, plus `animated` (false when the change is
-    /// selection-driven and should land instantly at the right edge; true for a scroll-crossing flip
-    /// that should cross-fade). `nil` on the Tidy rail, which has no action bar.
-    public let onBarPlacementAtTopChange: ((_ atTop: Bool, _ animated: Bool) -> Void)?
+    /// Shared placement scratch space, owned by the host (one per pane). This view fills its live
+    /// geometry (`rowBottoms`/`viewportHeight`) from row/viewport probes; the host reads the edge
+    /// straight from its own `body`. `nil` on the Tidy rail, which has no action bar.
+    private let placement: PaneBarPlacement?
+    /// Called when a SCROLL crossing flips the resolved edge — the host re-renders (with animation)
+    /// so the bar cross-fades. Selection-driven placement needs no callback: changing the selection
+    /// already re-renders the host, which recomputes the edge synchronously and instantly.
+    private let onBarEdgeFlip: (() -> Void)?
 
-    /// Coordinate space pinned to the list viewport, so a selected row can measure its position
-    /// relative to the visible area (not the scrolled content) and decide whether the bar covers it.
+    /// Coordinate space pinned to the list viewport, so a row can measure its position relative to
+    /// the visible area (not the scrolled content) and decide whether the bar covers it.
     private static let viewportSpace = "paneListViewport"
-    /// How much of the list's bottom edge the action bar (plus a row of breathing room) covers. A
-    /// selected row whose bottom falls inside this band would be hidden by a bottom bar, so the bar
-    /// flips to the top instead. Roughly the padded bar height plus one comfortable row.
-    private static let barBandHeight: CGFloat = 72
-    /// Dead-zone (about one row) between the flip-to-top and flip-back-to-bottom thresholds, so a
-    /// selected row hovering right at the boundary while scrolling doesn't oscillate the bar.
-    private static let barBandHysteresis: CGFloat = 28
-
-    /// Mutable scroll-tracking scratch space held by reference, NOT `@State`: these change every
-    /// frame while scrolling, and storing them in `@State` re-rendered the whole List each frame.
-    /// Writing to a class property invalidates nothing, so the list scrolls untouched; only a
-    /// genuine top/bottom flip pushes a `@State` change upward.
-    ///
-    /// `rowBottoms` tracks EVERY visible row's bottom edge (viewport space), not just the selected
-    /// one, so that the instant the selection changes the newly-clicked row's position is already
-    /// known — placement resolves synchronously from this map with no post-layout round-trip, which
-    /// is what lets the bar appear directly at the right edge instead of showing then flipping.
-    private final class BarPlacementProbe {
-        var viewportHeight: CGFloat = 0
-        var rowBottoms: [String: CGFloat] = [:]
-        var atTop = false
-    }
-    @State private var placement = BarPlacementProbe()
 
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
@@ -104,7 +81,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, onBarPlacementAtTopChange: ((_ atTop: Bool, _ animated: Bool) -> Void)? = nil) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -121,7 +98,8 @@ public struct FileTreeView: View {
         self.rootPath = rootPath ?? currentPath
         self.onOpenSettings = onOpenSettings
         self.isSingleSource = isSingleSource
-        self.onBarPlacementAtTopChange = onBarPlacementAtTopChange
+        self.placement = placement
+        self.onBarEdgeFlip = onBarEdgeFlip
     }
 
     /// Preference carrying every visible row's bottom edge (viewport space), keyed by node id, up to
@@ -139,39 +117,15 @@ public struct FileTreeView: View {
         }
     }
 
-    /// The lowest (largest-maxY) currently-visible selected row, in viewport space; the sentinel
-    /// `-greatestFiniteMagnitude` means no selected row is on screen.
-    private func lowestSelectedRowMaxY() -> CGFloat {
-        var lowest = -CGFloat.greatestFiniteMagnitude
-        for id in selection {
-            if let maxY = placement.rowBottoms[id] { lowest = max(lowest, maxY) }
-        }
-        return lowest
-    }
-
-    /// Where the bar belongs right now: top when a selected row sits inside the bottom band a
-    /// bottom-docked bar would cover, else bottom. The enter/exit thresholds differ by
-    /// `barBandHysteresis` so a row parked at the boundary can't chatter the bar mid-scroll. A short
-    /// or unscrolled list keeps the bar at the bottom because its rows hug the top of the viewport.
-    private func computeAtTop() -> Bool {
-        let p = placement
-        let maxY = lowestSelectedRowMaxY()
-        guard maxY > -.greatestFiniteMagnitude, p.viewportHeight > 0 else { return false }
-        let enterTop = p.viewportHeight - Self.barBandHeight
-        return p.atTop ? maxY > enterTop - Self.barBandHysteresis : maxY > enterTop
-    }
-
-    /// Recomputes placement and reports it up. On a selection change it ALWAYS reports (resolving
-    /// the edge synchronously from the already-known row positions, and telling the host it's placed)
-    /// and asks for it to be applied without animation, so the bar lands directly at the right edge
-    /// with no flip. On scroll/layout it reports only on a genuine flip, animated, for a smooth
-    /// cross-fade — and never on an unchanged edge, so scrolling triggers no `@State` churn.
-    private func syncPlacement(selectionChanged: Bool) {
-        guard let report = onBarPlacementAtTopChange else { return }
-        let newAtTop = computeAtTop()
-        guard newAtTop != placement.atTop || selectionChanged else { return }
+    /// After a scroll/layout update to the row positions, re-resolve the edge; if it flipped, commit
+    /// it and ask the host to re-render (animated cross-fade). Selection changes are NOT handled here
+    /// — they re-render the host anyway, which recomputes the edge synchronously and instantly.
+    private func flipEdgeIfScrolledAcross() {
+        guard let placement, let onBarEdgeFlip else { return }
+        let newAtTop = placement.resolveAtTop(selection: selection)
+        guard newAtTop != placement.atTop else { return }
         placement.atTop = newAtTop
-        report(newAtTop, !selectionChanged)
+        onBarEdgeFlip()
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -312,21 +266,21 @@ public struct FileTreeView: View {
             }
         )
         // The row/height preferences fire every frame while scrolling, but they only mutate the
-        // reference probe (no view invalidation) and push a change up on a genuine flip — so
-        // scrolling stays free of per-frame List re-renders.
+        // shared placement (no view invalidation) and ask the host to re-render solely on a genuine
+        // edge flip — so scrolling stays free of per-frame List re-renders.
         .onPreferenceChange(ViewportHeightKey.self) { height in
-            placement.viewportHeight = height
-            syncPlacement(selectionChanged: false)
+            placement?.viewportHeight = height
+            flipEdgeIfScrolledAcross()
         }
         .onPreferenceChange(RowBottomsKey.self) { bottoms in
-            placement.rowBottoms = bottoms
-            syncPlacement(selectionChanged: false)
+            placement?.rowBottoms = bottoms
+            flipEdgeIfScrolledAcross()
         }
-        // Selection changed: resolve the edge synchronously from the row positions already tracked
-        // above (the clicked row is visible, so it's in the map) and report it as a non-animated
-        // change, so the bar lands directly at the correct edge instead of flipping into place.
+        // Selection changed: sync the hysteresis anchor. The host already re-renders on the
+        // selection change and reads the edge synchronously, so no callback (and no animation) is
+        // needed here — the bar lands directly at the correct edge.
         .onChange(of: selection) {
-            syncPlacement(selectionChanged: true)
+            placement?.atTop = placement?.resolveAtTop(selection: selection) ?? false
         }
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
@@ -399,7 +353,7 @@ public struct FileTreeView: View {
     /// where every visible row sits. Withheld on the Tidy rail (no action bar to place).
     @ViewBuilder
     private func rowPositionProbe(for node: FileNode) -> some View {
-        if onBarPlacementAtTopChange != nil {
+        if placement != nil {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: RowBottomsKey.self,

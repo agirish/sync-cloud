@@ -171,14 +171,16 @@ struct ContentView: View {
     /// rather than the bottom. Flipped by the pane (via `FileTreeView`) whenever a selected row sits
     /// in the bottom band of the viewport, so the bar never hides the selection. Per-pane because
     /// each pane scrolls independently.
+    /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
+    /// geometry; `paneColumn` reads the resolved edge straight from `body`, so the bar's edge is
+    /// known synchronously the instant the selection changes — no gate, no show-then-flip.
+    @State private var leftPlacement = PaneBarPlacement()
+    @State private var rightPlacement = PaneBarPlacement()
+    /// A pure re-render trigger for SCROLL-driven edge flips: `FileTreeView` mutates the placement
+    /// (a class, so no invalidation) and calls back to toggle this, which re-renders `paneColumn` so
+    /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
     @State private var leftBarAtTop = false
     @State private var rightBarAtTop = false
-    /// Whether the pane has resolved where its action bar goes for the CURRENT selection. The bar
-    /// stays hidden until this is true so its first appearance lands directly at the correct edge,
-    /// instead of showing at the default bottom and then flipping once the geometry probe reports.
-    /// Reset to false the moment the selection clears, so the next selection re-gates.
-    @State private var leftBarPlaced = false
-    @State private var rightBarPlaced = false
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -1131,8 +1133,14 @@ struct ContentView: View {
         // separately in each spot re-walked the tree several times per render (~100ms each), which
         // was the comparison panes' selection lag.
         let barNodes = barSelectionNodes(isLeft: isLeft)
-        let barAtTop = isLeft ? leftBarAtTop : rightBarAtTop
-        let barPlaced = isLeft ? leftBarPlaced : rightBarPlaced
+        // Read the scroll-flip trigger so this column re-renders when a scroll crossing flips the
+        // edge; the value itself is unused — the edge is resolved fresh below.
+        _ = isLeft ? leftBarAtTop : rightBarAtTop
+        // Resolve the bar's edge synchronously from the pane's live geometry and current selection.
+        // Because this runs in `body`, a selection change (which re-renders here) lands the bar at
+        // the correct edge in the same pass — no gate, no deferred flip.
+        let placement = isLeft ? leftPlacement : rightPlacement
+        let barAtTop = placement.resolveAtTop(selection: Set(barNodes.map(\.id)))
         return VStack(spacing: 0) {
             PaneHeader(
                 title: pane.title,
@@ -1187,42 +1195,21 @@ struct ContentView: View {
                 // just under the pane header, never over it. It flips to the top when a selected
                 // row is near the list's bottom, keeping the selection visible.
                 .overlay(alignment: barAtTop ? .top : .bottom) {
-                    // Gate on `barPlaced` so the bar's first frame is already at the resolved edge;
-                    // otherwise it would flash in at the default bottom and then flip to the top.
-                    if !barNodes.isEmpty, barPlaced {
+                    if !barNodes.isEmpty {
                         paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                             .padding(10)
-                            // Re-key on the edge so a later flip (selection scrolled across the band)
-                            // is a clean cross-fade (old copy fades out at one edge, new fades in at
-                            // the other) rather than an alignment snap — SwiftUI can't tween an
-                            // overlay's alignment, so the same identity would jump.
+                            // Re-key on the edge so a scroll-crossing flip is a clean cross-fade (old
+                            // copy fades out at one edge, new fades in at the other) rather than an
+                            // alignment snap. A selection-driven edge change carries no animation
+                            // context, so it lands instantly; a scroll flip runs inside the callback's
+                            // `withAnimation`, so it cross-fades.
                             .id(barAtTop)
                             .transition(.move(edge: barAtTop ? .top : .bottom).combined(with: .opacity))
                     }
                 }
-                // easeOut (front-loaded), not easeInOut: an ease-in opens almost invisibly, which
-                // read as the bar lagging a beat behind the click. easeOut puts the motion up front
-                // so it registers the instant the selection lands; the shorter duration helps too.
-                .animation(.easeOut(duration: 0.11), value: barPlaced && !barNodes.isEmpty)
-                .animation(.easeInOut(duration: 0.22), value: barAtTop)
-                // The selection cleared: forget the resolved placement so the next selection is
-                // re-gated and can't briefly show at a stale edge.
-                .onChange(of: barNodes.isEmpty) { _, isEmpty in
-                    if isEmpty {
-                        if isLeft { leftBarPlaced = false } else { rightBarPlaced = false }
-                    }
-                }
-                // Safety net: if a selection exists but no visible row ever reports its position
-                // (e.g. the selected row sits scrolled out of view), the placement callback never
-                // fires and the bar would stay hidden. Reveal it at its default edge after a short
-                // beat. The normal path — the probe reporting within a frame — always beats this, so
-                // it never causes the very flash-then-flip this whole gate exists to prevent.
-                .task(id: barNodes.isEmpty) {
-                    guard !barNodes.isEmpty else { return }
-                    try? await Task.sleep(for: .milliseconds(60))
-                    if isLeft { if !leftBarPlaced { leftBarPlaced = true } }
-                    else { if !rightBarPlaced { rightBarPlaced = true } }
-                }
+                // Quick fade on appear/disappear only (keyed on presence, not the edge), so clicking
+                // a file shows the bar at once and clearing the selection fades it out.
+                .animation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
         }
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked in Compare could never be un-picked. Only swallow the key
@@ -1313,9 +1300,9 @@ struct ContentView: View {
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
         .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
-        // A near-instant easeOut so the differences pane snaps open/closed the moment the chevron
-        // is clicked — just enough tween to avoid a hard jump; the others keep the softer easeInOut.
-        .animation(.easeOut(duration: 0.09), value: bottomPaneIsCollapsed)
+        // No animation on the collapse: the differences pane snaps open/closed instantly with the
+        // chevron, which is what reads as responsive here; the others keep the softer easeInOut.
+        .animation(nil, value: bottomPaneIsCollapsed)
         .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
         .animation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
@@ -1478,27 +1465,15 @@ struct ContentView: View {
             // The Tidy rail is a single source with no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".
             isSingleSource: layoutMode == .singleSource,
-            // Keeps the floating action bar off the selected row: the pane flips it to the top
-            // whenever the selection sits in the list's bottom band, and marks the bar placed so the
-            // visibility gate above releases it directly at the resolved edge. `animated` is false
-            // for selection-driven placement (land instantly, no flip) and true for a scroll-crossing
-            // flip (cross-fade) — so a click never animates the bar across the pane.
-            onBarPlacementAtTopChange: { atTop, animated in
-                let apply = {
-                    if pane.isLeft {
-                        leftBarAtTop = atTop
-                        leftBarPlaced = true
-                    } else {
-                        rightBarAtTop = atTop
-                        rightBarPlaced = true
-                    }
-                }
-                if animated {
-                    apply()
-                } else {
-                    var tx = Transaction()
-                    tx.disablesAnimations = true
-                    withTransaction(tx, apply)
+            // Shared placement scratch space this pane fills from live geometry; `paneColumn` reads
+            // the edge from it synchronously. The flip callback fires only when a SCROLL crossing
+            // changes the edge — it re-renders the column inside `withAnimation` so the bar
+            // cross-fades. Clicking a file needs no callback: it re-renders the column on its own,
+            // which lands the bar at the correct edge instantly.
+            placement: pane.isLeft ? leftPlacement : rightPlacement,
+            onBarEdgeFlip: {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    if pane.isLeft { leftBarAtTop.toggle() } else { rightBarAtTop.toggle() }
                 }
             }
         )
