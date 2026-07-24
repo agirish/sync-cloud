@@ -48,6 +48,12 @@ public struct DifferencesView: View {
     private let onQuickLook: ((URL) -> Void)?
     /// Shows the in-app Info inspector for a path (the "Get Info" row action). Default no-op.
     private let onGetInfo: (String) -> Void
+    /// Host-owned collapse state for the whole pane. When bound, the header shows a chevron that
+    /// hides the differences list, leaving only this header strip (the host shrinks the pane to it
+    /// and hands the freed height to the panes above). `nil` — the default — means the pane can't
+    /// collapse and the chevron is withheld.
+    private let isCollapsed: Binding<Bool>?
+    private var collapsed: Bool { isCollapsed?.wrappedValue ?? false }
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
     ///     created inline here — a per-render store would reset the session every render).
@@ -55,12 +61,13 @@ public struct DifferencesView: View {
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
     ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
         self.onQuickLook = onQuickLook
         self.onGetInfo = onGetInfo
+        self.isCollapsed = isCollapsed
     }
 
     private var isBulkSyncing: Bool {
@@ -151,8 +158,9 @@ public struct DifferencesView: View {
                     } else {
                         standardHeaderControls(targets: targets, sorted: sorted)
                     }
+                    collapseToggle
                 }
-                if reviewStore.session == nil, isSearchExpanded || !searchText.isEmpty {
+                if reviewStore.session == nil, !collapsed, isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
                 }
             }
@@ -169,15 +177,18 @@ public struct DifferencesView: View {
             .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
 
             // Table card: review card / progress (during ops) sits above the differences table.
-            VStack(spacing: 0) {
-                if let session = reviewStore.session {
-                    reviewSection(session)
-                } else {
-                    standardTableSection(sorted: sorted)
+            // Dropped entirely when collapsed so the pane shrinks to just the header strip above.
+            if !collapsed {
+                VStack(spacing: 0) {
+                    if let session = reviewStore.session {
+                        reviewSection(session)
+                    } else {
+                        standardTableSection(sorted: sorted)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
         // Review-cursor plumbing, both directions: a row click jumps the session (pending rows
         // only — decided rows snap the highlight back), and a session advance re-highlights.
@@ -271,6 +282,28 @@ public struct DifferencesView: View {
 
     /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
     /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
+    /// The show/hide chevron pinned to the header's trailing edge. Points down while the list is
+    /// shown (a click hides it) and up while collapsed (a click brings it back) — the same "points
+    /// the way the next click sends it" rule the count pill's chevron follows. Withheld entirely
+    /// when the host doesn't bind collapse state.
+    @ViewBuilder
+    private var collapseToggle: some View {
+        if let isCollapsed {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isCollapsed.wrappedValue.toggle() }
+            } label: {
+                Image(systemName: isCollapsed.wrappedValue ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isCollapsed.wrappedValue ? "Show the differences list" : "Hide the differences list")
+            .accessibilityLabel(isCollapsed.wrappedValue ? "Show differences" : "Hide differences")
+        }
+    }
+
     @ViewBuilder
     private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
         // The count pill is a toggle for the per-side item totals: click to reveal them inline,

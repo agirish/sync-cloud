@@ -93,6 +93,10 @@ struct ContentView: View {
     /// The bottom (Differences/Details) pane's share of the content height. Persisted so it
     /// survives relaunches and never resets when switching the Differences/Details tab.
     @AppStorage("mainBottomPaneFraction") var bottomPaneFraction: Double = 0.4
+    /// Whether the Compare differences pane is collapsed to just its header strip, freeing its
+    /// height for the panes above. Persisted so the choice sticks across launches. Only takes
+    /// effect while the differences list is actually showing (see `compareBottomListActive`).
+    @AppStorage("compareBottomCollapsed") var bottomPaneCollapsed: Bool = false
     /// Live vertical-split fraction while dragging; nil when idle (persisted once on release).
     @State var verticalDragFraction: Double? = nil
 
@@ -163,6 +167,11 @@ struct ContentView: View {
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
+    /// Measured height of the floating pane action bar (including its 10pt padding). Reserved as a
+    /// bottom inset on the file list while a selection is active, so the last row can scroll clear
+    /// of the bar instead of hiding beneath it. Measured rather than hardcoded so it tracks the
+    /// bar's real height across density and Dynamic Type.
+    @State private var actionBarHeight: CGFloat = 0
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -1106,6 +1115,15 @@ struct ContentView: View {
         )
     }
 
+    /// Reports the floating action bar's measured height up to `paneColumn`, which reserves it as a
+    /// bottom inset on the file list so the last row scrolls clear of the bar (never hidden beneath).
+    private struct PaneActionBarHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
     /// One resizable file pane: provider header stacked over its file tree.
     @ViewBuilder
     func paneColumn(isLeft: Bool) -> some View {
@@ -1162,6 +1180,14 @@ struct ContentView: View {
             .paneCardIfNeeded(surfaceStyle, level: glassLevel)
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                // Reserve room at the bottom of the list for the floating action bar so its last
+                // rows can scroll above the bar rather than sitting hidden underneath it. Gated on
+                // an active selection so the inset appears only while the bar is showing.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !barNodes.isEmpty {
+                        Color.clear.frame(height: actionBarHeight)
+                    }
+                }
         }
         // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
         // contextual bar on whichever pane holds the selection, so the buttons name their target.
@@ -1170,9 +1196,17 @@ struct ContentView: View {
             if !barNodes.isEmpty {
                 paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                     .padding(10)
+                    // Measure the padded bar's height and feed it back up so the list inset above
+                    // matches exactly, keeping a consistent gap between the last row and the bar.
+                    .background(
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: PaneActionBarHeightKey.self, value: proxy.size.height)
+                        }
+                    )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .onPreferenceChange(PaneActionBarHeightKey.self) { actionBarHeight = $0 }
         .animation(.easeInOut(duration: 0.15), value: barNodes.count)
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked in Compare could never be un-picked. Only swallow the key
@@ -1263,6 +1297,7 @@ struct ContentView: View {
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
         .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
+        .animation(.easeInOut(duration: 0.2), value: bottomPaneIsCollapsed)
         .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
         .animation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
@@ -1467,6 +1502,20 @@ struct ContentView: View {
         )
     }
 
+    /// True when the Compare bottom pane is showing the actual differences list (not a
+    /// placeholder like scanning / all-in-sync). Collapse only applies here — the header strip it
+    /// leaves behind belongs to `DifferencesView`, which the placeholders don't render. Internal so
+    /// the split-layout extension can gate the collapsed frame on it.
+    var compareBottomListActive: Bool {
+        selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
+    }
+
+    /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it
+    /// AND the differences list (which owns that strip) is the thing on screen.
+    var bottomPaneIsCollapsed: Bool {
+        bottomPaneCollapsed && compareBottomListActive
+    }
+
     /// The tabbed workspace at the bottom of the file explorer.
     /// It dynamically switches between `DifferencesView` and `DetailsSidebar`.
     @ViewBuilder
@@ -1513,7 +1562,7 @@ struct ContentView: View {
         } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
             // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) })
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

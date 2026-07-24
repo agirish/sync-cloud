@@ -106,6 +106,19 @@ extension ContentView {
         GeometryReader { geo in
             let totalHeight = geo.size.height
             switch contentLayout {
+            case .compareSplit where bottomPaneIsCollapsed:
+                // Collapsed: the panes take everything except the differences header strip, which
+                // sizes itself (no fixed fraction, no drag divider — the chevron in the header is
+                // the only way back). `fixedSize` lets the strip hug its intrinsic header height.
+                VStack(spacing: 0) {
+                    panesSplit
+                        .panesRegionFrame(surfaceStyle, level: glassLevel)
+                        .frame(maxHeight: .infinity)
+                    bottomPaneView
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(width: geo.size.width, height: totalHeight)
+                .coordinateSpace(.named(Self.verticalStackSpace))
             case .compareSplit:
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
