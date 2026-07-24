@@ -1183,11 +1183,16 @@ struct ContentView: View {
                     if !barNodes.isEmpty {
                         paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                             .padding(10)
+                            // Re-key on the edge so a flip is a clean cross-fade (old copy fades out
+                            // at one edge, new fades in at the other) rather than an alignment snap —
+                            // SwiftUI can't tween an overlay's alignment, so the same identity would
+                            // jump. First appearance still rises from its edge.
+                            .id(barAtTop)
                             .transition(.move(edge: barAtTop ? .top : .bottom).combined(with: .opacity))
                     }
                 }
                 .animation(.easeInOut(duration: 0.15), value: barNodes.count)
-                .animation(.easeInOut(duration: 0.2), value: barAtTop)
+                .animation(.easeInOut(duration: 0.22), value: barAtTop)
         }
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked in Compare could never be un-picked. Only swallow the key

@@ -72,12 +72,22 @@ public struct FileTreeView: View {
     /// selected row whose bottom falls inside this band would be hidden by a bottom bar, so the bar
     /// flips to the top instead. Roughly the padded bar height plus one comfortable row.
     private static let barBandHeight: CGFloat = 72
+    /// Dead-zone (about one row) between the flip-to-top and flip-back-to-bottom thresholds, so a
+    /// selected row hovering right at the boundary while scrolling doesn't oscillate the bar.
+    private static let barBandHysteresis: CGFloat = 28
 
-    /// Viewport height, tracked so the bottom-band test has a reference edge; updated on resize.
-    @State private var viewportHeight: CGFloat = 0
-    /// The lowest (largest-maxY) currently-visible selected row, in viewport space. `nil` sentinel
-    /// (`-greatestFiniteMagnitude`) means no selected row is visible, so the bar stays at the bottom.
-    @State private var lowestSelectedRowMaxY: CGFloat = -.greatestFiniteMagnitude
+    /// Mutable scroll-tracking scratch space held by reference, NOT `@State`: the selected row's
+    /// bottom edge changes every frame while scrolling, and storing it in `@State` re-rendered the
+    /// whole List each frame. Writing to a class property invalidates nothing, so the list scrolls
+    /// untouched; only a genuine top/bottom flip (compared here) pushes a `@State` change upward.
+    private final class BarPlacementProbe {
+        var viewportHeight: CGFloat = 0
+        /// Lowest (largest-maxY) currently-visible selected row in viewport space; the sentinel
+        /// `-greatestFiniteMagnitude` means no selected row is on screen.
+        var lowestSelectedRowMaxY: CGFloat = -.greatestFiniteMagnitude
+        var atTop = false
+    }
+    @State private var placement = BarPlacementProbe()
 
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
@@ -124,14 +134,28 @@ public struct FileTreeView: View {
     }
 
     /// Recomputes the bar's placement from the latest viewport height and lowest selected row, and
-    /// reports it up. A selected row sitting inside the bottom band flips the bar to the top; with
-    /// no selected row visible (or a short, unscrolled list whose rows hug the top) it stays bottom.
+    /// reports it up ONLY when it actually flips. A selected row sitting inside the bottom band
+    /// flips the bar to the top; with no selected row visible (or a short, unscrolled list whose
+    /// rows hug the top) it stays bottom. The enter/exit thresholds differ by `barBandHysteresis`
+    /// so a row parked at the boundary can't chatter the bar back and forth mid-scroll.
     private func reportBarPlacement() {
         guard let report = onBarPlacementAtTopChange else { return }
-        let hasVisibleSelection = lowestSelectedRowMaxY > -.greatestFiniteMagnitude
-        let atTop = hasVisibleSelection && viewportHeight > 0
-            && lowestSelectedRowMaxY > viewportHeight - Self.barBandHeight
-        report(atTop)
+        let p = placement
+        let hasVisibleSelection = p.lowestSelectedRowMaxY > -.greatestFiniteMagnitude
+        let newAtTop: Bool
+        if hasVisibleSelection, p.viewportHeight > 0 {
+            let enterTop = p.viewportHeight - Self.barBandHeight
+            // Once at the top, require the row to clear the band by the hysteresis margin before
+            // dropping the bar back down; otherwise the single `enterTop` line is the trigger.
+            newAtTop = p.atTop
+                ? p.lowestSelectedRowMaxY > enterTop - Self.barBandHysteresis
+                : p.lowestSelectedRowMaxY > enterTop
+        } else {
+            newAtTop = false
+        }
+        guard newAtTop != p.atTop else { return }
+        p.atTop = newAtTop
+        report(newAtTop)
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -271,12 +295,15 @@ public struct FileTreeView: View {
                 Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
             }
         )
+        // These fire every frame while a selected row scrolls, but they only mutate the reference
+        // probe (no view invalidation) and push a change up on a genuine flip — so scrolling stays
+        // free of per-frame List re-renders.
         .onPreferenceChange(ViewportHeightKey.self) { height in
-            viewportHeight = height
+            placement.viewportHeight = height
             reportBarPlacement()
         }
         .onPreferenceChange(SelectedRowBottomKey.self) { maxY in
-            lowestSelectedRowMaxY = maxY
+            placement.lowestSelectedRowMaxY = maxY
             reportBarPlacement()
         }
         .onDeleteCommand {
