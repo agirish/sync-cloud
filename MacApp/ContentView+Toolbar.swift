@@ -111,9 +111,8 @@ extension ContentView {
                                                        leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }
-            actionBarButton("New Folder", systemImage: "folder.badge.plus", accent: accent) {
-                if let path = activePanePath { actionHandler?.beginCreateFolder(in: path) }
-            }
+            // New Folder is intentionally omitted here to keep the bar compact — it stays on the
+            // pane's right-click menu (SharedFileMenuItems.newFolder) for now.
             Spacer(minLength: 6)
             actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive) {
                 actionHandler?.confirmDelete(selectionNodes)
