@@ -732,7 +732,50 @@ public class FileSyncManager: ObservableObject {
     @Published public var leftItemCount = 0
     /// Total number of files and folders in the right pane tree (recursive).
     @Published public var rightItemCount = 0
-    
+
+    // MARK: - Selection resolution index
+
+    /// Path→node maps for resolving a selection to nodes in O(selection) instead of walking the
+    /// ~40k-node tree on every render — that walk was the pane action bar's "fraction of a second"
+    /// appearance lag. Built lazily on first lookup after a tree change and cached against the
+    /// published tree version, so a scan/navigation invalidates it without any eager cost.
+    private var leftNodeIndexCache: (version: Int, index: [String: FileNode])?
+    private var rightNodeIndexCache: (version: Int, index: [String: FileNode])?
+
+    private static func buildNodeIndex(_ tree: [FileNode]) -> [String: FileNode] {
+        var index = [String: FileNode](minimumCapacity: 1024)
+        func walk(_ nodes: [FileNode]) {
+            for node in nodes {
+                index[node.id] = node
+                if let children = node.children { walk(children) }
+            }
+        }
+        walk(tree)
+        return index
+    }
+
+    /// Resolves selected paths to left-pane nodes via the cached index. Order is unspecified (the
+    /// consumers — the action bar's count/size summary and per-node file actions — don't depend on
+    /// it). A stale path absent from the current tree is simply dropped, matching `findNodes`.
+    public func leftNodes(for paths: Set<String>) -> [FileNode] {
+        guard !paths.isEmpty else { return [] }
+        if leftNodeIndexCache?.version != publishedLeftTreeVersion {
+            leftNodeIndexCache = (publishedLeftTreeVersion, Self.buildNodeIndex(leftTree))
+        }
+        let index = leftNodeIndexCache!.index
+        return paths.compactMap { index[$0] }
+    }
+
+    /// Right-pane counterpart of `leftNodes(for:)`.
+    public func rightNodes(for paths: Set<String>) -> [FileNode] {
+        guard !paths.isEmpty else { return [] }
+        if rightNodeIndexCache?.version != publishedRightTreeVersion {
+            rightNodeIndexCache = (publishedRightTreeVersion, Self.buildNodeIndex(rightTree))
+        }
+        let index = rightNodeIndexCache!.index
+        return paths.compactMap { index[$0] }
+    }
+
     /// Cached structures generated asynchronously upon app load to eliminate blocking when switching providers.
     /// Not `@Published`: no view renders from it, and it is cleared after every file operation —
     /// publishing it forced whole-window re-renders per operation.

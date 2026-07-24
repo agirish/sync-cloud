@@ -18,16 +18,15 @@ extension ContentView {
         )
     }
 
-    /// The selected nodes in whichever pane is active. Resolves paths to nodes via a tree walk,
-    /// so it is NOT free on the ~40k-node comparison panes — compute it once per render (see
-    /// `paneColumn`) and thread the result to consumers rather than reading this property several
-    /// times, or each read re-walks the tree.
+    /// The selected nodes in whichever pane is active. Resolves paths via the sync manager's cached
+    /// path→node index (O(selection)), so — unlike the old per-render tree walk — it's cheap to read
+    /// and no longer gates the action bar's appearance on a ~40k-node traversal.
     var activeSelectionNodes: [FileNode] {
         switch activePane {
         case .left?:
-            return syncManager.leftTree.findNodes(at: syncManager.selectedLeftPaths)
+            return syncManager.leftNodes(for: syncManager.selectedLeftPaths)
         case .right?:
-            return syncManager.rightTree.findNodes(at: syncManager.selectedRightPaths)
+            return syncManager.rightNodes(for: syncManager.selectedRightPaths)
         case nil:
             return []
         }
