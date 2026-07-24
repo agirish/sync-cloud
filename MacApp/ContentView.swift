@@ -1479,16 +1479,26 @@ struct ContentView: View {
             // comparison-only items and renames "Compare only this folder" to "Open".
             isSingleSource: layoutMode == .singleSource,
             // Keeps the floating action bar off the selected row: the pane flips it to the top
-            // whenever the selection scrolls into the list's bottom band. The first report for a
-            // selection also marks the bar placed, releasing the visibility gate above so it appears
-            // directly at the resolved edge.
-            onBarPlacementAtTopChange: { atTop in
-                if pane.isLeft {
-                    leftBarAtTop = atTop
-                    leftBarPlaced = true
+            // whenever the selection sits in the list's bottom band, and marks the bar placed so the
+            // visibility gate above releases it directly at the resolved edge. `animated` is false
+            // for selection-driven placement (land instantly, no flip) and true for a scroll-crossing
+            // flip (cross-fade) — so a click never animates the bar across the pane.
+            onBarPlacementAtTopChange: { atTop, animated in
+                let apply = {
+                    if pane.isLeft {
+                        leftBarAtTop = atTop
+                        leftBarPlaced = true
+                    } else {
+                        rightBarAtTop = atTop
+                        rightBarPlaced = true
+                    }
+                }
+                if animated {
+                    apply()
                 } else {
-                    rightBarAtTop = atTop
-                    rightBarPlaced = true
+                    var tx = Transaction()
+                    tx.disablesAnimations = true
+                    withTransaction(tx, apply)
                 }
             }
         )
