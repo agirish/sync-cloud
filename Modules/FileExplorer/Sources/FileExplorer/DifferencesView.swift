@@ -309,7 +309,7 @@ public struct DifferencesView: View {
     private var collapseToggle: some View {
         if let isCollapsed {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isCollapsed.wrappedValue.toggle() }
+                withAnimation(.easeOut(duration: 0.09)) { isCollapsed.wrappedValue.toggle() }
             } label: {
                 Image(systemName: isCollapsed.wrappedValue ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .semibold))

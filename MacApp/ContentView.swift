@@ -1286,7 +1286,9 @@ struct ContentView: View {
         // Animate the panes collapsing/expanding when the tab's pane state flips — both on
         // the manual toggle and on the auto-collapse that fires when a tab switch changes it.
         .animation(.easeInOut(duration: 0.2), value: panesHiddenForCurrentTab)
-        .animation(.easeInOut(duration: 0.2), value: bottomPaneIsCollapsed)
+        // A near-instant easeOut so the differences pane snaps open/closed the moment the chevron
+        // is clicked — just enough tween to avoid a hard jump; the others keep the softer easeInOut.
+        .animation(.easeOut(duration: 0.09), value: bottomPaneIsCollapsed)
         .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
         .animation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
