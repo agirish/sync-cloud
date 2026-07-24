@@ -86,8 +86,9 @@ public struct PaneHeader: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(tint.opacity(freshness.isStale ? 0.14 : 0.1), in: Capsule())
-                .chromePillFrost(glassLevel)
+                // Accent-tinted glass rather than a gray frosted capsule with a faint tint on top
+                // (which read as "green text on a gray pill"). The dot above stays green/amber.
+                .accentGlassCapsule(tint, strength: 0.3)
 
                 if let onRefresh {
                     // Same guard as the Scan button below: the pill triggers the same action,

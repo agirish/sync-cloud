@@ -363,6 +363,20 @@ public extension View {
         modifier(LiquidGlassBackground(level: level, hue: hue))
     }
 
+    /// An accent-TINTED glass capsule for small chrome (the selection action bar, status pills):
+    /// on macOS 26 it tints the native glass itself, so the surface reads as the accent hue rather
+    /// than the neutral gray of a plain `Material` with a thin accent wash floated on top (which was
+    /// the "accent over gray" look). Pre-26 falls back to a thin material with an accent wash.
+    /// `strength` is the tint opacity on the glass; `fallbackWash` the accent opacity on the fallback.
+    @ViewBuilder
+    func accentGlassCapsule(_ accent: Color, strength: Double = 0.55, fallbackWash: Double = 0.14) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())
+        } else {
+            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(fallbackWash))))
+        }
+    }
+
     /// The material fill for one content surface. This is the single place the level → appearance
     /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through
     /// it, so they can't drift apart the way they did when each call site mapped a raw intensity
@@ -639,7 +653,7 @@ private struct LiquidGlassBackground: ViewModifier {
                     // desktop showing through. The panes are see-through glass, so this veil is what
                     // whitens them too — hence a fairly strong wash to bury the gray. The hue gradient
                     // above still leans it toward the accent rather than a dead white.
-                    Color.white.opacity(0.42)
+                    Color.white.opacity(0.24)
                         .ignoresSafeArea()
                 }
 

@@ -119,9 +119,9 @@ extension ContentView {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        // Thin (glassier, more see-through) material base with a stronger accent wash so the whole
-        // bar carries the app hue rather than reading as a gray slab; the border keeps a bit more.
-        .background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(0.13))))
+        // Accent-tinted glass, not a gray material with an accent wash on top — so the bar reads as
+        // the app hue rather than "accent over gray".
+        .accentGlassCapsule(accent, strength: 0.42)
         .overlay(Capsule().strokeBorder(accent.opacity(0.45), lineWidth: 0.75))
         .shadow(color: .black.opacity(0.16), radius: 10, y: 2)
         .fixedSize(horizontal: false, vertical: true)
