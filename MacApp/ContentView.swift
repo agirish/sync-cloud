@@ -167,11 +167,6 @@ struct ContentView: View {
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
-    /// Measured height of the floating pane action bar (including its 10pt padding). Reserved as a
-    /// bottom inset on the file list while a selection is active, so the last row can scroll clear
-    /// of the bar instead of hiding beneath it. Measured rather than hardcoded so it tracks the
-    /// bar's real height across density and Dynamic Type.
-    @State private var actionBarHeight: CGFloat = 0
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -1115,15 +1110,6 @@ struct ContentView: View {
         )
     }
 
-    /// Reports the floating action bar's measured height up to `paneColumn`, which reserves it as a
-    /// bottom inset on the file list so the last row scrolls clear of the bar (never hidden beneath).
-    private struct PaneActionBarHeightKey: PreferenceKey {
-        static var defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value = max(value, nextValue())
-        }
-    }
-
     /// One resizable file pane: provider header stacked over its file tree.
     @ViewBuilder
     func paneColumn(isLeft: Bool) -> some View {
@@ -1180,14 +1166,6 @@ struct ContentView: View {
             .paneCardIfNeeded(surfaceStyle, level: glassLevel)
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
-                // Reserve room at the bottom of the list for the floating action bar so its last
-                // rows can scroll above the bar rather than sitting hidden underneath it. Gated on
-                // an active selection so the inset appears only while the bar is showing.
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    if !barNodes.isEmpty {
-                        Color.clear.frame(height: actionBarHeight)
-                    }
-                }
         }
         // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
         // contextual bar on whichever pane holds the selection, so the buttons name their target.
@@ -1196,17 +1174,9 @@ struct ContentView: View {
             if !barNodes.isEmpty {
                 paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                     .padding(10)
-                    // Measure the padded bar's height and feed it back up so the list inset above
-                    // matches exactly, keeping a consistent gap between the last row and the bar.
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(key: PaneActionBarHeightKey.self, value: proxy.size.height)
-                        }
-                    )
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .onPreferenceChange(PaneActionBarHeightKey.self) { actionBarHeight = $0 }
         .animation(.easeInOut(duration: 0.15), value: barNodes.count)
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked in Compare could never be un-picked. Only swallow the key
