@@ -106,23 +106,18 @@ extension ContentView {
         GeometryReader { geo in
             let totalHeight = geo.size.height
             switch contentLayout {
-            case .compareSplit where bottomPaneIsCollapsed:
-                // Collapsed: the panes take everything except the differences header strip, which
-                // sizes itself (no fixed fraction, no drag divider — the chevron in the header is
-                // the only way back). `fixedSize` lets the strip hug its intrinsic header height.
-                VStack(spacing: 0) {
-                    panesSplit
-                        .panesRegionFrame(surfaceStyle, level: glassLevel)
-                        .frame(maxHeight: .infinity)
-                    bottomPaneView
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(width: geo.size.width, height: totalHeight)
-                .coordinateSpace(.named(Self.verticalStackSpace))
             case .compareSplit:
+                // ONE structure for both the expanded and collapsed states — the same `panesSplit`,
+                // divider, and `bottomPaneView` children in the same positions — so collapsing keeps
+                // their identity instead of tearing down and rebuilding the two ~40k-row Lists (which
+                // was the collapse's lag). Only the frame heights and the divider's presence change:
+                //   • expanded  — panes fill the space above a fraction-sized bottom pane, drag divider.
+                //   • collapsed — panes fill everything above the bottom pane, which hugs its header
+                //                 strip (height nil = intrinsic), and the divider goes to zero height.
+                let collapsed = bottomPaneIsCollapsed
                 let minTop: CGFloat = 220
                 let minBottom: CGFloat = 150
-                let dividerHeight: CGFloat = 1
+                let dividerHeight: CGFloat = collapsed ? 0 : 1
                 let panesHeight = PaneLogic.verticalPanesHeight(totalHeight: totalHeight, dividerHeight: dividerHeight)
                 // fraction = the bottom pane's share; clamp so neither section drops below its min.
                 let minFraction = PaneLogic.verticalMinFraction(panesHeight: panesHeight, minBottom: minBottom)
@@ -133,11 +128,15 @@ extension ContentView {
                 VStack(spacing: 0) {
                     panesSplit
                         .panesRegionFrame(surfaceStyle, level: glassLevel)
-                        .frame(height: panesHeight - bottomHeight)
+                        .frame(maxHeight: .infinity)
                     verticalResizeDivider(panesHeight: panesHeight, minFraction: minFraction, maxFraction: maxFraction)
                         .frame(height: dividerHeight)
+                        .opacity(collapsed ? 0 : 1)
+                        .allowsHitTesting(!collapsed)
                     bottomPaneView
-                        .frame(height: bottomHeight)
+                        // nil height when collapsed → the bottom pane hugs its header strip; a fixed
+                        // fraction height when expanded. Same modifier either way, so identity holds.
+                        .frame(height: collapsed ? nil : bottomHeight)
                 }
                 .frame(width: geo.size.width, height: totalHeight)
                 .coordinateSpace(.named(Self.verticalStackSpace))
