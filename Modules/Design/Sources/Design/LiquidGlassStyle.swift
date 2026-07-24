@@ -377,6 +377,18 @@ public extension View {
         }
     }
 
+    /// Rounded-rect counterpart of `accentGlassCapsule` — an accent-tinted glass tile for bar/header
+    /// chrome (the Activity Log toolbars), matching the dashboard tiles' accent-colored glass.
+    @ViewBuilder
+    func accentGlassTile(_ accent: Color, strength: Double = 0.9, cornerRadius: CGFloat, fallbackWash: Double = 0.16) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular.tint(accent.opacity(strength)), in: .rect(cornerRadius: cornerRadius))
+        } else {
+            self.background(shape.fill(.thinMaterial).overlay(shape.fill(accent.opacity(fallbackWash))))
+        }
+    }
+
     /// The material fill for one content surface. This is the single place the level → appearance
     /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through
     /// it, so they can't drift apart the way they did when each call site mapped a raw intensity

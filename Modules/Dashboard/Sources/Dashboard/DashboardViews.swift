@@ -70,9 +70,13 @@ public struct PaneHeader: View {
                 // Fresh reads in the app accent (the pill was a neutral gray before); stale still
                 // goes amber as a semantic warning, and the status dot below stays green/amber.
                 let tint = freshness.isStale ? Color.orange : glassHue.accentColor
+                // The pill is a near-solid accent (or amber) glass tile now, so its text and dot are
+                // the on-fill label color (white on the accent, dark on amber) — a green dot would
+                // vanish on the green pill.
+                let onTint = Color.onFillLabel(tint)
                 let label = HStack(spacing: 5) {
                     Circle()
-                        .fill(freshness.isStale ? Color.orange : Color.green)
+                        .fill(onTint)
                         .frame(width: 5, height: 5)
                     // One line always: in a narrow pane a wrapping pill would grow the whole
                     // header vertically.
@@ -84,11 +88,10 @@ public struct PaneHeader: View {
                     }
                 }
                 .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(tint)
+                .foregroundStyle(onTint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                // Accent-tinted glass rather than a gray frosted capsule with a faint tint on top
-                // (which read as "green text on a gray pill"). The dot above stays green/amber.
-                .accentGlassCapsule(tint, strength: 0.3)
+                // Near-solid accent (or amber) glass tile with white on-fill text.
+                .accentGlassCapsule(tint, strength: 0.85)
 
                 if let onRefresh {
                     // Same guard as the Scan button below: the pill triggers the same action,

@@ -292,7 +292,11 @@ public struct LogViewer: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            .glassBarStyle(level: glassLevel)
+            // Accent glass tile with white on-fill content, like the dashboard tiles — replaces the
+            // white frosted bar the header used to be.
+            .foregroundStyle(onHueAccent)
+            .tint(onHueAccent)
+            .accentGlassTile(hueAccent, cornerRadius: LiquidGlass.smallCornerRadius)
 
             Divider()
                 .opacity(0.6)
@@ -343,7 +347,9 @@ public struct LogViewer: View {
                 }
             }
             .padding(12)
-            .glassBarStyle(level: glassLevel)
+            .foregroundStyle(onHueAccent)
+            .tint(onHueAccent)
+            .accentGlassTile(hueAccent, cornerRadius: LiquidGlass.smallCornerRadius)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             
