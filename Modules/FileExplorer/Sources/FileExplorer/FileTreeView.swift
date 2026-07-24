@@ -86,6 +86,10 @@ public struct FileTreeView: View {
         /// `-greatestFiniteMagnitude` means no selected row is on screen.
         var lowestSelectedRowMaxY: CGFloat = -.greatestFiniteMagnitude
         var atTop = false
+        /// The selection the last placement report was computed for. Lets a fresh selection push
+        /// one report even when the edge doesn't change — the host holds the bar hidden until that
+        /// report lands, so the bar's first appearance is already at the correct edge (no flip).
+        var reportedSelection: Set<String> = []
     }
     @State private var placement = BarPlacementProbe()
 
@@ -134,10 +138,12 @@ public struct FileTreeView: View {
     }
 
     /// Recomputes the bar's placement from the latest viewport height and lowest selected row, and
-    /// reports it up ONLY when it actually flips. A selected row sitting inside the bottom band
-    /// flips the bar to the top; with no selected row visible (or a short, unscrolled list whose
-    /// rows hug the top) it stays bottom. The enter/exit thresholds differ by `barBandHysteresis`
-    /// so a row parked at the boundary can't chatter the bar back and forth mid-scroll.
+    /// reports it up when it flips OR when the selection just changed. A selected row sitting inside
+    /// the bottom band flips the bar to the top; with no selected row visible (or a short, unscrolled
+    /// list whose rows hug the top) it stays bottom. The enter/exit thresholds differ by
+    /// `barBandHysteresis` so a row parked at the boundary can't chatter the bar mid-scroll. The
+    /// selection-changed report is what lets the host defer showing the bar until it's placed — it
+    /// fires post-layout, so the row's fresh position is already known and the edge is correct.
     private func reportBarPlacement() {
         guard let report = onBarPlacementAtTopChange else { return }
         let p = placement
@@ -153,8 +159,13 @@ public struct FileTreeView: View {
         } else {
             newAtTop = false
         }
-        guard newAtTop != p.atTop else { return }
+        // Only skip the report when nothing meaningful changed — same edge AND same selection. A
+        // changed selection always reports (even at the same edge) so the host can mark the bar
+        // ready to show; scrolling, which never changes the selection, still reports only on flips.
+        let selectionUnchanged = p.reportedSelection == selection
+        guard newAtTop != p.atTop || !selectionUnchanged else { return }
         p.atTop = newAtTop
+        p.reportedSelection = selection
         report(newAtTop)
     }
     
