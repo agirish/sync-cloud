@@ -1191,7 +1191,10 @@ struct ContentView: View {
                             .transition(.move(edge: barAtTop ? .top : .bottom).combined(with: .opacity))
                     }
                 }
-                .animation(.easeInOut(duration: 0.15), value: barNodes.count)
+                // easeOut (front-loaded), not easeInOut: an ease-in opens almost invisibly, which
+                // read as the bar lagging a beat behind the click. easeOut puts the motion up front
+                // so it registers the instant the selection lands; the shorter duration helps too.
+                .animation(.easeOut(duration: 0.11), value: barNodes.count)
                 .animation(.easeInOut(duration: 0.22), value: barAtTop)
         }
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
