@@ -67,7 +67,9 @@ public struct PaneHeader: View {
         if let lastScanDate {
             TimelineView(.periodic(from: Date(), by: 30)) { context in
                 let freshness = ScanFreshness.describe(scanDate: lastScanDate, now: context.date)
-                let tint = freshness.isStale ? Color.orange : Color.secondary
+                // Fresh reads in the app accent (the pill was a neutral gray before); stale still
+                // goes amber as a semantic warning, and the status dot below stays green/amber.
+                let tint = freshness.isStale ? Color.orange : glassHue.accentColor
                 let label = HStack(spacing: 5) {
                     Circle()
                         .fill(freshness.isStale ? Color.orange : Color.green)

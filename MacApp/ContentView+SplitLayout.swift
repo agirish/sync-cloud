@@ -50,8 +50,10 @@ extension ContentView {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(glassHue.accentColor)
                         .frame(width: 26, height: 26)
-                        .background(.regularMaterial, in: Circle())
-                        .overlay(Circle().strokeBorder(.quaternary, lineWidth: 0.5))
+                        // Material base plus a subtle accent wash over it, so the swap control reads
+                        // in the app hue instead of a neutral gray chip.
+                        .background(Circle().fill(.regularMaterial).overlay(Circle().fill(glassHue.accentColor.opacity(0.14))))
+                        .overlay(Circle().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.75))
                 }
                 .buttonStyle(.plain)
                 .help("Swap the left and right panes")

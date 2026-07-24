@@ -119,7 +119,9 @@ extension ContentView {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        // Material base with a faint accent wash so the whole bar carries the app hue (the summary
+        // label and button icons are already accent); the border keeps its slightly stronger accent.
+        .background(Capsule().fill(.regularMaterial).overlay(Capsule().fill(accent.opacity(0.07))))
         .overlay(Capsule().strokeBorder(accent.opacity(0.45), lineWidth: 0.75))
         .shadow(color: .black.opacity(0.16), radius: 10, y: 2)
         .fixedSize(horizontal: false, vertical: true)
@@ -144,17 +146,33 @@ extension ContentView {
     /// adding their ~300pt would overflow that minimum and macOS would silently collapse them
     /// behind an overflow chevron.
     var primaryTabPicker: some View {
-        Picker("", selection: primaryTabSelection) {
+        // A custom two-button segmented control rather than `Picker(.segmented)`: the native control
+        // renders neutral inside a macOS 26 glass toolbar group and ignores `.tint`, so the selected
+        // tab could never carry the app accent. These plain buttons draw their own accent fill, which
+        // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
+        let selection = primaryTabSelection
+        return HStack(spacing: 4) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
-                Text(tab.title).tag(tab)
+                let isSelected = selection.wrappedValue == tab
+                Button {
+                    selection.wrappedValue = tab
+                } label: {
+                    Text(tab.title)
+                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(Color.secondary))
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 4)
+                        .background(
+                            isSelected ? AnyShapeStyle(glassHue.accentColor.opacity(0.16)) : AnyShapeStyle(Color.clear),
+                            in: Capsule()
+                        )
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .help(tab.title)
             }
         }
-        .pickerStyle(.segmented)
-        // No `.tint` here: it does not survive a macOS 26 glass toolbar group (the segmented
-        // control renders neutral regardless — carrying the modifier over from the strip days
-        // just implied an accent that never drew). The neutral rendering is the accepted look.
         .fixedSize()
-        .labelsHidden()
     }
 
     /// The window toolbar — the window-level controls, and only those: which workspace you're in

@@ -633,6 +633,12 @@ private struct LiquidGlassBackground: ViewModifier {
                     Color.clear
                         .background(.thinMaterial.opacity((dark ? 0.27 : 0.45) + 0.20 * t))
                         .ignoresSafeArea()
+                } else if !dark {
+                    // Clear in light mode read as flat system gray (the behind-window vibrancy alone).
+                    // A translucent white veil warms it toward a frosted white glass while keeping the
+                    // desktop showing through — "whiter and more transparent" without an opaque slab.
+                    Color.white.opacity(0.20)
+                        .ignoresSafeArea()
                 }
 
                 // Dark accent glow: a soft pool of the hue at the top so the accent reads. Fires at
