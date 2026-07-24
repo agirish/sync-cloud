@@ -59,6 +59,26 @@ public struct FileTreeView: View {
     /// this folder" to a plain "Open".
     public let isSingleSource: Bool
 
+    /// Reports whether the floating selection action bar should dock at the TOP of this pane's list
+    /// rather than its usual bottom. It flips to the top whenever a selected row is currently within
+    /// the bottom band of the viewport (where a bottom-docked bar would hide it) — so the selection
+    /// stays visible as the user scrolls. `nil` on the Tidy rail, which has no action bar.
+    public let onBarPlacementAtTopChange: ((Bool) -> Void)?
+
+    /// Coordinate space pinned to the list viewport, so a selected row can measure its position
+    /// relative to the visible area (not the scrolled content) and decide whether the bar covers it.
+    private static let viewportSpace = "paneListViewport"
+    /// How much of the list's bottom edge the action bar (plus a row of breathing room) covers. A
+    /// selected row whose bottom falls inside this band would be hidden by a bottom bar, so the bar
+    /// flips to the top instead. Roughly the padded bar height plus one comfortable row.
+    private static let barBandHeight: CGFloat = 72
+
+    /// Viewport height, tracked so the bottom-band test has a reference edge; updated on resize.
+    @State private var viewportHeight: CGFloat = 0
+    /// The lowest (largest-maxY) currently-visible selected row, in viewport space. `nil` sentinel
+    /// (`-greatestFiniteMagnitude`) means no selected row is visible, so the bar stays at the bottom.
+    @State private var lowestSelectedRowMaxY: CGFloat = -.greatestFiniteMagnitude
+
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
@@ -68,7 +88,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, onBarPlacementAtTopChange: ((Bool) -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -85,6 +105,33 @@ public struct FileTreeView: View {
         self.rootPath = rootPath ?? currentPath
         self.onOpenSettings = onOpenSettings
         self.isSingleSource = isSingleSource
+        self.onBarPlacementAtTopChange = onBarPlacementAtTopChange
+    }
+
+    /// Preference carrying the lowest visible selected row's bottom edge (viewport space) up to the
+    /// list. Rows that aren't selected don't contribute; the reduce keeps the largest (lowest) one.
+    private struct SelectedRowBottomKey: PreferenceKey {
+        static let defaultValue: CGFloat = -.greatestFiniteMagnitude
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+    private struct ViewportHeightKey: PreferenceKey {
+        static let defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+
+    /// Recomputes the bar's placement from the latest viewport height and lowest selected row, and
+    /// reports it up. A selected row sitting inside the bottom band flips the bar to the top; with
+    /// no selected row visible (or a short, unscrolled list whose rows hug the top) it stays bottom.
+    private func reportBarPlacement() {
+        guard let report = onBarPlacementAtTopChange else { return }
+        let hasVisibleSelection = lowestSelectedRowMaxY > -.greatestFiniteMagnitude
+        let atTop = hasVisibleSelection && viewportHeight > 0
+            && lowestSelectedRowMaxY > viewportHeight - Self.barBandHeight
+        report(atTop)
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
@@ -215,6 +262,23 @@ public struct FileTreeView: View {
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
         .contentSurface(hue: glassHue, tint: surfaceTint)
+        // A coordinate space pinned to the viewport (not the scrolled content) so each selected row
+        // can report where it currently sits, and a height probe to give the bottom-band test its
+        // reference edge. Together they drive the action bar's top/bottom placement.
+        .coordinateSpace(.named(Self.viewportSpace))
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
+            }
+        )
+        .onPreferenceChange(ViewportHeightKey.self) { height in
+            viewportHeight = height
+            reportBarPlacement()
+        }
+        .onPreferenceChange(SelectedRowBottomKey.self) { maxY in
+            lowestSelectedRowMaxY = maxY
+            reportBarPlacement()
+        }
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
             if !selectedNodes.isEmpty {
@@ -275,6 +339,23 @@ public struct FileTreeView: View {
             paneIsLeft: isLeft,
             delegate: delegate
         ))
+        // Only selected rows probe their position — an unselected row contributes nothing to the
+        // bar-placement decision, so the cost stays bounded by the (small) visible selection.
+        .background(selectionPositionProbe(for: node))
+    }
+
+    /// For a selected row, reports its bottom edge in viewport space so the list can tell whether a
+    /// bottom-docked action bar would hide it. Unselected rows return an empty view (no preference).
+    @ViewBuilder
+    private func selectionPositionProbe(for node: FileNode) -> some View {
+        if onBarPlacementAtTopChange != nil, selection.contains(node.id) {
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: SelectedRowBottomKey.self,
+                    value: proxy.frame(in: .named(Self.viewportSpace)).maxY
+                )
+            }
+        }
     }
 
     /// Built lazily when a drag actually starts (`.draggable` takes an autoclosure); also

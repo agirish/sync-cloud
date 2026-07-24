@@ -153,7 +153,12 @@ public struct DifferencesView: View {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
-                    if let session = reviewStore.session {
+                    if collapsed {
+                        // Collapsed to a thin bar: only the differences count (left) and the
+                        // expand chevron (right). Filter, Review, the Copy buttons and search are
+                        // all withheld until the pane is opened again.
+                        collapsedHeader
+                    } else if let session = reviewStore.session {
                         reviewHeaderControls(session)
                     } else {
                         standardHeaderControls(targets: targets, sorted: sorted)
@@ -282,6 +287,20 @@ public struct DifferencesView: View {
 
     /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
     /// Review…, the bulk Copy/Move buttons, Verify, and the search toggle.
+    /// The collapsed bar's only content: the differences count on the left, a spacer pushing the
+    /// expand chevron to the right. A plain (non-toggle) pill — the per-side totals it can reveal
+    /// belong to the expanded header.
+    @ViewBuilder
+    private var collapsedHeader: some View {
+        StatPill(
+            count: syncManager.differences.count,
+            label: "Differences",
+            color: SemanticColor.warning,
+            systemImage: "exclamationmark.triangle"
+        )
+        Spacer()
+    }
+
     /// The show/hide chevron pinned to the header's trailing edge. Points down while the list is
     /// shown (a click hides it) and up while collapsed (a click brings it back) — the same "points
     /// the way the next click sends it" rule the count pill's chevron follows. Withheld entirely

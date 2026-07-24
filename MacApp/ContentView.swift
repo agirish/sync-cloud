@@ -167,6 +167,12 @@ struct ContentView: View {
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
+    /// Whether each pane's floating selection action bar is currently docked at the TOP of its list
+    /// rather than the bottom. Flipped by the pane (via `FileTreeView`) whenever a selected row sits
+    /// in the bottom band of the viewport, so the bar never hides the selection. Per-pane because
+    /// each pane scrolls independently.
+    @State private var leftBarAtTop = false
+    @State private var rightBarAtTop = false
     /// An explicit "Get Info" target for the inspector, from a pane or differences-row right-click.
     /// Overrides the pane selection; cleared when the pane selection changes so the inspector then
     /// follows the selection again.
@@ -1119,6 +1125,7 @@ struct ContentView: View {
         // separately in each spot re-walked the tree several times per render (~100ms each), which
         // was the comparison panes' selection lag.
         let barNodes = barSelectionNodes(isLeft: isLeft)
+        let barAtTop = isLeft ? leftBarAtTop : rightBarAtTop
         return VStack(spacing: 0) {
             PaneHeader(
                 title: pane.title,
@@ -1166,18 +1173,22 @@ struct ContentView: View {
             .paneCardIfNeeded(surfaceStyle, level: glassLevel)
             treeView(pane)
                 .paneCardIfNeeded(surfaceStyle, level: glassLevel)
+                // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
+                // contextual bar on whichever pane holds the selection, so the buttons name their
+                // target. (New Folder stays on the right-click menu to keep the bar compact.) The
+                // overlay is scoped to the list — NOT the whole column — so its top position lands
+                // just under the pane header, never over it. It flips to the top when a selected
+                // row is near the list's bottom, keeping the selection visible.
+                .overlay(alignment: barAtTop ? .top : .bottom) {
+                    if !barNodes.isEmpty {
+                        paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
+                            .padding(10)
+                            .transition(.move(edge: barAtTop ? .top : .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.15), value: barNodes.count)
+                .animation(.easeInOut(duration: 0.2), value: barAtTop)
         }
-        // The file actions (Compare/Copy/Move/Delete) live here now, not in the titlebar: a
-        // contextual bar on whichever pane holds the selection, so the buttons name their target.
-        // (New Folder stays on the right-click menu to keep the bar compact.)
-        .overlay(alignment: .bottom) {
-            if !barNodes.isEmpty {
-                paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
-                    .padding(10)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(.easeInOut(duration: 0.15), value: barNodes.count)
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
         // without this a folder picked in Compare could never be un-picked. Only swallow the key
         // when there's actually a selection here; otherwise let it bubble (dialogs, etc.).
@@ -1429,7 +1440,12 @@ struct ContentView: View {
             onOpenSettings: openProviderSettings,
             // The Tidy rail is a single source with no opposite pane, so its row menu drops the
             // comparison-only items and renames "Compare only this folder" to "Open".
-            isSingleSource: layoutMode == .singleSource
+            isSingleSource: layoutMode == .singleSource,
+            // Keeps the floating action bar off the selected row: the pane flips it to the top
+            // whenever the selection scrolls into the list's bottom band.
+            onBarPlacementAtTopChange: { atTop in
+                if pane.isLeft { leftBarAtTop = atTop } else { rightBarAtTop = atTop }
+            }
         )
     }
 
