@@ -252,6 +252,10 @@ public struct FileTreeView: View {
             }
         }
         .listStyle(SidebarListStyle())
+        // Tint the row selection with the app's chosen accent instead of the OS accent (which is a
+        // flat gray when the user's macOS accent is Graphite). Now the highlight tracks the same hue
+        // as the rest of the pane chrome.
+        .tint(glassHue.accentColor)
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
