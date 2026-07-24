@@ -252,10 +252,12 @@ public struct FileTreeView: View {
             }
         }
         .listStyle(SidebarListStyle())
-        // Tint the row selection with the app's chosen accent instead of the OS accent (which is a
-        // flat gray when the user's macOS accent is Graphite). Now the highlight tracks the same hue
-        // as the rest of the pane chrome.
+        // Tint disclosure chevrons etc. with the app accent (the OS accent otherwise). The selected
+        // ROW highlight ignores this — macOS paints it from selectedContentBackgroundColor (gray on
+        // a Graphite accent) — so the styler below disables that highlight and each row draws its own
+        // accent background via `.listRowBackground`.
         .tint(glassHue.accentColor)
+        .background(PaneListSelectionStyler())
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
@@ -351,6 +353,23 @@ public struct FileTreeView: View {
         // rows lay out, and the reports mutate the reference probe rather than any @State, so this
         // adds no re-render cost during scroll.
         .background(rowPositionProbe(for: node))
+        // Our own selection highlight (the system one is disabled by PaneListSelectionStyler): an
+        // accent-tinted capsule so the selected row follows the app's chosen hue, not the OS gray.
+        .listRowBackground(rowSelectionBackground(for: node))
+    }
+
+    /// The accent-tinted background for a selected row; nothing for an unselected one. Keyed on the
+    /// SwiftUI selection binding, so it stays correct regardless of window focus.
+    @ViewBuilder
+    private func rowSelectionBackground(for node: FileNode) -> some View {
+        if selection.contains(node.id) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(glassHue.accentColor.opacity(0.22))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+        } else {
+            Color.clear
+        }
     }
 
     /// Reports a row's bottom edge in viewport space, keyed by its id, so the list always knows
