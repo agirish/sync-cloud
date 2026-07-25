@@ -356,6 +356,13 @@ public struct DifferencesView: View {
     /// despite being infinitely flexible afterwards. `ActionBarLadderTests` pins that behaviour,
     /// since the intuition runs the other way and a regression there would clip instead of shed.
     private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
+        // One row per `HeaderCompaction` case, widest first. Spelled out rather than looped:
+        // `ViewThatFits` counts a `ForEach` as a SINGLE child, so a loop here would collapse the
+        // whole ladder into one candidate and defeat the mechanism.
+        //
+        // That makes the list a hand-maintained mirror of the enum, so `HeaderCompactionTests`
+        // asserts the two have the same length — add a rung and this stops compiling green rather
+        // than silently never rendering it.
         ViewThatFits(in: .horizontal) {
             standardHeaderRow(.full, targets: targets, sorted: sorted)
             standardHeaderRow(.foldVerify, targets: targets, sorted: sorted)
@@ -365,6 +372,12 @@ public struct DifferencesView: View {
             standardHeaderRow(.shortPrimary, targets: targets, sorted: sorted)
         }
     }
+
+    /// The compaction rungs `headerRows` actually instantiates, in the order it instantiates them.
+    /// Kept next to that `ViewThatFits` so the two are edited together, and read by
+    /// `HeaderCompactionTests` to catch a rung added to the enum but not to the view.
+    static let renderedCompactionLadder: [HeaderCompaction] =
+        [.full, .foldVerify, .foldReview, .shortReverse, .glyphFilter, .shortPrimary]
 
     private func standardHeaderRow(_ compaction: HeaderCompaction,
                                    targets: DifferenceActionTargets,
@@ -682,6 +695,12 @@ public struct DifferencesView: View {
         .disabled(isSyncActionBlocked)
         // The label may shed the destination; the tooltip never does, and it always names the verb.
         .help(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
+        // …and neither does the accessible name. The visible label deliberately drops the verb for
+        // Copy (the arrow in the icon carries direction) and sheds the destination as the row
+        // tightens, so at the narrow rungs it reads just "12" — which leaves a VoiceOver user unable
+        // to tell Copy from Move, the one pair where the difference is whether the source survives.
+        // An icon and a tooltip are not announced; the name is.
+        .accessibilityLabel(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
     }
 
     /// The header's review-mode trailing controls: position pill, running tally, and the

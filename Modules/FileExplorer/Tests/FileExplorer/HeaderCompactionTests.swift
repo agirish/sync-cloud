@@ -72,4 +72,13 @@ import Testing
         }
         #expect(!BulkActionLabel.primaryNamesDestination(compaction: .shortPrimary))
     }
+
+    /// The view's ladder is a hand-maintained mirror of the enum — `ViewThatFits` treats a `ForEach`
+    /// as one child, so the rows cannot be looped and a new rung has to be added in two places. Add
+    /// it to the enum only and the header silently never renders it, while every test above still
+    /// passes because they only ever ask the enum.
+    @Test func testTheViewRendersEveryCompactionRung() {
+        #expect(DifferencesView.renderedCompactionLadder == HeaderCompaction.allCases,
+                "HeaderCompaction.allCases and the ViewThatFits ladder in DifferencesView have drifted")
+    }
 }
