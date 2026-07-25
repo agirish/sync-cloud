@@ -31,7 +31,7 @@ public enum HoverAffordanceVariant: String, CaseIterable, Sendable {
     /// A button keeping its **system** chrome — `.glass` or `.bordered`. See `ChromeHoverModifier`
     /// for why this one can't be a `ButtonStyle`, and why its numbers are so much louder than
     /// `.filled`'s: a macOS 26 glass capsule is nearly *transparent* at rest, so there is no fill
-    /// to ring and no edge to deepen. The halo and the saturation lift are the whole signal.
+    /// underneath to deepen — the wash has to supply the whole signal itself.
     case chrome
 }
 
@@ -83,18 +83,14 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
     public var scale: CGFloat
     /// Alpha of the soft tinted shadow under a lifted control.
     public var shadow: Double
-    /// Color-saturation multiplier. 1 leaves the control alone. Only `.chrome` moves it: it is
-    /// the only variant with no wash of its own, and a filter needs no knowledge of the shape.
-    public var saturation: Double
 
     public init(wash: Double = 0, ring: Double = 0, lift: CGFloat = 0,
-                scale: CGFloat = 1, shadow: Double = 0, saturation: Double = 1) {
+                scale: CGFloat = 1, shadow: Double = 0) {
         self.wash = wash
         self.ring = ring
         self.lift = lift
         self.scale = scale
         self.shadow = shadow
-        self.saturation = saturation
     }
 
     /// Everything off — a control at rest, or one that's disabled in any phase.
@@ -136,11 +132,14 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
         case (.inline, .hover):   m = .init(wash: 0.13)
         case (.inline, .pressed): m = .init(wash: 0.21, scale: 0.97)
 
-        // Loud on purpose. `.filled`'s 0.15 ring reads because it lands on a saturated fill;
-        // the same alpha on a clear glass capsule over a pale header is nothing at all, which
-        // is what the pane header's nav arrows showed.
-        case (.chrome, .hover):   m = .init(ring: 0.34, lift: -1, shadow: 0.20, saturation: 1.35)
-        case (.chrome, .pressed): m = .init(ring: 0.34, saturation: 1.35)
+        // A real wash, like every other variant. The first two attempts here tried to light
+        // the control from outside — a halo, then a saturation filter — on the theory that a
+        // shape-free effect was safer than guessing the chrome's outline. Both were invisible:
+        // a macOS 26 glass button is close to transparent at rest, so there was nothing for a
+        // filter to act on, and forcing a filter pass over glass risks rendering nothing at all.
+        // Measuring the controls settled the outline question instead (see `PaneNavMetrics`).
+        case (.chrome, .hover):   m = .init(wash: 0.22, ring: 0.30, lift: -1, shadow: 0.20)
+        case (.chrome, .pressed): m = .init(wash: 0.30, ring: 0.30)
         }
 
         // Reduce Motion drops everything that moves and keeps everything that colors, so the
@@ -324,13 +323,14 @@ public struct ChromeHoverModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            // Saturation stands in for the wash: a filter over whatever the system chrome drew,
-            // so it lands on the true silhouette without anyone having to know what that is.
-            .saturation(metrics.saturation)
-            // And the halo stands in for the stroked ring — tight, unoffset, silhouette-exact.
-            // No `compositingGroup()` before these: it forces an offscreen pass, and macOS 26
-            // Liquid Glass renders nothing offscreen. That flattened the very buttons this is
-            // meant to light up.
+            // A drawn wash, sized to the control's own frame. Capsule because that is the macOS
+            // 26 Liquid Glass button shape; `.bordered`'s rounded rect will show a little of it
+            // at the corners, which reads as a glow rather than a mistake.
+            //
+            // No filters anywhere in here — no `compositingGroup()`, no `.saturation()`. Each
+            // forces an offscreen or filter pass, and Liquid Glass renders nothing through one.
+            // That is what made the first two versions of this modifier invisible.
+            .background(Capsule().fill(tint.opacity(metrics.wash)))
             .shadow(color: tint.opacity(metrics.ring), radius: 3)
             .shadow(color: tint.opacity(metrics.shadow), radius: 5, y: 3)
             .offset(y: metrics.lift)

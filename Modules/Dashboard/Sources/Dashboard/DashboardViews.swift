@@ -341,30 +341,30 @@ public struct PaneHeader: View {
     /// and clickable, nothing is pushed out of view.
     private var navCluster: some View {
         ViewThatFits(in: .horizontal) {
-            navClusterContent.controlSize(.small)
-            navClusterContent.controlSize(.mini)
+            navClusterContent(.small)
+            navClusterContent(.mini)
         }
     }
 
-    private var navClusterContent: some View {
+    private func navClusterContent(_ controlSize: ControlSize) -> some View {
         HStack(spacing: 6) {
             if let onCollapse {
                 Button(action: onCollapse) {
-                    Image(systemName: "sidebar.left")
+                    Image(systemName: "sidebar.left").frame(height: PaneNavMetrics.glyphHeight)
                 }
                 .chromeHover(tint: glassHue.accentColor)
                 .help("Collapse the source pane")
             }
 
             Button(action: onBack) {
-                Image(systemName: "chevron.left")
+                Image(systemName: "chevron.left").frame(height: PaneNavMetrics.glyphHeight)
             }
             .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoBack)
             .help("Go back to this pane's previous folder")
 
             Button(action: onForward) {
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.right").frame(height: PaneNavMetrics.glyphHeight)
             }
             .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoForward)
@@ -379,6 +379,7 @@ public struct PaneHeader: View {
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
                         .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
+                        .frame(height: PaneNavMetrics.glyphHeight)
                 }
                 .chromeHover(tint: glassHue.accentColor)
                 .disabled(isRefreshing)
@@ -396,7 +397,7 @@ public struct PaneHeader: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                Image(systemName: "arrow.up.arrow.down")
+                Image(systemName: "arrow.up.arrow.down").frame(height: PaneNavMetrics.glyphHeight)
             }
             .menuIndicator(.hidden)
             // `.menuStyle(.button)` alone was not enough: it makes the menu render AS a button,
@@ -406,7 +407,15 @@ public struct PaneHeader: View {
             // actually matches it to them.
             .menuStyle(.button)
             .chromeButtonStyle(glassLevel)
-            .fixedSize()
+            // `ButtonMenuStyle` pins its own height and ignores the label entirely — padding it
+            // changes nothing (measured: 14pt at every padding, against the buttons' 20). An
+            // explicit height is the only thing that lifts the sort pill to its siblings.
+            //
+            // `.fixedSize` horizontally is load-bearing and must stay: without it the menu stops
+            // shrink-wrapping, and in a 250pt pane it grew until it overlapped the arrow beside
+            // it. Dropping it is what the narrow-ladder snapshot caught.
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(height: PaneNavMetrics.pillHeight(controlSize))
             .chromeHover(tint: glassHue.accentColor)
             .help("Choose how items are sorted")
 
@@ -415,13 +424,40 @@ public struct PaneHeader: View {
             Button {
                 showHiddenFiles.toggle()
             } label: {
-                Image(systemName: showHiddenFiles ? "eye" : "eye.slash")
+                Image(systemName: showHiddenFiles ? "eye" : "eye.slash").frame(height: PaneNavMetrics.glyphHeight)
             }
             .chromeHover(tint: glassHue.accentColor)
             .help(showHiddenFiles
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
         }
+        .controlSize(controlSize)
         .chromeButtonStyle(glassLevel)
     }
 }
+
+/// Sizing for the pane header's nav cluster.
+///
+/// Liquid Glass takes a button's size straight from its label, so six different SF Symbols gave
+/// six different pill heights — 17.5 for the chevrons, 20 for `eye.slash`, 18.5 for the sort
+/// arrows — and the sort menu came in at 14, visibly the runt of the row. Pinning one height on
+/// every glyph levels all six at 20 (16 at `.mini`) without moving a single width; the menu needs
+/// its height set outright, because `ButtonMenuStyle` pins its own and no label padding moves it.
+///
+/// All figures measured with `NSHostingView.fittingSize` and pinned by `PaneNavMetricsTests`.
+enum PaneNavMetrics {
+    /// The height every nav glyph is laid out at. Height only, deliberately: pinning the width
+    /// too made every pill as wide as the widest glyph and pushed the cluster from 226.5pt to
+    /// 252pt, which collided the controls in a 250pt pane — the narrow-ladder snapshot caught
+    /// it. Constraining just the height leaves all six widths exactly as they were.
+    static let glyphHeight: CGFloat = 14
+
+    /// The pill height a normalised glyph resolves to at each control size.
+    ///
+    /// 20 and 16 are what the *tallest* glyphs already measured, so the short ones grow up to
+    /// meet them and nothing in the header gets taller than it was.
+    static func pillHeight(_ controlSize: ControlSize) -> CGFloat {
+        controlSize == .mini ? 16 : 20
+    }
+}
+

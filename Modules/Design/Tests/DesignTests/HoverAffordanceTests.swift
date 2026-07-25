@@ -125,8 +125,6 @@ final class HoverAffordanceTests: XCTestCase {
                 XCTAssertEqual(reduced.scale, 1, accuracy: 0.0001, "\(variant)/\(phase) still scales")
                 XCTAssertEqual(reduced.wash, plain.wash, "\(variant)/\(phase) lost its wash")
                 XCTAssertEqual(reduced.ring, plain.ring, "\(variant)/\(phase) lost its ring")
-                XCTAssertEqual(reduced.saturation, plain.saturation,
-                               "\(variant)/\(phase) lost its saturation")
             }
         }
     }
@@ -165,8 +163,10 @@ final class HoverAffordanceTests: XCTestCase {
         XCTAssertGreaterThan(m.ring, 0, "no halo — the hover would be a silent 1pt shift")
         XCTAssertGreaterThan(m.shadow, 0)
         XCTAssertLessThan(m.lift, 0)
-        XCTAssertGreaterThan(m.saturation, 1, "no saturation lift — nothing stands in for the wash")
-        XCTAssertEqual(m.wash, 0, "chromeHover cannot draw a wash; it doesn't know the outline")
+        // The wash is the point. Two earlier attempts tried to light a glass button from outside
+        // — a halo, then a saturation filter — and both were invisible on a control that is
+        // close to transparent at rest.
+        XCTAssertGreaterThan(m.wash, 0, "nothing is drawn; a clear glass button has no fill to deepen")
     }
 
     func testChromeIsLouderThanFilledBecauseItHasNoFillToLandOn() {
@@ -176,6 +176,7 @@ final class HoverAffordanceTests: XCTestCase {
         let chrome = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover)
         let filled = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
         XCTAssertGreaterThan(chrome.ring, filled.ring)
+        XCTAssertGreaterThan(chrome.wash, filled.wash, "filled has none, so this is a floor check")
     }
 
     func testChromeHoverStaysVisibleWhenTheLiftIsTakenAway() {
@@ -185,8 +186,8 @@ final class HoverAffordanceTests: XCTestCase {
         let reduced = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
                                                      reduceMotion: true)
         XCTAssertEqual(reduced.lift, 0)
-        XCTAssertGreaterThan(reduced.ring, 0, "nothing at all is drawn under Reduce Motion")
-        XCTAssertGreaterThan(reduced.saturation, 1, "the wash stand-in went with the lift")
+        XCTAssertGreaterThan(reduced.wash, 0, "nothing at all is drawn under Reduce Motion")
+        XCTAssertGreaterThan(reduced.ring, 0)
     }
 
     func testChromeHoverIsInertWhenDisabled() {
