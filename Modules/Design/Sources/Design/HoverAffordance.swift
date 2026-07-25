@@ -288,6 +288,31 @@ public extension View {
     func hoverInk(rest: HierarchicalShapeStyle = .secondary) -> some View {
         modifier(HoverInkModifier(rest: rest))
     }
+
+    /// Tints a glyph with `color` while its enclosing hover-affordance control is engaged, and
+    /// leaves its resting appearance **completely untouched** otherwise.
+    ///
+    /// Unlike `hoverInk` this names no resting color, so it can be dropped onto a control whose
+    /// rest colour comes from somewhere else — a system button style, say — without disturbing it.
+    func hoverTint(_ color: Color) -> some View {
+        modifier(HoverTintModifier(color: color))
+    }
+}
+
+/// See `View.hoverTint(_:)`.
+public struct HoverTintModifier: ViewModifier {
+    let color: Color
+    @Environment(\.hoverAffordancePhase) private var phase
+
+    public func body(content: Content) -> some View {
+        // Deliberately applies nothing at rest rather than re-stating a resting color — restating
+        // one would override whatever the enclosing button style had chosen.
+        if phase.isEngaged {
+            content.foregroundStyle(color)
+        } else {
+            content
+        }
+    }
 }
 
 // MARK: - System-chrome buttons
@@ -334,6 +359,10 @@ public struct ChromeHoverModifier: ViewModifier {
             .shadow(color: tint.opacity(metrics.ring), radius: 3)
             .shadow(color: tint.opacity(metrics.shadow), radius: 5, y: 3)
             .offset(y: metrics.lift)
+            // Published so the label can answer too. On Liquid Glass the wash has to survive a
+            // translucent chrome sampling its own backdrop, and that is exactly the kind of thing
+            // that quietly renders as nothing; a glyph taking the accent depends on none of it.
+            .environment(\.hoverAffordancePhase, isHovering && isEnabled ? .hover : .rest)
             .onHover { isHovering = isEnabled && $0 }
             .animation(.easeOut(duration: isHovering ? 0.12 : 0.18), value: isHovering)
     }

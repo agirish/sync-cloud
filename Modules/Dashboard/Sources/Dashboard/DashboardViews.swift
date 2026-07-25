@@ -351,6 +351,7 @@ public struct PaneHeader: View {
             if let onCollapse {
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left").frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
                 }
                 .chromeHover(tint: glassHue.accentColor)
                 .help("Collapse the source pane")
@@ -358,6 +359,7 @@ public struct PaneHeader: View {
 
             Button(action: onBack) {
                 Image(systemName: "chevron.left").frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
             }
             .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoBack)
@@ -365,6 +367,7 @@ public struct PaneHeader: View {
 
             Button(action: onForward) {
                 Image(systemName: "chevron.right").frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
             }
             .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoForward)
@@ -380,6 +383,7 @@ public struct PaneHeader: View {
                     Image(systemName: "arrow.clockwise")
                         .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
                         .frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
                 }
                 .chromeHover(tint: glassHue.accentColor)
                 .disabled(isRefreshing)
@@ -398,6 +402,7 @@ public struct PaneHeader: View {
                 .labelsHidden()
             } label: {
                 Image(systemName: "arrow.up.arrow.down").frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
             }
             .menuIndicator(.hidden)
             // `.menuStyle(.button)` alone was not enough: it makes the menu render AS a button,
@@ -425,6 +430,7 @@ public struct PaneHeader: View {
                 showHiddenFiles.toggle()
             } label: {
                 Image(systemName: showHiddenFiles ? "eye" : "eye.slash").frame(height: PaneNavMetrics.glyphHeight)
+                        .hoverTint(glassHue.accentColor)
             }
             .chromeHover(tint: glassHue.accentColor)
             .help(showHiddenFiles
