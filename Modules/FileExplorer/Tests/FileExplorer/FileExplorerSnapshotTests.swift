@@ -38,6 +38,40 @@ import Sync
             named: "variants")
     }
 
+    /// The differences count pill on the semantic path: a flat `.attention` capsule, same-family
+    /// text and dot — the treatment a stale freshness badge wears in the pane header above it, so
+    /// the two read as one convention. Rendered beside the tinted variant it replaced, since the
+    /// point of the change is only visible as a comparison.
+    @Test func statPillSemanticCapsule() {
+        assertViewSnapshot(
+            of: SemanticStatPillSpecimen().padding(12),
+            size: CGSize(width: 220, height: 120),
+            named: "semantic-capsule")
+    }
+
+    /// Reads `colorScheme` from the environment rather than taking it as a parameter — the whole
+    /// point of a semantic capsule is that its family is chosen per appearance, and a specimen
+    /// pinned to one of them renders the light values into the dark reference.
+    private struct SemanticStatPillSpecimen: View {
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 10) {
+                StatPill(count: 21, label: "Differences", color: .blue,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: .of(.attention, scheme))
+                StatPill(count: 21, label: "Differences", color: .blue,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: .of(.neutral, scheme))
+                StatPill(count: 21, label: "Differences", color: .orange,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right")
+            }
+        }
+    }
+
     // MARK: Treemap
 
     /// Five tiles wide enough (≥ 68 pt) to show name + size labels. The palette assigns

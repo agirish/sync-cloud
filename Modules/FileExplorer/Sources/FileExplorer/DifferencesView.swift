@@ -12,6 +12,10 @@ public struct DifferencesView: View {
     /// keeps it alive — and keeps the view mounted — for the whole review.
     @ObservedObject private var reviewStore: ReviewSessionStore
     @StateObject private var modifierTracker = ModifierTracker()
+    /// Picks the semantic capsule's light/dark family for the count pill. Semantic fills are flat
+    /// and hue-independent, so unlike the accent surfaces around them they can't lean on a dynamic
+    /// `Color` to adapt — the appearance has to choose the values.
+    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -405,16 +409,19 @@ public struct DifferencesView: View {
             StatPill(
                 count: syncManager.differences.count,
                 label: "Differences",
-                // Accent capsule, semantics in the dot — the freshness pill's rule (see
-                // `StatPill.statusColor`). Painting this one amber made it the only non-accent
-                // surface on the bar, and put a second colour system into a 44pt strip.
+                // `color` is unused on the semantic path — the capsule takes its fill, text and dot
+                // from the family below. Kept as the accent so a future non-semantic use of this
+                // pill doesn't inherit a stale value.
                 color: glassHue.accentColor,
                 systemImage: "exclamationmark.triangle",
                 // Totals expand to the pill's right and collapse back left; the chevron
                 // points the way the next click will send them, and is withheld pre-scan
                 // (CountPillChevron owns both rules).
                 trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts),
-                statusColor: SemanticColor.warning
+                // The same capsule a stale freshness badge wears in the pane header above, so the
+                // two read as one convention rather than two ambers. Semantic, therefore identical
+                // under all twelve accent hues — including `.amber` itself.
+                semantic: .of(.attention, colorScheme)
             )
             .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }
