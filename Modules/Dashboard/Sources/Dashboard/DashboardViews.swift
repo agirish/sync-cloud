@@ -159,7 +159,7 @@ public struct PaneHeader: View {
 
         if let onRefresh {
             Button(action: onRefresh) { label }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverAffordance(.filled, tint: style.dot))
                 // Must not queue a second scan while one is already running.
                 .disabled(isRefreshing)
         } else {

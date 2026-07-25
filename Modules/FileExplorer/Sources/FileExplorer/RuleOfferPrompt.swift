@@ -121,7 +121,7 @@ struct RuleOfferPromptView: View {
                                 .overlay(Capsule().strokeBorder(on ? accent.opacity(0.5) : Color.clear, lineWidth: 0.5))
                                 .foregroundStyle(on ? accent : Color.secondary)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverAffordance(on ? .filled : .segment, tint: accent))
                     }
                 }
             }

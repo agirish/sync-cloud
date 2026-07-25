@@ -317,8 +317,12 @@ struct FilingSuggestionCard: View {
             }
             Button(action: onReveal) { Label("Reveal", systemImage: RevealGlyph.inFinder) }
                 .controlSize(.small)
-            Button(action: onNotHere) { Label("Not here", systemImage: "xmark") }
-                .buttonStyle(.borderless).controlSize(.small)
+            Button(action: onNotHere) {
+                Label("Not here", systemImage: "xmark")
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .contentShape(Rectangle())
+            }
+                .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
         }
     }
 }

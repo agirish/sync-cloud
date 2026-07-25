@@ -239,8 +239,10 @@ struct ReviewCardView: View {
                     onQuickLook(URL(fileURLWithPath: item.reviewSourcePath))
                 } label: {
                     Label("Quick Look", systemImage: "doc.viewfinder")
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.hoverAffordance(.segment, tint: accent))
                 .help("Quick Look the copy being \(session.isMove ? "moved" : "copied") (space) — right-click the row for the other side")
             }
             if model.canVerify {
@@ -248,8 +250,10 @@ struct ReviewCardView: View {
                     performVerify(item)
                 } label: {
                     Label("Verify", systemImage: "checkmark.shield")
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.hoverAffordance(.segment, tint: accent))
                 // isActing too: hashing a destination the in-flight copy is overwriting
                 // would record a verdict over half-written content.
                 .disabled(isVerifying || isActing)

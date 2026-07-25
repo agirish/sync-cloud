@@ -56,8 +56,11 @@ struct OperationBannerView: View {
                             Text("Undo")
                         }
                         .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.hoverAffordance(.segment, tint: tint))
                     .help("Undo this operation (⌘Z)")
                     .accessibilityLabel("Undo this operation")
                 }

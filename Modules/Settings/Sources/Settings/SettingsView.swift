@@ -217,9 +217,9 @@ public struct SettingsView: View {
                     searchQuery = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .hoverInk()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverAffordance(.inline))
                 .accessibilityLabel("Clear search")
                 .help("Clear search")
             }
@@ -397,15 +397,13 @@ private struct SettingsSearchResults: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption)
-                                    .foregroundStyle(.tertiary)
+                                HoverChevron()
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 9)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverAffordance(.row))
                         Divider().padding(.leading, 16)
                     }
                 }
@@ -780,7 +778,7 @@ private struct HueOptionView: View {
             .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(.segment, tint: hue.accentColor, shape: .roundedRect(8)))
     }
 
     /// The colored disc for a hue, or a neutral slashed disc for "None".
@@ -1110,9 +1108,9 @@ struct SyncSettingsTab: View {
                             settings.removeIgnorePattern(pattern)
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
+                                .hoverInk()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.hoverAffordance(.inline))
                         .help("Remove this pattern")
                     }
                 }
@@ -1166,9 +1164,9 @@ private struct IgnoredItemsList: View {
                         onRemove(path)
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .hoverInk()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.inline))
                     .help("Stop ignoring this item")
                 }
             }

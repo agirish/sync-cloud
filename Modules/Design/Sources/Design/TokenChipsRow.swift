@@ -63,7 +63,7 @@ public struct TokenChipsRow: View {
                     .padding(6)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverAffordance(.inline))
             .padding(-6)
             .accessibilityLabel("Remove filter \(item.label)")
         }

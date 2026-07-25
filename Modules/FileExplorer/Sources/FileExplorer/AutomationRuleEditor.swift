@@ -225,8 +225,11 @@ struct AutomationRuleEditor: View {
             valueEditor(condition)
 
             Spacer(minLength: 4)
-            Button(action: remove) { Image(systemName: "minus.circle.fill") }
-                .buttonStyle(.borderless)
+            Button(action: remove) {
+                Image(systemName: "minus.circle.fill").padding(3).contentShape(Rectangle())
+            }
+                .buttonStyle(.hoverAffordance(.inline))
+                .padding(-3)
                 .foregroundStyle(.secondary)
                 .help("Remove this condition")
         }
@@ -242,9 +245,10 @@ struct AutomationRuleEditor: View {
                 Button {
                     if let name = pickFolderName() { stringBinding(condition).wrappedValue = name }
                 } label: {
-                    Image(systemName: "folder")
+                    Image(systemName: "folder").padding(3).contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless).controlSize(.small)
+                .buttonStyle(.hoverAffordance(.glyph, tint: accent)).controlSize(.small)
+                .padding(-3)
                 .help("Pick a folder — its name fills in")
             }
         case .nameMatches:
@@ -293,8 +297,10 @@ struct AutomationRuleEditor: View {
                 if browseRoot != nil {
                     Button(action: browseForDestination) {
                         Label("Browse…", systemImage: "folder")
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.hoverAffordance(.segment, tint: accent))
                     .controlSize(.small)
                 }
                 Menu {

@@ -472,7 +472,10 @@ public struct TidyView: View {
                         }
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                // roundedRect, not the variant's capsule: these tabs are marked by a bottom rule,
+                // and a capsule wash would round away from the very edge that indicates them.
+                .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor,
+                                              shape: .roundedRect(6)))
                 .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
             }
         }

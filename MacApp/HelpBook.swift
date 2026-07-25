@@ -539,9 +539,9 @@ struct HelpView: View {
                     query = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.tertiary)
+                        .hoverInk(rest: .tertiary)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverAffordance(.inline))
                 .accessibilityLabel("Clear search")
             }
         }
@@ -578,7 +578,10 @@ struct HelpView: View {
                     .fill(isSelected ? Color.accentColor : .clear)
             )
         }
-        .buttonStyle(.plain)
+        // Selected already wears the accent fill, so it takes the ring-and-lift treatment; the
+        // rest wash the same shape they would fill if chosen.
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .row,
+                                      shape: .roundedRect(6)))
         .padding(.horizontal, 6)
     }
 
@@ -748,7 +751,7 @@ private struct FlexibleChips: View {
                             Capsule().strokeBorder(.quaternary, lineWidth: 0.5)
                         )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.segment))
                 }
             }
         }

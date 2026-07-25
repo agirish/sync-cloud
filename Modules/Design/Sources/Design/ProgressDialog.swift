@@ -27,9 +27,9 @@ public struct ProgressDialog: View {
                     // what a click actually does. Visuals deliberately unchanged.
                     Button(action: { progress.cancel() }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .hoverInk()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.inline))
                     .help("Cancel operation")
                     .accessibilityLabel("Cancel operation")
                 }

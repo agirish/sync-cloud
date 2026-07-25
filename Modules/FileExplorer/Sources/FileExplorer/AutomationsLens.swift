@@ -594,16 +594,18 @@ private struct AutomationRuleCard: View {
 
     private var actions: some View {
         HStack(spacing: 2) {
-            Button(action: onPreview) { Image(systemName: AutomationsGlyph.preview) }
+            Button(action: onPreview) { Image(systemName: AutomationsGlyph.preview).padding(4).contentShape(Rectangle()) }
                 .disabled(!canPreview)
                 .help(previewHelp)
-            Button(action: onEdit) { Image(systemName: "pencil") }
+            Button(action: onEdit) { Image(systemName: "pencil").padding(4).contentShape(Rectangle()) }
                 .help("Edit this rule")
-            Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
+            Button(role: .destructive, action: onDelete) { Image(systemName: "trash").padding(4).contentShape(Rectangle()) }
                 .help("Delete this rule")
                 .foregroundStyle(SemanticColor.error)
         }
-        .buttonStyle(.borderless)
+        // Padded out for the wash, pulled back so the row's action cluster keeps its width.
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .padding(-4)
         .padding(.top, 1)
     }
 }

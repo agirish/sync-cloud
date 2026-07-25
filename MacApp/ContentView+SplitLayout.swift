@@ -46,16 +46,9 @@ extension ContentView {
             // Small and pinned to the top so it doesn't eat the seam's drag-to-resize area below it.
             .overlay(alignment: .topLeading) {
                 Button(action: swapPanesAction) {
-                    Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(glassHue.accentColor)
-                        .frame(width: 26, height: 26)
-                        // Material base plus a subtle accent wash over it, so the swap control reads
-                        // in the app hue instead of a neutral gray chip.
-                        .background(Circle().fill(.regularMaterial).overlay(Circle().fill(glassHue.accentColor.opacity(0.14))))
-                        .overlay(Circle().strokeBorder(glassHue.accentColor.opacity(0.35), lineWidth: 0.75))
+                    SwapPanesGlyph(accent: glassHue.accentColor)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverAffordance(.circular, tint: glassHue.accentColor))
                 .help("Swap the left and right panes")
                 .offset(x: leftWidth - 13, y: 8)
             }
@@ -225,7 +218,7 @@ extension ContentView {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor, shape: .roundedRect(8)))
         // A slim card, not a docked `.bar` strip: the bar fill stayed opaque at Clear and sat
         // flush against the root padding while every neighbor floated — the spine joins the gap
         // model instead (5pt to the window edge and to the workspace card beside it).
@@ -275,5 +268,34 @@ extension ContentView {
                     }
                 )
             }
+    }
+}
+
+/// The ⇄ chip on the seam between the panes.
+///
+/// Split out of the split-layout extension because it reads the enclosing hover-affordance
+/// button's phase, which needs an `@Environment` and therefore a real `View` type.
+struct SwapPanesGlyph: View {
+    let accent: Color
+
+    @Environment(\.hoverAffordancePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Pressing turns the glyph over — the same thing the click is about to do to the panes, so
+    /// the feedback names the outcome instead of just acknowledging the click. Dropped under
+    /// Reduce Motion, where the style's wash still carries the press.
+    private var flipped: Bool { phase == .pressed && !reduceMotion }
+
+    var body: some View {
+        Image(systemName: "arrow.left.arrow.right")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(accent)
+            .rotationEffect(.degrees(flipped ? 180 : 0))
+            .animation(.easeInOut(duration: 0.16), value: flipped)
+            .frame(width: 26, height: 26)
+            // Material base plus a subtle accent wash over it, so the swap control reads
+            // in the app hue instead of a neutral gray chip.
+            .background(Circle().fill(.regularMaterial).overlay(Circle().fill(accent.opacity(0.14))))
+            .overlay(Circle().strokeBorder(accent.opacity(0.35), lineWidth: 0.75))
     }
 }

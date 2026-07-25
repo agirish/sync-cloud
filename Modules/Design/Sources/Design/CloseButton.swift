@@ -15,11 +15,11 @@ public struct CloseButton: View {
         Button(action: action) {
             Image(systemName: "xmark")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .hoverInk()
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(.glyph))
     }
 }
 

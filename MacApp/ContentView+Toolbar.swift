@@ -113,10 +113,10 @@ extension ContentView {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .hoverInk()
                     .padding(.leading, 4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverAffordance(.inline))
             .help("Clear selection (Esc)")
             .accessibilityLabel("Clear selection")
         }
@@ -179,7 +179,9 @@ extension ContentView {
                         )
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                // The selected segment already carries the accent fill, so it takes the ring;
+                // the unselected one washes the capsule it would fill if you clicked it.
+                .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accentFill))
                 // These two Buttons stand in for a `Picker(.segmented)` (which renders neutral in a
                 // macOS 26 glass toolbar group), so they have to restate the selected-state semantics
                 // the Picker gave VoiceOver for free. No `.help`: it would only echo the visible label.
@@ -257,27 +259,41 @@ private struct PaneActionButton: View {
     var role: ButtonRole? = nil
     let action: () -> Void
 
-    @State private var isHovering = false
-
     var body: some View {
         Button(role: role, action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .medium))
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(onTint)
-            .padding(.horizontal, 12)
-            .frame(height: 28)
-            .background(Capsule().fill(tint.opacity(isHovering ? 1.0 : 0.9)))
-            // The primary hairline is the label color too, not a flat white — on a light hue a
-            // white ring on a near-white fill is invisible, which is the same bug as the label.
-            .overlay(Capsule().strokeBorder(onTint.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
-            .contentShape(Capsule())
+            PaneActionButtonLabel(title: title, systemImage: systemImage,
+                                  tint: tint, onTint: onTint, isPrimary: isPrimary)
         }
-        .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: isHovering)
+        .buttonStyle(.hoverAffordance(.filled, tint: tint))
+    }
+}
+
+/// The pill's face. A separate `View` so it can read the enclosing hover-affordance button's
+/// phase — the fill's 0.9→1.0 lift used to be driven by this pill's own `@State` + `onHover`,
+/// which was the app's single hand-rolled hover state.
+private struct PaneActionButtonLabel: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let onTint: Color
+    let isPrimary: Bool
+
+    @Environment(\.hoverAffordancePhase) private var phase
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+        }
+        .foregroundStyle(onTint)
+        .padding(.horizontal, 12)
+        .frame(height: 28)
+        .background(Capsule().fill(tint.opacity(phase.isEngaged ? 1.0 : 0.9)))
+        // The primary hairline is the label color too, not a flat white — on a light hue a
+        // white ring on a near-white fill is invisible, which is the same bug as the label.
+        .overlay(Capsule().strokeBorder(onTint.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
+        .contentShape(Capsule())
     }
 }

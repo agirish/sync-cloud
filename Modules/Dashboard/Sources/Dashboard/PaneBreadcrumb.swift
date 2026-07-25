@@ -112,8 +112,11 @@ struct PaneBreadcrumb: View {
             // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
             Image(systemName: PaneGlyph.linkBothPanes)
                 .foregroundStyle(linkBothPanes ? hueAccent : .secondary)
+                .padding(4)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(.glyph, tint: hueAccent))
+        .padding(-4)
         .help(linkBothPanes
             ? "Linked: clicking a folder moves both panes. Click to unlink."
             : "Link panes: clicking a folder will move both. Tip: hold ⌥ to do it once.")
@@ -127,8 +130,17 @@ struct PaneBreadcrumb: View {
     /// current-folder emphasis still reads.
     @ViewBuilder
     private func crumbButton(name: String, relativePath: String, isCurrent: Bool, helpPath: String, tint: Color? = nil) -> some View {
-        Button(name) { navigate(to: relativePath, isCurrent: isCurrent) }
-            .buttonStyle(.plain)
+        Button {
+            navigate(to: relativePath, isCurrent: isCurrent)
+        } label: {
+            Text(name)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .contentShape(Rectangle())
+        }
+            .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
+            .padding(.horizontal, -4)
+            .padding(.vertical, -1)
             .fontWeight(isCurrent ? .medium : .regular)
             .foregroundStyle(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
             .lineLimit(1)

@@ -191,10 +191,10 @@ struct StorageLensView: View {
                     Spacer(minLength: 0)
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .hoverInk()
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverAffordance(.row, tint: glassHue.accentColor))
 
             if !isCollapsed {
                 if entries.isEmpty {
@@ -309,6 +309,9 @@ private struct StorageEntryRow: View {
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
+    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    /// Tint for this row's two hover-affordance glyphs, matching the lens chrome around them.
+    private var rowAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
     let entry: StorageEntry
     let relativeFolder: String
     /// When true, show the file's age (used by the stale list).
@@ -356,9 +359,10 @@ private struct StorageEntryRow: View {
                 .foregroundStyle(.primary)
             if let onPreview {
                 Button(action: onPreview) {
-                    Image(systemName: "eye")
+                    Image(systemName: "eye").padding(4).contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.hoverAffordance(.glyph, tint: rowAccent))
+                .padding(-4)
                 .controlSize(.small)
                 .help("Preview with Quick Look")
             }
@@ -371,9 +375,10 @@ private struct StorageEntryRow: View {
                 .help("Reveals the file in Finder — use Finder to keep it online-only and free local space")
             } else {
                 Button(action: onReveal) {
-                    Image(systemName: RevealGlyph.inFinder)
+                    Image(systemName: RevealGlyph.inFinder).padding(4).contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.hoverAffordance(.glyph, tint: rowAccent))
+                .padding(-4)
                 .controlSize(.small)
                 .help("Reveal in Finder")
             }

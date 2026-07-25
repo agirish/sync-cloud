@@ -64,13 +64,13 @@ struct TidyGroupCard: View {
                 reclaimText
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                    .hoverInk(rest: .tertiary)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, densityMetrics.cardHeaderVerticalPadding)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(.row, tint: hueAccent))
     }
 
     private var typeBadge: some View {
@@ -366,8 +366,10 @@ struct TidyGroupCard: View {
             .controlSize(.small)
             Button(action: onKeepSeparate) {
                 Label("Keep separate", systemImage: "lock")
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
             .controlSize(.small)
             .disabled(isMerging)   // would drop the group from the list mid-merge
         }

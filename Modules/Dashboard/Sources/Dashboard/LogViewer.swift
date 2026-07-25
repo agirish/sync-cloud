@@ -435,7 +435,7 @@ public struct LogViewer: View {
                             .background(Capsule().fill(.quaternary.opacity(0.6)))
                             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.segment, tint: hueAccent))
                 }
                 Spacer(minLength: 0)
             }
@@ -497,7 +497,7 @@ public struct LogViewer: View {
             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: selected ? 0 : 0.5))
             .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.hoverAffordance(selected ? .filled : .segment, tint: hueAccent))
         .fixedSize()
         .help("Show \(label.lowercased())")
     }
@@ -515,7 +515,7 @@ public struct LogViewer: View {
                 case .entry(let entry):
                     LogEntryRow(entry: entry, density: density)
                 case .group(let group):
-                    LogOperationGroupRow(group: group, density: density)
+                    LogOperationGroupRow(group: group, density: density, accent: hueAccent)
                 }
             }
         }
@@ -748,6 +748,9 @@ private struct LogOperationGroupRow: View {
     /// Passed down by LogViewer (see `LogEntryRow.density`); also forwarded to the expanded
     /// per-file child rows.
     var density: ListDensity = .comfortable
+    /// The glass hue, forwarded rather than re-read from `@AppStorage`: this row renders once
+    /// per folded run, and one storage observer per row is a lot of observers for one color.
+    var accent: Color = .accentColor
     @State private var expanded = false
 
     var body: some View {
@@ -777,7 +780,7 @@ private struct LogOperationGroupRow: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverAffordance(.row, tint: accent))
 
             if expanded {
                 VStack(alignment: .leading, spacing: 0) {

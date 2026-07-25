@@ -325,11 +325,11 @@ public struct DifferencesView: View {
             } label: {
                 Image(systemName: isCollapsed.wrappedValue ? "chevron.up" : "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .hoverInk()
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
             .help(isCollapsed.wrappedValue ? "Show the differences list" : "Hide the differences list")
             .accessibilityLabel(isCollapsed.wrappedValue ? "Show differences" : "Hide differences")
         }
@@ -434,8 +434,10 @@ public struct DifferencesView: View {
                     Image(systemName: "xmark.circle.fill")
                 }
                 .font(.subheadline)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
             .foregroundStyle(.secondary)
             .help("Clear selection")
         }
@@ -801,10 +803,14 @@ public struct DifferencesView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
-                    Button("Cancel") {
+                    Button {
                         activeProgress.cancel()
+                    } label: {
+                        Text("Cancel")
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
                     .font(.caption)
                 }
             }
@@ -900,7 +906,7 @@ public struct DifferencesView: View {
                             .background(Capsule().fill(.quaternary.opacity(0.6)))
                             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
                 }
                 Spacer(minLength: 0)
             }

@@ -55,9 +55,14 @@ public struct ExpandingSearchToggle: View {
                 if !isExpanded { text = "" }
             }
         } label: {
+            // Padded out so the hover wash has room around a 13pt glyph, then pulled back below
+            // so the toggle's footprint in the header is unchanged (TokenChipsRow's idiom).
             Image(systemName: "magnifyingglass")
+                .padding(5)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.hoverAffordance(.glyph, tint: accent))
+        .padding(-5)
         // Tints whenever the field is open OR a query is live — so a filter narrowing the list
         // can never be silently on behind a quiet, collapsed glyph.
         .foregroundStyle((isExpanded || !text.isEmpty) ? accent : Color.secondary)
@@ -118,9 +123,9 @@ public struct ExpandingSearchField<Trailing: View, Accessories: View>: View {
                         text = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .hoverInk()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.hoverAffordance(.inline))
                     .help("Clear search")
                     .accessibilityLabel("Clear search")
                 }

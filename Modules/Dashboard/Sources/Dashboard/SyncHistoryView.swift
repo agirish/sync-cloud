@@ -162,9 +162,9 @@ public struct SyncHistoryView: View {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.body)
-                        .foregroundStyle(.secondary)
+                        .hoverInk()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.hoverAffordance(.inline))
                 .help("Clear search")
                 .accessibilityLabel("Clear search")
             }
