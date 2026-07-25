@@ -242,11 +242,15 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     // MARK: dispatchReview — drop without restore
 
-    @Test func providerSwitchDropsTheReviewWithoutRestoring() {
+    @Test func providerSwitchDuringAnActiveReviewDropsItWithoutRestoring() {
         let harness = Harness()
-        _ = harness.installReview()
+        let review = harness.installReview()
+        // Both panes are still on the two copies, so the review is ACTIVE: the comparison the
+        // user is redefining is the one in front of them.
+        harness.currentLeftPath = review.keepPath
+        harness.currentRightPath = review.deletePath
 
-        harness.coordinator.dispatchReview(.providerSwitched)
+        harness.coordinator.dispatchReview(.providerSwitched(isLeft: true))
 
         // The user chose the new comparison: the review is dropped, but nothing is restored —
         // no pin plan, no suppression seeding, no focus change, no rescan.
@@ -255,6 +259,48 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.pendingSwapProviderChanges == 0)
         #expect(harness.syncManager.leftRelativePath == "")
         #expect(harness.refreshCount == 0)
+    }
+
+    @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() {
+        let harness = Harness()
+        _ = harness.installReview()   // pins rightId to the left (Tidy) provider
+        #expect(harness.rightId == harness.leftId)
+        // The panes are NOT on the two copies — entering a Tidy lens re-focused the shared left
+        // pane — so the review is inactive and the right pane's pin is stale bookkeeping.
+        // The user now repoints the rail (the LEFT pane) to a third provider.
+        harness.leftId = "onedrive"
+
+        harness.coordinator.dispatchReview(.providerSwitched(isLeft: true))
+
+        #expect(harness.duplicateReview == nil)
+        // The right pane went back to the provider it had before the review…
+        #expect(harness.rightId == "dropbox")
+        #expect(harness.appliedPlans.count == 1)
+        #expect(harness.appliedPlans[0].suppressCount == 1)
+        // …seeded before the write, like every other programmatic id change…
+        #expect(harness.pendingCounterAtApply == [1])
+        // …while the user's own choice on the left is left exactly alone.
+        #expect(harness.leftId == "onedrive")
+        // No folders restored and no extra scan: the caller's own resetNavigation re-homes the
+        // panes a moment later, so doing it here would be undone and would double-scan.
+        #expect(harness.syncManager.leftRelativePath == "")
+        #expect(harness.syncManager.rightRelativePath == "")
+        #expect(harness.refreshCount == 0)
+    }
+
+    @Test func aProviderSwitchThatLeavesNoPinToReleaseWritesNothing() {
+        let harness = Harness()
+        // A review whose saved state already matches the live panes: nothing was ever pinned away
+        // from the user's setup, so the release must be a no-op rather than a redundant write.
+        _ = harness.installReview(restore: SavedCompareState(
+            leftProviderId: harness.leftId, rightProviderId: harness.leftId,
+            leftRelativePath: "", rightRelativePath: ""))
+
+        harness.coordinator.dispatchReview(.providerSwitched(isLeft: true))
+
+        #expect(harness.duplicateReview == nil)
+        #expect(harness.appliedPlans.isEmpty)
+        #expect(harness.pendingSwapProviderChanges == 0)
     }
 
     // MARK: dispatchReview — returning to Compare mid-review

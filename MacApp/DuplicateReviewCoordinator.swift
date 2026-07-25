@@ -197,6 +197,10 @@ struct DuplicateReviewCoordinator {
                     syncManager.focusOn(relativePath: review.redundantRelativePath, isLeft: false)
                     refreshAction()
                 }
+            case .undoProviderPin(let keepingUserChoiceOnLeft):
+                if let restoreSnapshot {
+                    undoProviderPin(restoreSnapshot, keepingUserChoiceOnLeft: keepingUserChoiceOnLeft)
+                }
             }
         }
     }
@@ -210,6 +214,33 @@ struct DuplicateReviewCoordinator {
         guard reviewStore.isReviewing else { return }
         reviewStore.endSession()
         syncManager.banner = .warning("Review ended — the comparison changed")
+    }
+
+    /// Releases the review's provider pin from the pane the user did NOT just repoint, leaving that
+    /// pane's provider at its pre-review value and everything else alone.
+    ///
+    /// The narrow counterpart to `restoreCompareState`, for the case where the user switches a
+    /// provider while a duplicate review is set but no longer active. A full restore would fight
+    /// the gesture in progress — it would put BOTH providers and both folders back, including the
+    /// pane they are actively repointing. Folders are deliberately not restored here at all: the
+    /// caller's own `resetNavigation()` re-homes the panes a moment later, so re-focusing saved
+    /// paths would be undone anyway, and a `refreshAction()` here would only add a second scan.
+    private func undoProviderPin(_ saved: SavedCompareState, keepingUserChoiceOnLeft: Bool) {
+        // Target the user's live choice on their side, the saved value on the other — so
+        // `ProviderPinPlan` sees no change for the side they are holding and suppresses only the
+        // one id this actually writes.
+        let targetLeft = keepingUserChoiceOnLeft ? leftProviderId : saved.leftProviderId
+        let targetRight = keepingUserChoiceOnLeft ? saved.rightProviderId : rightProviderId
+        let plan = ProviderPinPlan.make(
+            currentLeft: leftProviderId, currentRight: rightProviderId,
+            targetLeft: targetLeft, targetRight: targetRight)
+        guard plan.suppressCount > 0 else { return }
+        pendingSwapProviderChanges += plan.suppressCount
+        applyProviderPinAssignments(plan)
+        // The suppressed onChange skips the ignore-store re-key, as everywhere else that pins an
+        // id programmatically; the surviving pair is the user's side plus the restored one.
+        syncManager.ignoredItemsStore?.activate(
+            pairKey: IgnoredItemsStore.pairKey(targetLeft, targetRight))
     }
 
     /// Puts both Compare panes back to a saved setup — used when a duplicate review ends, so pinning

@@ -16,11 +16,30 @@ import Testing
 
     // MARK: A user-chosen comparison change drops the review WITHOUT restoring
 
-    @Test func providerSwitchDropsReviewWithoutRestoring() {
-        #expect(effects(.providerSwitched, state(review: true, guided: true)) == [.endGuidedReview, .clearDuplicateReview])
-        #expect(effects(.providerSwitched, state(review: true, guided: false)) == [.clearDuplicateReview])
-        #expect(effects(.providerSwitched, state(review: false, guided: true)) == [.endGuidedReview])
-        #expect(effects(.providerSwitched, state()) == [])
+    @Test func providerSwitchDuringAnActiveReviewDropsItWithoutRestoring() {
+        // ACTIVE: both panes still show the two copies, so the comparison the user is redefining
+        // is the one in front of them — their choice stands, nothing is put back.
+        let active = { self.state(review: true, active: true, guided: $0) }
+        #expect(effects(.providerSwitched(isLeft: true), active(true)) == [.endGuidedReview, .clearDuplicateReview])
+        #expect(effects(.providerSwitched(isLeft: true), active(false)) == [.clearDuplicateReview])
+        #expect(effects(.providerSwitched(isLeft: false), active(false)) == [.clearDuplicateReview])
+        // No review to drop: only a guided session (if any) ends.
+        #expect(effects(.providerSwitched(isLeft: true), state(review: false, guided: true)) == [.endGuidedReview])
+        #expect(effects(.providerSwitched(isLeft: true), state()) == [])
+    }
+
+    @Test func providerSwitchAfterTheReviewWentInactiveReleasesItsPin() {
+        // INACTIVE: the user has already moved on — entering a Tidy lens re-focuses the shared
+        // left pane, which is exactly how this state is reached — so the OTHER pane is still
+        // pinned to the duplicate's provider by `compareCopies`. That pin is bookkeeping the user
+        // never chose, and dropping the snapshot without releasing it stranded their other pane on
+        // the duplicate's provider permanently.
+        #expect(effects(.providerSwitched(isLeft: true), state(review: true, active: false))
+                == [.clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
+        #expect(effects(.providerSwitched(isLeft: false), state(review: true, active: false))
+                == [.clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: false)])
+        #expect(effects(.providerSwitched(isLeft: true), state(review: true, active: false, guided: true))
+                == [.endGuidedReview, .clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: true)])
     }
 
     @Test func swapBehavesLikeAProviderSwitch() {

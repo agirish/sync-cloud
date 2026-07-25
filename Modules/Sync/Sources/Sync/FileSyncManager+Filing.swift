@@ -81,6 +81,13 @@ extension FileSyncManager {
     ) async {
         guard !isSuggestingFiles else { return }
         let fileManager = fm ?? self.fileManager
+        // Ask the provider's own volume how it folds case, so the engine's "already in this
+        // folder" test agrees with what `performFiling` will actually do on that disk. Callers
+        // that pin the option themselves (tests) keep their answer.
+        var options = options
+        if !options.caseSensitiveVolume {
+            options.caseSensitiveVolume = Self.volumeSupportsCaseSensitiveNames(for: providerRoot)
+        }
         let epoch = beginScan(\.filingScanLifecycle,
                               status: FilingScanPhase.scanningFolder(folder.lastPathComponent).status)
         // Start warming the AI backend now, so its cold-start overlaps the walk + content phases.
@@ -702,7 +709,14 @@ extension FileSyncManager {
         let destFolder = URL(fileURLWithPath: destination.path)
 
         // No-op: the chosen folder IS the file's current folder — leave it, don't rename to "(2)".
-        if destFolder.standardizedFileURL.path == src.deletingLastPathComponent().standardizedFileURL.path {
+        // Case-folded per the volume: an exact comparison let a case-variant destination through
+        // to the move below, where `fileExists` collapsed the case, found the file itself, and the
+        // unique-name step renamed it in place while the banner reported a successful filing.
+        if PathBoundary.namesSameDirectory(
+            destFolder.path,
+            src.deletingLastPathComponent().path,
+            caseSensitive: FileSyncManager.volumeSupportsCaseSensitiveNames(for: src)
+        ) {
             filingSuggestions.removeAll { $0.id == suggestion.id }
             return .noMoveNeeded
         }

@@ -35,4 +35,30 @@ public enum PathBoundary {
     public static func contains(_ path: String, under root: String) -> Bool {
         relativize(path, under: root) != nil
     }
+
+    /// Whether two paths name the SAME directory, folding case when the volume does.
+    ///
+    /// The one implementation of filing's "the chosen folder IS the file's current folder" test,
+    /// which decides whether a file is left alone or moved. It had been spelled as `==` at three
+    /// separate sites, and exact comparison is wrong on the default (case-insensitive) macOS
+    /// volume: an automation destination template is matched case-insensitively by design, so a
+    /// hand-typed `documents/inbox` naming the on-disk `Documents/Inbox` is expected input. Read
+    /// exactly, the destination looked like a DIFFERENT folder from the file's parent, so the
+    /// move went ahead — `fileExists` then found the file itself (case collapsed on disk), the
+    /// unique-name helper stepped around it, and the file was renamed in place to "name 2" under
+    /// a banner claiming it had been filed.
+    ///
+    /// `caseSensitive` is the volume's own answer (`volumeSupportsCaseSensitiveNames`), which
+    /// fails to false — and false is the safe direction here: treating two spellings as one
+    /// folder at worst declines a move the user can repeat with the exact case, while treating
+    /// one folder as two renames a file nobody asked to rename.
+    ///
+    /// Note this is deliberately NOT `standardizedFileURL` + `==`: standardization resolves `..`
+    /// and trailing slashes but never case, which is exactly the part that was missing.
+    public static func namesSameDirectory(_ a: String, _ b: String, caseSensitive: Bool) -> Bool {
+        let sa = URL(fileURLWithPath: a).standardizedFileURL.path
+        let sb = URL(fileURLWithPath: b).standardizedFileURL.path
+        if caseSensitive { return sa == sb }
+        return sa.caseInsensitiveCompare(sb) == .orderedSame
+    }
 }

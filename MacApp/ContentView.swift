@@ -407,7 +407,10 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched left provider to \(newId)")
-            reviewCoordinator.dispatchReview(.providerSwitched)   // end the guided review + drop the duplicate review, no restore (the user chose the switch)
+            // Ends the guided review and drops the duplicate review without restoring the
+            // comparison (the user chose this switch) — but releases the review's pin from the
+            // RIGHT pane if the review was no longer active, since that pin is not their choice.
+            reviewCoordinator.dispatchReview(.providerSwitched(isLeft: true))
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview
@@ -423,7 +426,8 @@ struct ContentView: View {
                 return
             }
             Logger.shared.info("User switched right provider to \(newId)")
-            reviewCoordinator.dispatchReview(.providerSwitched)   // end the guided review + drop the duplicate review, no restore (the user chose the switch)
+            // Mirror of the left handler above, releasing the pin from the LEFT pane instead.
+            reviewCoordinator.dispatchReview(.providerSwitched(isLeft: false))
             syncManager.clearDuplicates()   // stale Tidy results must not outlive their provider
             syncManager.clearFiling()
             syncManager.clearAutomationDryRun()   // and the stale dry-run preview

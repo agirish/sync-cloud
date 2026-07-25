@@ -123,6 +123,76 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(manager.filingSuggestions.isEmpty)                                                      // dropped from list
     }
 
+    /// The same no-op, reached through a destination whose CASE differs from the folder on disk.
+    ///
+    /// Automation destination templates are matched case-insensitively by design, so a rule
+    /// destination hand-typed as "downloads" naming the on-disk "Downloads" is expected input. The
+    /// three "is this the file's own folder?" tests compared paths exactly, so on the default
+    /// case-insensitive volume the destination read as a DIFFERENT folder: the move went ahead,
+    /// `fileExists` found the file itself (case collapsed on disk), the unique-name helper stepped
+    /// around it, and the file was renamed in place to "report 2.pdf" under a banner reporting a
+    /// successful filing.
+    @MainActor
+    @Test func applyingToACaseVariantOfTheFilesOwnFolderIsAlsoANoOp() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let srcPath = root.appendingPathComponent("Downloads/report.pdf")
+        try write(srcPath)
+
+        // Skip where the answer would legitimately differ: on a case-SENSITIVE volume these really
+        // are two folders, and filing into the second is a real move, not a no-op.
+        guard !FileSyncManager.volumeSupportsCaseSensitiveNames(for: root) else { return }
+
+        let manager = FileSyncManager()
+        let s = FilingSuggestion(filePath: srcPath.path, fileName: "report.pdf", size: 5000,
+                                 modificationDate: nil, candidates: [])
+        manager.filingSuggestions = [s]
+        let dest = FilingDestination(path: root.appendingPathComponent("downloads").path,
+                                     confidence: .high, reasons: [], newSegments: [])
+
+        let ok = await manager.applyFilingSuggestion(s, to: dest)
+
+        #expect(ok == .notNeeded)
+        #expect(FileManager.default.fileExists(atPath: srcPath.path))
+        // The rename this guard exists to prevent.
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("Downloads/report 2.pdf").path))
+        #expect(manager.filingSuggestions.isEmpty)
+    }
+
+    /// The engine side of the same rule: a case-variant of the file's own parent must not even be
+    /// OFFERED, or the user is invited to click a suggestion whose apply step declines.
+    @Test func theEngineDropsACaseVariantOfTheFilesOwnParent() {
+        let file = FileNode(id: "/root/Documents/Inbox/report.pdf", name: "report.pdf",
+                            isDirectory: false, fileSize: 5000)
+        let taxonomy = [
+            FileNode(id: "/root/Documents", name: "Documents", isDirectory: true, children: [
+                FileNode(id: "/root/Documents/Inbox", name: "Inbox", isDirectory: true, children: [])
+            ])
+        ]
+        let rule = AutomationRule(name: "Reports", conditions: [.nameMatches("*report*")],
+                                  destinationTemplate: "documents/inbox")
+
+        let suggestions = FilingEngine.suggest(
+            looseFiles: [file], taxonomy: taxonomy, providerRoot: "/root",
+            automations: [rule], options: FilingOptions(caseSensitiveVolume: false))
+
+        // Compared case-INSENSITIVELY on purpose: the rule spells the destination lowercase, so an
+        // exact-match assertion would pass whether or not the filter works.
+        func offersTheParent(_ result: [FilingSuggestion]) -> Bool {
+            result.first?.candidates.contains {
+                $0.path.caseInsensitiveCompare("/root/Documents/Inbox") == .orderedSame
+            } ?? false
+        }
+        #expect(offersTheParent(suggestions) == false)
+        // And the case-sensitive volume keeps its honest answer: there, the two really do differ,
+        // so the candidate stands — which is also what proves the assertion above measures the
+        // filter rather than the rule simply never producing this candidate.
+        let sensitive = FilingEngine.suggest(
+            looseFiles: [file], taxonomy: taxonomy, providerRoot: "/root",
+            automations: [rule], options: FilingOptions(caseSensitiveVolume: true))
+        #expect(offersTheParent(sensitive) == true)
+    }
+
     @MainActor
     @Test func batchFilingIsASingleUndo() async throws {
         let root = try makeCanonicalTempRoot(prefix: "FilingTest")

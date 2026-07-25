@@ -16,8 +16,11 @@ enum CompareReviewEvent: Equatable {
     /// The bottom tab changed. `toCompare`/`fromCompare` are whether the new/old tab is the
     /// Compare tab (kept as bools so this stays independent of `ContentView.BottomTab`).
     case tabSwitched(toCompare: Bool, fromCompare: Bool)
-    /// The user manually switched a pane's provider (a change they chose — don't restore).
-    case providerSwitched
+    /// The user manually switched a pane's provider (a change they chose — don't restore the
+    /// comparison). `isLeft` says which pane they repointed: while a duplicate review is set but
+    /// no longer active, the OTHER pane may still be carrying the review's programmatic pin, and
+    /// that pin is not something the user chose.
+    case providerSwitched(isLeft: Bool)
     /// The user edited a pane provider's root path in Settings (the pane ids are unchanged but
     /// the folders underneath them are not). Like a provider switch: a change the user chose,
     /// so drop the review without restoring — but every review framed on the old roots must end.
@@ -54,6 +57,11 @@ enum CompareReviewEffect: Equatable {
     case restoreCompareState
     /// Re-focus both panes on the two copies and re-diff (returning to Compare mid-review).
     case refocusCopies
+    /// Undo just the review's provider pin on the pane the user did NOT repoint, leaving their own
+    /// choice — and the panes' folders — alone. Narrower than `.restoreCompareState` on purpose:
+    /// the user is mid-gesture on the other pane, so putting the saved folders back would yank
+    /// them out of it.
+    case undoProviderPin(keepingUserChoiceOnLeft: Bool)
 }
 
 enum CompareReviewReducer {
@@ -63,11 +71,29 @@ enum CompareReviewReducer {
         let endGuided: [CompareReviewEffect] = state.isGuidedReviewing ? [.endGuidedReview] : []
 
         switch event {
-        case .providerSwitched, .comparisonRootEdited, .panesSwapped:
+        case .providerSwitched(let isLeft):
+            // The user chose to change the comparison — drop the review WITHOUT restoring (that
+            // would fight their choice). Still end any guided review framed on the old panes.
+            guard state.hasDuplicateReview else { return endGuided }
+            // …but only while the review is ACTIVE, i.e. both panes still show the two copies, so
+            // the comparison they are redefining is the one in front of them. Once the review is
+            // inactive the user has already moved on (entering a Tidy lens re-focuses the shared
+            // left pane, which is exactly how this state is reached), and the other pane is still
+            // pinned to the duplicate's provider by `compareCopies` — bookkeeping they never
+            // chose. Dropping the snapshot there stranded that pin permanently: the pane they
+            // were comparing against before the review silently became the duplicate's provider.
+            if state.duplicateReviewActive {
+                return endGuided + [.clearDuplicateReview]
+            }
+            return endGuided + [.clearDuplicateReview, .undoProviderPin(keepingUserChoiceOnLeft: isLeft)]
+
+        case .comparisonRootEdited, .panesSwapped:
             // The user chose to change the comparison — drop the review WITHOUT restoring (that
             // would fight their choice). Still end any guided review framed on the old panes.
             // A root edit reaches here too: restoring would re-focus saved relative paths under
-            // roots that no longer exist, and the caller's rescan covers the new roots.
+            // roots that no longer exist, and the caller's rescan covers the new roots. A swap
+            // needs no pin undo either: it exchanges the two ids, so the pin travels with the
+            // pane rather than being stranded.
             return endGuided + (state.hasDuplicateReview ? [.clearDuplicateReview] : [])
 
         case .compareCopiesStarted:

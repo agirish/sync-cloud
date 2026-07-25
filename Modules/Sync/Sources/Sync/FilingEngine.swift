@@ -93,12 +93,21 @@ public struct FilingOptions: Sendable {
     public var maxCandidates: Int
     public var minFileSize: Int
     public var ignoredNames: Set<String>
+    /// Whether the provider's volume distinguishes `Inbox` from `inbox`, used when deciding that a
+    /// candidate folder is the file's own parent (`PathBoundary.namesSameDirectory`). Defaults to
+    /// FALSE — the macOS default, and the safe direction: over-matching only withholds a
+    /// suggestion to move a file where it already is, while under-matching offers one whose apply
+    /// path would rename the file in place. (`generateUniqueURL`'s like-named parameter defaults
+    /// the other way because there the conservative answer is the opposite one.)
+    public var caseSensitiveVolume: Bool
 
     public init(maxCandidates: Int = 3, minFileSize: Int = 0,
-                ignoredNames: Set<String> = FilingOptions.defaultIgnoredNames) {
+                ignoredNames: Set<String> = FilingOptions.defaultIgnoredNames,
+                caseSensitiveVolume: Bool = false) {
         self.maxCandidates = maxCandidates
         self.minFileSize = minFileSize
         self.ignoredNames = ignoredNames
+        self.caseSensitiveVolume = caseSensitiveVolume
     }
 
     public static let defaultIgnoredNames: Set<String> = [
@@ -186,8 +195,13 @@ public enum FilingEngine {
                                          profiles: profiles, existingPaths: existingPaths, providerRoot: providerRoot)
 
             // A file already sitting in a suggested folder shouldn't be told to move to where it is.
+            // Case-folded on a case-insensitive volume: a rule destination spelled in a different
+            // case names the same folder there, and offering it would put the file on a path whose
+            // apply step renames it in place.
             let selfParent = (file.id as NSString).deletingLastPathComponent
-            candidates.removeAll { $0.path == selfParent }
+            candidates.removeAll {
+                PathBoundary.namesSameDirectory($0.path, selfParent, caseSensitive: options.caseSensitiveVolume)
+            }
 
             // Drop rejected folders from the full pool BEFORE ranking+capping, so a valid deeper
             // candidate isn't lost: removing after the cap could strip the top pick and leave the

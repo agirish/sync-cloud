@@ -244,7 +244,14 @@ extension FileSyncManager {
                 ?? destinationDir.path
             let label = relativeDestination.isEmpty ? (providerName.map { "\($0) root" } ?? "the folder root")
                                                     : relativeDestination
-            if destinationDir.path == currentParent.path {
+            // Case-folded per the volume, matching `performFiling`'s no-op test: the preview must
+            // not promise a move that the apply path will (correctly) decline, and before this the
+            // apply path did not decline it — it renamed the file in place.
+            if PathBoundary.namesSameDirectory(
+                destinationDir.path,
+                currentParent.path,
+                caseSensitive: FileSyncManager.volumeSupportsCaseSensitiveNames(for: currentParent)
+            ) {
                 return (.alreadyThere, nil, nil)
             }
             let target = destinationDir.appendingPathComponent(facts.name)
