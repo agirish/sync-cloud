@@ -28,6 +28,11 @@ public enum HoverAffordanceVariant: String, CaseIterable, Sendable {
     /// A small dismiss glyph riding inside a field or chip. Washes in *ink*, not the accent —
     /// these clear or remove something, and an inviting accent bloom misreads the action.
     case inline
+    /// A button keeping its **system** chrome — `.glass` or `.bordered`. See `ChromeHoverModifier`
+    /// for why this one can't be a `ButtonStyle`, and why its numbers are so much louder than
+    /// `.filled`'s: a macOS 26 glass capsule is nearly *transparent* at rest, so there is no fill
+    /// to ring and no edge to deepen. The halo and the saturation lift are the whole signal.
+    case chrome
 }
 
 /// The hit shape the wash is drawn in. Deliberately a small closed enum rather than a generic
@@ -47,6 +52,8 @@ public enum HoverAffordanceShape: Equatable, Sendable {
         case .circular: return .circle
         case .row: return .roundedRect(7)
         case .inline: return .circle
+        // Unused — `chromeHover` never draws a shape, precisely because it can't know one.
+        case .chrome: return .capsule
         }
     }
 }
@@ -76,14 +83,18 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
     public var scale: CGFloat
     /// Alpha of the soft tinted shadow under a lifted control.
     public var shadow: Double
+    /// Color-saturation multiplier. 1 leaves the control alone. Only `.chrome` moves it: it is
+    /// the only variant with no wash of its own, and a filter needs no knowledge of the shape.
+    public var saturation: Double
 
     public init(wash: Double = 0, ring: Double = 0, lift: CGFloat = 0,
-                scale: CGFloat = 1, shadow: Double = 0) {
+                scale: CGFloat = 1, shadow: Double = 0, saturation: Double = 1) {
         self.wash = wash
         self.ring = ring
         self.lift = lift
         self.scale = scale
         self.shadow = shadow
+        self.saturation = saturation
     }
 
     /// Everything off — a control at rest, or one that's disabled in any phase.
@@ -124,6 +135,12 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
 
         case (.inline, .hover):   m = .init(wash: 0.13)
         case (.inline, .pressed): m = .init(wash: 0.21, scale: 0.97)
+
+        // Loud on purpose. `.filled`'s 0.15 ring reads because it lands on a saturated fill;
+        // the same alpha on a clear glass capsule over a pale header is nothing at all, which
+        // is what the pane header's nav arrows showed.
+        case (.chrome, .hover):   m = .init(ring: 0.34, lift: -1, shadow: 0.20, saturation: 1.35)
+        case (.chrome, .pressed): m = .init(ring: 0.34, saturation: 1.35)
         }
 
         // Reduce Motion drops everything that moves and keeps everything that colors, so the
@@ -299,7 +316,7 @@ public struct ChromeHoverModifier: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var metrics: HoverAffordanceMetrics {
-        .resolve(variant: .filled,
+        .resolve(variant: .chrome,
                  phase: isHovering ? .hover : .rest,
                  isEnabled: isEnabled,
                  reduceMotion: reduceMotion)
@@ -307,9 +324,14 @@ public struct ChromeHoverModifier: ViewModifier {
 
     public func body(content: Content) -> some View {
         content
-            .compositingGroup()
-            // The halo stands in for `.filled`'s stroked ring: tight, unoffset, silhouette-exact.
-            .shadow(color: tint.opacity(metrics.ring), radius: 1.5)
+            // Saturation stands in for the wash: a filter over whatever the system chrome drew,
+            // so it lands on the true silhouette without anyone having to know what that is.
+            .saturation(metrics.saturation)
+            // And the halo stands in for the stroked ring — tight, unoffset, silhouette-exact.
+            // No `compositingGroup()` before these: it forces an offscreen pass, and macOS 26
+            // Liquid Glass renders nothing offscreen. That flattened the very buttons this is
+            // meant to light up.
+            .shadow(color: tint.opacity(metrics.ring), radius: 3)
             .shadow(color: tint.opacity(metrics.shadow), radius: 5, y: 3)
             .offset(y: metrics.lift)
             .onHover { isHovering = isEnabled && $0 }

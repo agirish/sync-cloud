@@ -57,7 +57,7 @@ final class HoverAffordanceTests: XCTestCase {
         // Lift implies a shadow to sit above, and only two variants are meant to leave the plane.
         for variant in allVariants {
             let hover = HoverAffordanceMetrics.resolve(variant: variant, phase: .hover)
-            let floats = (variant == .filled || variant == .circular)
+            let floats = (variant == .filled || variant == .circular || variant == .chrome)
             XCTAssertEqual(hover.lift < 0, floats, "\(variant) lift disagrees with its role")
             XCTAssertEqual(hover.shadow > 0, floats, "\(variant) shadow disagrees with its lift")
         }
@@ -73,7 +73,12 @@ final class HoverAffordanceTests: XCTestCase {
             // hover would leave the click unacknowledged.
             let deepens = pressed.wash > hover.wash
             let sinks = pressed.scale < hover.scale
-            XCTAssertTrue(deepens || sinks, "\(variant) press is indistinguishable from hover")
+            // `.chrome` is the exception by design: it hands press back to the system style,
+            // which already darkens a bordered or glass button. Its own press differs from its
+            // hover only by dropping the lift, which is enough to acknowledge the click.
+            let settles = pressed.lift > hover.lift
+            XCTAssertTrue(deepens || sinks || settles,
+                          "\(variant) press is indistinguishable from hover")
         }
     }
 
@@ -120,6 +125,8 @@ final class HoverAffordanceTests: XCTestCase {
                 XCTAssertEqual(reduced.scale, 1, accuracy: 0.0001, "\(variant)/\(phase) still scales")
                 XCTAssertEqual(reduced.wash, plain.wash, "\(variant)/\(phase) lost its wash")
                 XCTAssertEqual(reduced.ring, plain.ring, "\(variant)/\(phase) lost its ring")
+                XCTAssertEqual(reduced.saturation, plain.saturation,
+                               "\(variant)/\(phase) lost its saturation")
             }
         }
     }
@@ -139,7 +146,8 @@ final class HoverAffordanceTests: XCTestCase {
     func testEveryVariantHasADefaultShape() {
         let expected: [HoverAffordanceVariant: HoverAffordanceShape] = [
             .glyph: .roundedRect(8), .segment: .capsule, .filled: .capsule,
-            .circular: .circle, .row: .roundedRect(7), .inline: .circle
+            .circular: .circle, .row: .roundedRect(7), .inline: .circle,
+            .chrome: .capsule
         ]
         for variant in allVariants {
             XCTAssertEqual(HoverAffordanceShape.default(for: variant), expected[variant],
@@ -153,26 +161,38 @@ final class HoverAffordanceTests: XCTestCase {
         // `chromeHover` can't stroke a ring — it doesn't know a glass capsule's silhouette — so it
         // spends `.filled`'s ring alpha on a tight halo instead. Both must be non-zero or the
         // treatment collapses to a bare 1pt nudge, which reads as a rendering glitch, not a state.
-        let m = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
+        let m = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover)
         XCTAssertGreaterThan(m.ring, 0, "no halo — the hover would be a silent 1pt shift")
         XCTAssertGreaterThan(m.shadow, 0)
         XCTAssertLessThan(m.lift, 0)
+        XCTAssertGreaterThan(m.saturation, 1, "no saturation lift — nothing stands in for the wash")
+        XCTAssertEqual(m.wash, 0, "chromeHover cannot draw a wash; it doesn't know the outline")
+    }
+
+    func testChromeIsLouderThanFilledBecauseItHasNoFillToLandOn() {
+        // `.filled`'s ring works because it lands on a saturated capsule. The same alpha on a
+        // clear macOS 26 glass button over a pale header is invisible — which is exactly what
+        // the pane header's nav arrows showed after the first pass.
+        let chrome = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover)
+        let filled = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
+        XCTAssertGreaterThan(chrome.ring, filled.ring)
     }
 
     func testChromeHoverStaysVisibleWhenTheLiftIsTakenAway() {
         // Reduce Motion strips the offset, and a system-chrome button has no wash to fall back
         // on — the halo is the only thing left standing. If it ever went with the lift, every
         // bordered and glass button in the app would silently lose its hover under the setting.
-        let reduced = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover,
+        let reduced = HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
                                                      reduceMotion: true)
         XCTAssertEqual(reduced.lift, 0)
         XCTAssertGreaterThan(reduced.ring, 0, "nothing at all is drawn under Reduce Motion")
+        XCTAssertGreaterThan(reduced.saturation, 1, "the wash stand-in went with the lift")
     }
 
     func testChromeHoverIsInertWhenDisabled() {
         // A greyed-out Back arrow that still lifts is worse than no hover: it promises a click
         // that does nothing. `chromeHover` sits inside the button's `.disabled` scope for this.
-        XCTAssertEqual(HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover,
+        XCTAssertEqual(HoverAffordanceMetrics.resolve(variant: .chrome, phase: .hover,
                                                       isEnabled: false),
                        .none)
     }

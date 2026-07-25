@@ -399,6 +399,7 @@ public struct PaneHeader: View {
                 Image(systemName: "arrow.up.arrow.down")
             }
             .menuIndicator(.hidden)
+            .menuStyle(.button)
             .fixedSize()
             .chromeHover(tint: glassHue.accentColor)
             .help("Choose how items are sorted")
