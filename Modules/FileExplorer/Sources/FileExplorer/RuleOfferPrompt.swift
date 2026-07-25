@@ -129,7 +129,7 @@ struct RuleOfferPromptView: View {
             Spacer(minLength: 8)
             VStack(spacing: 5) {
                 Button("Save rule", action: onSave)
-                    .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                    .buttonStyle(.borderedProminent).controlSize(.small)
                     .chromeHover()
                 Button("Not now", action: onNotNow)
                     .controlSize(.small)

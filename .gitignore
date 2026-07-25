@@ -100,3 +100,5 @@ build_runtime_backup/
 # Machine-local settings (permissions, etc.). Shared config like .claude/settings.json
 # can still be committed if desired.
 .claude/settings.local.json
+
+.dd/

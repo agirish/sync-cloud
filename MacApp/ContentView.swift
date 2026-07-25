@@ -1462,6 +1462,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private func treeView(_ pane: PaneContext) -> some View {
+        // The Tidy rail is the only pane on screen: it shows no action bar, so it takes no placement
+        // scratch space and no flip callback (`placement`'s own contract), and it has no sibling to
+        // be subordinate to, so its selection wears the full-strength wash.
+        let isRail = layoutMode == .singleSource
         FileTreeView(
             tree: pane.tree,
             otherTree: pane.otherTree,
@@ -1486,15 +1490,16 @@ struct ContentView: View {
             // changes the edge — it re-renders the column inside `withAnimation` so the bar
             // cross-fades. Clicking a file needs no callback: it re-renders the column on its own,
             // which lands the bar at the correct edge instantly.
-            placement: pane.isLeft ? leftPlacement : rightPlacement,
-            onBarEdgeFlip: {
+            placement: isRail ? nil : (pane.isLeft ? leftPlacement : rightPlacement),
+            onBarEdgeFlip: isRail ? nil : {
                 withAnimation(.easeInOut(duration: 0.22)) {
                     if pane.isLeft { leftBarAtTop.toggle() } else { rightBarAtTop.toggle() }
                 }
             },
             // Which pane the action bar is acting on — the same predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
-            isActivePane: paneActionBarSideActive(isLeft: pane.isLeft)
+            // The rail has no bar and no sibling, so it is always its own active pane.
+            isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft)
         )
     }
 

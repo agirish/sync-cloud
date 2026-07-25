@@ -299,13 +299,13 @@ struct FilingSuggestionCard: View {
         HStack(spacing: 9) {
             if let best, suggestion.hasConfidentHome {
                 Button { onFileHere(best) } label: { Label("File here", systemImage: "arrow.right.circle") }
-                    .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                    .buttonStyle(.borderedProminent).controlSize(.small)
                     .chromeHover()
                 Button(action: onChooseFolder) { Label("Choose folder…", systemImage: "folder") }
                     .controlSize(.small)
             } else {
                 Button(action: onChooseFolder) { Label("Choose a folder…", systemImage: "folder") }
-                    .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                    .buttonStyle(.borderedProminent).controlSize(.small)
                     .chromeHover()
             }
             if best != nil, let onTryAnother {

@@ -712,7 +712,7 @@ public struct TidyView: View {
     private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool, action: @escaping () -> Void, movedHelp: String) -> some View {
         if moved {
             Button(action: action) { Label("Scan “\(scanTargetName)”", systemImage: movedIcon) }
-                .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                .buttonStyle(.borderedProminent).controlSize(.small)
                 .chromeHover()
                 .disabled(disabled).help(movedHelp)
         } else {

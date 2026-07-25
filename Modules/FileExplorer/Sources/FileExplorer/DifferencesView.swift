@@ -25,6 +25,7 @@ public struct DifferencesView: View {
     @State private var showItemCounts = false
     /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
     @State private var isCountPillHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
@@ -305,8 +306,14 @@ public struct DifferencesView: View {
         StatPill(
             count: syncManager.differences.count,
             label: "Differences",
-            color: SemanticColor.warning,
-            systemImage: "exclamationmark.triangle"
+            // Unused on the capsule path — see `countPillToggle`, whose note this mirrors.
+            color: glassHue.accentColor,
+            systemImage: "exclamationmark.triangle",
+            // The same accent capsule the expanded header's pill wears. Collapsing the pane
+            // changes how much of the header survives, never what its colour language means:
+            // wearing the old `.warning` wash here made one count read as two conventions
+            // depending on a state the user toggles freely.
+            semantic: .onAccent(fill: glassHue.accentFillColor, label: glassHue.onAccentLabelColor)
         )
         Spacer()
     }
@@ -436,7 +443,10 @@ public struct DifferencesView: View {
                 // fill, not the window.
                 semantic: .onAccent(fill: glassHue.accentFillColor, label: glassHue.onAccentLabelColor)
             )
-            .scaleEffect(isCountPillHovered ? 1.03 : 1)
+            // Reduce Motion suppresses the grow, matching `HoverAffordanceMetrics.resolve` — the
+            // choke point this control is deliberately exempt from still sets the house rule, and
+            // an edge moving out from under a settled pointer is exactly what that setting is for.
+            .scaleEffect(isCountPillHovered && !reduceMotion ? 1.03 : 1)
         }
         .buttonStyle(.plain)
         .onHover { hovering in

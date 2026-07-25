@@ -29,10 +29,14 @@ struct StatPill: View {
 
     var body: some View {
         Group {
-            if let trailingSystemImage {
-                // Heterogeneous content (count + label + a trailing affordance) composes the
-                // shared surface directly — Pill's documented escape hatch — using Pill's own
-                // 5pt spacing and variant fonts so the two branches render identically.
+            // The shared `Pill` covers the plain tinted case. Anything that departs from it — a
+            // trailing affordance, a flat semantic fill, or both — composes the shared surface
+            // directly (Pill's documented escape hatch) using Pill's own 5pt spacing and variant
+            // fonts, so every rung renders identically. Keying this on the semantic style too is
+            // what lets a NON-toggle pill wear the flat fill: the collapsed differences strip
+            // shows the same count as the expanded header and must not switch colour language
+            // just because it lost its chevron.
+            if trailingSystemImage != nil || semantic != nil {
                 HStack(spacing: 5) {
                     if let semantic {
                         // The ring is present exactly when the fill is the accent hue, where a
@@ -60,17 +64,19 @@ struct StatPill: View {
                         .monospacedDigit()
                     Text(label)
                         .font(PillVariant.standard.labelFont)
-                    Image(systemName: trailingSystemImage)
-                        .font(.system(size: 9, weight: .semibold))
-                        // A secondary run on an accent fill must dim with `dimmedOnFillOpacity`,
-                        // never a local literal — the old 0.75 was one of the ad-hoc values that
-                        // rule exists to stamp out (it drops white-on-Graphite under the 3:1
-                        // floor). Applied on the flat-fill path too: those pairs start at 7.7:1
-                        // and 9.3:1, so the extra 0.15 of strength buys nothing there.
-                        .foregroundStyle((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
-                        // Cross-fade the right↔left flip instead of a hard swap; runs inside
-                        // whatever withAnimation the toggling button wraps around the state change.
-                        .contentTransition(.symbolEffect(.replace))
+                    if let trailingSystemImage {
+                        Image(systemName: trailingSystemImage)
+                            .font(.system(size: 9, weight: .semibold))
+                            // A secondary run on an accent fill must dim with `dimmedOnFillOpacity`,
+                            // never a local literal — the old 0.75 was one of the ad-hoc values that
+                            // rule exists to stamp out (it drops white-on-Graphite under the 3:1
+                            // floor). Applied on the flat-fill path too: those pairs start at 7.7:1
+                            // and 9.3:1, so the extra 0.15 of strength buys nothing there.
+                            .foregroundStyle((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
+                            // Cross-fade the right↔left flip instead of a hard swap; runs inside
+                            // whatever withAnimation the toggling button wraps around the state change.
+                            .contentTransition(.symbolEffect(.replace))
+                    }
                 }
                 .foregroundStyle(semantic?.content ?? color)
                 .modifier(StatPillSurface(semantic: semantic, tint: color))
