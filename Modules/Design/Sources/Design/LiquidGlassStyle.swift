@@ -137,6 +137,20 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
             ]
         }
     }
+
+    /// Text/glyph color for content drawn ON this hue's `accentColor` fill — the ONE place that
+    /// pairing is decided, so a chip, pill or button can't drift to a hardcoded `.white` that goes
+    /// unreadable on the light hues. Seven of the eleven hues (cyan, amber, coral, green, rose,
+    /// teal, and anything else above the 0.30 luminance cutoff) need dark text to clear WCAG's
+    /// 3:1 large-text floor; white on Amber is only 2.2:1.
+    ///
+    /// `.none` routes to `onAccentLabel` rather than `onFillLabel`: its `accentColor` is the
+    /// *system* accent, a dynamic color, and `onFillLabel` would freeze it to whatever the current
+    /// appearance resolved at call time instead of re-resolving when the user changes it.
+    @MainActor
+    public var onAccentLabelColor: Color {
+        self == .none ? .onAccentLabel : .onFillLabel(accentColor)
+    }
 }
 
 /// How much the glass surfaces obscure what is behind them — the *material* half of the
@@ -427,18 +441,6 @@ public extension View {
             self.glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())
         } else {
             self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(fallbackWash))))
-        }
-    }
-
-    /// Rounded-rect counterpart of `accentGlassCapsule` — an accent-tinted glass tile for bar/header
-    /// chrome (the Activity Log toolbars), matching the dashboard tiles' accent-colored glass.
-    @ViewBuilder
-    func accentGlassTile(_ accent: Color, strength: Double = 0.9, cornerRadius: CGFloat, fallbackWash: Double = 0.16) -> some View {
-        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        if #available(macOS 26.0, *) {
-            self.glassEffect(.regular.tint(accent.opacity(strength)), in: .rect(cornerRadius: cornerRadius))
-        } else {
-            self.background(shape.fill(.thinMaterial).overlay(shape.fill(accent.opacity(fallbackWash))))
         }
     }
 

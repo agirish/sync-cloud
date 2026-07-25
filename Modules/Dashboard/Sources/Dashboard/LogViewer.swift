@@ -128,9 +128,7 @@ public struct LogViewer: View {
     /// with the *system* accent, but the selected chip now fills with the glass hue — so the
     /// pairing comes from the hue's own sRGB luminance. The `.none` hue fills with the system
     /// accent, where `onAccentLabel` is exactly right.
-    private var onHueAccent: Color {
-        glassHue == .none ? .onAccentLabel : .onFillLabel(hueAccent)
-    }
+    private var onHueAccent: Color { glassHue.onAccentLabelColor }
 
     private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
 

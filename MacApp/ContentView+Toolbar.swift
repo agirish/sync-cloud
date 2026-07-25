@@ -130,14 +130,19 @@ extension ContentView {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// One button in the pane action bar: solid accent chrome with a white label — the same look as
-    /// the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes red.
+    /// One button in the pane action bar: solid accent chrome with an on-fill label — the same look
+    /// as the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes
+    /// red. The label color is paired to the fill here (not hardcoded white inside the button): the
+    /// hue's own luminance decides it, so Amber and Cyan get dark text instead of an unreadable
+    /// ~2.2:1 white.
     @ViewBuilder
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  isPrimary: Bool = false, role: ButtonRole? = nil,
                                  action: @escaping () -> Void) -> some View {
+        let isDestructive = role == .destructive
         PaneActionButton(title: title, systemImage: systemImage,
-                         tint: role == .destructive ? .red : accent,
+                         tint: isDestructive ? .red : accent,
+                         onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor,
                          isPrimary: isPrimary, role: role, action: action)
     }
 
@@ -154,6 +159,9 @@ extension ContentView {
         // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
         let selection = primaryTabSelection
         let accentFill = glassHue.accentColor
+        // Paired to the fill's luminance, never a flat `.white`: this pill fills with the RAW
+        // accent, so on Amber/Cyan/Green white text lands at ~2.1–2.7:1 — under WCAG's 3:1 floor.
+        let onAccent = glassHue.onAccentLabelColor
         return HStack(spacing: 4) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
                 let isSelected = selection.wrappedValue == tab
@@ -162,9 +170,7 @@ extension ContentView {
                 } label: {
                     Text(tab.title)
                         .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                        // White on the selected (prominent accent) pill, like the other pills; the
-                        // unselected tab stays a quiet secondary.
-                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
+                        .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                         .background(
@@ -174,9 +180,14 @@ extension ContentView {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help(tab.title)
+                // These two Buttons stand in for a `Picker(.segmented)` (which renders neutral in a
+                // macOS 26 glass toolbar group), so they have to restate the selected-state semantics
+                // the Picker gave VoiceOver for free. No `.help`: it would only echo the visible label.
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Workspace")
         // Inset the segments inside an outer container capsule so the selected pill floats within it
         // with a gap on every side, instead of filling the control edge-to-edge.
         .padding(3)
@@ -229,14 +240,18 @@ extension ContentView {
     }
 }
 
-/// A single pill in the pane action bar: a solid accent (or red, for Delete) capsule with a white
-/// label — the differences header's prominent-button look. Split out of the `ContentView` extension
-/// because it needs its own `@State` for the hover brightening.
+/// A single pill in the pane action bar: a solid accent (or red, for Delete) capsule with an
+/// on-fill label — the differences header's prominent-button look. Split out of the `ContentView`
+/// extension because it needs its own `@State` for the hover brightening.
 private struct PaneActionButton: View {
     let title: String
     let systemImage: String
     /// The pill's fill (app hue, or red for the destructive Delete).
     let tint: Color
+    /// The label color paired to `tint` by the caller (via `LiquidGlassHue.onAccentLabelColor`).
+    /// Passed in rather than assumed white: the light hues need dark text to stay legible, and this
+    /// view can't see the hue to work that out for itself.
+    let onTint: Color
     /// The headline action (Compare): a white hairline so it reads first among equals.
     var isPrimary: Bool = false
     var role: ButtonRole? = nil
@@ -252,11 +267,13 @@ private struct PaneActionButton: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(onTint)
             .padding(.horizontal, 12)
             .frame(height: 28)
             .background(Capsule().fill(tint.opacity(isHovering ? 1.0 : 0.9)))
-            .overlay(Capsule().strokeBorder(.white.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
+            // The primary hairline is the label color too, not a flat white — on a light hue a
+            // white ring on a near-white fill is invisible, which is the same bug as the label.
+            .overlay(Capsule().strokeBorder(onTint.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

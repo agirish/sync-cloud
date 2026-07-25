@@ -72,7 +72,13 @@ public struct PaneHeader: View {
                 // made it the one warning-colored surface in the header, reading as a color clash
                 // with the accent rather than as a status. Freshness moved to the dot instead, so
                 // the header stays monochrome in the accent while the semantics survive.
-                let onTint = Color.white
+                //
+                // The label and the dot's ring are paired to that accent by its own luminance, not
+                // hardcoded white: `accentGlassCapsule` tints with the accent VERBATIM (it does not
+                // darken it, whatever the comment here used to claim), and white sits at ~2.2:1 on
+                // Amber and ~2.1:1 on Cyan — under WCAG's 3:1 large-text floor. Six of the eleven
+                // hues need dark text; `onAccentLabelColor` is the one place that is decided.
+                let onTint = glassHue.onAccentLabelColor
                 let statusColor: Color = freshness.isStale ? .orange : .green
                 let label = HStack(spacing: 5) {
                     // Ringed in the on-fill color: `.green` and `.amber` are themselves selectable
@@ -95,7 +101,7 @@ public struct PaneHeader: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(onTint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                // Near-solid accent glass tile with white on-fill text.
+                // Near-solid accent glass tile; the label pairs to it via `onAccentLabelColor` above.
                 .accentGlassCapsule(glassHue.accentColor, strength: 0.85)
 
                 if let onRefresh {

@@ -57,6 +57,41 @@ import SwiftUI
         }
     }
 
+    /// The same invariant routed through `LiquidGlassHue.onAccentLabelColor` — the single choke
+    /// point every accent-FILLED chip, pill and button pairs through (the Compare/Tidy tab pill, the
+    /// pane action buttons, the scan-freshness pill, the Log window's selected chip). Distinct from
+    /// the swatch test above because those call sites reach the pairing via the hue, not by calling
+    /// `onFillLabel` themselves; if the helper ever stops routing `.none` to the system-accent
+    /// branch, or a hue is added without one, this is what fails.
+    @MainActor
+    @Test func everyHueOnAccentLabelColorClearsLargeTextContrast() {
+        for hue in LiquidGlassHue.allCases where hue != .none {
+            let fill = srgb(hue.accentColor)
+            let label = srgb(hue.onAccentLabelColor)
+            let ratio = contrast(luminance(of: composite(label, over: fill)), luminance(of: fill))
+            #expect(ratio >= 3.0, "\(hue) on-accent label is only \(ratio):1 on its own fill")
+        }
+    }
+
+    /// Why that choke point has to exist, stated as a test rather than a comment. A hardcoded
+    /// `Color.white` on the accent — which the tab pill, the pane action buttons and the freshness
+    /// pill each shipped with — is under the 3:1 floor on the MAJORITY of the palette: ~2.1:1 on
+    /// cyan, ~2.2:1 on amber. Anyone tempted to write `.foregroundStyle(.white)` on an accent fill
+    /// again should land here first.
+    @Test func hardcodedWhiteOnAccentFailsOnMostHues() {
+        let failing = LiquidGlassHue.allCases.filter { hue in
+            guard hue != .none else { return false }
+            let fill = srgb(hue.accentColor)
+            return contrast(luminance(of: composite(srgb(.white), over: fill)), luminance(of: fill)) < 3.0
+        }
+        // Six of the eleven real hues: cyan, teal, green, amber, coral, rose.
+        let realHues = LiquidGlassHue.allCases.filter { $0 != .none }
+        #expect(failing.contains(.amber))
+        #expect(failing.contains(.cyan))
+        #expect(failing.count * 2 > realHues.count,
+                "flat white cleared 3:1 on most hues — the palette changed, revisit the pairing rule")
+    }
+
     /// The dimmed twin of the invariant above, for secondary runs on an accent fill (the Log
     /// window's selected-chip count): the label dimmed to `AccentLabel.dimmedOnFillOpacity` must
     /// STILL clear 3:1 on every hue. Graphite is the binding pair — white on it sits ~0.5 above
