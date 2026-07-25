@@ -363,7 +363,9 @@ public struct LogViewer: View {
                 }
                 .padding(16)
             }
-            .background(.regularMaterial.opacity(0.5))
+            // Translucent like the main window's panes — no opaque material slab (which read as a
+            // white patch over the window glass). The window's liquidGlassAppBackground shows through.
+            .background(.ultraThinMaterial.opacity(0.25))
         }
         .frame(minWidth: 380)
         // A new filter/search is a fresh view of history — collapse back to the first page so the
