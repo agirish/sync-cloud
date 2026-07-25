@@ -94,8 +94,7 @@ extension ContentView {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(onAccent)
                 .fixedSize()
-
-            Divider().frame(height: 18).padding(.horizontal, 4).overlay(onAccent.opacity(0.3))
+                .padding(.trailing, 4)
 
             if selectionNodes.count == 1, selectionNodes[0].isDirectory {
                 actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: onAccent, isPrimary: true) {
