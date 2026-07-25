@@ -59,7 +59,8 @@ public struct PaneHeader: View {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
-    /// "Scanned N ago" pill: green while fresh, amber once the diff may be out of date. It ticks on
+    /// "Scanned N ago" pill: the capsule always reads in the app accent, and the status dot carries
+    /// the freshness — green while fresh, amber once the diff may be out of date. It ticks on
     /// its own so the age stays honest without a scan, and — when a refresh handler exists — tapping
     /// it re-scans (same action as the adjacent Scan button). Hidden until the first scan lands.
     @ViewBuilder
@@ -67,16 +68,21 @@ public struct PaneHeader: View {
         if let lastScanDate {
             TimelineView(.periodic(from: Date(), by: 30)) { context in
                 let freshness = ScanFreshness.describe(scanDate: lastScanDate, now: context.date)
-                // Fresh reads in the app accent (the pill was a neutral gray before); stale still
-                // goes amber as a semantic warning, and the status dot below stays green/amber.
-                let tint = freshness.isStale ? Color.orange : glassHue.accentColor
-                // White text and dot on the prominent accent/amber glass pill (the tile darkens light
-                // hues so white stays legible) — a colored dot would vanish on the filled pill.
+                // The capsule is ALWAYS the app accent. Painting the whole pill amber when stale
+                // made it the one warning-colored surface in the header, reading as a color clash
+                // with the accent rather than as a status. Freshness moved to the dot instead, so
+                // the header stays monochrome in the accent while the semantics survive.
                 let onTint = Color.white
+                let statusColor: Color = freshness.isStale ? .orange : .green
                 let label = HStack(spacing: 5) {
+                    // Ringed in the on-fill color: `.green` and `.amber` are themselves selectable
+                    // accent hues, so a bare dot would sink into the pill for those users. The ring
+                    // separates it from any hue — and is why the dot grew from 5 pt to 7 pt, since
+                    // a 1 pt border on a 5 pt dot left almost no color.
                     Circle()
-                        .fill(onTint)
-                        .frame(width: 5, height: 5)
+                        .fill(statusColor)
+                        .frame(width: 7, height: 7)
+                        .overlay(Circle().strokeBorder(onTint.opacity(0.9), lineWidth: 1))
                     // One line always: in a narrow pane a wrapping pill would grow the whole
                     // header vertically.
                     Text(freshness.text)
@@ -89,8 +95,8 @@ public struct PaneHeader: View {
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(onTint)
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                // Near-solid accent (or amber) glass tile with white on-fill text.
-                .accentGlassCapsule(tint, strength: 0.85)
+                // Near-solid accent glass tile with white on-fill text.
+                .accentGlassCapsule(glassHue.accentColor, strength: 0.85)
 
                 if let onRefresh {
                     // Same guard as the Scan button below: the pill triggers the same action,

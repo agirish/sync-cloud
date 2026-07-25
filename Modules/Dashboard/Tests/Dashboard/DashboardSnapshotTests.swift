@@ -14,9 +14,9 @@ import Events
 
     // MARK: PaneHeader
 
-    /// A comfortable-width header, freshly scanned: provider capsule, GREEN "Scanned just
-    /// now" pill, nav cluster, breadcrumb. `Date()` is safe here — the "just now" display
-    /// bucket spans 45 s, orders of magnitude beyond render latency.
+    /// A comfortable-width header, freshly scanned: provider capsule, accent-tinted "Scanned
+    /// just now" pill with a GREEN status dot, nav cluster, breadcrumb. `Date()` is safe here
+    /// — the "just now" display bucket spans 45 s, orders of magnitude beyond render latency.
     @Test func paneHeaderFresh() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive", lastScan: Date()),
@@ -25,8 +25,9 @@ import Events
     }
 
     /// Stale freshness: 15 minutes past the scan (well past the 10-minute threshold, and
-    /// mid-bucket — "15m ago" holds for a full minute), so the pill must turn amber and grow
-    /// the re-scan glyph.
+    /// mid-bucket — "15m ago" holds for a full minute), so the status dot must turn amber and
+    /// the pill grow the re-scan glyph. The capsule itself stays accent-tinted — only the dot
+    /// changes color, which is the whole point of this pairing.
     @Test func paneHeaderStaleFreshnessPill() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive", lastScan: Date(timeIntervalSinceNow: -915)),
