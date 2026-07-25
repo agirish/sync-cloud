@@ -1,20 +1,6 @@
 import SwiftUI
 import AppKit
 
-public extension Color {
-    /// A darker version of an accent, for prominent chrome tiles whose label must stay WHITE on
-    /// every hue. Light accents (yellow, green, cyan, amber) can't carry white text at their normal
-    /// brightness, so they're deepened until white clears the WCAG large-text floor; hues that
-    /// already take white (blue, purple, coral, …) are returned unchanged.
-    var prominentAccent: Color {
-        guard let ns = NSColor(self).usingColorSpace(.sRGB) else { return self }
-        let r = ns.redComponent, g = ns.greenComponent, b = ns.blueComponent
-        guard AccentLabel.prefersDarkText(red: r, green: g, blue: b) else { return self }
-        // Blend toward black until white text is legible. 0.5 drops a mid-luminance hue to ~0.25.
-        return Color(nsColor: ns.blended(withFraction: 0.5, of: .black) ?? ns)
-    }
-}
-
 // MARK: - Liquid Glass Design (macOS 26–inspired)
 // Uses materials + rounded corners + soft shadows on macOS 15.
 // When targeting macOS 26+, consider switching to .glassEffect() for native Liquid Glass.
@@ -384,11 +370,11 @@ public extension View {
     /// `strength` is the tint opacity on the glass; `fallbackWash` the accent opacity on the fallback.
     @ViewBuilder
     func accentGlassCapsule(_ accent: Color, strength: Double = 0.55, fallbackWash: Double = 0.14) -> some View {
-        let fill = accent.prominentAccent
+        // The accent verbatim — the exact hue picked in Settings — never darkened or remapped.
         if #available(macOS 26.0, *) {
-            self.glassEffect(.regular.tint(fill.opacity(strength)), in: Capsule())
+            self.glassEffect(.regular.tint(accent.opacity(strength)), in: Capsule())
         } else {
-            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(fill.opacity(fallbackWash))))
+            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(accent.opacity(fallbackWash))))
         }
     }
 
@@ -397,15 +383,12 @@ public extension View {
     @ViewBuilder
     func accentGlassTile(_ accent: Color, strength: Double = 0.9, cornerRadius: CGFloat, fallbackWash: Double = 0.16) -> some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-        let fill = accent.prominentAccent
         if #available(macOS 26.0, *) {
-            self.glassEffect(.regular.tint(fill.opacity(strength)), in: .rect(cornerRadius: cornerRadius))
+            self.glassEffect(.regular.tint(accent.opacity(strength)), in: .rect(cornerRadius: cornerRadius))
         } else {
-            self.background(shape.fill(.thinMaterial).overlay(shape.fill(fill.opacity(fallbackWash))))
+            self.background(shape.fill(.thinMaterial).overlay(shape.fill(accent.opacity(fallbackWash))))
         }
     }
-
-    // (accent helpers continue below)
 
     /// The material fill for one content surface. This is the single place the level → appearance
     /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through

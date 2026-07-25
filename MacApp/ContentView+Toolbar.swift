@@ -71,24 +71,12 @@ extension ContentView {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         let accent = glassHue.accentColor
-        // The bar is a near-solid accent glass tile now; its content is always white. The tile fill
-        // (accentGlassCapsule → prominentAccent) darkens light hues so white stays legible on all.
+        // The bar is a near-solid tile of the exact Settings accent; its content is white.
         let onAccent = Color.white
         return HStack(spacing: 6) {
-            // Selection summary, tinted with the app accent — the "what's selected" half of the bar,
-            // fenced off from the "what you can do" half by a hairline divider. A ✕ dismisses the
-            // selection (the file lists offer no deselect gesture; Escape does the same).
-            Button {
-                clearSelection(isLeft: isLeft)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(onAccent.opacity(0.85))
-            }
-            .buttonStyle(.plain)
-            .help("Clear selection (Esc)")
-            .accessibilityLabel("Clear selection")
-
+            // Selection summary — the "what's selected" half of the bar. Its ✕ (clear selection)
+            // lives at the bar's far trailing edge, past Delete: right next to the ✓ summary the
+            // two circular glyphs read as one confusing pair.
             Label(SelectionSummary.text(for: selectionNodes), systemImage: "checkmark.circle.fill")
                 .labelStyle(.titleAndIcon)
                 .font(.system(size: 12, weight: .semibold))
@@ -118,6 +106,21 @@ extension ContentView {
             actionBarButton("Delete", systemImage: "trash", accent: onAccent) {
                 actionHandler?.confirmDelete(selectionNodes)
             }
+
+            // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the
+            // same). At the trailing edge, separated from the actions, so it reads as "close this
+            // bar" rather than pairing visually with the ✓ in the summary.
+            Button {
+                clearSelection(isLeft: isLeft)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(onAccent.opacity(0.85))
+                    .padding(.leading, 4)
+            }
+            .buttonStyle(.plain)
+            .help("Clear selection (Esc)")
+            .accessibilityLabel("Clear selection")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -154,7 +157,7 @@ extension ContentView {
         // tab could never carry the app accent. These plain buttons draw their own accent fill, which
         // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
         let selection = primaryTabSelection
-        let accentFill = glassHue.accentColor.prominentAccent
+        let accentFill = glassHue.accentColor
         return HStack(spacing: 4) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
                 let isSelected = selection.wrappedValue == tab

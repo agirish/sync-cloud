@@ -290,12 +290,10 @@ public struct LogViewer: View {
                 .controlSize(.small)
                 .help("Open in Console/TextEdit")
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
-            .glassBarStyle(level: glassLevel)
-
-            Divider()
-                .opacity(0.6)
+            // Plain header row directly on the window glass — the Settings pattern (its title row
+            // carries no bar background), so no white slab across the top.
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
 
             // Severity filter chips — the level threshold as tappable pills (All / Info & above /
             // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the
@@ -342,14 +340,15 @@ public struct LogViewer: View {
                     logSuggestionRow(active: chips)
                 }
             }
-            .padding(12)
-            .glassBarStyle(level: glassLevel)
+            // Settings' search chrome (searchFieldSurface), not a frosted bar — the field reads as
+            // one quiet control on the glass, same as the Settings search box.
+            .padding(.horizontal, 9)
+            .padding(.vertical, 8)
+            .searchFieldSurface()
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            
-            Divider()
-                .opacity(0.6)
-            
+
+
             // Log List. The empty state renders in-flow (not as an overlay) so the "Show older
             // history" footer below it stays reachable even when this session logged nothing.
             ScrollView {
@@ -363,9 +362,8 @@ public struct LogViewer: View {
                 }
                 .padding(16)
             }
-            // Translucent like the main window's panes — no opaque material slab (which read as a
-            // white patch over the window glass). The window's liquidGlassAppBackground shows through.
-            .background(.ultraThinMaterial.opacity(0.25))
+            // No surface of its own: the list sits directly on the window's glass background,
+            // exactly like Settings' content area.
         }
         .frame(minWidth: 380)
         // A new filter/search is a fresh view of history — collapse back to the first page so the
