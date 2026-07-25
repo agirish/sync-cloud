@@ -173,7 +173,9 @@ self-hosted GitHub Actions runner — see [`docs/ci.md`](docs/ci.md).
 
 Planned enhancements (scheduled/background sync, saved folder-pair presets, an in-app text diff
 viewer, a menu-bar status item, and more) are tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
-deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md).
+deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md), and internal
+code that is correct but entangled enough to be worth restructuring against a major release is
+catalogued in [`REFACTOR.md`](REFACTOR.md).
 
 ## License
 
