@@ -11,8 +11,16 @@ public final class PaneBarPlacement {
 
     /// Height of the list viewport; the coverage test measures down from this edge.
     var viewportHeight: CGFloat = 0
-    /// Every visible row's bottom edge in viewport space, keyed by node id. Tracks all rows (not
-    /// just the selected one) so a freshly-clicked row's position is already known at click time.
+    /// The viewport's top edge in GLOBAL (window) coordinates. Row positions are captured in global
+    /// space too, and the resolve subtracts this to get viewport-relative positions. Global on both
+    /// sides on purpose: a named coordinate space cannot be resolved from inside a List row (each
+    /// row is hosted in its own AppKit view, outside the space's SwiftUI subtree), so `.named`
+    /// silently fell back to global there — inflating every row by the list's offset from the
+    /// window top and flipping the bar a quarter-viewport early.
+    var viewportGlobalMinY: CGFloat = 0
+    /// Every visible row's bottom edge in GLOBAL coordinates, keyed by node id. Tracks all rows
+    /// (not just the selected one) so a freshly-clicked row's position is already known at click
+    /// time. Interpreted against `viewportGlobalMinY`.
     var rowBottoms: [String: CGFloat] = [:]
     /// The measured footprint of the bottom-docked bar — its padded overlay height, written by the
     /// host from the bar's real geometry. This is the coverage zone: the bar only hides a row whose
@@ -41,14 +49,16 @@ public final class PaneBarPlacement {
     /// Idempotent for unchanged geometry + selection, so the host may call it on every render.
     @discardableResult
     public func resolveAtTop(selection: Set<String>) -> Bool {
-        var lowest = -CGFloat.greatestFiniteMagnitude
+        var lowestGlobal = -CGFloat.greatestFiniteMagnitude
         for id in selection {
-            if let maxY = rowBottoms[id] { lowest = max(lowest, maxY) }
+            if let maxY = rowBottoms[id] { lowestGlobal = max(lowestGlobal, maxY) }
         }
-        guard lowest > -.greatestFiniteMagnitude, viewportHeight > 0 else {
+        guard lowestGlobal > -.greatestFiniteMagnitude, viewportHeight > 0 else {
             atTop = false
             return false
         }
+        // Both sides global; the difference is the row's position within the viewport.
+        let lowest = lowestGlobal - viewportGlobalMinY
         let coveredFrom = viewportHeight - coverage
         atTop = atTop ? lowest > coveredFrom - Self.exitHysteresis : lowest > coveredFrom
         return atTop

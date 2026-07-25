@@ -68,10 +68,6 @@ public struct FileTreeView: View {
     /// already re-renders the host, which recomputes the edge synchronously and instantly.
     private let onBarEdgeFlip: (() -> Void)?
 
-    /// Coordinate space pinned to the list viewport, so a row can measure its position relative to
-    /// the visible area (not the scrolled content) and decide whether the bar covers it.
-    private static let viewportSpace = "paneListViewport"
-
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
@@ -102,18 +98,20 @@ public struct FileTreeView: View {
         self.onBarEdgeFlip = onBarEdgeFlip
     }
 
-    /// Preference carrying every visible row's bottom edge (viewport space), keyed by node id, up to
-    /// the list. The reduce merges each row's single-entry contribution into one map.
+    /// Preference carrying every visible row's bottom edge (GLOBAL space — see the viewport probe),
+    /// keyed by node id, up to the list. The reduce merges each row's single-entry contribution.
     private struct RowBottomsKey: PreferenceKey {
         static let defaultValue: [String: CGFloat] = [:]
         static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
             value.merge(nextValue()) { existing, _ in existing }
         }
     }
-    private struct ViewportHeightKey: PreferenceKey {
-        static let defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value = max(value, nextValue())
+    /// The list viewport's global frame (height + window-space top edge).
+    private struct ViewportFrameKey: PreferenceKey {
+        static let defaultValue: CGRect = .zero
+        static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+            let next = nextValue()
+            if next != .zero { value = next }
         }
     }
 
@@ -262,20 +260,22 @@ public struct FileTreeView: View {
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        // A coordinate space pinned to the viewport (not the scrolled content) so every row can
-        // report where it currently sits, and a height probe to give the bottom-band test its
-        // reference edge. Together they drive the action bar's top/bottom placement.
-        .coordinateSpace(.named(Self.viewportSpace))
+        // The viewport's GLOBAL frame — height plus its top edge in window coordinates. Rows report
+        // their positions in global space too (a named space can't be resolved from inside a List
+        // row — each row is its own AppKit-hosted subtree — and silently fell back to global,
+        // inflating every row by this very offset and flipping the bar a quarter-viewport early);
+        // the placement math subtracts the two, so the frame of reference finally agrees.
         .background(
             GeometryReader { geo in
-                Color.clear.preference(key: ViewportHeightKey.self, value: geo.size.height)
+                Color.clear.preference(key: ViewportFrameKey.self, value: geo.frame(in: .global))
             }
         )
-        // The row/height preferences fire every frame while scrolling, but they only mutate the
+        // The row/frame preferences fire every frame while scrolling, but they only mutate the
         // shared placement (no view invalidation) and ask the host to re-render solely on a genuine
         // edge flip — so scrolling stays free of per-frame List re-renders.
-        .onPreferenceChange(ViewportHeightKey.self) { height in
-            placement?.viewportHeight = height
+        .onPreferenceChange(ViewportFrameKey.self) { frame in
+            placement?.viewportHeight = frame.height
+            placement?.viewportGlobalMinY = frame.minY
             flipEdgeIfScrolledAcross()
         }
         .onPreferenceChange(RowBottomsKey.self) { bottoms in
@@ -369,15 +369,19 @@ public struct FileTreeView: View {
         }
     }
 
-    /// Reports a row's bottom edge in viewport space, keyed by its id, so the list always knows
-    /// where every visible row sits. Withheld on the Tidy rail (no action bar to place).
+    /// Reports a row's bottom edge in GLOBAL space, keyed by its id, so the list always knows where
+    /// every visible row sits. Global, not a named space: List rows live in their own AppKit-hosted
+    /// subtrees where a named space can't be resolved (the lookup silently degraded to global
+    /// anyway, while the viewport half measured locally — the mismatched frames of reference were
+    /// the premature flip). The placement math subtracts the viewport's global origin.
+    /// Withheld on the Tidy rail (no action bar to place).
     @ViewBuilder
     private func rowPositionProbe(for node: FileNode) -> some View {
         if placement != nil {
             GeometryReader { proxy in
                 Color.clear.preference(
                     key: RowBottomsKey.self,
-                    value: [node.id: proxy.frame(in: .named(Self.viewportSpace)).maxY]
+                    value: [node.id: proxy.frame(in: .global).maxY]
                 )
             }
         }

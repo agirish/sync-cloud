@@ -13,6 +13,19 @@ import CoreGraphics
         return p
     }
 
+    @Test func testGlobalOffsetDoesNotShiftTheThreshold() {
+        // Regression for the premature flip: rows report in GLOBAL (window) coordinates, so a list
+        // sitting 210pt below the window top must not flip 210pt early. The 5th row of an 11-row
+        // list (visual bottom ≈ 190 in a 430pt viewport) stays at the bottom; a row visually inside
+        // the covered zone still flips.
+        let p = makePlacement(viewport: 430)
+        p.viewportGlobalMinY = 210
+        p.rowBottoms = ["/5": 210 + 190]
+        #expect(p.resolveAtTop(selection: ["/5"]) == false)
+        p.rowBottoms = ["/10": 210 + 400]   // visual 400 > 430 − 64 → the bar would cover it
+        #expect(p.resolveAtTop(selection: ["/10"]) == true)
+    }
+
     @Test func testNoSelectionOrNoVisibleRowStaysBottom() {
         let p = makePlacement()
         #expect(p.resolveAtTop(selection: []) == false)
