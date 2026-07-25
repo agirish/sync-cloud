@@ -51,15 +51,17 @@ private func flushingLogToDisk<T>(_ body: () async throws -> T) async rethrows -
         let result = try await body()
         await MainActor.run { Logger.shared.flushToDisk() }
         return result
-    } catch let error as CLIValidationError {
-        await MainActor.run { Logger.shared.flushToDisk() }
-        throw ValidationError(error.message)
-    } catch is CLISyncFailuresError {
-        await MainActor.run { Logger.shared.flushToDisk() }
-        throw ExitCode.failure
     } catch {
         await MainActor.run { Logger.shared.flushToDisk() }
-        throw error
+        // The classification itself lives in Core (`CLIExitMapping`), where it is testable — this
+        // decides whether a failed sync exits non-zero, which is the only thing a script wrapping
+        // this CLI can see. Translating to ArgumentParser's types stays here, since Core must not
+        // depend on ArgumentParser.
+        switch CLIExitMapping.outcome(for: error) {
+        case .validationFailure(let message): throw ValidationError(message)
+        case .syncFailure: throw ExitCode.failure
+        case .rethrow: throw error
+        }
     }
 }
 

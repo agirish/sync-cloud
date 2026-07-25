@@ -112,13 +112,10 @@ public struct AutomationsLens: View {
     /// header card's "New rule" goes through the host's own editor sheet instead.
     @State private var editingRule: AutomationRule?
 
-    /// Per-file "ask each time" filing: the actionable rows to step through, the current index, and
-    /// the ones approved so far. `isFiling` drives the review card; the approved set is applied as one
-    /// reversible run when the last file is decided (Cancel before then files nothing).
-    @State private var filingQueue: [AutomationDryRunRow] = []
-    @State private var filingIndex = 0
-    @State private var filingApproved: [AutomationDryRunRow] = []
-    @State private var isFiling = false
+    /// Per-file "ask each time" filing — the cursor, its queue, and the approvals. The rules live
+    /// in `FilingWalkthrough` (a tested value type) rather than in four loose `@State` vars,
+    /// because this is the gate in front of `applyAutomationFiling`, which moves files.
+    @State private var filing = FilingWalkthrough()
 
     public init(
         syncManager: FileSyncManager,
@@ -152,8 +149,8 @@ public struct AutomationsLens: View {
         Group {
             if syncManager.isRunningAutomationDryRun {
                 previewingState
-            } else if isFiling, filingIndex < filingQueue.count {
-                filingReviewState
+            } else if let filingRow = filing.current {
+                filingReviewState(filingRow)
             } else if state.viewingResults, let report = syncManager.automationDryRun {
                 resultsState(report)
             } else {
@@ -307,7 +304,7 @@ public struct AutomationsLens: View {
                 .chromeHover(tint: accent)
             let fileable = report.rows.filter { $0.destinationDir != nil }
             if !fileable.isEmpty {
-                Button(action: { startFiling(fileable) }) {
+                Button(action: { filing.start(fileable) }) {
                     Label("File \(fileable.count)…", systemImage: "tray.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
@@ -365,42 +362,20 @@ public struct AutomationsLens: View {
 
     // MARK: Filing (per-file "ask each time")
 
-    private func startFiling(_ actionable: [AutomationDryRunRow]) {
-        filingQueue = actionable
-        filingIndex = 0
-        filingApproved = []
-        isFiling = true
-    }
-
+    /// Records a decision and, when that was the last file, applies the approved set as ONE
+    /// reversible run. `advance` returns non-nil exactly at the end, so the apply happens in one
+    /// place rather than being re-derived from the cursor by the caller.
     private func advanceFiling(approved: Bool) {
-        if approved, filingIndex < filingQueue.count { filingApproved.append(filingQueue[filingIndex]) }
-        filingIndex += 1
-        if filingIndex >= filingQueue.count { finishFiling() }
-    }
-
-    /// End of the review: apply the approved files as one reversible run (nothing moved until now).
-    private func finishFiling() {
-        isFiling = false
-        let approved = filingApproved
-        filingApproved = []
-        filingQueue = []
-        guard !approved.isEmpty else { return }
-        Task { await syncManager.applyAutomationFiling(rows: approved) }
-    }
-
-    private func cancelFiling() {
-        isFiling = false
-        filingQueue = []
-        filingApproved = []
-        filingIndex = 0
+        guard let toFile = filing.advance(approved: approved) else { return }
+        guard !toFile.isEmpty else { return }
+        Task { await syncManager.applyAutomationFiling(rows: toFile) }
     }
 
     @ViewBuilder
-    private var filingReviewState: some View {
-        let row = filingQueue[filingIndex]
+    private func filingReviewState(_ row: AutomationDryRunRow) -> some View {
         let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()
         VStack(spacing: 16) {
-            Text("File \(filingIndex + 1) of \(filingQueue.count)")
+            Text("File \(filing.displayPosition) of \(filing.queue.count)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
             VStack(spacing: 10) {
@@ -458,7 +433,7 @@ public struct AutomationsLens: View {
                 .controlSize(.large)
                 .keyboardShortcut(.return, modifiers: [])
             }
-            Button("Cancel", action: cancelFiling)
+            Button("Cancel") { filing.cancel() }
                 .keyboardShortcut(.cancelAction)
                 .controlSize(.small)
                 .padding(.top, 2)

@@ -361,6 +361,55 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.tab == .tidy)
     }
 
+    /// The success path, end to end on a real temp tree: the confirmed trash actually removes the
+    /// right copy, the review is torn down with its Compare setup restored, the Duplicates list
+    /// drops just that copy, and the user lands back on the Tidy tab. Needs a real fixture because
+    /// the keeper-drift gate stats the keeper (existence AND, for files, byte size vs the scan
+    /// snapshot) before anything is trashed.
+    @Test func confirmingTrashesTheRightCopyAndReturnsToTidy() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let keep = root.appendingPathComponent("Docs")
+        let copy = root.appendingPathComponent("Backup/Docs")
+        try FileManager.default.createDirectory(at: keep, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: copy, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: keep.appendingPathComponent("a.txt"))
+        try Data("x".utf8).write(to: copy.appendingPathComponent("a.txt"))
+
+        let harness = Harness()
+        harness.tidyProviderRoot = root.path
+        let review = harness.installReview()   // keepPath = <root>/Docs, deletePath = <root>/Backup/Docs
+        // The Duplicates list still holds the group this review came from.
+        harness.syncManager.duplicateGroups = [
+            DuplicateGroup(
+                matchType: .identical,
+                name: "Docs",
+                isDirectory: true,
+                copies: [duplicateCopy(path: keep.path, keeper: true),
+                         duplicateCopy(path: copy.path, keeper: false)],
+                reclaimableBytes: 1234)
+        ]
+        harness.tab = .differences
+        harness.trashConfirmAnswer = true
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the right copy leaves the disk") {
+            !FileManager.default.fileExists(atPath: copy.path)
+        }
+
+        // The keeper is untouched — the whole point of the drift gate above it.
+        #expect(FileManager.default.fileExists(atPath: keep.path))
+        // Back to the Duplicates list, with that copy dropped from its group (the group had two
+        // copies, so removing one leaves only the keeper and the group disappears).
+        await waitUntil("the review is torn down") { harness.duplicateReview == nil }
+        #expect(harness.tab == .tidy)
+        #expect(harness.lens == .duplicates)
+        #expect(harness.syncManager.duplicateGroups.isEmpty)
+        // And the pre-review Compare setup came back (the pinned right pane released).
+        #expect(harness.rightId == "dropbox")
+    }
+
     // MARK: dispatchReview — returning to Compare mid-review
 
     @Test func returningToCompareRefocusesBothCopiesAndRescans() {

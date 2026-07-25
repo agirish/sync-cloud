@@ -31,14 +31,23 @@ final class BannerDismissScheduler {
     }
 
     private let delays: Delays
+    /// How the scheduler waits out a delay. Injectable for the same reason `Delays` is — except
+    /// that shortening the window does not make a test deterministic, it only makes the race
+    /// tighter: asserting "not dismissed yet" after sleeping 300ms of a 500ms window fails a
+    /// perfectly correct scheduler whenever a loaded runner turns that 300ms into 600ms. With the
+    /// wait itself injected, a test releases it explicitly and both halves — "hasn't fired" and
+    /// "has fired" — are exact. Defaults to a real sleep, so production behaviour is unchanged.
+    private let sleep: @Sendable (UInt64) async -> Void
     private var dismissTask: Task<Void, Never>?
     /// The full delay window for the currently shown banner; `nil` when there is no banner or it is sticky.
     private var currentDelay: UInt64?
     private var dismiss: (@MainActor () -> Void)?
     private var isHovering = false
 
-    init(delays: Delays = .standard) {
+    init(delays: Delays = .standard,
+         sleep: @escaping @Sendable (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0) }) {
         self.delays = delays
+        self.sleep = sleep
     }
 
     /// Call from the view's `onChange` whenever the banner changes.
@@ -77,8 +86,9 @@ final class BannerDismissScheduler {
     }
 
     private func startTimer(_ delayNanoseconds: UInt64) {
+        let wait = sleep
         dismissTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: delayNanoseconds)
+            await wait(delayNanoseconds)
             guard !Task.isCancelled else { return }
             self?.dismiss?()
         }

@@ -391,13 +391,18 @@ public struct TidyView: View {
             )
         }
         // A fresh scan starts a fresh session: forget any files filed against the previous results,
-        // so the "All filed" terminal state is only earned by this scan's work.
+        // so the "All filed" terminal state is only earned by this scan's work. The search resets
+        // here too — the same rule the other lenses apply just below — rather than from a SECOND
+        // `isSuggestingFiles` handler further down: two handlers on one value both fired, so the
+        // behaviour was right, but an editor changing "the" Organize scan-start handler would find
+        // only one of them.
         .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
             if isScanning {
                 filedThisSession = false
                 dismissedThisSession = false
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
                 pendingRuleOffer = nil
+                searchQueries[.filing] = ""
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
@@ -413,9 +418,6 @@ public struct TidyView: View {
         // results would silently pre-filter the new scan's rows.
         .onChange(of: syncManager.isScanningNames) { _, isScanning in
             if isScanning { searchQueries[.rename] = "" }
-        }
-        .onChange(of: syncManager.isSuggestingFiles) { _, isScanning in
-            if isScanning { searchQueries[.filing] = "" }
         }
         .onChange(of: syncManager.isBuildingStorageLens) { _, isBuilding in
             if isBuilding { searchQueries[.storage] = "" }
