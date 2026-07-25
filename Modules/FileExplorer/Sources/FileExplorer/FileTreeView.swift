@@ -68,6 +68,14 @@ public struct FileTreeView: View {
     /// already re-renders the host, which recomputes the edge synchronously and instantly.
     private let onBarEdgeFlip: (() -> Void)?
 
+    /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
+    /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
+    /// draw for free: `PaneListSelectionStyler` turns the system highlight off (to get the accent
+    /// instead of OS gray) and the window is pinned to `controlActiveState == .active` (to stop the
+    /// glass graying out), so between them nothing was left to say WHICH pane holds the selection.
+    /// Defaults true — the Tidy rail is the only pane on screen.
+    public let isActivePane: Bool
+
     /// In-flight drag payload, observed so drop highlights only appear on valid targets.
     @ObservedObject private var dragSession = PaneDragSession.shared
     /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
@@ -77,7 +85,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil) {
+    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -96,6 +104,7 @@ public struct FileTreeView: View {
         self.isSingleSource = isSingleSource
         self.placement = placement
         self.onBarEdgeFlip = onBarEdgeFlip
+        self.isActivePane = isActivePane
     }
 
     /// Preference carrying every visible row's bottom edge (GLOBAL space — see the viewport probe),
@@ -357,11 +366,16 @@ public struct FileTreeView: View {
 
     /// The accent-tinted background for a selected row; nothing for an unselected one. Keyed on the
     /// SwiftUI selection binding, so it stays correct regardless of window focus.
+    ///
+    /// The inactive pane's wash is deliberately weaker (`PaneSelectionWash.inactive` vs `.active`).
+    /// Both panes can hold a selection at once, and with the system highlight disabled and the
+    /// window pinned active, an equal-strength wash left no way to tell which pane the action bar
+    /// was about to act on — two identically-highlighted selections, one Delete button.
     @ViewBuilder
     private func rowSelectionBackground(for node: FileNode) -> some View {
         if selection.contains(node.id) {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(glassHue.accentColor.opacity(0.22))
+                .fill(glassHue.accentColor.opacity(PaneSelectionWash.opacity(isActivePane: isActivePane)))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
         } else {

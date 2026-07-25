@@ -1491,7 +1491,10 @@ struct ContentView: View {
                 withAnimation(.easeInOut(duration: 0.22)) {
                     if pane.isLeft { leftBarAtTop.toggle() } else { rightBarAtTop.toggle() }
                 }
-            }
+            },
+            // Which pane the action bar is acting on — the same predicate that decides where the bar
+            // renders, so the strong selection wash and the bar can never point at different panes.
+            isActivePane: paneActionBarSideActive(isLeft: pane.isLeft)
         )
     }
 
