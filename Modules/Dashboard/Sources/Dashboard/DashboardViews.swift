@@ -399,7 +399,13 @@ public struct PaneHeader: View {
                 Image(systemName: "arrow.up.arrow.down")
             }
             .menuIndicator(.hidden)
+            // `.menuStyle(.button)` alone was not enough: it makes the menu render AS a button,
+            // but it does not make it inherit the button style from an ancestor — so the sort
+            // control still drew its own chrome while the HStack's `chromeButtonStyle` went to
+            // its Button siblings only. Restating the style directly on the menu is what
+            // actually matches it to them.
             .menuStyle(.button)
+            .chromeButtonStyle(glassLevel)
             .fixedSize()
             .chromeHover(tint: glassHue.accentColor)
             .help("Choose how items are sorted")

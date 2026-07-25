@@ -136,6 +136,7 @@ public struct SyncHistoryView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
             .fixedSize()
+            .frame(width: 34)
             .chromeHover()
             .disabled(filtered.isEmpty)
             .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
