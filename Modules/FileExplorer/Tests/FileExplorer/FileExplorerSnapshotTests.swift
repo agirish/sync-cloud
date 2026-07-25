@@ -38,14 +38,14 @@ import Sync
             named: "variants")
     }
 
-    /// The differences count pill on the semantic path: a flat `.attention` capsule, same-family
-    /// text and dot — the treatment a stale freshness badge wears in the pane header above it, so
-    /// the two read as one convention. Rendered beside the tinted variant it replaced, since the
-    /// point of the change is only visible as a comparison.
+    /// The differences count pill on the flat-capsule path, all three flavors stacked so the point
+    /// of the change is visible as a comparison: the accent capsule the pill actually ships (solid
+    /// accent fill, paired label, ringed terracotta dot), the `.attention` family the stale
+    /// freshness badge still wears above it, and `.neutral`. Last row is the tint wash they replaced.
     @Test func statPillSemanticCapsule() {
         assertViewSnapshot(
             of: SemanticStatPillSpecimen().padding(12),
-            size: CGSize(width: 220, height: 120),
+            size: CGSize(width: 220, height: 150),
             named: "semantic-capsule")
     }
 
@@ -57,6 +57,13 @@ import Sync
 
         var body: some View {
             VStack(alignment: .leading, spacing: 10) {
+                // Green, the hue the pill was designed against — not the environment's accent,
+                // which would make this reference depend on the host's System Settings.
+                StatPill(count: 21, label: "Differences", color: .blue,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: .onAccent(fill: LiquidGlassHue.green.accentColor,
+                                             label: LiquidGlassHue.green.onAccentLabelColor))
                 StatPill(count: 21, label: "Differences", color: .blue,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",

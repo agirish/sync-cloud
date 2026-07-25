@@ -69,6 +69,49 @@ import Testing
         }
     }
 
+    /// The `onAccent` path's dot is legible by its RING, not by its own colour — and the ring is
+    /// the fill's paired label colour, so this is really asserting that the pairing every other
+    /// accent-filled control relies on also does this job. Runs over all twelve hues: the pill is
+    /// hue-dependent now, so a hue whose ring vanished would strand the dot with no boundary at all.
+    @MainActor
+    @Test func testTheRingedDotStaysBoundedOnEveryAccentHue() throws {
+        for hue in LiquidGlassHue.allCases where hue != .none {
+            // `.none` is the *system* accent — a dynamic color with no fixed value to measure.
+            let style = SemanticCapsuleStyle.onAccent(fill: hue.accentColor, label: hue.onAccentLabelColor)
+            let ring = try #require(style.dotRing, "\(hue) accent capsule shipped an unringed dot")
+            let ratio = contrast(ring, style.fill)
+            #expect(ratio >= 3.0, "\(hue) dot ring is \(ratio):1 on its own accent fill")
+        }
+    }
+
+    /// Why the ring has to exist, stated as a measurement instead of a comment: on the Green accent
+    /// there is NO colour a dot could be that clears 3:1 — not this terracotta, not a pale peach,
+    /// not pure white. If a future accent re-tune ever makes a bare dot viable this fails, and the
+    /// ring becomes removable; until then, deleting it silently drops the dot below the floor.
+    @MainActor
+    @Test func testNoBareDotColorCouldClearTheFloorOnTheGreenAccent() {
+        let fill = LiquidGlassHue.green.accentColor
+        for candidate in [SemanticCapsuleStyle.attentionDotOnAccent,
+                          SemanticCapsuleStyle.of(.attention, .light).dot,
+                          Color(red: 0.95, green: 0.77, blue: 0.66),   // pale peach
+                          .white] {
+            #expect(contrast(candidate, fill) < 3.0)
+        }
+    }
+
+    /// The structural half of the rule `StatPill` branches on: a ring iff the fill is an accent.
+    /// A flat family that grew one would draw a boundary its dot doesn't need; an accent capsule
+    /// that lost one would drop below the floor the test above measures.
+    @MainActor
+    @Test func testOnlyTheAccentCapsuleCarriesARing() {
+        for family in SemanticCapsuleFamily.allCases {
+            for scheme in [ColorScheme.light, .dark] {
+                #expect(SemanticCapsuleStyle.of(family, scheme).dotRing == nil)
+            }
+        }
+        #expect(SemanticCapsuleStyle.onAccent(fill: .green, label: .black).dotRing != nil)
+    }
+
     @Test func testFamiliesAreDistinguishableFromEachOther() {
         // Attention must not read as neutral at a glance, in either appearance.
         for scheme in [ColorScheme.light, .dark] {

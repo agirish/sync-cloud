@@ -12,10 +12,6 @@ public struct DifferencesView: View {
     /// keeps it alive — and keeps the view mounted — for the whole review.
     @ObservedObject private var reviewStore: ReviewSessionStore
     @StateObject private var modifierTracker = ModifierTracker()
-    /// Picks the semantic capsule's light/dark family for the count pill. Semantic fills are flat
-    /// and hue-independent, so unlike the accent surfaces around them they can't lean on a dynamic
-    /// `Color` to adapt — the appearance has to choose the values.
-    @Environment(\.colorScheme) private var colorScheme
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -409,19 +405,23 @@ public struct DifferencesView: View {
             StatPill(
                 count: syncManager.differences.count,
                 label: "Differences",
-                // `color` is unused on the semantic path — the capsule takes its fill, text and dot
-                // from the family below. Kept as the accent so a future non-semantic use of this
-                // pill doesn't inherit a stale value.
+                // `color` is unused on the capsule path — the fill, text and dot all come from the
+                // style below. Kept as the accent so a future non-semantic use of this pill (which
+                // would read it as a tint wash) doesn't inherit a stale value.
                 color: glassHue.accentColor,
                 systemImage: "exclamationmark.triangle",
                 // Totals expand to the pill's right and collapse back left; the chevron
                 // points the way the next click will send them, and is withheld pre-scan
                 // (CountPillChevron owns both rules).
                 trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts),
-                // The same capsule a stale freshness badge wears in the pane header above, so the
-                // two read as one convention rather than two ambers. Semantic, therefore identical
-                // under all twelve accent hues — including `.amber` itself.
-                semantic: .of(.attention, colorScheme)
+                // The accent hue, with the attention signal moved into the ringed terracotta dot.
+                // This pill is a toggle, and a solid accent capsule reads as a control the way a
+                // pale semantic wash does not — the stale freshness badge above still wears the
+                // flat `.attention` capsule, and the shared dot colour is what ties them together
+                // now that the fills differ. `colorScheme` no longer enters into it: the fill is
+                // the accent under both appearances and `onAccentLabelColor` pairs against the
+                // fill, not the window.
+                semantic: .onAccent(fill: glassHue.accentColor, label: glassHue.onAccentLabelColor)
             )
             .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }

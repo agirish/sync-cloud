@@ -63,8 +63,8 @@ public struct PaneHeader: View {
     }
 
     /// "Scanned N ago" badge — the pane's freshness readout AND its scan control in one capsule:
-    /// status dot, age, hairline, re-scan glyph. Green while fresh, amber once the diff may be out
-    /// of date, neutral "Scanning…" while a scan runs. Hidden until the first scan lands, which is
+    /// status dot, age, hairline, re-scan glyph. Green while fresh, terracotta once the diff may be
+    /// out of date, neutral "Scanning…" while a scan runs. Hidden until the first scan lands, which is
     /// why `navClusterContent` keeps a standalone Scan button for exactly that pre-scan window.
     ///
     /// The timeline is anchored to `lastScanDate`, NOT to `Date()`. Anchored to view creation the

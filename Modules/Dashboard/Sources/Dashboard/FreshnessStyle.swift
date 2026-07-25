@@ -1,3 +1,4 @@
+import Design
 import SwiftUI
 
 /// What the freshness badge is currently saying.
@@ -20,10 +21,17 @@ enum FreshnessState {
 /// `.amber`) that would otherwise collide with the very colors carrying the status.
 ///
 /// Measured against its own fill, every pair clears WCAG AA (4.5:1) for text — light 7.7:1 fresh,
-/// 6.8:1 stale, 9.0:1 scanning; dark 8.7:1, 9.0:1, 8.4:1 — and every dot clears the 3:1 floor for
-/// non-text indicators (light 3.9:1 / 3.6:1 / 4.0:1, dark 6.9:1 / 7.1:1 / 4.8:1). The light dots
+/// 7.7:1 stale, 9.0:1 scanning; dark 8.7:1, 9.3:1, 8.4:1 — and every dot clears the 3:1 floor for
+/// non-text indicators (light 3.9:1 / 4.2:1 / 4.0:1, dark 6.9:1 / 5.4:1 / 4.8:1). The light dots
 /// are deliberately DARKER than the obvious "system green / system orange": at those saturations
 /// they measured 2.5:1 and 2.3:1 on their own fills and failed that floor.
+///
+/// `stale`'s three values are Design's `SemanticCapsuleFamily.attention` verbatim — one definition
+/// shared with the differences count pill's dot, not a copy. That family is terracotta rather than
+/// the amber this badge shipped with: amber's yellow cast went muddy against the mint window wash.
+/// Measured, the swap is a small net gain in light (text 6.8:1 → 7.7:1, dot 3.6:1 → 4.2:1) and a
+/// wash in dark (text 9.0:1 → 9.3:1, dot 7.1:1 → 5.4:1 — spent from a large surplus, still 1.8×
+/// the floor).
 struct FreshnessStyle {
     /// The capsule fill.
     let fill: Color
@@ -46,13 +54,12 @@ struct FreshnessStyle {
                                  content: rgb(0.06, 0.32, 0.20),
                                  dot: rgb(0.10, 0.52, 0.22))
         case .stale:
-            return dark
-                ? FreshnessStyle(fill: rgb(0.24, 0.15, 0.03),
-                                 content: rgb(1.00, 0.77, 0.42),
-                                 dot: rgb(1.00, 0.64, 0.14))
-                : FreshnessStyle(fill: rgb(0.99, 0.91, 0.78),
-                                 content: rgb(0.48, 0.25, 0.00),
-                                 dot: rgb(0.72, 0.39, 0.00))
+            // Read from Design's `.attention` family rather than restated here — two files each
+            // holding their own copy of this triad is how "one convention" quietly becomes two
+            // warms that nearly match. `DashboardTests.staleFreshnessIsTheAttentionCapsule` fails
+            // if they ever come apart.
+            let attention = SemanticCapsuleStyle.of(.attention, scheme)
+            return FreshnessStyle(fill: attention.fill, content: attention.content, dot: attention.dot)
         case .scanning:
             // Neutral, not green: a scan in flight has not yet earned "fresh", and colouring it
             // green would flash a success state before the result is known.

@@ -1,6 +1,8 @@
 import Testing
 import Sync
 import Foundation
+import SwiftUI
+import Design
 @testable import Dashboard
 
 @Suite struct DashboardTests {
@@ -103,5 +105,29 @@ import Foundation
         
         // Both should be gone
         #expect(manager.selectedLeftPaths.isEmpty)
+    }
+
+    /// The stale badge and the differences pill's dot are supposed to be ONE colour, not two that
+    /// nearly match — the whole reason `FreshnessStyle.stale` reads out of Design instead of
+    /// restating its triad. Pins the sharing itself rather than the values: a future re-tune of
+    /// `.attention` should move the badge with it, and only a copy-paste regression should fail.
+    @Test func staleFreshnessIsTheAttentionCapsule() {
+        for scheme in [ColorScheme.light, .dark] {
+            let badge = FreshnessStyle.of(.stale, scheme)
+            let capsule = SemanticCapsuleStyle.of(.attention, scheme)
+            #expect(badge.fill == capsule.fill)
+            #expect(badge.content == capsule.content)
+            #expect(badge.dot == capsule.dot)
+        }
+    }
+
+    /// The three states must stay visually separable — `stale` moving from amber to terracotta
+    /// walked it toward nothing, but a future tune could, and a badge whose colour no longer
+    /// distinguishes "fresh" from "may be out of date" has lost its only job.
+    @Test func theThreeFreshnessStatesAreDistinguishable() {
+        for scheme in [ColorScheme.light, .dark] {
+            let fills = [FreshnessState.fresh, .stale, .scanning].map { FreshnessStyle.of($0, scheme).fill }
+            #expect(Set(fills.map { String(describing: $0) }).count == 3, "\(scheme) fills collapsed: \(fills)")
+        }
     }
 }
