@@ -59,6 +59,18 @@ struct DuplicateReviewCoordinator {
     /// `pendingSwapProviderChanges` with `plan.suppressCount` FIRST, exactly as before.
     let applyProviderPinAssignments: @MainActor (ProviderPinPlan) -> Void
 
+    /// Confirms trashing the reviewed right copy. A seam for the same reason Sync has
+    /// `transferConfirmer`: `NativeAlerts.confirmDestructive` is a blocking modal, so with the call
+    /// inlined the ONE destructive path on this coordinator could not be driven by a test at all —
+    /// not the declined answer, not the keeper-drift refusal, not the success sequence. Defaults to
+    /// the real alert, so production behaviour is unchanged.
+    var confirmTrashRightCopy: @MainActor (DuplicateCompareContext) -> Bool = { review in
+        NativeAlerts.confirmDestructive(
+            messageText: "Move the right copy of “\(review.groupName)” to the Trash?",
+            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Reversible with ⌘Z.",
+            confirmTitle: "Move to Trash")
+    }
+
     /// Opens two copies of a duplicate *folder* group side by side in Compare: the keeper on the
     /// left (kept), the redundant copy on the right (the delete candidate). Duplicate groups never
     /// span providers (the finder walks a single provider tree), so both copies share the Tidy
@@ -273,11 +285,10 @@ struct DuplicateReviewCoordinator {
     /// disappears when only the keeper is left, without re-walking the whole tree — and restores the
     /// Compare setup. A declined or failed trash keeps the review (and its banner) up for a retry.
     func trashRightCopy(_ review: DuplicateCompareContext) {
-        let ok = NativeAlerts.confirmDestructive(
-            messageText: "Move the right copy of “\(review.groupName)” to the Trash?",
-            informativeText: "Trashes \((review.deletePath as NSString).abbreviatingWithTildeInPath). The left copy is kept. Reversible with ⌘Z.",
-            confirmTitle: "Move to Trash")
-        guard ok else { return }
+        guard confirmTrashRightCopy(review) else {
+            Logger.shared.info("User declined trashing the right duplicate copy \(review.deletePath)")
+            return
+        }
         Task {
             // Never trash the right copy if the kept LEFT copy is no longer where — and WHAT — the
             // review saw it: an external move/delete during a long side-by-side review would

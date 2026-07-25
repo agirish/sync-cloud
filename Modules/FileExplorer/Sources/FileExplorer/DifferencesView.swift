@@ -60,7 +60,22 @@ public struct DifferencesView: View {
     /// review ends. `ContentView.bottomPaneIsCollapsed` gates the pane's HEIGHT on the identical
     /// condition (`isReviewing` is defined as `session != nil`), so the two cannot disagree about
     /// whether this pane is currently a header strip or a full list.
-    private var collapsed: Bool { (isCollapsed?.wrappedValue ?? false) && !reviewStore.isReviewing }
+    private var collapsed: Bool {
+        Self.isCollapsedToHeaderStrip(storedCollapse: isCollapsed?.wrappedValue ?? false,
+                                      isReviewing: reviewStore.isReviewing)
+    }
+
+    /// Whether a collapsible differences pane is a header strip right now. THE rule, in one place:
+    /// the host gates the pane's HEIGHT on it and this view gates what it RENDERS on it, so if the
+    /// two ever disagreed the list would be clipped to the header's height. Both used to restate
+    /// the condition and rely on comments to keep them honest — the same hand-maintained-mirror
+    /// shape the compaction ladder and the model picker were both bitten by.
+    public static func isCollapsedToHeaderStrip(storedCollapse: Bool, isReviewing: Bool) -> Bool {
+        // A guided review overrides the stored preference: the review card carries a cursor and
+        // progress that exist nowhere else, so starting one re-opens the pane. The preference is
+        // left untouched, so the pane re-collapses when the review ends.
+        storedCollapse && !isReviewing
+    }
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
     ///     created inline here — a per-render store would reset the session every render).

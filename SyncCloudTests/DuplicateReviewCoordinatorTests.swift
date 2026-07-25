@@ -39,8 +39,12 @@ private final class Harness {
     /// The counter's value at the moment each plan was applied — proves seeding came first.
     var pendingCounterAtApply: [Int] = []
 
+    /// Answer for the trash confirmation, plus what it was asked about.
+    var trashConfirmAnswer = true
+    var trashConfirmedFor: [String] = []
+
     var coordinator: DuplicateReviewCoordinator {
-        DuplicateReviewCoordinator(
+        var made = DuplicateReviewCoordinator(
             syncManager: syncManager,
             reviewStore: reviewStore,
             duplicateReview: Binding(get: { self.duplicateReview }, set: { self.duplicateReview = $0 }),
@@ -69,6 +73,11 @@ private final class Harness {
                 }
             }
         )
+        made.confirmTrashRightCopy = { review in
+            self.trashConfirmedFor.append(review.deletePath)
+            return self.trashConfirmAnswer
+        }
+        return made
     }
 
     /// A review as `compareCopies` would set it up, with panes "pinned" to the Tidy provider.
@@ -310,6 +319,46 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
+    }
+
+    // MARK: trashRightCopy — the one destructive path
+
+    /// Declining the confirmation must change nothing at all: no delete, no tab switch, and the
+    /// review stays up so the user can retry. Before the confirmer became a seam this path — the
+    /// only destructive one on the coordinator — could not be exercised by a test in any form.
+    @Test func decliningTheTrashConfirmationLeavesEverythingAlone() async {
+        let harness = Harness()
+        let review = harness.installReview()
+        harness.trashConfirmAnswer = false
+
+        harness.coordinator.trashRightCopy(review)
+        await Task.yield()
+
+        #expect(harness.trashConfirmedFor == [review.deletePath])
+        #expect(harness.duplicateReview == review)   // still up for a retry
+        #expect(harness.tab == .tidy)
+        #expect(harness.appliedPlans.isEmpty)        // no restore ran
+        #expect(harness.refreshCount == 0)
+    }
+
+    /// A keeper that no longer matches the scan refuses the trash even after the user confirmed:
+    /// an external move/delete during a long side-by-side review would otherwise make the copy
+    /// being trashed the LAST one. The review stays up, with a banner saying why.
+    @Test func aDriftedKeeperRefusesTheTrashAfterConfirmation() async {
+        let harness = Harness()
+        // keepPath points at nothing on disk, so the existence half of the gate fails.
+        let review = harness.installReview()
+        harness.trashConfirmAnswer = true
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the keeper-drift refusal surfaces") {
+            harness.syncManager.banner?.severity == .warning
+        }
+
+        #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") == true)
+        #expect(harness.duplicateReview == review)   // kept, not torn down
+        #expect(harness.appliedPlans.isEmpty)
+        #expect(harness.tab == .tidy)
     }
 
     // MARK: dispatchReview — returning to Compare mid-review

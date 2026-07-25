@@ -1552,12 +1552,13 @@ struct ContentView: View {
 
     /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it,
     /// the differences list (which owns that strip) is the thing on screen, and no guided review is
-    /// running — a review re-opens the pane so its cursor and progress stay visible. Must stay in
-    /// lockstep with `DifferencesView.collapsed`, which applies the same review override; if this
-    /// said "collapsed" while the view rendered a full list, the list would be clipped to the
-    /// header's height.
+    /// running. The review override is NOT restated here — it comes from
+    /// `DifferencesView.isCollapsedToHeaderStrip`, the same function the view itself renders
+    /// against, so the height and the content cannot disagree about whether this pane is a strip
+    /// or a full list.
     var bottomPaneIsCollapsed: Bool {
-        bottomPaneCollapsed && compareBottomListActive && !reviewStore.isReviewing
+        compareBottomListActive && DifferencesView.isCollapsedToHeaderStrip(
+            storedCollapse: bottomPaneCollapsed, isReviewing: reviewStore.isReviewing)
     }
 
     /// The tabbed workspace at the bottom of the file explorer.
@@ -1603,7 +1604,7 @@ struct ContentView: View {
                 onManageProviders: openProviderSettings,
                 onCompareCopies: reviewCoordinator.compareCopies
             )
-        } else if selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing) {
+        } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
             // the window toolbar.
             DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed)

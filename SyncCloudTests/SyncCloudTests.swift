@@ -9,22 +9,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
 
 @Suite struct SyncCloudTests {
 
-    @MainActor
-    @Test func testAppDelegateTerminationGuardWithActiveOperations() async throws {
-        let delegate = SyncCloudAppDelegate()
-        let manager = FileSyncManager()
-        delegate.syncManager = manager
-        
-        // When active operations exist, the guard should check correctly.
-        // Since NSAlert.runModal() is blocking and visual, we verify the logic 
-        // by observing that it doesn't just return .terminateNow immediately.
-        manager.activeFileOperationsCount = 5
-        
-        // We can't easily test the NSAlert response in a headless unit test,
-        // but we've verified the property access and the branch logic in the source.
-        #expect(manager.activeFileOperationsCount == 5)
-    }
-
     /// The pure quit decision (the NSAlert branch itself isn't unit-testable). No active
     /// operations means an unconditional, silent terminate — no breadcrumb is needed.
     @Test func testQuitDecisionAllowsWhenNoActiveOperations() {
