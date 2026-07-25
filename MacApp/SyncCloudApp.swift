@@ -270,6 +270,11 @@ struct SyncCloudApp: App {
                     .environmentObject(Logger.shared)
             }
         }
+        // Same chrome as the main window (and therefore as the Settings overlay that floats in
+        // it): the title bar is hidden so the window's glass background runs to the top edge,
+        // instead of a system-white slab above it. LogViewer already draws "Activity Log" as its
+        // own header row and insets it past the traffic lights.
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
 
         // Durable Sync History (X2): its own window (not a bottom tab) so it doesn't collide with

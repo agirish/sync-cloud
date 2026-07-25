@@ -104,9 +104,11 @@ public struct LogViewer: View {
     // in view, which the old exact-match filter couldn't do.
     @State private var selectedLevel: LogLevel? = nil
     @State private var searchText: String = ""
-    /// Drives the one-tap suggestion row: shown only while the field has the caret, exactly like
-    /// Compare's search.
-    @FocusState private var searchFocused: Bool
+    /// Whether the search field is revealed. Collapsed by default and toggled by the header's
+    /// magnifier — Design's `ExpandingSearch` mechanism, the same one Compare and Tidy's lenses
+    /// drive, so the log's search expands, focuses, escapes and clears exactly like theirs
+    /// instead of being this window's own always-visible field.
+    @State private var isSearchExpanded = false
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized.
     private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
@@ -151,6 +153,11 @@ public struct LogViewer: View {
     /// Page size for the on-demand history: the first "Show older history" reveals this many, and each
     /// "Show more" reveals another page.
     private static let historyPageSize = 25
+
+    /// Height of the standard macOS title bar the header must clear. The window hides its title
+    /// bar so the glass reaches the top edge (no white slab, matching Settings), which leaves the
+    /// traffic lights floating over the content's first rows.
+    static let titleBarInset: CGFloat = 28
 
     /// Menu options for the severity threshold. Debug is omitted as its own row because
     /// "Debug & above" is identical to "All Levels".
@@ -289,11 +296,25 @@ public struct LogViewer: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .help("Open in Console/TextEdit")
+
+                // Search collapses to this magnifier — last item, far right, exactly where
+                // Compare's header puts it. Clicking reveals the field on the row below, which
+                // claims focus itself; a second click (or Escape) collapses and clears.
+                ExpandingSearchToggle(
+                    text: $searchText,
+                    isExpanded: $isSearchExpanded,
+                    accent: hueAccent,
+                    help: "Search the log by message, level, or age"
+                )
             }
             // Plain header row directly on the window glass — the Settings pattern (its title row
             // carries no bar background), so no white slab across the top.
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
+            // The window is `.hiddenTitleBar`, so the glass runs all the way up and the content
+            // starts under the traffic lights — inset the header past them. Without this the
+            // title sits behind the close/minimize/zoom buttons.
+            .padding(.top, LogViewer.titleBarInset)
 
             // Severity filter chips — the level threshold as tappable pills (All / Info & above /
             // Warnings & above / Errors), each carrying its live count. Replaces the old menu so the
@@ -310,43 +331,16 @@ public struct LogViewer: View {
                 .padding(.top, 10)
             }
 
-            // Search Bar — the query, plus (below) the parsed filter tokens as removable chips and,
-            // while focused, one-tap suggestions. Mirrors Compare's search so one vocabulary reads the
-            // same everywhere.
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Filter — try level:error, since:1h", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .focused($searchFocused)
-
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.body)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Clear search")
-                        .accessibilityLabel("Clear search")
-                    }
-                }
-                let chips = LogSearch.chips(searchText)
-                if !chips.isEmpty {
-                    logTokenChips(chips)
-                }
-                if searchFocused {
-                    logSuggestionRow(active: chips)
-                }
+            // Search Bar — revealed by the header's magnifier. The query, plus (below) the parsed
+            // filter tokens as removable chips and, while focused, one-tap suggestions. Design's
+            // `ExpandingSearchField` carries the field, its clear button, focus-on-appear and
+            // Escape, so this window's search behaves exactly like Compare's and Tidy's.
+            if isSearchExpanded {
+                searchField
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .transition(.opacity)
             }
-            // Settings' search chrome (searchFieldSurface), not a frosted bar — the field reads as
-            // one quiet control on the glass, same as the Settings search box.
-            .padding(.horizontal, 9)
-            .padding(.vertical, 8)
-            .searchFieldSurface()
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
 
 
             // Log List. The empty state renders in-flow (not as an overlay) so the "Show older
@@ -375,6 +369,28 @@ public struct LogViewer: View {
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
         // Keep the glass from graying out when this window isn't key (see the main window).
         .environment(\.controlActiveState, .active)
+    }
+
+    // MARK: Search field
+
+    /// The revealed search field: Design's shared `ExpandingSearchField` (query, clear button,
+    /// focus-on-appear, Escape-to-collapse) carrying this window's own accessories — the parsed
+    /// `level:`/`since:` chips, and the one-tap suggestions while the field holds the caret.
+    private var searchField: some View {
+        let chips = LogSearch.chips(searchText)
+        return ExpandingSearchField(
+            text: $searchText,
+            isExpanded: $isSearchExpanded,
+            placeholder: "Filter — try level:error, since:1h",
+            accessories: { isFocused in
+                if !chips.isEmpty {
+                    logTokenChips(chips)
+                }
+                if isFocused {
+                    logSuggestionRow(active: chips)
+                }
+            }
+        )
     }
 
     // MARK: Token chips & suggestions
