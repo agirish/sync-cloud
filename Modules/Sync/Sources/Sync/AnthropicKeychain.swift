@@ -15,15 +15,21 @@ public enum AnthropicKeychain {
     }
 
     /// Stores (or replaces) the key. An empty string deletes it.
-    public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) {
+    /// - Returns: The `SecItemAdd` status — `errSecSuccess` on a real write. Returned rather than
+    ///   discarded because a keychain write genuinely can fail (locked or denied keychain, an MDM
+    ///   policy), and swallowing that left the user believing a key was saved that was not: the
+    ///   next scan then found no key and quietly fell back to the on-device model with nothing
+    ///   anywhere to explain it. Deleting an existing key by passing "" reports success.
+    @discardableResult
+    public static func store(_ key: String, in store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { delete(from: store); return }
+        guard !trimmed.isEmpty else { delete(from: store); return errSecSuccess }
         let data = Data(trimmed.utf8)
         var query = baseQuery()
         store.delete(query)   // idempotent replace
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        store.add(query)
+        return store.add(query)
     }
 
     /// The stored key, or nil when none is set.

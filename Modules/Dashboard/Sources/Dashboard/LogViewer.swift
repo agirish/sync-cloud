@@ -291,7 +291,11 @@ public struct LogViewer: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
                 .chromeHover(tint: hueAccent)
-                .disabled(logger.entries.isEmpty)
+                // Enabled while there is anything ON SCREEN to clear — session entries OR revealed
+                // history rows. Gating on `entries` alone left the button dead above a screenful of
+                // history whenever the session list was empty (a quiet session under an
+                // "Errors only" threshold is exactly that), with Settings ▸ Advanced the only way out.
+                .disabled(logger.entries.isEmpty && loadedHistory == nil)
                 .help("Clear Logs")
 
                 Button(action: { logger.openLogFile() }) {
@@ -724,6 +728,12 @@ struct LogEntryRow: View {
     
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        // Pinned locale + calendar, the same rule SyncHistoryRow follows and for the same reason:
+        // an unpinned fixed-format DateFormatter follows the system region, which can rewrite even
+        // an explicit "HH" into a 12-hour clock — so the row would disagree with the line Copy puts
+        // on the clipboard and with the on-disk log. Timezone stays local: this column is display.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter
     }()
@@ -808,6 +818,12 @@ private struct LogOperationGroupRow: View {
 
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        // Pinned locale + calendar, the same rule SyncHistoryRow follows and for the same reason:
+        // an unpinned fixed-format DateFormatter follows the system region, which can rewrite even
+        // an explicit "HH" into a 12-hour clock — so the row would disagree with the line Copy puts
+        // on the clipboard and with the on-disk log. Timezone stays local: this column is display.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "HH:mm:ss.SSS"
         return formatter
     }()

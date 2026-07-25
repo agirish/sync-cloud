@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import Design
 import Sync
 
 // MARK: - Condition type (the editor's type picker)
@@ -265,7 +266,7 @@ struct AutomationRuleEditor: View {
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
-                        .font(.system(size: 11)).foregroundStyle(.orange)
+                        .font(.system(size: 11)).foregroundStyle(SemanticColor.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }

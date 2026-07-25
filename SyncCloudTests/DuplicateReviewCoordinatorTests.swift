@@ -117,8 +117,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // only the right id really changes, so the plan carries exactly that one write.
         #expect(harness.leftId == "icloud")
         #expect(harness.rightId == "icloud")
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
+        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
+        // result with it. This exact line crashed the run when the fix it covers was mutated out.
         #expect(harness.appliedPlans.count == 1)
-        #expect(harness.appliedPlans[0].suppressCount == 1)
+        #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
         // The load-bearing order: the counter was already seeded when the plan was applied.
         #expect(harness.pendingSwapProviderChanges == 1)
         #expect(harness.pendingCounterAtApply == [1])
@@ -204,7 +207,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
     // MARK: dispatchReview — teardown with restore
 
-    @Test func reviewDoneClearsTheReviewAndRestoresTheSavedCompareState() {
+    @Test func reviewDoneClearsTheReviewAndRestoresTheSavedCompareState() throws {
         let harness = Harness()
         _ = harness.installReview()
 
@@ -214,8 +217,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // The pinned right pane went back to the saved provider, and the counter was seeded
         // BEFORE the write (the restore path shares compareCopies' suppression contract).
         #expect(harness.rightId == "dropbox")
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
+        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
+        // result with it. This exact line crashed the run when the fix it covers was mutated out.
         #expect(harness.appliedPlans.count == 1)
-        #expect(harness.appliedPlans[0].suppressCount == 1)
+        #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
         #expect(harness.pendingCounterAtApply == [1])
         // Both panes re-focused on their saved folders, then a rescan.
         #expect(harness.syncManager.leftRelativePath == "Was/Left")
@@ -261,7 +267,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.refreshCount == 0)
     }
 
-    @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() {
+    @Test func providerSwitchAfterTheReviewWentInactiveReleasesTheOtherPanesPin() throws {
         let harness = Harness()
         _ = harness.installReview()   // pins rightId to the left (Tidy) provider
         #expect(harness.rightId == harness.leftId)
@@ -275,8 +281,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == nil)
         // The right pane went back to the provider it had before the review…
         #expect(harness.rightId == "dropbox")
+        // `#require`, not a bare subscript: on failure an index trap kills the whole test HOST
+        // (Swift array bounds are a fatal error, not an assertion), taking every other test's
+        // result with it. This exact line crashed the run when the fix it covers was mutated out.
         #expect(harness.appliedPlans.count == 1)
-        #expect(harness.appliedPlans[0].suppressCount == 1)
+        #expect(try #require(harness.appliedPlans.first).suppressCount == 1)
         // …seeded before the write, like every other programmatic id change…
         #expect(harness.pendingCounterAtApply == [1])
         // …while the user's own choice on the left is left exactly alone.

@@ -106,7 +106,10 @@ public enum OrphanSweeper {
                 removed += 1
             } catch {
                 Task { @MainActor in
-                    Logger.shared.debug("Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left for the next sweep")
+                    // "Left in place", not "left for the next sweep": on a Trash-less volume — the
+                    // very condition this sweep is Trash-only to protect — no future sweep can
+                    // succeed either, so promising a retry described a loop that never terminates.
+                    Logger.shared.debug("Orphan sweep: couldn't trash \(path) (\(error.localizedDescription)) — left in place")
                 }
             }
         }

@@ -1332,10 +1332,17 @@ struct TidySettingsTab: View {
                 SecureField(hasStoredKey ? "•••• key saved" : "Paste sk-ant-… key", text: $apiKeyField)
                     .textFieldStyle(.roundedBorder)
                 Button("Save") {
-                    AnthropicKeychain.store(apiKeyField)
+                    let status = AnthropicKeychain.store(apiKeyField)
                     apiKeyField = ""
                     hasStoredKey = AnthropicKeychain.hasKey
-                    keyTestResult = nil
+                    // A keychain write can fail (locked or denied keychain, an MDM policy). The
+                    // status line otherwise fell back to "No key yet", which reads as though
+                    // nothing had been typed rather than as a refused write.
+                    // `.invalid` renders its message verbatim; `.failed` prefixes "Couldn't reach
+                    // Anthropic", which would misattribute a local Keychain refusal to the network.
+                    keyTestResult = (status == errSecSuccess && hasStoredKey)
+                        ? nil
+                        : .invalid("The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
                 }
                 .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
                 Button { Task { await testKey() } } label: {

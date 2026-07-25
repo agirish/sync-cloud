@@ -24,6 +24,14 @@ public enum CloudFilingProtocol {
     /// superseded model. Resolving it here means "the user picked Opus" keeps meaning today's Opus.
     /// A model outside the three families is left alone: it can only have been set by hand, so
     /// honor it rather than overriding a deliberate choice.
+    ///
+    /// "Outside the families" is the precise rule, and it is narrower than "set by hand" — a DATED
+    /// snapshot within a family (`claude-haiku-4-5-20251001`) IS rewritten to that family's current
+    /// alias, which `CloudFilingProtocolTests` pins deliberately: pinning a snapshot would leave the
+    /// Settings picker with no selection and freeze the scan on a superseded model, the failure this
+    /// whole function exists to prevent. Someone wanting a specific snapshot must therefore use an
+    /// id outside the three families. Said explicitly because the sentence above reads, wrongly, as
+    /// though any hand-set id survives.
     public static func currentModel(for stored: String) -> String {
         if selectableModels.contains(stored) { return stored }
         return selectableModels.first { current in

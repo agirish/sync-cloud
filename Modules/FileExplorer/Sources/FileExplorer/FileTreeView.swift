@@ -295,7 +295,13 @@ public struct FileTreeView: View {
         // whose body resolve is the ONE place the edge (and its hysteresis anchor) commits. A second
         // committer racing it from this side was part of the old flip-flop.
         .onDeleteCommand {
-            let selectedNodes = tree.findNodes(at: selection)
+            // Pruned, exactly like the context-menu and drag paths (see
+            // `FileContextMenu.resolvedSelection`): selecting a folder AND something inside it and
+            // pressing ⌫ otherwise handed the superset to the handler, so the confirmation named
+            // and counted children that the single trash of their parent already covers. The disk
+            // outcome was always right — `deleteItems` prunes before trashing — but the dialog the
+            // user answers should describe what will actually happen.
+            let selectedNodes = tree.findNodes(at: selection).pruneNestedNodes()
             if !selectedNodes.isEmpty {
                 delegate.handleDelete(selectedNodes)
             }

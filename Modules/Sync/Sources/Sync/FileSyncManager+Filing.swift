@@ -309,8 +309,13 @@ extension FileSyncManager {
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
         let estCost = CloudFilingProtocol.estimatedCostUSD(
             model: model, taxonomyFolders: taxonomyFolders, files: files) ?? 0
-        let monthlySpent = FilingSpendBudget.monthlySpend(entries: FilingSpendStore.entries(), now: Date())
-        let totalSpent = FilingSpendStore.totals().costUSD
+        // Spend and caps must come from the SAME store, or the preflight compares this month's
+        // spend in one place against a cap set in another. Production resolves both to `.standard`;
+        // reading the spend from the hard-coded default while the caps honoured the injectable one
+        // meant only a test could tell them apart — which is precisely why it went unnoticed.
+        let monthlySpent = FilingSpendBudget.monthlySpend(
+            entries: FilingSpendStore.entries(defaults: filingContentDefaults), now: Date())
+        let totalSpent = FilingSpendStore.totals(defaults: filingContentDefaults).costUSD
         let monthlyCap = filingContentDefaults.double(forKey: Self.monthlyBudgetCapKey)
         let totalCap = Self.totalBudgetCap(in: filingContentDefaults)
         let preflight = FilingSpendPreflight(

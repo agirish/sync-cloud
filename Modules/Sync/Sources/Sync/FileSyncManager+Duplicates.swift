@@ -374,6 +374,24 @@ extension FileSyncManager {
             // Clear only if still ours: a queued operation may have published its own by now.
             if activeProgress === progress { activeProgress = nil }
         }
+        // Fold the whole merge into ONE undo step, the way syncAll groups a bulk run. Without it a
+        // merge registered 2N groups — one `registerCopyUndo` per redundant copy plus one delete
+        // group each — so the success banner's "Press ⌘Z to undo" reversed only the last trash and
+        // left the user guessing how many more presses the rest needed. The grouping reuses the
+        // existing per-step reversals; no new mutation path.
+        //
+        // Opened LAZILY, at the first registration, and closed by the `defer` below. Opening it up
+        // front would leave an empty group whenever a merge registers nothing (refused early, every
+        // copy already gone), and there is no safe way to take an empty group back: calling undo()
+        // to discard it reverses the user's PREVIOUS action if the platform dropped the empty group
+        // itself. Never creating one sidesteps the question.
+        var undoGroupOpen = false
+        func openUndoGroupIfNeeded() {
+            guard !undoGroupOpen, undoManager != nil else { return }
+            undoManager?.beginUndoGrouping()
+            undoGroupOpen = true
+        }
+        defer { if undoGroupOpen { undoManager?.endUndoGrouping() } }
         let keeperPath = group.keeper.path
         let keeperURL = URL(fileURLWithPath: keeperPath)
         let fm = fileManager
@@ -462,6 +480,7 @@ extension FileSyncManager {
             }
 
             if !outcome.copied.isEmpty {
+                openUndoGroupIfNeeded()
                 registerCopyUndo(items: outcome.copied, actionName: "Merge \(group.name)", fileManager: fm)
                 totalFolded += outcome.copied.count
             }
@@ -494,6 +513,8 @@ extension FileSyncManager {
             }
 
             // Every file in the redundant copy is now present in the keeper → safe to trash it.
+            // Its restore-undo joins the merge's group so one ⌘Z takes the whole fold back.
+            openUndoGroupIfNeeded()
             let removed = await deleteItems(at: [redundant.path], fileManager: fm)
             if removed == 0 { allTrashed = false }   // trash declined/failed — don't claim the group done
         }

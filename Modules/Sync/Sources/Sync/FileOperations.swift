@@ -464,12 +464,23 @@ extension FileSyncManager {
     /// Unknown/unsupported errors are treated as non-transient so a real Trash-less volume still
     /// escalates (the pre-existing behavior).
     nonisolated static func isTransientTrashFailure(_ error: Error) -> Bool {
-        let ns = error as NSError
-        if ns.domain == NSPOSIXErrorDomain {
-            return [EBUSY, EAGAIN, EACCES, EPERM].map(Int.init).contains(ns.code)
-        }
-        if ns.domain == NSCocoaErrorDomain {
-            return ns.code == NSFileWriteNoPermissionError || ns.code == NSFileLockingError
+        // Walk the NSUnderlyingError chain, not just the outermost error: FileManager routinely
+        // reports a Cocoa-domain error that WRAPS the POSIX cause, so a merely-busy item could
+        // arrive here as a generic Cocoa code with EBUSY underneath. Reading only the top level
+        // classified that as non-transient and escalated it to the permanent-delete prompt — the
+        // exact upgrade this function exists to prevent. Bounded so a cyclic chain can't spin.
+        var current = error as NSError
+        for _ in 0...4 {
+            if current.domain == NSPOSIXErrorDomain,
+               [EBUSY, EAGAIN, EACCES, EPERM].map(Int.init).contains(current.code) {
+                return true
+            }
+            if current.domain == NSCocoaErrorDomain,
+               current.code == NSFileWriteNoPermissionError || current.code == NSFileLockingError {
+                return true
+            }
+            guard let underlying = current.userInfo[NSUnderlyingErrorKey] as? NSError else { return false }
+            current = underlying
         }
         return false
     }
@@ -480,7 +491,13 @@ extension FileSyncManager {
     /// cancel — so callers can tell partial success from full and never report a false success.
     /// Nested paths pruned in favor of an ancestor count as removed via that ancestor (once).
     @discardableResult
-    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default) async -> Int {
+    /// - Parameter reportsNothingToDo: Whether to raise a banner when NONE of the paths were still
+    ///   on disk. True for the user's direct delete gesture, where silence is indistinguishable
+    ///   from the click being ignored. False for the internal callers (duplicate resolve/merge,
+    ///   the review's trash), which interpret a zero return themselves and post their own,
+    ///   better-scoped message — a low-level "already gone" would talk over them.
+    public func deleteItems(at paths: [String], fileManager fm: FileManaging = FileManager.default,
+                            reportsNothingToDo: Bool = false) async -> Int {
         // Verify All's exclusion guard, mirrored in the write direction (same rationale as
         // syncFile's): a delete landing mid-verify can remove a file as it's hashed.
         guard !isVerifyAllRunning else {
@@ -605,6 +622,19 @@ extension FileSyncManager {
         // batch reports both what worked and what didn't.
         if let firstError = result.errors.first {
             present(.deleteFailed(reason: firstError.localizedDescription))
+        } else if reportsNothingToDo, items.isEmpty, !prunedPaths.isEmpty, progress?.isCancelled != true {
+            // Everything selected had already left the disk (deleted in Finder, or by a sync,
+            // since the tree was walked), so the per-item `fileExists` pre-check skipped it all.
+            // Both the banner and the error above are gated on non-empty results, so the user's
+            // delete gesture produced no feedback whatsoever — indistinguishable from the app
+            // ignoring the click. The rows disappear on the next refresh either way; this just
+            // says why.
+            Logger.shared.info("Delete: none of the \(prunedPaths.count) selected item(s) were still on disk")
+            // `.warning` is this type's "completed only partially / items were skipped" rung —
+            // nothing failed here, but nothing happened either.
+            banner = .warning(prunedPaths.count == 1
+                ? "That item was already gone"
+                : "Those \(prunedPaths.count) items were already gone")
         }
 
         // Durable Sync History (X2): one `.delete` record per removed item, sharing this run id.
