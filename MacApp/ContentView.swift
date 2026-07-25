@@ -1545,10 +1545,14 @@ struct ContentView: View {
         selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
     }
 
-    /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it
-    /// AND the differences list (which owns that strip) is the thing on screen.
+    /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it,
+    /// the differences list (which owns that strip) is the thing on screen, and no guided review is
+    /// running — a review re-opens the pane so its cursor and progress stay visible. Must stay in
+    /// lockstep with `DifferencesView.collapsed`, which applies the same review override; if this
+    /// said "collapsed" while the view rendered a full list, the list would be clipped to the
+    /// header's height.
     var bottomPaneIsCollapsed: Bool {
-        bottomPaneCollapsed && compareBottomListActive
+        bottomPaneCollapsed && compareBottomListActive && !reviewStore.isReviewing
     }
 
     /// The tabbed workspace at the bottom of the file explorer.

@@ -53,7 +53,13 @@ public struct DifferencesView: View {
     /// and hands the freed height to the panes above). `nil` — the default — means the pane can't
     /// collapse and the chevron is withheld.
     private let isCollapsed: Binding<Bool>?
-    private var collapsed: Bool { isCollapsed?.wrappedValue ?? false }
+    /// A guided review overrides the collapse: the review card carries a cursor and progress that
+    /// exist nowhere else, so starting one re-opens the pane rather than leaving the session hidden
+    /// behind a chevron. The stored preference is untouched, so the pane re-collapses when the
+    /// review ends. `ContentView.bottomPaneIsCollapsed` gates the pane's HEIGHT on the identical
+    /// condition (`isReviewing` is defined as `session != nil`), so the two cannot disagree about
+    /// whether this pane is currently a header strip or a full list.
+    private var collapsed: Bool { (isCollapsed?.wrappedValue ?? false) && !reviewStore.isReviewing }
     /// - Parameters:
     ///   - reviewStore: The host-owned guided-review state (`@StateObject` at the host, NOT
     ///     created inline here — a per-render store would reset the session every render).
@@ -305,9 +311,14 @@ public struct DifferencesView: View {
     /// shown (a click hides it) and up while collapsed (a click brings it back) — the same "points
     /// the way the next click sends it" rule the count pill's chevron follows. Withheld entirely
     /// when the host doesn't bind collapse state.
+    ///
+    /// Also withheld during a guided review: collapsing then hid the review card and left a bare
+    /// differences count in its place, which reads as "the review is gone" rather than "the pane is
+    /// closed" — and the review, unlike the list, has a cursor and progress you can't see any other
+    /// way. Finish or exit the review to collapse.
     @ViewBuilder
     private var collapseToggle: some View {
-        if let isCollapsed {
+        if let isCollapsed, reviewStore.session == nil {
             Button {
                 // Instant: the chevron should feel like a hard toggle, not an easing panel.
                 isCollapsed.wrappedValue.toggle()
