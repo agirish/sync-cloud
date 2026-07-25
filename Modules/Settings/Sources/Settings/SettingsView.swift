@@ -1244,9 +1244,12 @@ struct TidySettingsTab: View {
                     Picker("Model", selection: Binding(
                         get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
                         set: { filingCloudModel = $0 })) {
-                        Text("Haiku — cheapest (default)").tag("claude-haiku-4-5")
-                        Text("Sonnet — balanced").tag("claude-sonnet-5")
-                        Text("Opus — best quality").tag("claude-opus-5")
+                        // Name the generation, not just the family — it's the only place the app
+                        // says which Claude a scan will actually run on, and the families outlive
+                        // their versions. Keep these in step with `selectableModels`' tags.
+                        Text("Haiku 4.5 — cheapest (default)").tag("claude-haiku-4-5")
+                        Text("Sonnet 5 — balanced").tag("claude-sonnet-5")
+                        Text("Opus 5 — best quality").tag("claude-opus-5")
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
