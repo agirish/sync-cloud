@@ -94,11 +94,31 @@ import Testing
         #expect(CloudFilingProtocol.stopReason(responseData: json) == "tool_use")
     }
 
+    // MARK: Model selection
+
+    @Test func currentModelResolvesSupersededIDsAndLeavesEverythingElseAlone() {
+        // The three offered models pass through untouched.
+        for model in CloudFilingProtocol.selectableModels {
+            #expect(CloudFilingProtocol.currentModel(for: model) == model)
+        }
+        // A model picked before a refresh still means its family's current model, so the Settings
+        // picker keeps a selection and the scan doesn't stay pinned to the superseded one.
+        #expect(CloudFilingProtocol.currentModel(for: "claude-opus-4-8") == "claude-opus-5")
+        #expect(CloudFilingProtocol.currentModel(for: "claude-opus-4-1") == "claude-opus-5")
+        #expect(CloudFilingProtocol.currentModel(for: "claude-sonnet-4-5") == "claude-sonnet-5")
+        #expect(CloudFilingProtocol.currentModel(for: "claude-haiku-4-5-20251001") == "claude-haiku-4-5")
+        // Outside the three families it can only have been set by hand — honor it as written.
+        #expect(CloudFilingProtocol.currentModel(for: "claude-fable-5") == "claude-fable-5")
+        #expect(CloudFilingProtocol.currentModel(for: "gpt-9") == "gpt-9")
+        // The default is one of the offered models (Settings' picker default matches it).
+        #expect(CloudFilingProtocol.selectableModels.contains(CloudFilingProtocol.defaultModel))
+    }
+
     @Test func estimatedCostAccountsForCacheRatesAndModel() throws {
         let usage = CloudFilingProtocol.Usage(inputTokens: 10_000, outputTokens: 2_000,
                                               cacheCreationTokens: 1_000, cacheReadTokens: 5_000)
         // Opus $5/$25: 0.05 (in) + 0.0025 (cache-read ×0.1) + 0.00625 (cache-write ×1.25) + 0.05 (out)
-        let opus = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-opus-4-8", usage: usage))
+        let opus = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-opus-5", usage: usage))
         #expect(abs(opus - 0.10875) < 1e-6)
         // Haiku $1/$5 is dramatically cheaper on the same usage.
         let haiku = try #require(CloudFilingProtocol.estimatedCostUSD(model: "claude-haiku-4-5", usage: usage))
@@ -142,7 +162,7 @@ import Testing
         #expect(haiku > 0)
         // Opus is pricier than Haiku for the same batch.
         let opus = try #require(CloudFilingProtocol.estimatedCostUSD(
-            model: "claude-opus-4-8", taxonomyFolders: taxonomy, files: files))
+            model: "claude-opus-5", taxonomyFolders: taxonomy, files: files))
         #expect(opus > haiku)
         // Unknown model → nil, so the UI shows "estimate unavailable" instead of a wrong number.
         #expect(CloudFilingProtocol.estimatedCostUSD(

@@ -295,8 +295,10 @@ extension FileSyncManager {
     /// on-device suggestions in place (graceful fallback).
     private func cloudSpendAllows(files: [FilingCandidateFile], taxonomyFolders: [String]) -> Bool {
         guard filingUsesCloud else { return true }
-        let model = filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey)
-            ?? CloudFilingProtocol.defaultModel
+        // Resolve the same way the classifier does, so the cost the user confirms is priced for the
+        // model the call will actually name.
+        let model = CloudFilingProtocol.currentModel(
+            for: filingContentDefaults.string(forKey: Self.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
         let estTokens = CloudFilingProtocol.estimateTokens(taxonomyFolders: taxonomyFolders, files: files)
         let estCost = CloudFilingProtocol.estimatedCostUSD(
             model: model, taxonomyFolders: taxonomyFolders, files: files) ?? 0

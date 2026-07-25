@@ -64,7 +64,8 @@ enum CloudFilingClassifier {
         let files = Array(allFiles.prefix(maxFiles))   // same array feeds requestBody + parse (indices)
 
         // The model the user picked (cost vs quality), defaulting to the best.
-        let model = env.defaults.string(forKey: FileSyncManager.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel
+        let model = CloudFilingProtocol.currentModel(
+            for: env.defaults.string(forKey: FileSyncManager.cloudModelDefaultsKey) ?? CloudFilingProtocol.defaultModel)
         let body = CloudFilingProtocol.requestBody(model: model, taxonomyFolders: taxonomyFolders, files: files)
         guard let url = URL(string: CloudFilingProtocol.endpoint),
               let httpBody = try? JSONSerialization.data(withJSONObject: body) else { return nil }

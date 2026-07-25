@@ -60,7 +60,7 @@ Every destructive action is Trash-backed, atomically applied, and reversible wit
 Organize's suggestions start from a fast, fully-offline engine (your existing folder names + filename
 signals + on-device text extraction). You can layer AI on top:
 - **On-device** via Apple Intelligence (Foundation Models, macOS 26+) — nothing leaves your Mac.
-- **Cloud** via **Claude** (`claude-haiku-4-5`, `claude-sonnet-5`, or `claude-opus-4-8`) — off by
+- **Cloud** via **Claude** (`claude-haiku-4-5`, `claude-sonnet-5`, or `claude-opus-5`) — off by
   default, opt-in, with your API key stored in the **macOS Keychain** (never in plaintext).
 
 Cloud usage is metered: every scan records tokens and estimated cost, guarded by a **pre-flight cost

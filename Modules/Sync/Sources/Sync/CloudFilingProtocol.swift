@@ -8,11 +8,30 @@ public enum CloudFilingProtocol {
     /// Default model — Haiku: capable for folder classification and roughly a penny a scan. Switch
     /// to Sonnet/Opus in Settings for harder cases.
     public static let defaultModel = "claude-haiku-4-5"
+
+    /// The three models Settings offers, cheapest first. The Settings picker's tags are these
+    /// strings — keep the two in step.
+    public static let selectableModels = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"]
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"
 
     private static let maxSnippetChars = 800
+
+    /// Maps a stored model ID onto the currently offered model of the same family. A setting saved
+    /// before a model refresh (say `claude-opus-4-8`) still names a real model, so nothing breaks —
+    /// but it would leave the Settings picker showing no selection and quietly pin every scan to a
+    /// superseded model. Resolving it here means "the user picked Opus" keeps meaning today's Opus.
+    /// A model outside the three families is left alone: it can only have been set by hand, so
+    /// honor it rather than overriding a deliberate choice.
+    public static func currentModel(for stored: String) -> String {
+        if selectableModels.contains(stored) { return stored }
+        return selectableModels.first { current in
+            // "claude-opus-4-8" and "claude-opus-5" share the "claude-opus" family prefix.
+            let family = current.split(separator: "-").prefix(2).joined(separator: "-")
+            return stored.hasPrefix(family + "-")
+        } ?? stored
+    }
 
     /// The JSON request body (a plain dictionary ready for `JSONSerialization`). Forces a single
     /// structured tool call so the response is guaranteed to be the placement array.
@@ -87,7 +106,7 @@ public enum CloudFilingProtocol {
             // Budget ~80 output tokens per placement (index + folder + confidence + one-sentence
             // reason). The ceiling covers a full maxFiles=150 batch (512 + 150*80 ≈ 12.5k) so
             // large scans don't hit stop_reason "max_tokens" and lose the tail; 16k stays well
-            // under every configured model's output cap (Haiku 4.5 64k, Sonnet 5 / Opus 4.8 128k).
+            // under every configured model's output cap (Haiku 4.5 64k, Sonnet 5 / Opus 5 128k).
             "max_tokens": min(16384, 512 + files.count * 80),
             "system": [
                 ["type": "text", "text": instructions],

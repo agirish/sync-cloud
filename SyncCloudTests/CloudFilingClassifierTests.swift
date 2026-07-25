@@ -229,7 +229,7 @@ import Sync
     @MainActor
     @Test func usesTheModelPickedInDefaultsAndTheStandardHeaders() async throws {
         let scratch = ScratchDefaults()
-        scratch.defaults.set("claude-sonnet-4-5", forKey: FileSyncManager.cloudModelDefaultsKey)
+        scratch.defaults.set("claude-sonnet-5", forKey: FileSyncManager.cloudModelDefaultsKey)
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box,
                                    body: Self.successBody(placements: []))
@@ -242,7 +242,22 @@ import Sync
         #expect(request.value(forHTTPHeaderField: "x-api-key") == "sk-test")
         #expect(request.value(forHTTPHeaderField: "anthropic-version") == CloudFilingProtocol.apiVersion)
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
-        #expect(try Self.bodyJSON(of: request)["model"] as? String == "claude-sonnet-4-5")
+        #expect(try Self.bodyJSON(of: request)["model"] as? String == "claude-sonnet-5")
+    }
+
+    @MainActor
+    @Test func resolvesASupersededStoredModelToTodaysModelOfTheSameFamily() async throws {
+        let scratch = ScratchDefaults()
+        // Picked back when the Opus option was 4.8 — the scan should still run on Opus, today's one.
+        scratch.defaults.set("claude-opus-4-8", forKey: FileSyncManager.cloudModelDefaultsKey)
+        let box = RequestBox()
+        let env = Self.environment(defaults: scratch.defaults, box: box,
+                                   body: Self.successBody(placements: []))
+        _ = await CloudFilingClassifier.classify(
+            taxonomyFolders: ["Documents"], files: [Self.candidate("a.pdf")], environment: env)
+
+        let request = try #require(box.requests.first)
+        #expect(try Self.bodyJSON(of: request)["model"] as? String == "claude-opus-5")
     }
 
     @Test func fallsBackToTheDefaultModelWhenNoneIsPicked() async throws {

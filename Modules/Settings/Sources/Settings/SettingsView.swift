@@ -1238,10 +1238,15 @@ struct TidySettingsTab: View {
                 // strand a live-looking cloud panel whose own toggle can no longer dismiss it.
                 if filingUseCloud && filingUseAI {
                     cloudKeyControls
-                    Picker("Model", selection: $filingCloudModel) {
+                    // Read through `currentModel(for:)` so a value stored before a model refresh
+                    // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
+                    // the picker blank — the scan resolves it the same way.
+                    Picker("Model", selection: Binding(
+                        get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
+                        set: { filingCloudModel = $0 })) {
                         Text("Haiku — cheapest (default)").tag("claude-haiku-4-5")
                         Text("Sonnet — balanced").tag("claude-sonnet-5")
-                        Text("Opus — best quality").tag("claude-opus-4-8")
+                        Text("Opus — best quality").tag("claude-opus-5")
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
