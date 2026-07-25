@@ -49,16 +49,29 @@ public final class PaneBarPlacement {
     /// Idempotent for unchanged geometry + selection, so the host may call it on every render.
     @discardableResult
     public func resolveAtTop(selection: Set<String>) -> Bool {
-        var lowestGlobal = -CGFloat.greatestFiniteMagnitude
-        for id in selection {
-            if let maxY = rowBottoms[id] { lowestGlobal = max(lowestGlobal, maxY) }
-        }
-        guard lowestGlobal > -.greatestFiniteMagnitude, viewportHeight > 0 else {
+        // A pane shorter than the bar is covered end to end whichever edge the bar takes, so there
+        // is no placement that reveals anything — stay at the resting bottom rather than pinning to
+        // the top for every row (a negative `coveredFrom` made EVERY row read as covered).
+        guard viewportHeight > coverage else {
             atTop = false
             return false
         }
-        // Both sides global; the difference is the row's position within the viewport.
-        let lowest = lowestGlobal - viewportGlobalMinY
+        // Only rows actually ON SCREEN can be covered. `rowBottoms` also carries rows the List has
+        // laid out past the fold, and a multi-selection can span far beyond it; counting those
+        // dragged the bar to the top on behalf of a row nobody can see — where it then covered the
+        // rows that WERE visible. Clamp to the viewport before taking the lowest.
+        var lowest = -CGFloat.greatestFiniteMagnitude
+        for id in selection {
+            guard let maxY = rowBottoms[id] else { continue }
+            // Both sides global; the difference is the row's position within the viewport.
+            let inViewport = maxY - viewportGlobalMinY
+            guard inViewport <= viewportHeight else { continue }
+            lowest = max(lowest, inViewport)
+        }
+        guard lowest > -.greatestFiniteMagnitude else {
+            atTop = false
+            return false
+        }
         let coveredFrom = viewportHeight - coverage
         atTop = atTop ? lowest > coveredFrom - Self.exitHysteresis : lowest > coveredFrom
         return atTop
