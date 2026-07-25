@@ -93,8 +93,9 @@ public enum ProviderHue: String, CaseIterable, Sendable {
         return table
     }()
 
-    /// Low-opacity companion for background washes, mirroring the app's soft-tint chips
-    /// (StatusBadge uses the same 0.12 fill under full-strength foregrounds).
+    /// Low-opacity companion for background washes, in the same family as the app's soft-tint chips
+    /// (StatusBadge wears `PillVariant.fillOpacity`, 0.14, under full-strength foregrounds — this
+    /// one is deliberately a touch lighter; the comment used to claim the two were identical).
     public var soft: Color {
         tint.opacity(0.12)
     }

@@ -3,7 +3,7 @@ import Foundation
 /// Pure relative-age text + stale flag for the pane header's "Scanned N ago" pill, kept out of the
 /// view so the buckets and the stale threshold are unit-testable.
 enum ScanFreshness {
-    /// Past this age the pill turns amber — the diff you're looking at may no longer match disk.
+    /// Past this age the pill turns terracotta — the diff you're looking at may no longer match disk.
     static let staleAfter: TimeInterval = 10 * 60 // 10 minutes
 
     struct Result: Equatable {

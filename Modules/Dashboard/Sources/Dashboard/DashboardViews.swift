@@ -48,11 +48,9 @@ public struct PaneHeader: View {
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
     // No surface style here: the header's shape comes from its container, its material from the
-    // glass level. This view only paints the tint.
-    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
-    /// The resolved glass material; `.frosted` (standard Liquid Glass) if unrecognized. Read here
-    /// only to frost this header's own controls at Clear — the header paints no surface itself.
-    private var glassLevel: GlassLevel { GlassLevel(rawValue: glassLevelRaw) ?? .frosted }
+    // glass level. This view only paints the tint. It reads no glass level of its own either: the
+    // nav cluster it used to frost at Clear is drawn in-house now (6bb7bdf), which took the last
+    // reader with it.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     /// Drives the freshness badge's light/dark palette. Read from the environment rather than

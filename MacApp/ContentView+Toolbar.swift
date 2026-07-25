@@ -32,14 +32,6 @@ extension ContentView {
         }
     }
 
-    var activePanePath: String? {
-        switch activePane {
-        case .left?: return currentLeftPath
-        case .right?: return currentRightPath
-        case nil: return nil
-        }
-    }
-
     // MARK: - Contextual pane action bar
 
     /// Whether the selection-driven action bar could show on this pane: this is the compare layout

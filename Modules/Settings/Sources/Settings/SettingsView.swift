@@ -1244,15 +1244,16 @@ struct TidySettingsTab: View {
                     // Read through `currentModel(for:)` so a value stored before a model refresh
                     // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
                     // the picker blank — the scan resolves it the same way.
-                    Picker("Model", selection: Binding(
+                    // "Cloud model" matches this row's entry in the search index above; the index
+                    // documents that its titles mirror the on-screen labels, and "Model" alone did
+                    // not. Rows come from `selectableModelOptions` rather than being spelled here,
+                    // so ids and labels cannot drift out of step across a model refresh.
+                    Picker("Cloud model", selection: Binding(
                         get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
                         set: { filingCloudModel = $0 })) {
-                        // Name the generation, not just the family — it's the only place the app
-                        // says which Claude a scan will actually run on, and the families outlive
-                        // their versions. Keep these in step with `selectableModels`' tags.
-                        Text("Haiku 4.5 — cheapest (default)").tag("claude-haiku-4-5")
-                        Text("Sonnet 5 — balanced").tag("claude-sonnet-5")
-                        Text("Opus 5 — best quality").tag("claude-opus-5")
+                        ForEach(CloudFilingProtocol.selectableModelOptions, id: \.id) { option in
+                            Text(option.label).tag(option.id)
+                        }
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)

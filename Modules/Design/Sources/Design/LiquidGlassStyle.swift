@@ -223,7 +223,7 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
     /// level verbatim — need a material of their own. A button's fill is a thin tint wash, so on
     /// see-through glass it has nothing to read against and stops looking like a control; the
     /// desktop showing through a `.clear` card is exactly that backdrop. `chromeButtonStyle` and
-    /// `chromePillFrost` both key off this (and the tests pin it), so a level added later decides
+    /// the chrome escalation key off this (and the tests pin it), so a level added later decides
     /// its chrome treatment here, in one place, rather than in scattered `== .clear` checks.
     public var needsChromeFrosting: Bool {
         self == .clear
@@ -525,18 +525,6 @@ public extension View {
             self.buttonStyle(.glass)
         } else {
             self.buttonStyle(.bordered)
-        }
-    }
-
-    /// Gives a non-button chrome element (a status pill, a count badge) its own material at
-    /// `.clear`, for the same reason as `chromeButtonStyle`: its fill is a thin tint wash, and on
-    /// a see-through card there's nothing behind it to read against. No-op otherwise.
-    @ViewBuilder
-    func chromePillFrost(_ level: GlassLevel) -> some View {
-        if level.needsChromeFrosting {
-            self.background(.regularMaterial, in: Capsule(style: .continuous))
-        } else {
-            self
         }
     }
 

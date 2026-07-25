@@ -18,7 +18,7 @@ public enum AccentLabel {
         relativeLuminance(red: red, green: green, blue: blue) > 0.30
     }
 
-    /// The strongest dimming an on-fill label (`onAccentLabel` / `onFillLabel(_:)`) can take and
+    /// The strongest dimming an on-fill label (`onFillLabel(_:)` / `onAccentLabelColor`) can take and
     /// still clear the WCAG large-text 3:1 floor over every glass hue. The binding pair is white
     /// on Graphite (L = 0.25, the lightest fill that still keeps white text): full-strength white
     /// composites to ~3.5:1 there, 0.9 lands at ~3.14:1, and the old ad-hoc 0.85 fell to ~2.97:1 —
@@ -36,44 +36,17 @@ public enum AccentLabel {
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
     }
 
-    /// The current pairing for `NSColor.controlAccentColor`. Resolved on every call — never cached
-    /// at launch — so a System Settings accent change picks up the right pairing on the app's next
-    /// render (the system triggers one when the accent changes).
-    ///
-    /// Resolved under the app's *effective* appearance, not `NSAppearance.currentDrawing()`: during
-    /// a SwiftUI body evaluation the drawing appearance isn't guaranteed to be the one the fill
-    /// will render under, and with the Theme control pinning the app against the system the two
-    /// can genuinely differ. Graphite is the accent that makes this visible — its light and dark
-    /// variants straddle the 0.30 luminance cutoff, so pairing against the wrong variant flips
-    /// the label to the illegible side.
-    @MainActor
-    public static var currentPrefersDarkText: Bool {
-        var resolved: NSColor?
-        NSApplication.shared.effectiveAppearance.performAsCurrentDrawingAppearance {
-            resolved = NSColor.controlAccentColor.usingColorSpace(.sRGB)
-        }
-        guard let accent = resolved else { return false }
-        return prefersDarkText(red: accent.redComponent, green: accent.greenComponent, blue: accent.blueComponent)
-    }
 }
 
 public extension Color {
-    /// Text/glyph color for content drawn on a `Color.accentColor` fill: near-black on light
-    /// accents (Yellow), white otherwise. See `AccentLabel` for why the AppKit "system pairing"
-    /// color can't do this job.
-    @MainActor
-    static var onAccentLabel: Color {
-        AccentLabel.currentPrefersDarkText ? Color.black.opacity(0.85) : .white
-    }
-
-    /// Text/glyph color for content drawn on an arbitrary solid `fill`, by the same luminance rule
-    /// `onAccentLabel` applies to the system accent: near-black on light fills (amber, cyan), white
-    /// on dark ones. Appearance-independent by design — the fill is the background here, so the
-    /// window's light/dark mode doesn't enter into it.
+    /// Text/glyph color for content drawn on an arbitrary solid `fill`, by its luminance:
+    /// near-black on light fills (amber, cyan), white on dark ones. Appearance-independent by
+    /// design — the fill is the background here, so the window's light/dark mode doesn't enter
+    /// into it. THE on-fill glyph path; nothing should hand-roll this pairing.
     ///
-    /// `fill` must be a *static* color. A dynamic one (`Color.accentColor`, a semantic
-    /// `NSColor`) collapses to whatever the current appearance resolves it to at call time and
-    /// won't re-resolve when that changes — use `onAccentLabel` for the system accent instead.
+    /// `fill` must be a *static* color. A dynamic one (`Color.accentColor`, a semantic `NSColor`)
+    /// collapses to whatever the current appearance resolves it to at call time and won't
+    /// re-resolve when that changes.
     static func onFillLabel(_ fill: Color) -> Color {
         guard let rgb = NSColor(fill).usingColorSpace(.sRGB) else { return .white }
         return AccentLabel.prefersDarkText(red: rgb.redComponent, green: rgb.greenComponent, blue: rgb.blueComponent)

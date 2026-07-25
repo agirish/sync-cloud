@@ -167,10 +167,6 @@ struct ContentView: View {
     /// the layout reads `inspectorDragWidth ?? inspectorWidth`, and the drag commits to
     /// `inspectorWidth` only on release, so `inspectorWidth` stays the stable drag-start base.
     @State private var inspectorDragWidth: Double? = nil
-    /// Whether each pane's floating selection action bar is currently docked at the TOP of its list
-    /// rather than the bottom. Flipped by the pane (via `FileTreeView`) whenever a selected row sits
-    /// in the bottom band of the viewport, so the bar never hides the selection. Per-pane because
-    /// each pane scrolls independently.
     /// Per-pane action-bar placement scratch space. `FileTreeView` fills each with live row/viewport
     /// geometry; `paneColumn` reads the resolved edge straight from `body`, so the bar's edge is
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.

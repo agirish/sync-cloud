@@ -110,6 +110,18 @@ import Testing
         // Outside the three families it can only have been set by hand — honor it as written.
         #expect(CloudFilingProtocol.currentModel(for: "claude-fable-5") == "claude-fable-5")
         #expect(CloudFilingProtocol.currentModel(for: "gpt-9") == "gpt-9")
+        // Every offered model carries a label for the picker, and the id list is derived from
+        // that same table — so a refresh cannot update one and leave the other behind, which is
+        // how the picker went blank once before.
+        #expect(CloudFilingProtocol.selectableModelOptions.map(\.id) == CloudFilingProtocol.selectableModels)
+        #expect(CloudFilingProtocol.selectableModelOptions.allSatisfy { !$0.label.isEmpty })
+        // Each label names its generation, not just the family — the scan's model is otherwise
+        // invisible in the UI, and "Opus" alone stops meaning anything the moment Opus 6 ships.
+        for option in CloudFilingProtocol.selectableModelOptions {
+            let generation = option.id.split(separator: "-").dropFirst(2).joined(separator: ".")
+            #expect(option.label.contains(generation),
+                    "\(option.label) should name generation \(generation)")
+        }
         // The default is one of the offered models (Settings' picker default matches it).
         #expect(CloudFilingProtocol.selectableModels.contains(CloudFilingProtocol.defaultModel))
     }

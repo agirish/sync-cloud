@@ -29,12 +29,13 @@ import SwiftUI
         #expect(AccentLabel.relativeLuminance(red: 0, green: 0, blue: 0) == 0)
     }
 
-    @MainActor
-    @Test func currentAccentResolvesWithoutCrashing() {
-        // Whatever accent the test host runs under, the dynamic resolution must produce a
-        // decision (exercises the usingColorSpace conversion path).
-        _ = AccentLabel.currentPrefersDarkText
-        _ = SwiftUI.Color.onAccentLabel
+    @Test func theOnFillPairingSurvivesAnUnconvertibleColor() {
+        // `onFillLabel` converts to sRGB before measuring; a colour that can't convert must fall
+        // back to white rather than trapping. (This replaces a test of the system-accent pairing
+        // `Color.onAccentLabel`, removed with that API: the accent-fill model f2f72f8 settled on
+        // pairs white against a DEEPENED fill for every hue, so a second, per-luminance on-accent
+        // path existed only to be rediscovered and reintroduce the split.)
+        #expect(SwiftUI.Color.onFillLabel(Color(nsColor: .textBackgroundColor)) != nil)
     }
 
     @Test func fillLabelSplitsOnTheFillsOwnLuminance() {

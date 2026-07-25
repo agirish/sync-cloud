@@ -9,9 +9,21 @@ public enum CloudFilingProtocol {
     /// to Sonnet/Opus in Settings for harder cases.
     public static let defaultModel = "claude-haiku-4-5"
 
-    /// The three models Settings offers, cheapest first. The Settings picker's tags are these
-    /// strings — keep the two in step.
-    public static let selectableModels = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"]
+    /// The models Settings offers, cheapest first — id AND the label the picker shows.
+    ///
+    /// One list, not two. The picker used to spell its own `Text(…).tag(…)` rows under a comment
+    /// asking the next editor to keep them in step with the ids; a refresh that updated only one
+    /// side is exactly how the picker went blank once before. Naming the generation rather than
+    /// just the family is deliberate: this is the only place the app says which Claude a scan will
+    /// actually run on, and the families outlive their versions.
+    public static let selectableModelOptions: [(id: String, label: String)] = [
+        ("claude-haiku-4-5", "Haiku 4.5 — cheapest (default)"),
+        ("claude-sonnet-5", "Sonnet 5 — balanced"),
+        ("claude-opus-5", "Opus 5 — best quality"),
+    ]
+
+    /// Just the ids, in the same order — the family-resolution and validation paths want these.
+    public static let selectableModels = selectableModelOptions.map(\.id)
     public static let apiVersion = "2023-06-01"
     public static let endpoint = "https://api.anthropic.com/v1/messages"
     public static let toolName = "file_placements"

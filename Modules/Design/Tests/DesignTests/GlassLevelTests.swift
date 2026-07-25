@@ -28,9 +28,9 @@ struct GlassLevelTests {
     }
 
     @Test func onlyClearNeedsChromeFrosting() {
-        // Pins the branch `chromeButtonStyle`/`chromePillFrost` key off — the property those
-        // helpers actually read, so a level added later must decide its chrome treatment here
-        // and can't silently render faint controls (or stack materials) on its cards.
+        // Pins the branch `chromeButtonStyle` keys off — the property that helper actually
+        // reads, so a level added later must decide its chrome treatment here and can't silently
+        // render faint controls (or stack materials) on its cards.
         #expect(GlassLevel.allCases.filter(\.needsChromeFrosting) == [.clear])
         // And the two escalations agree: the level that frosts its controls is the level whose
         // overlays get floored.
