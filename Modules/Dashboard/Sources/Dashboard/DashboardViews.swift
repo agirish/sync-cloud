@@ -350,26 +350,23 @@ public struct PaneHeader: View {
         HStack(spacing: 6) {
             if let onCollapse {
                 Button(action: onCollapse) {
-                    Image(systemName: "sidebar.left").frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                    Image(systemName: "sidebar.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
-                .chromeHover(tint: glassHue.accentColor)
+                .buttonStyle(navButtonStyle)
                 .help("Collapse the source pane")
             }
 
             Button(action: onBack) {
-                Image(systemName: "chevron.left").frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(navButtonStyle)
             .disabled(!canGoBack)
             .help("Go back to this pane's previous folder")
 
             Button(action: onForward) {
-                Image(systemName: "chevron.right").frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(navButtonStyle)
             .disabled(!canGoForward)
             .help("Go forward to this pane's next folder")
 
@@ -382,10 +379,9 @@ public struct PaneHeader: View {
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
                         .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
-                        .frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
-                .chromeHover(tint: glassHue.accentColor)
+                .buttonStyle(navButtonStyle)
                 .disabled(isRefreshing)
                 .help("Scan for changes")
             }
@@ -401,27 +397,20 @@ public struct PaneHeader: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                Image(systemName: "arrow.up.arrow.down").frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                Image(systemName: "arrow.up.arrow.down")
+                    .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
             .menuIndicator(.hidden)
-            // `.menuStyle(.button)` alone was not enough: it makes the menu render AS a button,
-            // but it does not make it inherit the button style from an ancestor — so the sort
-            // control still drew its own chrome while the HStack's `chromeButtonStyle` went to
-            // its Button siblings only. Restating the style directly on the menu is what
-            // actually matches it to them.
-            .menuStyle(.button)
-            .chromeButtonStyle(glassLevel)
-            // `ButtonMenuStyle` pins its own height and ignores the label entirely — padding it
-            // changes nothing (measured: 14pt at every padding, against the buttons' 20). An
-            // explicit height is the only thing that lifts the sort pill to its siblings.
+            // The one combination that leaves the label alone. `.button` makes the menu render as
+            // a button; `.plain` inside `navButtonStyle` stops that button drawing chrome of its
+            // own over the capsule the label already carries. Measured at 21x20 painted —
+            // pixel-identical to a plain Button, which nothing else here managed.
             //
-            // `.fixedSize` horizontally is load-bearing and must stay: without it the menu stops
-            // shrink-wrapping, and in a 250pt pane it grew until it overlapped the arrow beside
-            // it. Dropping it is what the narrow-ladder snapshot caught.
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(height: PaneNavMetrics.pillHeight(controlSize))
-            .chromeHover(tint: glassHue.accentColor)
+            // A `Menu` also does NOT inherit a `buttonStyle` from an ancestor, so this has to be
+            // restated on the menu itself rather than left to the cluster.
+            .menuStyle(.button)
+            .buttonStyle(navButtonStyle)
+            .fixedSize()
             .help("Choose how items are sorted")
 
             // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
@@ -429,16 +418,20 @@ public struct PaneHeader: View {
             Button {
                 showHiddenFiles.toggle()
             } label: {
-                Image(systemName: showHiddenFiles ? "eye" : "eye.slash").frame(height: PaneNavMetrics.glyphHeight)
-                        .hoverTint(glassHue.accentColor)
+                Image(systemName: showHiddenFiles ? "eye" : "eye.slash").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
             }
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(navButtonStyle)
             .help(showHiddenFiles
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
         }
         .controlSize(controlSize)
-        .chromeButtonStyle(glassLevel)
+    }
+
+    /// Shared by every nav control. `.filled` contributes the press scale and the hover phase
+    /// `PaneNavChrome` reads, and paints no wash of its own — the capsule's fill is the wash.
+    private var navButtonStyle: HoverAffordanceStyle {
+        .hoverAffordance(.filled, tint: glassHue.accentColor, shape: .capsule)
     }
 }
 
@@ -452,18 +445,87 @@ public struct PaneHeader: View {
 ///
 /// All figures measured with `NSHostingView.fittingSize` and pinned by `PaneNavMetricsTests`.
 enum PaneNavMetrics {
-    /// The height every nav glyph is laid out at. Height only, deliberately: pinning the width
-    /// too made every pill as wide as the widest glyph and pushed the cluster from 226.5pt to
-    /// 252pt, which collided the controls in a 250pt pane — the narrow-ladder snapshot caught
-    /// it. Constraining just the height leaves all six widths exactly as they were.
-    static let glyphHeight: CGFloat = 14
-
-    /// The pill height a normalised glyph resolves to at each control size.
+    /// The pill every nav control draws, per control size.
     ///
-    /// 20 and 16 are what the *tallest* glyphs already measured, so the short ones grow up to
-    /// meet them and nothing in the header gets taller than it was.
-    static func pillHeight(_ controlSize: ControlSize) -> CGFloat {
-        controlSize == .mini ? 16 : 20
+    /// Fixed, because nothing else worked. Liquid Glass sizes a button from its label, so six SF
+    /// Symbols gave six pill heights and `ButtonMenuStyle` pinned the sort menu at 14 regardless.
+    /// An outer `.frame(height:)` does NOT stretch a system-drawn pill — it only gives it a taller
+    /// box to sit inside, which is why an earlier fix measured 20 and still rendered 14. Drawing
+    /// the capsule ourselves is the only way the size is actually ours.
+    static func pill(_ controlSize: ControlSize) -> CGSize {
+        controlSize == .mini ? CGSize(width: 27, height: 17) : CGSize(width: 33, height: 20)
+    }
+
+    /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
+    static func glyphFont(_ controlSize: ControlSize) -> Font {
+        .system(size: controlSize == .mini ? 10 : 12, weight: .medium)
+    }
+
+    /// Laid-out width of the whole cluster, for the narrow-pane ladder. Six controls plus the
+    /// HStack's five 6pt gaps.
+    ///
+    /// Deliberately matched to what the system chrome used to take — 226.5pt at `.small`, 188.5
+    /// at `.mini` — rather than made as small as possible. Uniform pills cannot land on both
+    /// numbers exactly (the old widths ranged 22.5–30.5 within a single rung), and `.mini` comes
+    /// out 3.5pt over, which costs the provider name one character in a 250pt pane.
+    ///
+    /// Do not try to tune that back by shrinking the pill: the header's own degradation ladder is
+    /// not monotonic in this width. 25pt collapsed the provider capsule to "..." — worse than the
+    /// 27pt this settles on — and 33 vs 36 at `.small` changed nothing at all, because a 250pt
+    /// pane is already on the `.mini` rung.
+    static func clusterWidth(_ controlSize: ControlSize) -> CGFloat {
+        pill(controlSize).width * 6 + 6 * 5
+    }
+}
+
+/// The chrome for one pane-header nav control: a fixed capsule the app draws itself.
+///
+/// These used to wear `chromeButtonStyle`, i.e. the system `.glass` style, and three rounds of
+/// hover fixes failed against it — an outer `.foregroundStyle` loses to the style's own label
+/// colour, an outer `.frame` doesn't resize the pill, and any filter or offscreen pass over glass
+/// renders nothing at all. The freshness badge sitting beside these gave up on glass for the same
+/// family of reason (an accent tint over an accent wash has nothing to shift against). This
+/// follows it: the app owns the fill, so the app can guarantee both the size and the hover.
+struct PaneNavChrome: ViewModifier {
+    let accent: Color
+    let controlSize: ControlSize
+
+    @Environment(\.hoverAffordancePhase) private var phase
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        let pill = PaneNavMetrics.pill(controlSize)
+        return content
+            .font(PaneNavMetrics.glyphFont(controlSize))
+            .foregroundStyle(glyph)
+            .frame(width: pill.width, height: pill.height)
+            .background(Capsule().fill(fill))
+            .contentShape(Capsule())
+    }
+
+    /// Disabled reads as a flatter, quieter pill and never responds — `canGoBack` is false at the
+    /// top of a tree, and a Back arrow that lights up there would promise a click that does nothing.
+    private var fill: Color {
+        guard isEnabled else { return .primary.opacity(0.035) }
+        switch phase {
+        case .rest: return .primary.opacity(0.075)
+        case .hover: return accent.opacity(0.22)
+        case .pressed: return accent.opacity(0.34)
+        }
+    }
+
+    private var glyph: Color {
+        guard isEnabled else { return .primary.opacity(0.25) }
+        return phase.isEngaged ? accent : .primary.opacity(0.75)
+    }
+}
+
+extension View {
+    /// See `PaneNavChrome`. Pair with `.buttonStyle(.hoverAffordance(.filled, …))`, which supplies
+    /// the phase this reads plus the press scale, and deliberately no wash of its own — the fill
+    /// here is the wash.
+    func paneNavChrome(accent: Color, controlSize: ControlSize) -> some View {
+        modifier(PaneNavChrome(accent: accent, controlSize: controlSize))
     }
 }
 

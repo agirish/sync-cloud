@@ -4,136 +4,216 @@ import Testing
 @testable import Dashboard
 import Design
 
-/// Measures a control the way AppKit will. Same rig as `PaneHeaderHeightTests`, and for the same
-/// reason: these are claims about the LAID-OUT result, and a suite that only compared constants
-/// to each other is exactly what let this drift in the first place.
-@MainActor
-private func laidOutSize<V: View>(_ view: V) -> CGSize {
-    let host = NSHostingView(rootView: AnyView(view))
-    let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 400, height: 200),
-                          styleMask: [.borderless], backing: .buffered, defer: false)
-    window.isReleasedWhenClosed = false
-    window.contentView = host
-    host.layoutSubtreeIfNeeded()
-    return host.fittingSize
-}
-
-/// The pane header's nav cluster has to read as one row of identical pills.
+/// The pane header's nav cluster: one row of identical pills that visibly respond to the pointer.
 ///
-/// It didn't. Liquid Glass sizes a button from its label, so the six glyphs gave six different
-/// pills — `chevron.left` 29x18, `arrow.up.arrow.down` 35x19, `eye.slash` 37x20 — and the sort
-/// menu came in at 35x14, visibly the runt of the row. Two rounds of fixes aimed at the chrome
-/// missed it completely, because the cause was never the chrome.
+/// This suite measures **painted pixels**, not frames, and that distinction is the whole point.
+/// An earlier version asserted `fittingSize` and passed green while the sort menu still rendered
+/// a 14pt pill inside the 20pt box it had been handed — an outer `.frame(height:)` never stretched
+/// a system-drawn control, it only gave it more room to sit in. Three rounds of "fixes" shipped
+/// against that false green. Everything here reads the bitmap.
 @MainActor
 @Suite(.serialized) struct PaneNavMetricsTests {
 
-    /// Every glyph the cluster draws. If one is added without a frame, this catches it.
+    private static let box = CGSize(width: 120, height: 60)
+
+    private func bitmap<V: View>(_ view: V) -> NSBitmapImageRep? {
+        let host = NSHostingView(rootView: AnyView(
+            view.frame(width: Self.box.width, height: Self.box.height).background(Color.white)
+        ))
+        host.frame = CGRect(origin: .zero, size: Self.box)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return nil }
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    /// Bounding box of everything the view actually paints, in points.
+    private func paintedSize<V: View>(_ view: V) -> CGSize {
+        guard let rep = bitmap(view) else { return .zero }
+        var minX = rep.pixelsWide, maxX = -1, minY = rep.pixelsHigh, maxY = -1
+        for x in 0..<rep.pixelsWide {
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let luminance = (c.redComponent + c.greenComponent + c.blueComponent) / 3
+                guard c.alphaComponent > 0.05, luminance < 0.97 else { continue }
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return .zero }
+        let scale = CGFloat(rep.pixelsHigh) / Self.box.height
+        return CGSize(width: (CGFloat(maxX - minX + 1) / scale).rounded(),
+                      height: (CGFloat(maxY - minY + 1) / scale).rounded())
+    }
+
+    /// Mean accent-channel lift across the render — rises when the capsule takes the tint.
+    private func tintStrength<V: View>(_ view: V) -> Double {
+        guard let rep = bitmap(view) else { return 0 }
+        var total = 0.0
+        var counted = 0
+        for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
+            for y in stride(from: 0, to: rep.pixelsHigh, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                // Pure-blue accent: how far blue runs ahead of the other two channels.
+                total += c.blueComponent - (c.redComponent + c.greenComponent) / 2
+                counted += 1
+            }
+        }
+        return counted == 0 ? 0 : total / Double(counted)
+    }
+
     private static let glyphs = [
         "sidebar.left", "chevron.left", "chevron.right",
         "arrow.clockwise", "arrow.up.arrow.down", "eye", "eye.slash"
     ]
 
-    @available(macOS 26.0, *)
-    private func navButton(_ symbol: String, _ controlSize: ControlSize) -> some View {
-        Button {} label: {
-            Image(systemName: symbol).frame(height: PaneNavMetrics.glyphHeight)
-        }
-        .buttonStyle(.glass)
-        .controlSize(controlSize)
+    private let accent = Color(red: 0, green: 0, blue: 1)
+
+    private func navButton(_ symbol: String, _ controlSize: ControlSize,
+                           phase: HoverAffordancePhase = .rest,
+                           enabled: Bool = true) -> some View {
+        Image(systemName: symbol)
+            .paneNavChrome(accent: accent, controlSize: controlSize)
+            .environment(\.hoverAffordancePhase, phase)
+            .disabled(!enabled)
     }
 
-    @Test("Every nav glyph resolves to the same pill height, at both control sizes")
-    func glyphsShareOneHeight() throws {
-        guard #available(macOS 26.0, *) else { return }
-        for controlSize in [ControlSize.small, .mini] {
-            let heights = Self.glyphs.map { laidOutSize(navButton($0, controlSize)).height }
-            let first = try #require(heights.first)
-            for (symbol, height) in zip(Self.glyphs, heights) {
-                #expect(height == first,
-                        "\(symbol) at \(controlSize) is \(height)pt, not \(first) — the frame is missing")
-            }
+    private func sortMenu(_ controlSize: ControlSize,
+                          phase: HoverAffordancePhase = .rest) -> some View {
+        Menu {
+            Button("Name") {}
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .paneNavChrome(accent: accent, controlSize: controlSize)
         }
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .environment(\.hoverAffordancePhase, phase)
     }
 
-    @Test("Levelling the heights costs the cluster no width")
-    func widthsAreUntouched() {
-        guard #available(macOS 26.0, *) else { return }
-        // The whole reason this pins height and not size. An earlier version framed both axes,
-        // which made every pill as wide as the widest glyph, grew the cluster from 226.5pt to
-        // 252pt, and collided the controls in a 250pt pane.
+    // MARK: - Size
+
+    @Test("Every nav glyph paints the same pill")
+    func glyphPillsAreIdentical() {
         for controlSize in [ControlSize.small, .mini] {
+            let expected = PaneNavMetrics.pill(controlSize)
             for symbol in Self.glyphs {
-                let framed = laidOutSize(navButton(symbol, controlSize)).width
-                let bare = laidOutSize(
-                    Button {} label: { Image(systemName: symbol) }
-                        .buttonStyle(.glass).controlSize(controlSize)
-                ).width
-                #expect(framed == bare,
-                        "\(symbol) at \(controlSize) went from \(bare)pt to \(framed)pt wide")
+                let painted = paintedSize(navButton(symbol, controlSize))
+                #expect(painted == expected,
+                        "\(symbol) at \(controlSize) painted \(painted), not \(expected)")
             }
         }
     }
 
-    @Test("The frame is what makes them uniform, not luck")
-    func withoutTheFrameTheyDiverge() {
-        guard #available(macOS 26.0, *) else { return }
-        // Guards the test above from passing vacuously: if these symbols ever happened to share
-        // an intrinsic size, `glyphsAreUniform` would hold with the frame removed and stop
-        // protecting anything.
-        let bare = Self.glyphs.map { symbol in
-            laidOutSize(
-                Button {} label: { Image(systemName: symbol) }
-                    .buttonStyle(.glass).controlSize(.small)
-            )
-        }
-        #expect(Set(bare.map(\.height)).count > 1,
-                "the raw symbols now share a height — this suite no longer proves anything")
-    }
-
-    @Test("The sort menu matches the buttons beside it")
+    @Test("The sort menu paints the same pill as the buttons")
     func sortMenuMatchesItsSiblings() {
-        guard #available(macOS 26.0, *) else { return }
+        // The one that defeated three previous attempts. `ButtonMenuStyle` pins its own height, so
+        // while the menu drew its own chrome this was 14pt against the buttons' 20 — and an outer
+        // frame could not budge it. It matches now only because the app draws the capsule.
         for controlSize in [ControlSize.small, .mini] {
-            let button = laidOutSize(navButton("chevron.left", controlSize))
-            let menu = laidOutSize(
-                Menu { Button("Name") {} } label: {
-                    Image(systemName: "arrow.up.arrow.down").frame(height: PaneNavMetrics.glyphHeight)
+            let button = paintedSize(navButton("chevron.left", controlSize))
+            let menu = paintedSize(sortMenu(controlSize))
+            #expect(menu == button,
+                    "sort menu paints \(menu), buttons paint \(button) at \(controlSize)")
+        }
+    }
+
+    @Test("The mini rung is genuinely smaller, so the ladder still has two steps")
+    func miniIsSmallerThanSmall() {
+        let small = paintedSize(navButton("chevron.left", .small))
+        let mini = paintedSize(navButton("chevron.left", .mini))
+        #expect(mini.width < small.width)
+        #expect(mini.height < small.height)
+    }
+
+    @Test("The cluster keeps the width the system chrome used to take")
+    func clusterMatchesTheHistoricalLadder() {
+        // Both bounds matter, and the lower one is the non-obvious half. `ViewThatFits` chooses a
+        // rung purely on width, so making the cluster *smaller* is not free: at 210pt the 250pt
+        // pane started picking `.small` instead of stepping down, and the 22pt it saved came out
+        // of the provider name, which truncated from "Ma..." to "M.".
+        //
+        // A few points of slack is fine — what actually has to hold is *which* rung a 250pt pane
+        // picks, and `paneHeaderNarrow250LongProviderName` is what pins that. This is the cheap
+        // guard that catches a drift big enough to flip it.
+        #expect(abs(PaneNavMetrics.clusterWidth(.small) - 226.5) <= 5,
+                "small rung moved to \(PaneNavMetrics.clusterWidth(.small)); the ladder may step differently")
+        #expect(abs(PaneNavMetrics.clusterWidth(.mini) - 188.5) <= 5,
+                "mini rung moved to \(PaneNavMetrics.clusterWidth(.mini))")
+    }
+
+    @Test("clusterWidth agrees with what a pill actually paints")
+    func clusterWidthIsHonest() {
+        for controlSize in [ControlSize.small, .mini] {
+            let painted = paintedSize(navButton("chevron.left", controlSize)).width
+            #expect(PaneNavMetrics.clusterWidth(controlSize) == painted * 6 + 30,
+                    "clusterWidth(\(controlSize)) disagrees with the \(painted)pt pill it describes")
+        }
+    }
+
+    // MARK: - Hover
+
+    @Test("Hovering visibly tints the pill")
+    func hoverIsVisible() {
+        // The assertion three shipped attempts would have failed. Each depended on Liquid Glass
+        // rendering something — a halo, a saturation filter, a wash behind a translucent chrome —
+        // and none of them put a single accent pixel on screen.
+        for controlSize in [ControlSize.small, .mini] {
+            let rest = tintStrength(navButton("chevron.left", controlSize, phase: .rest))
+            let hover = tintStrength(navButton("chevron.left", controlSize, phase: .hover))
+            #expect(hover > rest + 0.01,
+                    "no visible tint at \(controlSize): rest \(rest), hover \(hover)")
+        }
+    }
+
+    @Test("Pressing reads deeper than hovering")
+    func pressIsDeeperThanHover() {
+        let hover = tintStrength(navButton("chevron.left", .small, phase: .hover))
+        let pressed = tintStrength(navButton("chevron.left", .small, phase: .pressed))
+        #expect(pressed > hover, "press \(pressed) is not deeper than hover \(hover)")
+    }
+
+    @Test("The sort menu hovers too, not just the buttons")
+    func sortMenuHovers() {
+        let rest = tintStrength(sortMenu(.small, phase: .rest))
+        let hover = tintStrength(sortMenu(.small, phase: .hover))
+        #expect(hover > rest + 0.01, "sort menu shows no tint: rest \(rest), hover \(hover)")
+    }
+
+    // MARK: - Disabled
+
+    @Test("A disabled control stays completely inert")
+    func disabledNeverLightsUp() {
+        // `canGoBack` is false at the top of a tree. A Back arrow that lit up there would promise
+        // a click that does nothing — worse than no hover at all.
+        let rest = tintStrength(navButton("chevron.left", .small, phase: .rest, enabled: false))
+        let hover = tintStrength(navButton("chevron.left", .small, phase: .hover, enabled: false))
+        #expect(abs(hover - rest) < 0.001, "a disabled arrow responded to the pointer")
+    }
+
+    @Test("Disabled still reads as disabled")
+    func disabledLooksDisabled() {
+        // Drawing our own chrome means the greyed-out look is ours to supply too — the system
+        // style is no longer doing it for us, and losing it would make an inert control look live.
+        let enabled = bitmap(navButton("chevron.left", .small, enabled: true))
+        let disabled = bitmap(navButton("chevron.left", .small, enabled: false))
+        var differing = 0
+        if let e = enabled, let d = disabled {
+            for x in stride(from: 0, to: e.pixelsWide, by: 2) {
+                for y in stride(from: 0, to: e.pixelsHigh, by: 2) {
+                    let ec = e.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+                    let dc = d.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+                    guard let ec, let dc else { continue }
+                    if abs(ec.brightnessComponent - dc.brightnessComponent) > 0.01 { differing += 1 }
                 }
-                .menuIndicator(.hidden)
-                .menuStyle(.button)
-                .buttonStyle(.glass)
-                .controlSize(controlSize)
-                .frame(height: PaneNavMetrics.pillHeight(controlSize))
-            )
-            #expect(menu.height == button.height,
-                    "sort menu is \(menu.height)pt against the buttons' \(button.height)pt at \(controlSize)")
-        }
-    }
-
-    @Test("pillHeight tracks what a normalised button actually measures")
-    func pillHeightMatchesReality() {
-        guard #available(macOS 26.0, *) else { return }
-        // The constant exists only to be handed to the menu, so it has to keep agreeing with the
-        // buttons it is standing in for — otherwise the row silently goes ragged again.
-        for controlSize in [ControlSize.small, .mini] {
-            let measured = laidOutSize(navButton("chevron.left", controlSize)).height
-            #expect(PaneNavMetrics.pillHeight(controlSize) == measured,
-                    "pillHeight(\(controlSize)) says \(PaneNavMetrics.pillHeight(controlSize)), AppKit says \(measured)")
-        }
-    }
-
-    @Test("The levelled height leaves room inside the pill for every symbol")
-    func symbolsFitTheirPills() {
-        guard #available(macOS 26.0, *) else { return }
-        // The glyph frame is a layout height, not a clip, so a taller symbol overflows it rather
-        // than being cut — but it must still fit inside the pill the frame produces, or it would
-        // graze the chrome. `eye.slash` and `arrow.clockwise` are the tall ones, at 16pt.
-        for controlSize in [ControlSize.small, .mini] {
-            for symbol in Self.glyphs {
-                let intrinsic = laidOutSize(Image(systemName: symbol)).height
-                #expect(PaneNavMetrics.pillHeight(controlSize) >= intrinsic,
-                        "\(symbol) is \(intrinsic)pt tall in a \(PaneNavMetrics.pillHeight(controlSize))pt pill")
             }
         }
+        #expect(differing > 20, "disabled renders indistinguishably from enabled")
     }
 }
