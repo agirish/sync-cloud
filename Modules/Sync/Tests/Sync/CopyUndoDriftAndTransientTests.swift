@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Pins the two copy-undo gaps closed in round 4:
@@ -341,5 +342,62 @@ import Foundation
         }
         await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
         #expect(promptFired == true)
+    }
+
+    /// The gap this pair closes: when the CONFIRMED permanent delete then fails, the folder is
+    /// still on disk after the user has agreed to destroy it — and `try?` swallowed that outcome
+    /// entirely. No banner, no log line, nothing: the undo simply appeared to have worked. The
+    /// copy-undo's twin of this branch has always reported through `reportUndoRemoveFailure`.
+    @MainActor
+    @Test func createFolderUndoReportsAConfirmedPermanentDeleteThatFailed() async throws {
+        let manager = makeManager()
+        manager.permanentDeleteConfirmer = { _ in true }
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/New Folder"), withIntermediateDirectories: true)
+
+        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/New Folder"), fileManager: mockFM)
+
+        mockFM.shouldFailTrash = true                                  // ENOTSUP — non-transient
+        mockFM.failRemovePathsOnce = ["/dst/New Folder"]               // …and the removal fails too
+        manager.banner = nil
+
+        manager.undoManager?.undo()
+        await waitUntil("the failed permanent delete is surfaced") {
+            manager.banner?.severity == .warning
+        }
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(manager.banner?.message.contains("Undo couldn't remove") == true)
+        #expect(manager.banner?.message.contains("New Folder") == true)
+        // The folder is still there — which is exactly why silence was wrong.
+        #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
+        await Logger.shared.debug("folder-undo flush marker").value
+        #expect(Logger.shared.entries.contains {
+            $0.level == .error && $0.message.contains("Undo (New Folder): FAILED to permanently delete")
+        })
+    }
+
+    /// The other silent exit: the user DECLINES the permanent delete, so the folder stays. That is
+    /// a legitimate outcome, but it left no trace at all — the log jumped from "User triggered
+    /// Undo: New Folder" to nothing, reading as a completed undo.
+    @MainActor
+    @Test func createFolderUndoRecordsThatTheUserDeclinedThePermanentDelete() async throws {
+        let manager = makeManager()   // confirmer declines
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst/New Folder"), withIntermediateDirectories: true)
+
+        manager.registerCreateFolderUndo(url: URL(fileURLWithPath: "/dst/New Folder"), fileManager: mockFM)
+        mockFM.shouldFailTrash = true
+
+        manager.undoManager?.undo()
+        await waitUntil("undo op drains") { manager.activeFileOperationsCount == 0 }
+
+        #expect(mockFM.virtualDisk["/dst/New Folder"] != nil)
+        await Logger.shared.debug("folder-undo decline flush marker").value
+        #expect(Logger.shared.entries.contains {
+            $0.message.contains("Undo (New Folder)") && $0.message.contains("declined")
+        })
     }
 }

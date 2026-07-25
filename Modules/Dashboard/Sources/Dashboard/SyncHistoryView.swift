@@ -19,9 +19,45 @@ public struct SyncHistoryView: View {
     /// lives at the app boundary, keeping this view free of the manager and of Sync's types.
     private let onUndoLastSyncRun: () -> Void
 
-    public init(store: SyncHistoryStore = .shared, onUndoLastSyncRun: @escaping () -> Void = {}) {
+    /// Confirms the history wipe. Injected for the same reason as `onUndoLastSyncRun` — and so
+    /// both answers are drivable without a modal. The default is the standard destructive alert.
+    private let confirmClearHistory: @MainActor () -> Bool
+
+    public init(store: SyncHistoryStore = .shared,
+                onUndoLastSyncRun: @escaping () -> Void = {},
+                confirmClearHistory: @escaping @MainActor () -> Bool = SyncHistoryView.defaultClearConfirmation) {
         self.store = store
         self.onUndoLastSyncRun = onUndoLastSyncRun
+        self.confirmClearHistory = confirmClearHistory
+    }
+
+    /// The clear gesture as one step: ask, and only then wipe. Static and confirmer-taking so the
+    /// decision is reachable without mounting the view (a button's closure is not), and so no call
+    /// site can reintroduce the unprompted wipe by simply forgetting to ask.
+    /// - Returns: Whether the history was cleared.
+    @discardableResult
+    public static func clearIfConfirmed(store: SyncHistoryStore, confirm: @MainActor () -> Bool) -> Bool {
+        guard confirm() else { return false }
+        store.clear()
+        return true
+    }
+
+    /// Cancel is the DEFAULT button and the destructive one takes no Return key, matching
+    /// Settings' "Reset All Settings…": this empties the durable record on disk, and unlike the
+    /// Activity Log — which rotates on its own and forgets on quit — nothing else keeps a copy.
+    @MainActor public static func defaultClearConfirmation() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Clear all sync history?"
+        alert.informativeText = "Permanently removes every recorded copy, move, and delete from this window and from the history file on disk. Your files aren't affected, and this can't be undone. Export first if you want to keep a copy."
+        alert.addButton(withTitle: "Clear History")
+        alert.addButton(withTitle: "Cancel")
+        if let clearButton = alert.buttons.first {
+            clearButton.hasDestructiveAction = true
+            clearButton.keyEquivalent = ""
+        }
+        alert.buttons.last?.keyEquivalent = "\r"
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     /// The action gate — nil is "All actions".
@@ -141,14 +177,17 @@ public struct SyncHistoryView: View {
             .disabled(filtered.isEmpty)
             .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
 
-            Button(action: { store.clear() }) {
+            Button(action: { Self.clearIfConfirmed(store: store, confirm: confirmClearHistory) }) {
                 Image(systemName: "trash")
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .chromeHover()
             .disabled(store.records.isEmpty)
-            .help("Clear all history")
+            // Ellipsis: this asks first. It sits 34pt from the Export menu and empties the durable
+            // record irreversibly, so it gets the same confirmation its siblings get — "Undo Last
+            // Run" here, "Reset All Settings…" in Settings.
+            .help("Clear all history…")
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

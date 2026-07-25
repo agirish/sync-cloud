@@ -81,7 +81,7 @@ extension FileSyncManager {
         on target: FileSyncManager
     ) async {
         let name = destination.lastPathComponent
-        let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the copied item remains on disk (\(error.localizedDescription))"
+        let logMessage = "Undo (\(actionName)): FAILED to permanently delete \"\(name)\" at \(destination.path) — the item remains on disk (\(error.localizedDescription))"
         await MainActor.run {
             Logger.shared.error(logMessage)
             target.banner = .warning("Undo couldn't remove \"\(name)\" — it is still on disk")
@@ -596,7 +596,24 @@ extension FileSyncManager {
                     // permanent removal gets the same confirmation as everywhere else.
                     let confirmed = await MainActor.run { confirmPermanentDelete([url.lastPathComponent]) }
                     if confirmed {
-                        try? fm.removeItem(at: url)
+                        // Report the outcome either way. `try?` swallowed both: a failure left the
+                        // folder on disk after the user had confirmed its deletion, with nothing
+                        // in the log and no banner — the undo simply appeared to have worked. The
+                        // copy-undo's twin of this branch has always reported through
+                        // reportUndoRemoveFailure; this one just never did.
+                        do {
+                            try fm.removeItem(at: url)
+                            await MainActor.run {
+                                Logger.shared.info("Undo (New Folder): permanently deleted \"\(url.lastPathComponent)\" at \(url.path) — it could not be moved to the Trash")
+                            }
+                        } catch {
+                            await FileSyncManager.reportUndoRemoveFailure(
+                                of: url, actionName: "New Folder", error: error, on: target)
+                        }
+                    } else {
+                        await MainActor.run {
+                            Logger.shared.info("Undo (New Folder): \"\(url.lastPathComponent)\" could not be moved to the Trash and the user declined to delete it permanently — it is still on disk")
+                        }
                     }
                 }
             } }
