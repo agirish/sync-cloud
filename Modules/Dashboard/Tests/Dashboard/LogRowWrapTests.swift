@@ -16,7 +16,12 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     window.isReleasedWhenClosed = false
     window.contentView = host
     host.layoutSubtreeIfNeeded()
-    return host.fittingSize.height
+    let height = host.fittingSize.height
+    // Measure, then tear down: these helpers run once per width per case, and a window left
+    // attached to the app for every call accumulates across the suite.
+    window.contentView = nil
+    window.close()
+    return height
 }
 
 /// Narrowing the Activity Log window must WRAP a long message, not truncate it — in BOTH

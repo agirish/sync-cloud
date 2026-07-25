@@ -339,6 +339,8 @@ public struct LogViewer: View {
                     .padding(.vertical, 12)
                     .transition(.opacity)
             }
+            // The transition above needs a driving animation or it never runs — an `if` alone
+            // inserts and removes the field instantly, which is what shipped.
 
 
             // Log List. The empty state renders in-flow (not as an overlay) so the "Show older
@@ -362,6 +364,8 @@ public struct LogViewer: View {
         // list doesn't stay expanded to hundreds of now-filtered rows.
         .onChange(of: selectedLevel) { _, _ in historyLimit = Self.historyPageSize }
         .onChange(of: searchText) { _, _ in historyLimit = Self.historyPageSize }
+        // Drives the search field's reveal/hide transition (see above).
+        .animation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
         // the same frosted (or, at Clear, whiter see-through) surface instead of a plain window.
         .liquidGlassAppBackground(level: glassLevel, hue: glassHue)
