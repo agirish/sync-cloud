@@ -122,6 +122,7 @@ public struct SyncHistoryView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .chromeHover()
             .disabled(store.records.isEmpty)
             .help("Reverse the most recent sync run")
 
@@ -134,6 +135,7 @@ public struct SyncHistoryView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .frame(width: 34)
+            .chromeHover()
             .disabled(filtered.isEmpty)
             .help("Export the \(filtered.count) shown \(filtered.count == 1 ? "record" : "records")")
 
@@ -142,6 +144,7 @@ public struct SyncHistoryView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .chromeHover()
             .disabled(store.records.isEmpty)
             .help("Clear all history")
         }

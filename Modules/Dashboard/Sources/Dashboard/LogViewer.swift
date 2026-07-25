@@ -265,6 +265,7 @@ public struct LogViewer: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .chromeHover(tint: hueAccent)
                 .disabled(filtered.isEmpty && visibleHistory.isEmpty)
                 .help("Copy the \(shownCount) shown \(shownCount == 1 ? "entry" : "entries") to the clipboard")
 
@@ -285,6 +286,7 @@ public struct LogViewer: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .chromeHover(tint: hueAccent)
                 .disabled(logger.entries.isEmpty)
                 .help("Clear Logs")
 
@@ -293,6 +295,7 @@ public struct LogViewer: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
+                .chromeHover(tint: hueAccent)
                 .help("Open in Console/TextEdit")
 
                 // Search collapses to this magnifier — last item, far right, exactly where
@@ -577,6 +580,7 @@ public struct LogViewer: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .chromeHover(tint: hueAccent)
             .disabled(loading)
             Spacer()
         }

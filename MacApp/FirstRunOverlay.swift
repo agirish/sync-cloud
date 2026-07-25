@@ -228,10 +228,12 @@ struct FirstRunOverlay: View {
                     case .scan:
                         Button("Scan now") { onScan(dontShowAgain) }
                             .buttonStyle(.borderedProminent)
+                            .chromeHover()
                             .keyboardShortcut(.defaultAction)
                     case .chooseProviders:
                         Button("Choose providers…") { onChooseProviders(dontShowAgain) }
                             .buttonStyle(.borderedProminent)
+                            .chromeHover()
                             .keyboardShortcut(.defaultAction)
                     }
                 } else {
@@ -240,6 +242,7 @@ struct FirstRunOverlay: View {
                         withAnimation(.easeInOut(duration: 0.15)) { pageIndex += 1 }
                     }
                     .buttonStyle(.borderedProminent)
+                    .chromeHover()
                     .keyboardShortcut(.defaultAction)
                 }
             }

@@ -147,6 +147,36 @@ final class HoverAffordanceTests: XCTestCase {
         }
     }
 
+    // MARK: - System-chrome buttons
+
+    func testChromeHoverBorrowsTheFilledNumbers() {
+        // `chromeHover` can't stroke a ring — it doesn't know a glass capsule's silhouette — so it
+        // spends `.filled`'s ring alpha on a tight halo instead. Both must be non-zero or the
+        // treatment collapses to a bare 1pt nudge, which reads as a rendering glitch, not a state.
+        let m = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover)
+        XCTAssertGreaterThan(m.ring, 0, "no halo — the hover would be a silent 1pt shift")
+        XCTAssertGreaterThan(m.shadow, 0)
+        XCTAssertLessThan(m.lift, 0)
+    }
+
+    func testChromeHoverStaysVisibleWhenTheLiftIsTakenAway() {
+        // Reduce Motion strips the offset, and a system-chrome button has no wash to fall back
+        // on — the halo is the only thing left standing. If it ever went with the lift, every
+        // bordered and glass button in the app would silently lose its hover under the setting.
+        let reduced = HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover,
+                                                     reduceMotion: true)
+        XCTAssertEqual(reduced.lift, 0)
+        XCTAssertGreaterThan(reduced.ring, 0, "nothing at all is drawn under Reduce Motion")
+    }
+
+    func testChromeHoverIsInertWhenDisabled() {
+        // A greyed-out Back arrow that still lifts is worse than no hover: it promises a click
+        // that does nothing. `chromeHover` sits inside the button's `.disabled` scope for this.
+        XCTAssertEqual(HoverAffordanceMetrics.resolve(variant: .filled, phase: .hover,
+                                                      isEnabled: false),
+                       .none)
+    }
+
     // MARK: - Phase
 
     func testOnlyRestIsDisengaged() {

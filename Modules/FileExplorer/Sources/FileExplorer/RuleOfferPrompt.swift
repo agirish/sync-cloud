@@ -72,6 +72,7 @@ struct RememberOverridePromptView: View {
                 .controlSize(.small)
             Button("Remember", action: onRemember)
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -128,7 +129,8 @@ struct RuleOfferPromptView: View {
             Spacer(minLength: 8)
             VStack(spacing: 5) {
                 Button("Save rule", action: onSave)
-                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                    .chromeHover()
                 Button("Not now", action: onNotNow)
                     .controlSize(.small)
             }

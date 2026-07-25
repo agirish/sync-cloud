@@ -296,6 +296,7 @@ public struct AutomationsLens: View {
             Button(action: { state.viewingResults = false }) { Label("Rules", systemImage: "chevron.left") }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
+                .chromeHover(tint: accent)
             Text("Previewed \((report.root as NSString).lastPathComponent)")
                 .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.middle)
@@ -303,12 +304,14 @@ public struct AutomationsLens: View {
             Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
+                .chromeHover(tint: accent)
             let fileable = report.rows.filter { $0.destinationDir != nil }
             if !fileable.isEmpty {
                 Button(action: { startFiling(fileable) }) {
                     Label("File \(fileable.count)…", systemImage: "tray.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 .controlSize(.small)
                 .help("File these \(fileable.count) file\(fileable.count == 1 ? "" : "s") one at a time, confirming each. Moves real files; undoes with ⌘Z.")
             }
@@ -451,6 +454,7 @@ public struct AutomationsLens: View {
                     Label("File", systemImage: "tray.and.arrow.down.fill").frame(minWidth: 66)
                 }
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 .controlSize(.large)
                 .keyboardShortcut(.return, modifiers: [])
             }

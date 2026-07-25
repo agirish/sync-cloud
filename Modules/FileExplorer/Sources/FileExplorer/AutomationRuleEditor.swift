@@ -387,6 +387,7 @@ struct AutomationRuleEditor: View {
             Button("Save") { onSave(assembled) }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 // Gate on the RAW rows, not `assembled`: canonicalization already stripped the
                 // unmatchable row there, which is exactly the silent broadening being blocked.
                 .disabled(!Self.canSave(isRunnable: assembled.isRunnable, conditions: rows.map(\.condition)))

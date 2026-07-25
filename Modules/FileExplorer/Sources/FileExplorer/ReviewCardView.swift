@@ -226,11 +226,13 @@ struct ReviewCardView: View {
                 onPrimary(item)
             }
             .buttonStyle(.borderedProminent)
+            .chromeHover()
             .disabled(isActing || isVerifying)
             Button("Skip") {
                 onSkip(item)
             }
             .chromeButtonStyle(glassLevel)
+            .chromeHover(tint: accent)
             .disabled(isActing)
             if let onQuickLook {
                 // One button, source side (same as ␣) — mockup style. The destination copy is

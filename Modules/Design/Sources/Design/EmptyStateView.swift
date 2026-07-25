@@ -119,6 +119,7 @@ public struct EmptyStateView: View {
                             label(for: primary)
                         }
                         .buttonStyle(.borderedProminent)
+                        .chromeHover()
                         .controlSize(isCompact ? .small : .large)
                     }
                     if let secondary {

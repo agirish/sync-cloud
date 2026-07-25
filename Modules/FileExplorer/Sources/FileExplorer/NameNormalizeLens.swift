@@ -223,6 +223,7 @@ private struct RiskyNameCard: View {
             Button("Skip", action: onSkip)
             Button(action: onFix) { Label("Fix", systemImage: "checkmark") }
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
         }
         .controlSize(.small)
     }

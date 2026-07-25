@@ -372,6 +372,7 @@ private struct StorageEntryRow: View {
                 }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
+                .chromeHover(tint: rowAccent)
                 .help("Reveals the file in Finder — use Finder to keep it online-only and free local space")
             } else {
                 Button(action: onReveal) {

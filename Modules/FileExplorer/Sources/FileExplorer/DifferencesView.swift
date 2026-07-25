@@ -449,6 +449,7 @@ public struct DifferencesView: View {
                     .lineLimit(1)
             }
             .chromeButtonStyle(glassLevel)
+            .chromeHover(tint: glassHue.accentColor)
             .disabled(isSyncActionBlocked)
             .help("Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy")
         }
@@ -492,6 +493,7 @@ public struct DifferencesView: View {
                 Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
             }
             .chromeButtonStyle(glassLevel)
+            .chromeHover(tint: glassHue.accentColor)
             .disabled(isSyncActionBlocked)
             // Same explanation as the review card's Verify, scoped to what the bulk run
             // actually covers: only date-only differences whose sizes match are checksummed.
@@ -546,6 +548,7 @@ public struct DifferencesView: View {
                     .truncationMode(.middle)
             }
             .chromeButtonStyle(glassLevel)
+            .chromeHover(tint: glassHue.accentColor)
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
             .disabled(reviewStore.isActing || isSyncActionBlocked)
@@ -557,6 +560,7 @@ public struct DifferencesView: View {
             Label("Exit Review", systemImage: "xmark.circle")
         }
         .chromeButtonStyle(glassLevel)
+        .chromeHover(tint: glassHue.accentColor)
         .help("Stop reviewing (esc)")
     }
 
@@ -1284,13 +1288,13 @@ private extension View {
     @ViewBuilder
     func bulkActionProminence(_ prominent: Bool, level: GlassLevel) -> some View {
         if prominent {
-            buttonStyle(.borderedProminent)
+            buttonStyle(.borderedProminent).chromeHover()
         } else {
             // The demoted direction still has to read as a control on its card — at Clear a
             // plain bordered fill all but vanishes over the desktop, which turned a bulk copy
             // action invisible. `chromeButtonStyle` is bordered everywhere else, so the
             // dominant/secondary weight contrast survives at every level.
-            chromeButtonStyle(level)
+            chromeButtonStyle(level).chromeHover()
         }
     }
 }

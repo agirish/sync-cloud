@@ -274,6 +274,57 @@ public extension View {
     }
 }
 
+// MARK: - System-chrome buttons
+
+/// Hover feedback for a button that **keeps its system chrome** — anything wearing
+/// `chromeButtonStyle` (`.glass` on macOS 26, `.bordered` below it) or a bare `.bordered`.
+///
+/// `HoverAffordanceStyle` can't help here: a `ButtonStyle` replaces the chrome rather than
+/// layering on it, and only one applies per button. So this is a plain view modifier, and it
+/// reaches for the two effects that need no knowledge of the control's outline — a lift, and
+/// shadows. A macOS 26 glass capsule and a `.bordered` rounded rect have different silhouettes
+/// at every control size, and a hand-drawn ring would trace neither correctly; a shadow traces
+/// whatever is actually rendered.
+///
+/// So the ring is a tight zero-offset halo rather than a stroke, and the numbers are still
+/// `.filled`'s, out of the same table as every other variant.
+///
+/// Apply it **above** any `.disabled(…)` on the button, so the modifier sits inside that scope
+/// and can read `isEnabled` — a greyed-out Back arrow must not lift.
+public struct ChromeHoverModifier: ViewModifier {
+    let tint: Color
+
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var metrics: HoverAffordanceMetrics {
+        .resolve(variant: .filled,
+                 phase: isHovering ? .hover : .rest,
+                 isEnabled: isEnabled,
+                 reduceMotion: reduceMotion)
+    }
+
+    public func body(content: Content) -> some View {
+        content
+            .compositingGroup()
+            // The halo stands in for `.filled`'s stroked ring: tight, unoffset, silhouette-exact.
+            .shadow(color: tint.opacity(metrics.ring), radius: 1.5)
+            .shadow(color: tint.opacity(metrics.shadow), radius: 5, y: 3)
+            .offset(y: metrics.lift)
+            .onHover { isHovering = isEnabled && $0 }
+            .animation(.easeOut(duration: isHovering ? 0.12 : 0.18), value: isHovering)
+    }
+}
+
+public extension View {
+    /// See `ChromeHoverModifier`. Press feedback is left to the system style, which already
+    /// darkens a bordered or glass button convincingly — hover was the missing half.
+    func chromeHover(tint: Color = .accentColor) -> some View {
+        modifier(ChromeHoverModifier(tint: tint))
+    }
+}
+
 /// The trailing disclosure chevron on a `.row` button: it takes the tint and slides a couple of
 /// points toward the edge while the row is engaged.
 ///

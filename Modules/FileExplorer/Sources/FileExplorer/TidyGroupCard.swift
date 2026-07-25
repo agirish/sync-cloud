@@ -336,6 +336,7 @@ struct TidyGroupCard: View {
                     Label(applyTitle, systemImage: "trash")
                 }
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 .controlSize(.small)
                 .disabled(isMerging)
             } else if group.matchType.kind == .overlapping {
@@ -352,6 +353,7 @@ struct TidyGroupCard: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .chromeHover()
                 .controlSize(.small)
                 .disabled(isMerging)
             }

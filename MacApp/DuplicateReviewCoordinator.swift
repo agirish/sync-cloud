@@ -152,10 +152,12 @@ struct DuplicateReviewCoordinator {
             Button("Done") { endDuplicateReview() }
                 .chromeButtonStyle(glassLevel)
                 .controlSize(.small)
+                .chromeHover()
             Button(role: .destructive) { trashRightCopy(review) } label: {
                 Label("Trash right copy", systemImage: "trash")
             }
             .buttonStyle(.borderedProminent)
+            .chromeHover()
             .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 8)

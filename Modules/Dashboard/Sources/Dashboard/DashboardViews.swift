@@ -352,18 +352,21 @@ public struct PaneHeader: View {
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left")
                 }
+                .chromeHover(tint: glassHue.accentColor)
                 .help("Collapse the source pane")
             }
 
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
             }
+            .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoBack)
             .help("Go back to this pane's previous folder")
 
             Button(action: onForward) {
                 Image(systemName: "chevron.right")
             }
+            .chromeHover(tint: glassHue.accentColor)
             .disabled(!canGoForward)
             .help("Go forward to this pane's next folder")
 
@@ -377,6 +380,7 @@ public struct PaneHeader: View {
                     Image(systemName: "arrow.clockwise")
                         .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
                 }
+                .chromeHover(tint: glassHue.accentColor)
                 .disabled(isRefreshing)
                 .help("Scan for changes")
             }
@@ -396,6 +400,7 @@ public struct PaneHeader: View {
             }
             .menuIndicator(.hidden)
             .fixedSize()
+            .chromeHover(tint: glassHue.accentColor)
             .help("Choose how items are sorted")
 
             // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
@@ -405,6 +410,7 @@ public struct PaneHeader: View {
             } label: {
                 Image(systemName: showHiddenFiles ? "eye" : "eye.slash")
             }
+            .chromeHover(tint: glassHue.accentColor)
             .help(showHiddenFiles
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")

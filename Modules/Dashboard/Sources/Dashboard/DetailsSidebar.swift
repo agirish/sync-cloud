@@ -423,17 +423,20 @@ public struct DetailsSidebar: View {
             } label: {
                 Label("Reveal in Finder", systemImage: RevealGlyph.inFinder)
             }
+            .chromeHover()
             Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(data.path, forType: .string)
             } label: {
                 Label("Copy Path", systemImage: "doc.on.clipboard")
             }
+            .chromeHover()
             Button {
                 quickLookItem = URL(fileURLWithPath: data.path)
             } label: {
                 Label("Quick Look", systemImage: "doc.viewfinder")
             }
+            .chromeHover()
         }
         // The inspector card takes the glass level verbatim, so at Clear these buttons frost
         // individually — a plain bordered fill has nothing to read against on see-through glass.

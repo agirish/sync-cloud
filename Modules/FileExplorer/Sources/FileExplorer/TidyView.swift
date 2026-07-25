@@ -680,6 +680,7 @@ public struct TidyView: View {
                 Label("File all \(batch.count) confident", systemImage: "arrow.right.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isSuggestingFiles)
             .help("Files the \(batch.count) name-matched suggestion\(batch.count == 1 ? "" : "s") with a confident home"
@@ -711,11 +712,13 @@ public struct TidyView: View {
     private func rescanButton(moved: Bool, movedIcon: String, disabled: Bool, action: @escaping () -> Void, movedHelp: String) -> some View {
         if moved {
             Button(action: action) { Label("Scan “\(scanTargetName)”", systemImage: movedIcon) }
-                .buttonStyle(.borderedProminent).controlSize(.small)
+                .buttonStyle(.borderedProminent).controlSize(.small).chromeHover()
+                .chromeHover()
                 .disabled(disabled).help(movedHelp)
         } else {
             Button(action: action) { Label("Rescan", systemImage: "arrow.clockwise") }
                 .chromeButtonStyle(glassLevel).controlSize(.small)
+                .chromeHover()
                 .disabled(disabled).help("Scan this folder again")
         }
     }
@@ -888,6 +891,7 @@ public struct TidyView: View {
                 Label("Apply \(batch.count) recommended", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isFindingDuplicates)
             .help("Moves the redundant copies of \(batch.count) byte-identical group\(batch.count == 1 ? "" : "s")"
@@ -905,6 +909,7 @@ public struct TidyView: View {
                 Label("Fix all \(risky.count)", systemImage: "checkmark.circle.fill")
             }
             .buttonStyle(.borderedProminent)
+            .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isNormalizingNames)
             .help("Renames "
@@ -940,6 +945,7 @@ public struct TidyView: View {
         }
         .chromeButtonStyle(glassLevel)
         .controlSize(.small)
+        .chromeHover()
         .help("Write a plain-words rule for where loose files belong")
     }
 
@@ -955,6 +961,7 @@ public struct TidyView: View {
             Label("Preview all", systemImage: AutomationsGlyph.preview)
         }
         .buttonStyle(.borderedProminent)
+        .chromeHover()
         .controlSize(.small)
         .disabled(runnableRuleCount == 0 || automationDestinationRoot == nil)
         // Name the ACTUAL blocker: with no provider root there is nothing to preview over, and
