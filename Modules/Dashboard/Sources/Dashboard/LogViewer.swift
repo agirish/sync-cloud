@@ -138,19 +138,13 @@ public struct LogViewer: View {
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
-    /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first). nil until the
-    /// user asks for history via "Show older history"; an empty array means the log holds nothing
-    /// older than this session. The window shows the live in-memory session by default; this backfills
+    /// Previous-session entries pulled from `~/sync-cloud.log` on demand (newest-first), and the
+    /// state of that fetch. The window shows the live in-memory session by default; this backfills
     /// the record that predates the current launch, in-window, without opening the file externally.
-    @State private var loadedHistory: [LogEntry]? = nil
-    /// How many of the (filtered) history entries are revealed — grows by ``historyPageSize`` per
-    /// "Show more" click.
-    @State private var historyLimit = LogViewer.historyPageSize
-    /// True while the file read/parse is in flight, so the button shows progress and can't double-fire.
-    @State private var isLoadingHistory = false
-    /// Bumped by Clear Logs so an in-flight history load parsed from the PRE-clear file
-    /// discards its result instead of resurrecting deleted rows over the reset state.
-    @State private var historyLoadGeneration = 0
+    /// Whether that history has been asked for, is being read, or is loaded — and, once loaded, how
+    /// much of it is revealed. See ``LogHistoryState``: this replaced four separate `@State` vars
+    /// that every path had to move in lockstep, two of whose combinations were meaningless.
+    @State private var history: LogHistoryState = .notLoaded
 
     /// Page size for the on-demand history: the first "Show older history" reveals this many, and each
     /// "Show more" reveals another page.
@@ -209,8 +203,9 @@ public struct LogViewer: View {
     /// just reveals further into the already-parsed array without re-reading.
     @MainActor
     private func loadHistory() {
-        guard !isLoadingHistory, loadedHistory == nil else { return }
-        isLoadingHistory = true
+        // Claiming the load IS the guard: `beginLoading` returns nil when a read is already in
+        // flight or the history is loaded, so the double-fire check cannot be forgotten.
+        guard let token = history.beginLoading() else { return }
         // Everything on disk older than this app session's start is prior-session history. Use the
         // fixed session-start timestamp, NOT `entries.first` — the memory cache is trimmed to the
         // newest N, so after a busy session `entries.first` drifts into the current session and
@@ -224,19 +219,15 @@ public struct LogViewer: View {
         let raw = logger.sessionStart.timeIntervalSinceReferenceDate
         let boundary = Date(timeIntervalSinceReferenceDate: (raw * 1000).rounded(.down) / 1000)
         let fileURL = logger.logFileURL
-        // Generation guard: Clear Logs mid-flight resets the history state, and a completion
-        // parsed from the PRE-clear file must not overwrite that reset — it would resurrect
-        // deleted rows AND (loadedHistory being non-nil again) hide the reload button for the
-        // window's lifetime.
-        let generation = historyLoadGeneration
+        // Token guard: Clear Logs mid-flight resets the state, and a completion parsed from the
+        // PRE-clear file must not overwrite that reset — it would resurrect deleted rows AND (by
+        // making the history non-nil again) hide the reload button for the window's lifetime.
+        // `finishLoading` applies the parse only while this token is still the one being awaited.
         Task {
-            let history = await Task.detached(priority: .userInitiated) {
+            let parsed = await Task.detached(priority: .userInitiated) {
                 LogHistoryLoader.loadOlderThan(boundary, fileURL: fileURL)
             }.value
-            guard generation == historyLoadGeneration else { return }
-            historyLimit = Self.historyPageSize
-            loadedHistory = history
-            isLoadingHistory = false
+            history.finishLoading(parsed, token: token, pageSize: Self.historyPageSize)
         }
     }
 
@@ -247,9 +238,9 @@ public struct LogViewer: View {
         let levelCounts = Self.thresholdCounts(logger.entries)
         // History respects the same Level/Search filters as the session; it's already newest-first, so
         // no reordering. `visibleHistory` is the revealed page; `moreHistory` gates the "Show more".
-        let historyMatches = loadedHistory.map { LogEntryFilter.matches($0, minimumLevel: selectedLevel, search: searchText) } ?? []
-        let visibleHistory = Array(historyMatches.prefix(historyLimit))
-        let moreHistory = historyMatches.count > historyLimit
+        let historyMatches = history.entries.map { LogEntryFilter.matches($0, minimumLevel: selectedLevel, search: searchText) } ?? []
+        let visibleHistory = Array(historyMatches.prefix(history.revealed))
+        let moreHistory = historyMatches.count > history.revealed
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
@@ -277,16 +268,13 @@ public struct LogViewer: View {
                 // Settings has its own Clear Logs door, and a reset wired to one button left
                 // the other door resurrecting deleted history rows. The on-disk file was
                 // truncated, so parsed history must drop (and the reload button reappear —
-                // it only renders while loadedHistory is nil); the generation bump makes any
-                // IN-FLIGHT load discard its pre-clear parse instead of overwriting the reset.
+                // it only renders while the history is unloaded); the reset also invalidates any
+                // IN-FLIGHT load's token, so its pre-clear parse is discarded instead of applied.
                 Button(action: { logger.clearLogs() }) {
                     Image(systemName: "trash")
                 }
                 .onReceive(NotificationCenter.default.publisher(for: Logger.didClearLogsNotification)) { _ in
-                    historyLoadGeneration += 1
-                    loadedHistory = nil
-                    historyLimit = Self.historyPageSize
-                    isLoadingHistory = false
+                    history.reset()
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -295,7 +283,7 @@ public struct LogViewer: View {
                 // history rows. Gating on `entries` alone left the button dead above a screenful of
                 // history whenever the session list was empty (a quiet session under an
                 // "Errors only" threshold is exactly that), with Settings ▸ Advanced the only way out.
-                .disabled(logger.entries.isEmpty && loadedHistory == nil)
+                .disabled(logger.entries.isEmpty && !history.isLoaded)
                 .help("Clear Logs")
 
                 Button(action: { logger.openLogFile() }) {
@@ -373,8 +361,8 @@ public struct LogViewer: View {
         .frame(minWidth: 380)
         // A new filter/search is a fresh view of history — collapse back to the first page so the
         // list doesn't stay expanded to hundreds of now-filtered rows.
-        .onChange(of: selectedLevel) { _, _ in historyLimit = Self.historyPageSize }
-        .onChange(of: searchText) { _, _ in historyLimit = Self.historyPageSize }
+        .onChange(of: selectedLevel) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
+        .onChange(of: searchText) { _, _ in history.resetRevealed(to: Self.historyPageSize) }
         // Drives the search field's reveal/hide transition (see above).
         .animation(.easeOut(duration: 0.14), value: isSearchExpanded)
         // Match the main window's glass: same level + hue background, so the Activity Log reads as
@@ -538,18 +526,18 @@ public struct LogViewer: View {
     /// a divider, the revealed history rows, and either "Show more" or an end-of-log note.
     @ViewBuilder
     private func historyFooter(visibleHistory: [LogEntry], moreAvailable: Bool) -> some View {
-        if let loadedHistory {
+        if let loadedEntries = history.entries {
             if !visibleHistory.isEmpty {
                 historyDivider
                 daySections(visibleHistory)
                 if moreAvailable {
                     historyActionButton("Show \(Self.historyPageSize) more", icon: "chevron.down") {
-                        historyLimit += Self.historyPageSize
+                        history.revealMore(by: Self.historyPageSize)
                     }
                 } else {
                     historyEndNote("No older entries — you're at the start of the log")
                 }
-            } else if loadedHistory.isEmpty {
+            } else if loadedEntries.isEmpty {
                 // Loaded, and the log holds nothing before this session.
                 historyEndNote("No earlier activity in the log")
             }
@@ -557,7 +545,7 @@ public struct LogViewer: View {
             // already explain the emptiness; no separate note needed.
         } else {
             historyActionButton("Show older history", icon: "clock.arrow.circlepath",
-                                 loading: isLoadingHistory) { loadHistory() }
+                                 loading: history.isLoading) { loadHistory() }
         }
     }
 
@@ -613,9 +601,9 @@ public struct LogViewer: View {
     /// template used elsewhere.
     @ViewBuilder
     private var emptyState: some View {
-        let hasRawEntries = !logger.entries.isEmpty || !(loadedHistory?.isEmpty ?? true)
+        let hasRawEntries = !logger.entries.isEmpty || !(history.entries?.isEmpty ?? true)
         // Rendered only from the no-visible-rows branch, so hasVisibleRows is false here.
-        switch LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: hasRawEntries, historyLoaded: loadedHistory != nil) {
+        switch LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: hasRawEntries, historyLoaded: history.isLoaded) {
         case .none:
             EmptyView()
         case .noMatches:

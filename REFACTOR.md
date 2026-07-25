@@ -159,7 +159,7 @@ reverses the user's previous action when the platform already dropped the empty 
 
 ---
 
-## 7. `LogViewer`'s history state — four variables that must move together
+## 7. ~~`LogViewer`'s history state — four variables that must move together~~ — **DONE**
 
 **Where:** `Modules/Dashboard/Sources/Dashboard/LogViewer.swift` (831 lines; ~29 references across
 `loadedHistory`, `historyLimit`, `isLoadingHistory`, `historyLoadGeneration`).
@@ -177,8 +177,17 @@ their filter also applies to revealed history.
 `.loaded(entries:limit:)`) so "loading with history already shown" and similar impossible pairings
 stop being representable. Contained, provable, and testable without a fixture.
 
-**Recommendation: do this one first**, independently of the rest — it is the only item here whose
-risk profile does not argue for waiting.
+**Status: landed.** `LogHistoryState` (Dashboard) replaced the four variables with one enum —
+`.notLoaded` / `.loading(token:)` / `.loaded(entries:revealed:)`. The load guard moved inside
+(`beginLoading` returns nil rather than the view checking a flag), and the generation counter became
+a per-load token, so identity belongs to the load instead of to a counter that had to be kept in
+step. 13 characterization tests were written from the OLD call sites before the migration, per this
+document's own prerequisite; the token guard is mutation-tested and reproduces the original shipped
+bug (deleted rows resurrected, reload button gone) when removed.
+
+Still open in that file, deliberately separate from the refactor: the severity chips count session
+entries only while their filter also applies to revealed history — a behaviour question, not a
+structural one.
 
 ---
 
