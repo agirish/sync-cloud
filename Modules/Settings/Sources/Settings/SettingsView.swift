@@ -1193,7 +1193,10 @@ struct TidySettingsTab: View {
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
     @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
-    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = "claude-haiku-4-5"
+    // Default from the protocol, not a repeated literal: the classifier and the spend preflight both
+    // fall back to `CloudFilingProtocol.defaultModel`, and a copy here would silently disagree with
+    // them the next time the default model moves.
+    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
     @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
 
