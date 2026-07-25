@@ -8,10 +8,15 @@ Distinct from `ROADMAP.md` (net-new features) and `DEFERRED_ENHANCEMENTS.md` (be
 consciously punted): this is **internal shape**, and the reason to schedule it against a major
 release is that every item touches code that runs against real cloud data.
 
-Compiled from the 2026-07-25 full-codebase review (8-agent fan-out at `88c46ab`; all findings fixed
-by `795599a`). The review found **no bugs** in any of these — they are flagged for how hard they are
-to reason about, which is a leading indicator, not a defect. Line numbers are approximate and as of
-`795599a`; prefer the function names.
+Items 1–7 were compiled from the 2026-07-25 full-codebase review (8-agent fan-out at `88c46ab`; all
+findings fixed by `795599a`). The review found **no bugs** in any of these — they are flagged for how
+hard they are to reason about, which is a leading indicator, not a defect. Line numbers are
+approximate and as of `795599a`; prefer the function names.
+
+Items 8–12 were added by a second sweep on 2026-07-25 (at `b7c8e4a`) that deliberately looked
+*outside* the file-operation core the first pass concentrated on — the app layer, the manager's
+own cross-cutting state, the Filing spend guardrail, the logging writer, and the duplicate finder.
+Same bar, same "no bugs found" caveat.
 
 ---
 
@@ -177,6 +182,182 @@ risk profile does not argue for waiting.
 
 ---
 
+## 8. The freshness family — six hand-rolled counters, three different disciplines
+
+**Where:** `Modules/Sync/Sources/Sync/FileSyncManager.swift:683-703` and `:940-1030`,
+`FileSyncManager+Scanning.swift:21` / `:187` / `:372`, `applyFilters` at `:1130`.
+
+**What interacts:** every async producer in the manager guards its publish with its own counter,
+and no two use the same rule:
+
+| Counter | Discipline | Failure it prevents |
+|---|---|---|
+| `scanConfigGeneration` (+ `RefreshKey.config`) | **dedupe key** — a bump makes a refresh *not* collapse into an in-flight one | a forced rescan swallowed as a duplicate |
+| `scanRequestGeneration` / `pendingScanRequest` | **queue-forward** — a re-queued request must stay OLDER than any scan that started while it waited | a drain clobbering a newer request |
+| `leftLoadGeneration` / `rightLoadGeneration` | **token match** — only the current load may clear its pane's spinner | a superseded load clearing a live spinner |
+| `rawTreeGeneration` | **discard on mismatch** | a stale off-main resort clobbering fresh trees |
+| `filterGeneration` / `lastPublishedFilterGeneration` | **monotonic publish gate** | an out-of-order filter pass publishing stale rows |
+| `publishedLeftTreeVersion` / `publishedRightTreeVersion` | **snapshot validity** — an off-main equality result is trusted only while nothing wrote that pane since | dead clicks from a needless List rebuild |
+
+A seventh lives in another module: `SettingsManager`'s `discoveryGeneration` /
+`lastPublishedDiscoveryGeneration` (`SettingsManager.swift:47-54`), whose doc comment says outright
+that it copies `applyFilters`' pattern. Copying a pattern by prose is the symptom.
+
+Around them sit two more staleness mechanisms that are *not* counters: `prefetchedTrees` (must be
+dropped by every filesystem mutator) and `activeFileOperationsCount` (a manual
+`preCountFileOperation` / `cancelPreCountedFileOperation` / unconditional-decrement balance the
+quit guard reads).
+
+**Why it is hard:** the vocabulary is uniform ("generation") but the semantics are not — one bump
+*forces* work, another *discards* it, a third *orders* it. `applyFilters`'s publish is the knot:
+it re-checks the generation, then reconciles its own detached result against live authoritative
+state (`rawDifferences`, `syncingDifferenceIds`) because the snapshot can be stale in ways the
+generation cannot see, then consults the two per-pane version counters to decide whether to trust
+its own off-main equality comparisons. Three staleness mechanisms, one function.
+
+**Risk if left:** low today, but this is what a new async producer has to get right, and there is
+no way to tell from the outside which of the six disciplines it should join. The cost already shows
+up as a house rule everybody must remember (`prepareForcedRescan` exists purely because
+`noteScanConfigChanged` is `internal`).
+
+**Shape of a fix:** name the three disciplines as distinct types (a `DedupeEpoch`, a
+`PublishToken`, a `SnapshotVersion`) instead of six bare `Int`s, so a producer picks a semantic
+rather than a variable. Do not merge counters that look alike — the point is to make the
+differences visible, not to hide them.
+
+---
+
+## 9. The provider-id suppression counter — a balance protocol across three files
+
+**Where:** `MacApp/ContentView.swift:44-50` (declaration), `:397-432` (the two `onChange`
+handlers), `:700-730` (swap + bootstrap guard), `:1005`; `MacApp/PaneLogic.swift:15-35`
+(`ProviderPinPlan.suppressCount`); `MacApp/DuplicateReviewCoordinator.swift:30-38` and
+`compareCopies`.
+
+**What interacts:** a counter of "provider-id `onChange` notifications still expected", the plan
+that decides how many writes will actually fire one, the seed-before-write ordering, a bootstrap
+guard that returns *without* decrementing, and — for every suppressed change — a hand-copied
+replay of the side effects the real handler would have run.
+
+**Why it is hard:** three separate things must agree and nothing checks them together.
+
+1. **The count must match reality.** `ProviderPinPlan` exists specifically so `assignments` and
+   `suppressCount` can't drift, and the seed must happen *before* any id is written. A write that
+   doesn't change the value fires no `onChange`, so a plan that included it would strand the
+   counter permanently — every subsequent genuine provider switch would be silently swallowed.
+2. **The bootstrap guard bails first**, without decrementing (documented at `:706`), so a swap
+   during discovery strands the counter the other way.
+3. **The suppressed side effects must be replayed by hand.** The real handler does six things
+   (`dispatchReview`, `clearDuplicates`, `clearFiling`, `clearAutomationDryRun`, the ignore-store
+   re-key, `resetNavigation`). `compareCopies` deliberately skips most of them and re-implements
+   exactly one — the ignore-store re-key — with a comment noting it is "the ONLY other place it
+   happens". Adding a new lens to the app means remembering to clear it in **two** near-identical
+   handlers, plus deciding, per suppressed path, whether the replay needs it too.
+
+**Risk if left:** medium. Nothing here is destructive — the failure mode is a stale lens result or
+a swallowed switch — but the two handlers are already near-identical copies, which is precisely
+the shape that lets a new lens be added to one and forgotten in the other.
+
+**Shape of a fix:** replace the counter with an explicit *reason* on the write —
+`setProviders(_:reason: .userSwitch | .paneSwap | .reviewPin | .bootstrap)` — and give each reason
+one handler that lists the side effects it runs. Suppression stops being a count that can drift
+and becomes a branch that can be read.
+
+---
+
+## 10. Filing's cloud spend guardrail — two enforcement points, three zero meanings
+
+**Where:** `Modules/Sync/Sources/Sync/FileSyncManager+Filing.swift:251-340` (gates, cap keys,
+`totalBudgetCap(in:)`, `cloudSpendAllows` at `:303`), `MacApp/CloudFilingClassifier.swift:45-63`
+(the second check), `Modules/Settings/Sources/Settings/SettingsView.swift:1200-1201`.
+
+**What interacts:** two independent booleans plus a stored Keychain key decide whether a cloud
+call is even possible (`filingUsesAI` × `filingUsesCloud` × key); a preflight builds an estimate
+and asks the user; and a **second, independent** cap check inside the classifier re-derives the
+same numbers as a belt-and-suspenders backstop. Zero means three different things: monthly `0` =
+unlimited, total *absent* = the shipped $5 default, total explicit `0` = off.
+
+**Why it is hard:** the same decision is expressed twice, in two modules, from two call sites that
+must read the **same** `UserDefaults` domain — a requirement learned the hard way and now recorded
+in the code as a comment ("Spend and caps must come from the SAME store … reading the spend from
+the hard-coded default while the caps honoured the injectable one meant only a test could tell
+them apart"). On top of that, `defaultTotalBudgetCapUSD` is duplicated as the Settings picker's
+`@AppStorage` default, so the shipped cap lives in two places; only `FilingSpendBudgetTests` pins
+that they agree.
+
+**Risk if left:** the failure mode is money, not data — a drift between the two checks either
+blocks a paid feature the user enabled or lets spend past a cap they set. Both are the kind of bug
+that surfaces on someone's bill rather than in a test.
+
+**Shape of a fix:** one `FilingSpendGuard` value that owns the cap semantics (including the
+absent-vs-explicit-zero rule), constructed once from a store and consulted by both the preflight
+and the classifier, so "may this call run?" has exactly one implementation and the $5 default
+exactly one definition.
+
+---
+
+## 11. `LogFileWriter`'s file lifecycle — a cross-process protocol held together by comments
+
+**Where:** `Modules/Events/Sources/Events/Logger.swift:410-584` (`LogFileWriter`), with the line
+format contract at `:104-134` (`formattedString` / `parse`).
+
+**What interacts:** an open file handle plus an inode-identity check on every append (the path can
+be *replaced* out from under it), an `flock` sidecar serializing trims **across two processes**
+(the app and the `synccloud` CLI share `~/sync-cloud.log`), a close-trim-reopen ordering that must
+hold or every subsequent line lands in an orphaned inode, a byte-counter trim cadence, a
+`clear()` that truncates rather than rewrites (to keep the handle valid), and a fallback path that
+rewrites the entire file per line when the handle can't be opened.
+
+**Why it is hard:** it is a small state machine over an external resource that a *second process*
+is mutating, and each rule exists to patch an interaction with another: the identity check exists
+because trims replace the inode; the trim runs under a lock because two trims race; the size stat
+is re-taken *inside* the lock because the winner may already have trimmed. The residual is already
+documented as accepted (appends are not under the lock, so one in-flight line can be lost) — which
+is the right call, and exactly the kind of decision that needs to stay legible.
+
+**Second mechanism on top:** the single-line format is a contract between four readers —
+`formattedString` (disk), `parse` (Activity Log history), the clipboard Copy action (must match
+the file byte-for-byte), and `LogGrouping.keyFormatter` (whose locale/calendar pinning must match,
+or parsed history is mis-dated). Nothing but prose ties them together.
+
+**Risk if left:** low for data (nobody's files are at stake), but a silent one — a broken writer
+loses the breadcrumb trail exactly when a crash makes it valuable, and the tests would still pass
+in-process.
+
+**Shape of a fix:** model the handle as an explicit `.closed / .open(inode:) / .trimming` state
+with every transition going through one method, and make the line format a single type that owns
+both directions (render + parse) so a round-trip test is the only place the shape is written down.
+
+---
+
+## 12. `DuplicateFinder`'s reclaim rule, restated six times
+
+**Where:** `Modules/Sync/Sources/Sync/DuplicateFinder.swift` — construction sites at `:512`,
+`:566`, `:584`, `:614`, `:725`; re-derivations in `DuplicateGroup.choosingKeeper` (`:168`) and
+`DuplicateGroup.reclaim(after:)` (`:220`).
+
+**What interacts:** "how many bytes does resolving this group actually reclaim?" is answered
+per match type at five construction sites inside `findGroups`, and then answered *again* — from
+the group's public surface, without the content hashes — whenever a keeper is changed or a copy is
+resolved out of band by the Compare review. The second answer is an admitted approximation for
+overlapping groups (the per-copy shared fraction isn't retained, so the group average stands in).
+
+**Second, subtler rule:** unknown-content placeholders (`unknownSignature`, `:299-311`) must never
+count as evidence that two items are identical **nor** that they differ. That rule has to hold in
+grouping, in folder-signature composition, in the overlap fraction, in the `unverified` flag, and
+in `DuplicateScanSkips` — five places, enforced by nothing.
+
+**Why it is different from the others here:** the stakes are display numbers, not files — a wrong
+reclaim figure misleads, it doesn't delete. It earns a place because a **sixth match type** (the
+obvious next feature) means finding all six sites, and because `removingRedundantCopy` is on the
+path the Compare duplicate review drives, where the surrounding operations *are* destructive.
+
+**Shape of a fix:** one `reclaimableBytes(matchType:copies:)` function that every site calls,
+taking the shared fraction as an explicit parameter so the approximation is visible at the call
+site rather than buried in a doc comment.
+
+---
+
 ## Skipped — long, but not entangled
 
 Recorded so they are not re-flagged by a future review:
@@ -186,6 +367,10 @@ Recorded so they are not re-flagged by a future review:
 | `Modules/FileExplorer/.../TidyView.swift` | 1576 | Five independent lenses in one document. Tedious to navigate, but the lenses do not interact. |
 | `Modules/FileExplorer/.../DifferencesView.swift` | 1496 | Header compaction ladder + review mode + search + table. The genuinely coupled part (the collapse rule) was already extracted to `DifferencesView.isCollapsedToHeaderStrip` in `517b1f0`. |
 | `Modules/Design/.../LiquidGlassStyle.swift` | 889 | Mostly sprawl — hue table, `GlassLevel`, Clear-glass constants, card modifiers. **Partial exception:** four near-identical card modifiers whose clip/chrome *ordering* differs per path. Worth a look if anyone is in there anyway; not worth a dedicated pass. |
+| `MacApp/ContentView.swift` | 1650 | Audited in the second sweep. The genuinely coupled part is item 9 (the suppression counter); the rest is composition — layout modifiers, `.onChange` mirrors of Settings, sheet/inspector plumbing — already thinned by `ContentView+SplitLayout`, `ContentView+Toolbar`, `PaneLogic`, `CompareReviewReducer`, and `DuplicateReviewCoordinator`. Splitting further buys nothing item 9 doesn't. |
+| `Modules/Settings/.../SettingsView.swift` | 1584 | Six independent tabs plus `SettingsSearchIndex`, which restates every control's on-screen label ("the single place to keep in sync when a control is added"). The duplication is real, but it is **pinned by `SettingsSearchTests`** rather than by a comment — enforced agreement is the bar, and it clears it. |
+| `Modules/Sync/.../FileSyncManager.swift` | 1581 | Six lens subsystems (Sync, Tidy, Storage, Names, Filing, Automations) on one `@MainActor` object, but each already lives in its own `FileSyncManager+*.swift` and touches its own `@Published` set. The parts that genuinely cross the lenses — the freshness counters, `prefetchedTrees`, `activeFileOperationsCount` — are item 8. What's left is stacking. |
+| `Modules/Sync/.../FilingEngine.swift` | 797 | Pure and deterministic (no disk reads, no network) — candidates carry their own confidence plus source flags, and each producer is independent. **Partial exception:** the cap `fromContent ? .medium : .high` is written out at three producer sites; if a fourth signal source lands, fold that rule into one place first. |
 
 ---
 
