@@ -292,11 +292,7 @@ public struct LogViewer: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
-            // Accent glass tile with white on-fill content, like the dashboard tiles — replaces the
-            // white frosted bar the header used to be.
-            .foregroundStyle(onHueAccent)
-            .tint(onHueAccent)
-            .accentGlassTile(hueAccent, cornerRadius: LiquidGlass.smallCornerRadius)
+            .glassBarStyle(level: glassLevel)
 
             Divider()
                 .opacity(0.6)
@@ -347,9 +343,7 @@ public struct LogViewer: View {
                 }
             }
             .padding(12)
-            .foregroundStyle(onHueAccent)
-            .tint(onHueAccent)
-            .accentGlassTile(hueAccent, cornerRadius: LiquidGlass.smallCornerRadius)
+            .glassBarStyle(level: glassLevel)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             
@@ -369,10 +363,7 @@ public struct LogViewer: View {
                 }
                 .padding(16)
             }
-            // A faint accent wash instead of a white material slab, so the log list reads as an
-            // accent-tinted translucent surface over the window glass (like the dashboard tiles)
-            // rather than a bright white patch.
-            .background(hueAccent.opacity(0.05))
+            .background(.regularMaterial.opacity(0.5))
         }
         .frame(minWidth: 380)
         // A new filter/search is a fresh view of history — collapse back to the first page so the
