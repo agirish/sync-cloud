@@ -90,7 +90,8 @@ import Events
     }
 
     /// The compact-density twin of `logRowsAllSeverities`: the same four entries collapsed to
-    /// one truncating baseline row each, and — deliberately — NO dimmed `Location:` tail on
+    /// one baseline row each (these four all fit; a message too long for the width wraps rather
+    /// than truncating — see `LogRowWrapTests`), and — deliberately — NO dimmed `Location:` tail on
     /// the error row (compact drops the developer breadcrumb; it survives in the log file and
     /// in Copy). Pins the H7 single-line collapse against silent regression.
     @Test func logRowsAllSeveritiesCompact() {

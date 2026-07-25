@@ -639,7 +639,8 @@ struct LogEntryRow: View {
     /// List-density setting (H7), passed down by the parent (which already reads the defaults
     /// key) instead of a per-row `@AppStorage` — one storage observer per window, not per row.
     /// Comfortable keeps the two-line pill/time-over-message layout exactly; compact collapses
-    /// to a single truncating baseline row and drops the Location tail.
+    /// to one baseline row and drops the Location tail. Neither truncates: a message too long
+    /// for the window wraps in both densities.
     var density: ListDensity = .comfortable
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
@@ -653,13 +654,21 @@ struct LogEntryRow: View {
                 .padding(.top, 2)
 
             if density == .compact {
-                // One baseline row: pill, time, then the message truncating — the scanning eye
-                // gets a column of aligned messages instead of two-line blocks.
+                // One baseline row: pill, time, then the message — the scanning eye gets a column
+                // of aligned messages instead of two-line blocks.
+                //
+                // The message WRAPS rather than truncating. Compact used to clamp it to
+                // `lineLimit(1)`, which held "one row per entry" at the cost of hiding the end of
+                // every long line — and a log's long lines are its paths and failure reasons, the
+                // things this window exists to show. Narrowing the window silently ellipsised them
+                // with no way to read the rest short of widening again. Short entries (nearly all
+                // of them) still occupy exactly one line, so the density is unchanged in practice;
+                // only a line too long for the window now costs a second row instead of its tail.
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     levelPill
                     timeText
                     messageText
-                        .lineLimit(1)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
