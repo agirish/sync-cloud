@@ -83,7 +83,7 @@ extension ContentView {
                 .padding(.trailing, 4)
 
             if selectionNodes.count == 1, selectionNodes[0].isDirectory {
-                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent, isPrimary: true) {
+                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent) {
                     actionHandler?.focusFolder(selectionNodes[0], isLeft: isLeft,
                                                leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
@@ -130,22 +130,30 @@ extension ContentView {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// One button in the pane action bar: solid accent chrome with a white label — the same look as
-    /// the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes red.
+    /// One button in the pane action bar — the same `ActionBarButtonStyle` the differences header
+    /// uses, at `.primary`. It used to be a private lookalike (`PaneActionButton`) with its own
+    /// capsule, metrics and fill, which is how the two drifted: `ActionBarWeight.primary` fills at
+    /// opacity 1, the lookalike filled at 0.9 while resting, and `AccentFill` leaves NO headroom for
+    /// that — the deepened colour sits exactly on the 4.55:1 ceiling, so any alpha below 1 composites
+    /// the surface behind it back in and puts the white label under the floor. One implementation
+    /// now, so the fill rule can only be stated once.
     ///
-    /// The fill is DEEPENED (`AccentFill`) rather than the raw accent, and that is what earns the
-    /// white label: these pills are ~90% opaque, so on Amber or Cyan white text sat at ~2.2:1. The
-    /// destructive red needs no deepening — it already carries white — but goes through the same call
-    /// so there is one rule here instead of a special case.
-    @ViewBuilder
+    /// `isPrimary` is gone with it: `.primary` carries no resting hairline (a stroke on a
+    /// full-strength fill only muddies its edge), and Compare's leading position already reads as
+    /// the headline.
+    ///
+    /// The destructive red needs no deepening — it already carries white — but goes through the same
+    /// call so there is one rule here instead of a special case.
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
-                                 isPrimary: Bool = false, role: ButtonRole? = nil,
+                                 role: ButtonRole? = nil,
                                  action: @escaping () -> Void) -> some View {
         let isDestructive = role == .destructive
-        PaneActionButton(title: title, systemImage: systemImage,
-                         tint: AccentFill.deepened(isDestructive ? .red : accent),
-                         onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor,
-                         isPrimary: isPrimary, role: role, action: action)
+        return Button(role: role, action: action) {
+            Label(title, systemImage: systemImage)
+        }
+        .buttonStyle(.actionBar(.primary,
+                                tint: AccentFill.deepened(isDestructive ? .red : accent),
+                                onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
     }
 
     /// The primary tabs — a boxed segmented control. It rides the toolbar's leading region, which
@@ -241,61 +249,5 @@ extension ContentView {
             }
             .help("Settings")
         }
-    }
-}
-
-/// A single pill in the pane action bar: a solid accent (or red, for Delete) capsule with an
-/// on-fill label — the differences header's prominent-button look. Split out of the `ContentView`
-/// extension because it needs its own `@State` for the hover brightening.
-private struct PaneActionButton: View {
-    let title: String
-    let systemImage: String
-    /// The pill's fill (app hue, or red for the destructive Delete).
-    let tint: Color
-    /// The label color paired to `tint` by the caller (via `LiquidGlassHue.onAccentLabelColor`).
-    /// Passed in rather than assumed white: the light hues need dark text to stay legible, and this
-    /// view can't see the hue to work that out for itself.
-    let onTint: Color
-    /// The headline action (Compare): a white hairline so it reads first among equals.
-    var isPrimary: Bool = false
-    var role: ButtonRole? = nil
-    let action: () -> Void
-
-    var body: some View {
-        Button(role: role, action: action) {
-            PaneActionButtonLabel(title: title, systemImage: systemImage,
-                                  tint: tint, onTint: onTint, isPrimary: isPrimary)
-        }
-        .buttonStyle(.hoverAffordance(.filled, tint: tint))
-    }
-}
-
-/// The pill's face. A separate `View` so it can read the enclosing hover-affordance button's
-/// phase — the fill's 0.9→1.0 lift used to be driven by this pill's own `@State` + `onHover`,
-/// which was the app's single hand-rolled hover state.
-private struct PaneActionButtonLabel: View {
-    let title: String
-    let systemImage: String
-    let tint: Color
-    let onTint: Color
-    let isPrimary: Bool
-
-    @Environment(\.hoverAffordancePhase) private var phase
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 13, weight: .medium))
-            Text(title)
-                .font(.system(size: 12, weight: .medium))
-        }
-        .foregroundStyle(onTint)
-        .padding(.horizontal, 12)
-        .frame(height: 28)
-        .background(Capsule().fill(tint.opacity(phase.isEngaged ? 1.0 : 0.9)))
-        // The primary hairline is the label color too, not a flat white — on a light hue a
-        // white ring on a near-white fill is invisible, which is the same bug as the label.
-        .overlay(Capsule().strokeBorder(onTint.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
-        .contentShape(Capsule())
     }
 }
