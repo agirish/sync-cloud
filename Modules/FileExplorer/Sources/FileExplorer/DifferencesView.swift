@@ -158,18 +158,22 @@ public struct DifferencesView: View {
         return VStack(spacing: 0) {
             // Toolbar card: tabs · count · filter · actions · search.
             VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    if collapsed {
-                        // Collapsed to a thin bar: only the differences count (left) and the
-                        // expand chevron (right). Filter, Review, the Copy buttons and search are
-                        // all withheld until the pane is opened again.
+                if collapsed {
+                    // Collapsed to a thin bar: only the differences count (left) and the
+                    // expand chevron (right). Filter, Review, the Copy buttons and search are
+                    // all withheld until the pane is opened again.
+                    HStack(spacing: 10) {
                         collapsedHeader
-                    } else if let session = reviewStore.session {
-                        reviewHeaderControls(session)
-                    } else {
-                        standardHeaderControls(targets: targets, sorted: sorted)
+                        collapseToggle
                     }
-                    collapseToggle
+                } else if let session = reviewStore.session {
+                    // No collapse toggle: `collapseToggle` withholds itself during a review, and
+                    // this branch is the only one that runs then.
+                    HStack(spacing: 10) { reviewHeaderControls(session) }
+                } else {
+                    // Owns its own row — it is a ViewThatFits over the whole zoned bar, so the
+                    // trailing view controls have to be inside it to be shed against.
+                    standardHeader(targets: targets, sorted: sorted)
                 }
                 if reviewStore.session == nil, !collapsed, isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
@@ -335,11 +339,65 @@ public struct DifferencesView: View {
         }
     }
 
-    @ViewBuilder
-    private func standardHeaderControls(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
-        // The count pill is a toggle for the per-side item totals: click to reveal them inline,
-        // click again to collapse. No-op until a scan has run (nothing meaningful to show) —
-        // so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
+    /// The standard (non-review) header, in four zones separated by hairlines:
+    ///
+    ///     [ state ] │ [ scope ] ————— [ actions ] │ [ view ]
+    ///
+    /// A control's zone is decided by the question it answers — what did the scan find, what am I
+    /// acting on, do what, show me what — not by when it was added. Two consequences worth naming:
+    /// the selection chip lives in *scope* beside the filter rather than in the action run where it
+    /// read as a fourth button, and the search and collapse controls sit behind a hairline because
+    /// they change nothing on disk.
+    ///
+    /// `ViewThatFits` picks the widest row that fits; see `HeaderCompaction` for the ladder. The
+    /// gap between the scope and action zones states a `minLength` so the seam stays visible on a
+    /// full row — not to make the ladder work, which it does with a bare `Spacer()` too: a Spacer's
+    /// ideal width is its minLength, so a candidate row reports a finite width to compare against
+    /// despite being infinitely flexible afterwards. `ActionBarLadderTests` pins that behaviour,
+    /// since the intuition runs the other way and a regression there would clip instead of shed.
+    private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
+        ViewThatFits(in: .horizontal) {
+            standardHeaderRow(.full, targets: targets, sorted: sorted)
+            standardHeaderRow(.foldVerify, targets: targets, sorted: sorted)
+            standardHeaderRow(.foldReview, targets: targets, sorted: sorted)
+            standardHeaderRow(.shortReverse, targets: targets, sorted: sorted)
+            standardHeaderRow(.glyphFilter, targets: targets, sorted: sorted)
+            standardHeaderRow(.shortPrimary, targets: targets, sorted: sorted)
+        }
+    }
+
+    private func standardHeaderRow(_ compaction: HeaderCompaction,
+                                   targets: DifferenceActionTargets,
+                                   sorted: [FileDifference]) -> some View {
+        HStack(spacing: 10) {
+            countPillToggle                                     // STATE
+            itemCountsReadout
+            ActionBarDivider()
+            filterMenu(compaction)                              // SCOPE
+            selectionChip(targets)
+            Spacer(minLength: 16)
+            overflowMenu(compaction, targets: targets, sorted: sorted)   // ACTIONS
+            if compaction < .foldVerify { verifyButton(targets) }
+            if compaction < .foldReview { reviewButton(targets, sorted: sorted) }
+            reverseTransferButton(compaction, targets: targets)
+            primaryTransferButton(compaction, targets: targets)
+            ActionBarDivider()
+            ExpandingSearchToggle(                              // VIEW
+                text: $searchText,
+                isExpanded: $isSearchExpanded,
+                accent: glassHue.accentColor,
+                help: "Search by name or path"
+            )
+            collapseToggle
+        }
+    }
+
+    // MARK: Header — state zone
+
+    /// The count pill is a toggle for the per-side item totals: click to reveal them inline,
+    /// click again to collapse. No-op until a scan has run (nothing meaningful to show) —
+    /// so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
+    private var countPillToggle: some View {
         Button {
             guard syncManager.hasScanned else { return }
             withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
@@ -347,12 +405,16 @@ public struct DifferencesView: View {
             StatPill(
                 count: syncManager.differences.count,
                 label: "Differences",
-                color: SemanticColor.warning,
+                // Accent capsule, semantics in the dot — the freshness pill's rule (see
+                // `StatPill.statusColor`). Painting this one amber made it the only non-accent
+                // surface on the bar, and put a second colour system into a 44pt strip.
+                color: glassHue.accentColor,
                 systemImage: "exclamationmark.triangle",
                 // Totals expand to the pill's right and collapse back left; the chevron
                 // points the way the next click will send them, and is withheld pre-scan
                 // (CountPillChevron owns both rules).
-                trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts)
+                trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts),
+                statusColor: SemanticColor.warning
             )
             .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }
@@ -383,8 +445,13 @@ public struct DifferencesView: View {
         // ride on the button so VoiceOver conveys the toggle state and what a click does.
         .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
         .accessibilityHint(syncManager.hasScanned ? "Shows or hides the per-side item totals" : "")
-        // Revealed on demand; `hasScanned` keeps it from ever reading "0 · 0" pre-scan, and the
-        // pill's `.help` still spells out the full text on hover when this truncates.
+    }
+
+    /// The per-side totals the count pill reveals. `hasScanned` keeps it from ever reading
+    /// "0 · 0" pre-scan, and the pill's `.help` still spells out the full text on hover when
+    /// this truncates.
+    @ViewBuilder
+    private var itemCountsReadout: some View {
         if syncManager.hasScanned, showItemCounts {
             Text("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
                 .font(.caption)
@@ -394,8 +461,15 @@ public struct DifferencesView: View {
                 .truncationMode(.tail)
                 .transition(.opacity)
         }
-        Spacer()
-        Menu {
+    }
+
+    // MARK: Header — scope zone
+
+    /// The filter. Drops to its glyph at `.glyphFilter`: the active filter stays checked in the
+    /// menu's own column, so the name is one click away rather than gone.
+    private func filterMenu(_ compaction: HeaderCompaction) -> some View {
+        let name = selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right)
+        return Menu {
             // Per-filter counts come from the DisplayRows cache: they're tallied in the same
             // detached rebuild as the rows, so the header renders that recur per file during a
             // bulk sync read six cached Ints instead of re-tallying O(differences). (A Menu's
@@ -416,98 +490,191 @@ public struct DifferencesView: View {
             .pickerStyle(.inline)
             .labelsHidden()
         } label: {
-            // Uncapped provider names can be long; truncate instead of forcing the
-            // full width (fixedSize) and clipping the header on narrow windows.
-            Label(
-                selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
-                systemImage: "line.3.horizontal.decrease.circle"
-            )
-            .lineLimit(1)
-            .truncationMode(.middle)
+            if compaction < .glyphFilter {
+                // Uncapped provider names can be long; truncate instead of forcing the
+                // full width (fixedSize) and clipping the header on narrow windows.
+                HStack(spacing: 6) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Text(name).lineLimit(1).truncationMode(.middle)
+                    // The system indicator is hidden below so the glyph-only form stays a circle;
+                    // the full form draws its own, matching the count pill's trailing chevron.
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+            } else {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+            }
         }
+        .menuStyle(.button)
+        .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                onTint: glassHue.onAccentLabelColor,
+                                iconOnly: compaction >= .glyphFilter))
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Filter the list — showing \(name)")
+    }
+
+    /// The selection chip lives beside the filter, not in the action run: both answer "acting on
+    /// what?", and in the action run it read as a fourth button.
+    @ViewBuilder
+    private func selectionChip(_ targets: DifferenceActionTargets) -> some View {
         if targets.isSelectionScoped {
             Button {
                 selection.removeAll()
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     Text("\(targets.targets.count) selected")
                     Image(systemName: "xmark.circle.fill")
                 }
-                .font(.subheadline)
-                .padding(.horizontal, 6).padding(.vertical, 1)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
-            .foregroundStyle(.secondary)
+            .buttonStyle(.actionBar(.quiet, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor))
             .help("Clear selection")
         }
+    }
+
+    // MARK: Header — action zone
+
+    /// The overflow, present only once the row has actually folded something into it.
+    ///
+    /// A permanently visible ⋯ is a control that does nothing at full width; one that appears as
+    /// the window narrows appears exactly when it has contents. It holds only what the row shed —
+    /// it is an overflow, not a second home for actions that already have a button.
+    @ViewBuilder
+    private func overflowMenu(_ compaction: HeaderCompaction,
+                              targets: DifferenceActionTargets,
+                              sorted: [FileDifference]) -> some View {
+        let foldedReview = compaction >= .foldReview && !targets.targets.isEmpty
+        let foldedVerify = compaction >= .foldVerify && targets.verifiableCount > 0
+        if foldedReview || foldedVerify {
+            Menu {
+                if foldedReview {
+                    Button { startReview(targets: targets, sorted: sorted) } label: {
+                        Label(reviewTitle(targets), systemImage: "checklist")
+                    }
+                    .disabled(isSyncActionBlocked)
+                }
+                if foldedVerify {
+                    Button { verify(targets: targets) } label: {
+                        Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
+                    }
+                    .disabled(isSyncActionBlocked)
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor, iconOnly: true))
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More actions")
+        }
+    }
+
+    private func reviewTitle(_ targets: DifferenceActionTargets) -> String {
+        targets.isSelectionScoped ? "Review \(targets.targets.count)" : "Review"
+    }
+
+    @ViewBuilder
+    private func reviewButton(_ targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
         if !targets.targets.isEmpty {
             Button {
                 startReview(targets: targets, sorted: sorted)
             } label: {
-                Label(targets.isSelectionScoped ? "Review \(targets.targets.count)…" : "Review…", systemImage: "checklist")
-                    .lineLimit(1)
+                // No ellipsis: it is macOS shorthand for "opens a dialog", and this starts an
+                // inline review in the pane below.
+                Label(reviewTitle(targets), systemImage: "checklist")
             }
-            .chromeButtonStyle(glassLevel)
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor))
             .disabled(isSyncActionBlocked)
             .help("Step through each difference one at a time — hold ⇧ or ⌘ to move instead of copy")
         }
-        if targets.copyToRightCount > 0 {
-            Button {
-                copy(direction: .copyToRight, targets: targets)
-            } label: {
-                Label(
-                    actionLabel(count: targets.copyToRightCount, to: paneNames.right),
-                    // Shares the toolbar/menu copy/move vocabulary (TransferGlyph). The button
-                    // doubles as Move when the modifier is held, so its icon follows suit:
-                    // the directional move box (pointing at the target pane) vs. the copy glyph.
-                    systemImage: modifierTracker.isMoveModifierPressed ? TransferGlyph.move(toRight: true) : TransferGlyph.copy
-                )
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            // The dominant direction reads as THE primary action; the smaller one drops to
-            // bordered so a 559-vs-17 split shows in visual weight (ties keep both prominent).
-            .bulkActionProminence(targets.dominantCopyDirection != .copyToLeft, level: glassLevel)
-            .disabled(isSyncActionBlocked)
-        }
-        if targets.copyToLeftCount > 0 {
-            Button {
-                copy(direction: .copyToLeft, targets: targets)
-            } label: {
-                Label(
-                    actionLabel(count: targets.copyToLeftCount, to: paneNames.left),
-                    systemImage: modifierTracker.isMoveModifierPressed ? TransferGlyph.move(toRight: false) : TransferGlyph.copy
-                )
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .bulkActionProminence(targets.dominantCopyDirection != .copyToRight, level: glassLevel)
-            .disabled(isSyncActionBlocked)
-        }
+    }
+
+    @ViewBuilder
+    private func verifyButton(_ targets: DifferenceActionTargets) -> some View {
         if targets.verifiableCount > 0 {
             Button {
                 verify(targets: targets)
             } label: {
                 Label("Verify \(targets.verifiableCount)", systemImage: "checkmark.shield")
             }
-            .chromeButtonStyle(glassLevel)
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor))
             .disabled(isSyncActionBlocked)
             // Same explanation as the review card's Verify, scoped to what the bulk run
             // actually covers: only date-only differences whose sizes match are checksummed.
             .help("Checksum both sides of each same-size, date-only difference to confirm whether the contents actually differ")
         }
-        // Search collapses to an icon; clicking it reveals the field on a second line, which
-        // takes focus itself on appear. Both halves are Design's now — Tidy's five lenses drive
-        // the same two views, so the expand/collapse/Escape behaviour can't drift copy by copy.
-        ExpandingSearchToggle(
-            text: $searchText,
-            isExpanded: $isSearchExpanded,
-            accent: glassHue.accentColor,
-            help: "Search by name or path"
-        )
+    }
+
+    /// The reverse transfer, drawn BEFORE the primary so the two buttons sit in the same order as
+    /// the panes they target — the header used to render right-then-left, putting "to Dropbox"
+    /// (the right pane) to the left of "to iCloud" (the left pane).
+    @ViewBuilder
+    private func reverseTransferButton(_ compaction: HeaderCompaction,
+                                       targets: DifferenceActionTargets) -> some View {
+        if targets.copyToLeftCount > 0 {
+            transferButton(
+                direction: .copyToLeft,
+                count: targets.copyToLeftCount,
+                destination: paneNames.left,
+                // `dominantCopyDirection` no longer decides which button is prominent — the layout
+                // does. It answers a smaller question now: is the quiet direction actually the bulk
+                // of the work, and therefore the thing this row must not swallow?
+                namesDestination: BulkActionLabel.reverseNamesDestination(
+                    reverseIsMajority: targets.dominantCopyDirection == .copyToLeft,
+                    compaction: compaction),
+                // A lone action takes the fill whichever way it points: the fixed direction decides
+                // which of TWO buttons is primary, not whether a bar gets a primary at all.
+                weight: targets.copyToRightCount > 0 ? .quiet : .primary,
+                targets: targets)
+        }
+    }
+
+    /// The primary. Always left-to-right, whatever the counts say — see `TransferGlyph`'s type doc
+    /// and the header doc above. A copy overwrites files at its destination; which way the biggest
+    /// button on the bar sends them should not change between two scans you didn't act on.
+    @ViewBuilder
+    private func primaryTransferButton(_ compaction: HeaderCompaction,
+                                       targets: DifferenceActionTargets) -> some View {
+        if targets.copyToRightCount > 0 {
+            transferButton(
+                direction: .copyToRight,
+                count: targets.copyToRightCount,
+                destination: paneNames.right,
+                namesDestination: BulkActionLabel.primaryNamesDestination(compaction: compaction),
+                weight: .primary,
+                targets: targets)
+        }
+    }
+
+    private func transferButton(direction: FileDifference.SyncAction,
+                                count: Int,
+                                destination: String,
+                                namesDestination: Bool,
+                                weight: ActionBarWeight,
+                                targets: DifferenceActionTargets) -> some View {
+        let isMove = modifierTracker.isMoveModifierPressed
+        let toRight = direction == .copyToRight
+        return Button {
+            copy(direction: direction, targets: targets)
+        } label: {
+            Label(
+                BulkActionLabel.text(count: count,
+                                     destination: namesDestination ? destination : nil,
+                                     isMove: isMove),
+                // Direction is fixed for this button, so it belongs in the icon: a bare arrow for
+                // copy, the boxed arrow for move, both pointing at the target pane.
+                systemImage: isMove ? TransferGlyph.move(toRight: toRight) : TransferGlyph.copy(toRight: toRight)
+            )
+        }
+        .buttonStyle(.actionBar(weight, tint: glassHue.accentColor,
+                                onTint: glassHue.onAccentLabelColor))
+        .disabled(isSyncActionBlocked)
+        // The label may shed the destination; the tooltip never does, and it always names the verb.
+        .help(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
     }
 
     /// The header's review-mode trailing controls: position pill, running tally, and the
@@ -547,8 +714,8 @@ public struct DifferencesView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .chromeButtonStyle(glassLevel)
-            .chromeHover(tint: glassHue.accentColor)
+            .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                    onTint: glassHue.onAccentLabelColor))
             // Gated while the current item's copy runs: that item is still undecided (in
             // `pending`), so handing the remainder to syncAll now would target it twice.
             .disabled(reviewStore.isActing || isSyncActionBlocked)
@@ -559,8 +726,8 @@ public struct DifferencesView: View {
         } label: {
             Label("Exit Review", systemImage: "xmark.circle")
         }
-        .chromeButtonStyle(glassLevel)
-        .chromeHover(tint: glassHue.accentColor)
+        .buttonStyle(.actionBar(.outline, tint: glassHue.accentColor,
+                                onTint: glassHue.onAccentLabelColor))
         .help("Stop reviewing (esc)")
     }
 
@@ -929,11 +1096,6 @@ public struct DifferencesView: View {
             .map { (label: $0.label, raw: $0.raw) }
     }
 
-    /// The Copy/Move button label, reflecting the target count and the held move modifier.
-    private func actionLabel(count: Int, to name: String) -> String {
-        "\(modifierTracker.isMoveModifierPressed ? "Move" : "Copy") \(count) to \(name)"
-    }
-
     // MARK: Header actions
 
     /// Fires a header Copy/Move on the current action targets (selection when any, else the
@@ -1281,20 +1443,3 @@ private struct DifferenceDirectionCell: View {
     }
 }
 
-/// The two directional bulk buttons no longer compete at equal weight: `prominent` follows
-/// `DifferenceActionTargets.dominantCopyDirection`. A plain ternary can't switch between the
-/// two `PrimitiveButtonStyle` types, hence the builder.
-private extension View {
-    @ViewBuilder
-    func bulkActionProminence(_ prominent: Bool, level: GlassLevel) -> some View {
-        if prominent {
-            buttonStyle(.borderedProminent).chromeHover()
-        } else {
-            // The demoted direction still has to read as a control on its card — at Clear a
-            // plain bordered fill all but vanishes over the desktop, which turned a bulk copy
-            // action invisible. `chromeButtonStyle` is bordered everywhere else, so the
-            // dominant/secondary weight contrast survives at every level.
-            chromeButtonStyle(level).chromeHover()
-        }
-    }
-}

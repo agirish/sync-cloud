@@ -196,4 +196,51 @@ import Testing
             size: CGSize(width: 320, height: 150),
             named: "lens-card")
     }
+
+    // MARK: Action bar
+
+    /// The three action-bar weights side by side with the divider that separates their zones —
+    /// the ladder a reader has to be able to see at a glance, since "one filled capsule per bar"
+    /// only means anything if filled, tinted and outline are visibly three steps.
+    ///
+    /// Unlike the glass chrome above, this renders faithfully offscreen: every weight is drawn
+    /// from a fill and a hairline we own rather than from a system material, which is the same
+    /// property that keeps it from graying out when the app isn't frontmost
+    /// (`ActionBarFocusIndependenceTests`).
+    @Test func actionBarWeights() {
+        assertViewSnapshot(
+            of: HStack(spacing: 10) {
+                Button { } label: { Label("Verify 6", systemImage: "checkmark.shield") }
+                    .buttonStyle(.actionBar(.outline, tint: .blue, onTint: .white))
+                Button { } label: { Label("4 to iCloud", systemImage: "arrow.left") }
+                    .buttonStyle(.actionBar(.quiet, tint: .blue, onTint: .white))
+                Button { } label: { Label("17 to Dropbox", systemImage: "arrow.right") }
+                    .buttonStyle(.actionBar(.primary, tint: .blue, onTint: .white))
+                ActionBarDivider()
+                Button { } label: { Image(systemName: "ellipsis") }
+                    .buttonStyle(.actionBar(.outline, tint: .blue, onTint: .white, iconOnly: true))
+            }
+            .padding(12),
+            size: CGSize(width: 460, height: 52),
+            named: "weights")
+    }
+
+    /// A disabled row: every weight keeps its shape and loses its conviction, so a blocked bulk
+    /// action still reads as a control rather than disappearing (the failure the Clear glass level
+    /// used to produce).
+    @Test func actionBarDisabled() {
+        assertViewSnapshot(
+            of: HStack(spacing: 10) {
+                Button { } label: { Label("Verify 6", systemImage: "checkmark.shield") }
+                    .buttonStyle(.actionBar(.outline, tint: .blue, onTint: .white))
+                Button { } label: { Label("4", systemImage: "arrow.left") }
+                    .buttonStyle(.actionBar(.quiet, tint: .blue, onTint: .white))
+                Button { } label: { Label("17 to Dropbox", systemImage: "arrow.right") }
+                    .buttonStyle(.actionBar(.primary, tint: .blue, onTint: .white))
+            }
+            .disabled(true)
+            .padding(12),
+            size: CGSize(width: 380, height: 52),
+            named: "disabled")
+    }
 }

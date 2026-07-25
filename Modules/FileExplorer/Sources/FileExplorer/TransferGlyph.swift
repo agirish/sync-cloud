@@ -8,24 +8,34 @@
 /// side is missing, dates differ, name conflict). Status and action are different axes;
 /// conflating them is what let these four surfaces drift to four different copy icons.
 ///
-/// Copy is non-directional in every state: SF Symbols has no left/right duplicate pair that
-/// reads as cleanly as the universal duplicate glyph (`doc.on.doc`), so the target pane is
-/// named in the button's text ("Copy 21 to Dropbox"), not the icon — `copy(toRight:)` exists
-/// only so a fixed-direction call site can stay symmetric with `move(toRight:)`. Move is a
-/// box-with-arrow that points toward the target pane wherever the direction is fixed (the
-/// toolbar, and the header/row buttons once the move modifier is held).
+/// Two axes, deliberately: whether the direction is FIXED at the call site, and whether the verb
+/// is copy or move. A menu row that resolves each item in its own direction takes the plain
+/// `copy` / `move`; a button that always goes one way takes `copy(toRight:)` / `move(toRight:)`
+/// and points at the pane it targets.
+///
+/// The fixed-direction copy used to be non-directional too — it returned the duplicate glyph
+/// (`doc.on.doc`) on the grounds that the button's text named the target pane anyway. Two things
+/// undid that. The Differences header now fixes its primary to left-to-right rather than electing
+/// it by count, so direction is a *constant* of that button and belongs in the icon rather than
+/// re-read from the label each time; and the same header sheds its destination name first when the
+/// window narrows, which left the direction carried by the one run of text that disappears. A bare
+/// arrow for copy against the boxed arrow for move also makes the modifier legible as a change of
+/// verb: same direction, different container.
 public enum TransferGlyph {
-    /// Copy to the other pane. Non-directional — see the type doc.
+    /// Copy to the other pane, direction unresolved: for menus that name their target in text
+    /// and for "remaining", which resolves each item its own way. Matches `copy(toRight:)`'s
+    /// right-pointing default no more than `move` does — it is a duplicate glyph, not an arrow.
     public static let copy = "doc.on.doc"
 
     /// Move to the other pane, non-directional: for menus that name their target pane in text
     /// and can't assume a fixed side. Matches `move(toRight:)`'s right-pointing default.
     public static let move = "arrow.right.square"
 
-    /// Copy where the direction is fixed. Copy has no directional SF Symbol that reads as well
-    /// as the duplicate glyph, so this stays non-directional and equals `copy`; the parameter
-    /// only keeps fixed-direction call sites symmetric with `move(toRight:)`.
-    public static func copy(toRight: Bool) -> String { copy }
+    /// Copy where the direction is fixed: a bare arrow pointing at the target pane. Paired with
+    /// `move(toRight:)`'s boxed arrow — same direction, and the box is what marks the move.
+    public static func copy(toRight: Bool) -> String {
+        toRight ? "arrow.right" : "arrow.left"
+    }
 
     /// Move where the direction is fixed: a box-with-arrow pointing at the target pane — right
     /// when the selection is on the left, and vice versa.

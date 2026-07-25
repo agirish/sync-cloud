@@ -15,6 +15,16 @@ struct StatPill: View {
     /// to the shared `Pill`, whose 5pt spacing is 1pt tighter than this pill's original 6pt
     /// (an accepted tightening when the look was unified on Design's variant).
     var trailingSystemImage: String? = nil
+    /// When set, a status dot in this colour replaces the leading SF Symbol, and `color` — the
+    /// capsule's own tint — stays the app accent.
+    ///
+    /// This is the freshness pill's rule (`DashboardViews.freshnessPill`) applied to a count:
+    /// painting the whole capsule in a semantic colour made it the one non-accent surface in the
+    /// chrome, reading as a colour clash rather than as a status. Moving the semantics to the dot
+    /// keeps the header monochrome in the accent without losing them. Only the geometry differs
+    /// from the freshness pill — the ring is drawn in the pill's tint here, since this capsule is
+    /// a 14% wash rather than a near-solid accent fill.
+    var statusColor: Color? = nil
 
     var body: some View {
         Group {
@@ -23,9 +33,16 @@ struct StatPill: View {
                 // shared surface directly — Pill's documented escape hatch — using Pill's own
                 // 5pt spacing and variant fonts so the two branches render identically.
                 HStack(spacing: 5) {
-                    Image(systemName: systemImage)
-                        .font(PillVariant.standard.iconFont)
-                        .symbolRenderingMode(.hierarchical)
+                    if let statusColor {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().strokeBorder(color.opacity(0.55), lineWidth: 1))
+                    } else {
+                        Image(systemName: systemImage)
+                            .font(PillVariant.standard.iconFont)
+                            .symbolRenderingMode(.hierarchical)
+                    }
                     Text(count.formatted())
                         .font(PillVariant.standard.numberFont)
                         .monospacedDigit()

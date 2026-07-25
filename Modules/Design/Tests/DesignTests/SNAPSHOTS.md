@@ -5,7 +5,8 @@ visual surfaces that regressed silently in past review rounds. Suites live in th
 
 - `Modules/Design` — `DesignSnapshotTests`: TokenChipsRow (active / superseded-dimmed / yellow
   tint), StatusBadge, EmptyStateView (pre-scan + filtered-empty + C5 compact + long-path
-  middle truncation), ProgressDialog
+  middle truncation), ProgressDialog, the action bar's three weights + divider (enabled and
+  disabled)
 - `Modules/FileExplorer` — `FileExplorerSnapshotTests`: StatPill variants, treemap tiles
   (AccentLabel light-hue pairing on the amber tile), TidyGroupCard (collapsed versions group +
   expanded identical-folders group with note), ConditionChip wrapping in FlowLayout
@@ -47,7 +48,10 @@ images are expected to differ across machines/OS versions because they bake in:
   is still machine-locale dependent)
 - inactive-window control rendering: the offscreen window is never key, so system controls
   (prominent buttons, progress bars) render in their gray inactive style — consistent
-  offscreen, but not what a screenshot of the live app shows
+  offscreen, but not what a screenshot of the live app shows. `ActionBarButtonStyle` is the
+  deliberate exception and `ActionBarFocusIndependenceTests` turns this caveat into a rig: it
+  renders a weight here precisely *because* the window is never key, and asserts the fill
+  survives it.
 
 To run these on another machine or in CI, re-record there first (or delete `__Snapshots__` and
 let record mode regenerate). Never mix references recorded on different machines.
