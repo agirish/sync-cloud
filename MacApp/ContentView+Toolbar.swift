@@ -71,9 +71,9 @@ extension ContentView {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         let accent = glassHue.accentColor
-        // The bar is a near-solid accent glass tile now, so all its content is the on-accent label
-        // color (white for most hues) — like the prominent bulk-copy buttons.
-        let onAccent = Color.onFillLabel(accent)
+        // The bar is a near-solid accent glass tile now; its content is always white. The tile fill
+        // (accentGlassCapsule → prominentAccent) darkens light hues so white stays legible on all.
+        let onAccent = Color.white
         return HStack(spacing: 6) {
             // Selection summary, tinted with the app accent — the "what's selected" half of the bar,
             // fenced off from the "what you can do" half by a hairline divider. A ✕ dismisses the
@@ -154,6 +154,7 @@ extension ContentView {
         // tab could never carry the app accent. These plain buttons draw their own accent fill, which
         // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
         let selection = primaryTabSelection
+        let accentFill = glassHue.accentColor.prominentAccent
         return HStack(spacing: 4) {
             ForEach(BottomTab.allCases, id: \.self) { tab in
                 let isSelected = selection.wrappedValue == tab
@@ -162,11 +163,13 @@ extension ContentView {
                 } label: {
                     Text(tab.title)
                         .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? AnyShapeStyle(glassHue.accentColor) : AnyShapeStyle(Color.secondary))
-                        .padding(.horizontal, 11)
+                        // White on the selected (prominent accent) pill, like the other pills; the
+                        // unselected tab stays a quiet secondary.
+                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(Color.secondary))
+                        .padding(.horizontal, 12)
                         .padding(.vertical, 4)
                         .background(
-                            isSelected ? AnyShapeStyle(glassHue.accentColor.opacity(0.16)) : AnyShapeStyle(Color.clear),
+                            isSelected ? AnyShapeStyle(accentFill) : AnyShapeStyle(Color.clear),
                             in: Capsule()
                         )
                         .contentShape(Capsule())
@@ -175,6 +178,10 @@ extension ContentView {
                 .help(tab.title)
             }
         }
+        // Inset the segments inside an outer container capsule so the selected pill floats within it
+        // with a gap on every side, instead of filling the control edge-to-edge.
+        .padding(3)
+        .background(Capsule().fill(.quaternary.opacity(0.5)))
         .fixedSize()
     }
 

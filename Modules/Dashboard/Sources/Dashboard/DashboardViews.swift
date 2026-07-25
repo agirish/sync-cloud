@@ -70,10 +70,9 @@ public struct PaneHeader: View {
                 // Fresh reads in the app accent (the pill was a neutral gray before); stale still
                 // goes amber as a semantic warning, and the status dot below stays green/amber.
                 let tint = freshness.isStale ? Color.orange : glassHue.accentColor
-                // The pill is a near-solid accent (or amber) glass tile now, so its text and dot are
-                // the on-fill label color (white on the accent, dark on amber) — a green dot would
-                // vanish on the green pill.
-                let onTint = Color.onFillLabel(tint)
+                // White text and dot on the prominent accent/amber glass pill (the tile darkens light
+                // hues so white stays legible) — a colored dot would vanish on the filled pill.
+                let onTint = Color.white
                 let label = HStack(spacing: 5) {
                     Circle()
                         .fill(onTint)
