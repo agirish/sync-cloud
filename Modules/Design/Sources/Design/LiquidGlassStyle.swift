@@ -231,6 +231,58 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Clear glass tuning
+//
+// Clear used to be hard to tell from Frosted, and measurement said why: what obscures the window at
+// `.clear` is almost entirely the behind-window `NSVisualEffectView`, not the washes painted over it.
+// Sampling an empty pane across builds (light appearance), the luminance spread inside the pane —
+// how much of what is behind the window actually survives to the screen — was 2.3 with the layer at
+// full strength, 3.5 with the washes halved, 3.5 again with a thinner material, and 52.0 with no
+// layer at all. Swapping materials or lightening the wash changes the tint; only the layer's own
+// opacity changes how see-through the app is.
+//
+// So Clear fades that layer slightly rather than removing it. 95% keeps the frost unmistakable —
+// what's behind the window reads as depth, not as legible content — while parting company with
+// Frosted. Below ~90% text in the window behind starts to be readable through the app.
+
+public extension LiquidGlass {
+    /// How much of the behind-window vibrancy layer Clear composites, 0...1. The knob that decides
+    /// how see-through the app is; see the note above for why it is this and not the material.
+    static let clearVibrancyAlpha: Double = 0.95
+
+    /// Clear's whitening wash in light. It can't go to zero: without it the see-through panes read
+    /// as flat system gray, since the vibrancy layer is all that's behind them.
+    static let clearLightVeil: Double = 0.225
+
+    /// The same job from the other end in dark — how opaque the deep near-black base is.
+    static let clearDarkVeil: Double = 0.53
+
+    /// The accent wash Clear paints over that veil, so the background carries the chosen hue rather
+    /// than reading gray-white. It is strongest where nothing covers it: the gutters between cards
+    /// and the toolbar band.
+    static let clearAccentVeil: Double = 0.12
+
+    /// Extra accent painted into the top strip at Clear, fading out over `clearTitlebarBoostHeight`.
+    ///
+    /// The titlebar/toolbar band is a translucent AppKit material *above* the app background — no
+    /// window or toolbar API turns it off (`titlebarAppearsTransparent`, `.hiddenTitleBar` and
+    /// `.toolbarBackground(.hidden)` were all measured as no-ops here). It passes roughly three
+    /// quarters of the colour beneath it, which left the band reading a third weaker than the
+    /// gutters right below it — the gray-white strip. So the fix is to give it more to pass:
+    /// measured, the band lands within a couple of points of the content once this is applied.
+    ///
+    /// It fades rather than stopping at the band's edge, so no seam appears if a future macOS
+    /// changes the band's height.
+    static let clearTitlebarBoost: Double = 0.11
+    static let clearTitlebarBoostHeight: CGFloat = 86
+
+    /// The accent-diagonal strength Clear uses, standing in for `backgroundIntensity` (which stays
+    /// 0 there because it also sets the *material*, and Clear has none). Near Frosted's 0.65, so the
+    /// window background reads as the accent at any level — the difference between them is how much
+    /// shows through, not what colour it is.
+    static let clearAccentStrength: Double = 0.5
+}
+
 /// How the content surfaces are *shaped* against the app's glass background — the other half of
 /// the Appearance model, orthogonal to `GlassLevel`. Stored via `LiquidGlass.surfaceStyleKey`.
 ///
@@ -621,14 +673,21 @@ private struct LiquidGlassBackground: ViewModifier {
         // base drops to a translucent veil (below) rather than a solid ground.
         let seeThrough = level == .clear
 
+        // The accent diagonal takes its strength from `backgroundIntensity` at every level but Clear,
+        // where that is 0 because it also sets the *material*. Clear needs its own: the gutters and
+        // the toolbar band are the only places the background is uncovered, and at 0 they came out
+        // gray-white while Solid's read as the accent.
+        let accentT = seeThrough ? LiquidGlass.clearAccentStrength : t
         let opacities: [Double] = dark
-            ? [0.19 + 0.28 * t, 0.15 + 0.23 * t, 0.10 + 0.16 * t]
-            : [0.06 + 0.16 * t, 0.05 + 0.14 * t, 0.04 + 0.10 * t]
+            ? [0.19 + 0.28 * accentT, 0.15 + 0.23 * accentT, 0.10 + 0.16 * accentT]
+            : [0.06 + 0.16 * accentT, 0.05 + 0.14 * accentT, 0.04 + 0.10 * accentT]
         let gradientColors = zip(hue.gradientColors, opacities).map { $0.0.opacity($0.1) }
 
         content.background {
             ZStack {
-                BehindWindowGlass(isEnabled: seeThrough)
+                BehindWindowGlass(
+                    isEnabled: seeThrough,
+                    vibrancyAlpha: seeThrough ? LiquidGlass.clearVibrancyAlpha : 1.0)
                     .ignoresSafeArea()
 
                 // Dark deep base: a near-black, faintly-cool gradient. When the window is opaque
@@ -643,8 +702,21 @@ private struct LiquidGlassBackground: ViewModifier {
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .opacity(seeThrough ? 0.55 : 1)
+                    .opacity(seeThrough ? LiquidGlass.clearDarkVeil : 1)
                     .ignoresSafeArea()
+                }
+
+                // Clear in light mode reads as flat system gray (the behind-window vibrancy alone).
+                // A translucent white veil warms it toward frosted white glass while keeping what's
+                // behind the window showing through. The panes are see-through glass, so this veil is
+                // what whitens them too — hence a fairly strong wash to bury the gray.
+                //
+                // It goes UNDER the accent diagonal, not over it. Painting it on top was what made
+                // Clear's background gray-white: the veil buried the hue it was supposed to be
+                // leaning on, so the gutters and the toolbar band lost the accent that Solid keeps.
+                if seeThrough && !dark {
+                    Color.white.opacity(LiquidGlass.clearLightVeil)
+                        .ignoresSafeArea()
                 }
 
                 LinearGradient(
@@ -660,14 +732,35 @@ private struct LiquidGlassBackground: ViewModifier {
                     Color.clear
                         .background(.thinMaterial.opacity((dark ? 0.27 : 0.45) + 0.20 * t))
                         .ignoresSafeArea()
-                } else if !dark {
-                    // Clear in light mode read as flat system gray (the behind-window vibrancy alone).
-                    // A translucent white veil warms it toward a frosted white glass while keeping the
-                    // desktop showing through. The panes are see-through glass, so this veil is what
-                    // whitens them too — hence a fairly strong wash to bury the gray. The hue gradient
-                    // above still leans it toward the accent rather than a dead white.
-                    Color.white.opacity(0.24)
+                } else if hue != .none {
+                    // An even accent wash over the whole background, so the hue reads as a colour
+                    // rather than as a diagonal that fades out at one corner — the gutters at the
+                    // bottom-right would otherwise be noticeably grayer than those at the top-left.
+                    // `.none` opts out: its accentColor is the system accent, which would repaint
+                    // the background in a hue the user didn't choose.
+                    hue.accentColor.opacity(LiquidGlass.clearAccentVeil)
                         .ignoresSafeArea()
+
+                    // Extra accent under the titlebar band, which dilutes what it covers — see
+                    // `clearTitlebarBoost`. Anchored to the top and faded out well past the band's
+                    // edge so it reads as part of the background rather than as a stripe.
+                    VStack(spacing: 0) {
+                        LinearGradient(
+                            stops: [
+                                // Hold the boost flat across the band itself, then fade: a gradient
+                                // that starts falling immediately leaves the band's lower edge short
+                                // of the content it sits against.
+                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost), location: 0),
+                                .init(color: hue.accentColor.opacity(LiquidGlass.clearTitlebarBoost), location: 0.62),
+                                .init(color: .clear, location: 1)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: LiquidGlass.clearTitlebarBoostHeight)
+                        Spacer(minLength: 0)
+                    }
+                    .ignoresSafeArea()
                 }
 
                 // Dark accent glow: a soft pool of the hue at the top so the accent reads. Fires at

@@ -18,6 +18,12 @@ struct BehindWindowGlass: NSViewRepresentable {
     /// switching off `.clear` restores the normal window rather than stranding it transparent.
     let isEnabled: Bool
 
+    /// How much of the blur layer to composite, 0...1. This is the knob that decides whether Clear
+    /// reads as frost or as glass — at 1 the material is effectively opaque in light, at 0 the
+    /// desktop reaches the screen unblurred. The window stays transparent either way; see
+    /// `LiquidGlass.clearVibrancyAlpha` for why Clear settles just under 1.
+    var vibrancyAlpha: Double = 1.0
+
     /// Carries the desired window transparency across the gap where `view.window` is still nil.
     /// A plain `updateNSView` that defers a tick and bails on a nil window drops the launch-time
     /// application entirely when the deferred block outruns window attachment — with `.clear`
@@ -60,7 +66,9 @@ struct BehindWindowGlass: NSViewRepresentable {
     }
 
     func updateNSView(_ view: Backing, context: Context) {
-        view.isHidden = !isEnabled
+        // Alpha 0 hides the layer entirely but keeps the window transparent.
+        view.isHidden = !isEnabled || vibrancyAlpha <= 0
+        view.alphaValue = vibrancyAlpha
         view.wantsTransparentWindow = isEnabled
     }
 }
