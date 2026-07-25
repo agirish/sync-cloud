@@ -59,10 +59,14 @@ import Sync
             VStack(alignment: .leading, spacing: 10) {
                 // Green, the hue the pill was designed against — not the environment's accent,
                 // which would make this reference depend on the host's System Settings.
+                //
+                // `accentFillColor`, exactly as `DifferencesView` passes it. The raw `accentColor`
+                // renders a brighter capsule that looks livelier in isolation and strands its white
+                // label at 2.68:1 — the reference must show the pairing that ships.
                 StatPill(count: 21, label: "Differences", color: .blue,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",
-                         semantic: .onAccent(fill: LiquidGlassHue.green.accentColor,
+                         semantic: .onAccent(fill: LiquidGlassHue.green.accentFillColor,
                                              label: LiquidGlassHue.green.onAccentLabelColor))
                 StatPill(count: 21, label: "Differences", color: .blue,
                          systemImage: "exclamationmark.triangle",

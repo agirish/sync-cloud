@@ -89,18 +89,16 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
     /// dot on top: the differences count pill's treatment.
     ///
     /// The trade this makes, stated plainly because it reverses the reasoning above: an accent
-    /// capsule is hue-DEPENDENT, so it cannot carry meaning by colour the way `.attention` does,
-    /// and its label rides `LiquidGlassHue.onAccentLabelColor`, which is pinned to WCAG's 3:1
-    /// large-text floor rather than 4.5:1 — on the Green accent the pairing measures 6.7:1, but on
-    /// Graphite and Blue it is ~3.5:1. That is the same bargain every other accent-filled control
-    /// in the app already takes (`ActionBarButtonStyle`'s primary, the toolbar's tinted buttons),
-    /// so the pill is now consistent with them rather than an exception. The dot is what keeps the
-    /// "wants your attention" reading, which is why it stays terracotta and gets a ring.
+    /// capsule is hue-DEPENDENT, so it cannot carry meaning by colour the way `.attention` does.
+    /// What it gets in exchange is reading as a control, which the pill needs and a pale wash never
+    /// managed. The dot is what keeps the "wants your attention" signal, which is why it stays
+    /// terracotta and gets a ring.
     ///
     /// - Parameters:
-    ///   - fill: the accent fill, from `LiquidGlassHue.accentColor`.
-    ///   - label: its paired label colour, from `LiquidGlassHue.onAccentLabelColor` — never a
-    ///     hardcoded `.white` or `.black`, which goes unreadable on half the twelve hues.
+    ///   - fill: the accent fill, from `LiquidGlassHue.accentFillColor` — the DEEPENED accent, not
+    ///     the raw one, since this capsule carries a white label. Passed in rather than derived here
+    ///     so `Design` needs no opinion about which hue is in play.
+    ///   - label: its paired label colour, from `LiquidGlassHue.onAccentLabelColor`.
     public static func onAccent(fill: Color, label: Color) -> SemanticCapsuleStyle {
         SemanticCapsuleStyle(fill: fill, content: label, dot: attentionDotOnAccent, dotRing: label)
     }

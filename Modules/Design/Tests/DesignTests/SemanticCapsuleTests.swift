@@ -77,26 +77,31 @@ import Testing
     @Test func testTheRingedDotStaysBoundedOnEveryAccentHue() throws {
         for hue in LiquidGlassHue.allCases where hue != .none {
             // `.none` is the *system* accent — a dynamic color with no fixed value to measure.
-            let style = SemanticCapsuleStyle.onAccent(fill: hue.accentColor, label: hue.onAccentLabelColor)
+            // `accentFillColor`, matching the call site: measuring the raw accent here would test a
+            // pairing the app never draws.
+            let style = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor, label: hue.onAccentLabelColor)
             let ring = try #require(style.dotRing, "\(hue) accent capsule shipped an unringed dot")
             let ratio = contrast(ring, style.fill)
             #expect(ratio >= 3.0, "\(hue) dot ring is \(ratio):1 on its own accent fill")
         }
     }
 
-    /// Why the ring has to exist, stated as a measurement instead of a comment: on the Green accent
-    /// there is NO colour a dot could be that clears 3:1 — not this terracotta, not a pale peach,
-    /// not pure white. If a future accent re-tune ever makes a bare dot viable this fails, and the
-    /// ring becomes removable; until then, deleting it silently drops the dot below the floor.
+    /// Why the ring has to exist, stated as a measurement instead of a comment: no colour in the
+    /// terracotta family clears 3:1 on the Green accent fill — not the bright on-accent value, not
+    /// the family's own darker dot, not a pale peach. A white dot would clear it (that is exactly
+    /// what the fill being deepened buys), but a white dot carries no attention signal, which is the
+    /// one job the dot has. So the ring is what makes a WARM dot possible here. If a future re-tune
+    /// ever lets a warm dot stand alone this fails and the ring becomes removable; until then,
+    /// deleting it as decoration silently drops the dot below the floor.
     @MainActor
-    @Test func testNoBareDotColorCouldClearTheFloorOnTheGreenAccent() {
-        let fill = LiquidGlassHue.green.accentColor
+    @Test func testNoWarmDotColorCouldClearTheFloorOnTheGreenAccentFill() {
+        let fill = LiquidGlassHue.green.accentFillColor
         for candidate in [SemanticCapsuleStyle.attentionDotOnAccent,
                           SemanticCapsuleStyle.of(.attention, .light).dot,
-                          Color(red: 0.95, green: 0.77, blue: 0.66),   // pale peach
-                          .white] {
+                          Color(red: 0.95, green: 0.77, blue: 0.66)] {   // pale peach
             #expect(contrast(candidate, fill) < 3.0)
         }
+        #expect(contrast(.white, fill) >= 3.0)
     }
 
     /// The structural half of the rule `StatPill` branches on: a ring iff the fill is an accent.

@@ -57,27 +57,27 @@ import SwiftUI
         }
     }
 
-    /// The same invariant routed through `LiquidGlassHue.onAccentLabelColor` — the single choke
-    /// point every accent-FILLED chip, pill and button pairs through (the Compare/Tidy tab pill, the
-    /// pane action buttons, the scan-freshness pill, the Log window's selected chip). Distinct from
-    /// the swatch test above because those call sites reach the pairing via the hue, not by calling
-    /// `onFillLabel` themselves; if the helper ever stops routing `.none` to the system-accent
-    /// branch, or a hue is added without one, this is what fails.
-    @MainActor
-    @Test func everyHueOnAccentLabelColorClearsLargeTextContrast() {
+    /// The same invariant routed through the pair every accent-FILLED chip, pill and button uses
+    /// (the Compare/Tidy tab pill, the pane action buttons, the differences count pill, the Log
+    /// window's selected chip): `accentFillColor` under `onAccentLabelColor`.
+    ///
+    /// Held to 4.5:1, not the 3:1 the old per-hue pairing settled for. That is the point of
+    /// deepening the fill — the label is a flat white now, so the fill has to earn it outright
+    /// rather than the pairing negotiating hue by hue, and body-text AA is what it earns.
+    @Test func everyHueOnAccentFillCarriesItsLabelAtBodyTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
-            let fill = srgb(hue.accentColor)
+            let fill = srgb(hue.accentFillColor)
             let label = srgb(hue.onAccentLabelColor)
             let ratio = contrast(luminance(of: composite(label, over: fill)), luminance(of: fill))
-            #expect(ratio >= 3.0, "\(hue) on-accent label is only \(ratio):1 on its own fill")
+            #expect(ratio >= 4.5, "\(hue) on-accent label is only \(ratio):1 on its deepened fill")
         }
     }
 
-    /// Why that choke point has to exist, stated as a test rather than a comment. A hardcoded
-    /// `Color.white` on the accent — which the tab pill, the pane action buttons and the freshness
-    /// pill each shipped with — is under the 3:1 floor on the MAJORITY of the palette: ~2.1:1 on
-    /// cyan, ~2.2:1 on amber. Anyone tempted to write `.foregroundStyle(.white)` on an accent fill
-    /// again should land here first.
+    /// Why the fill has to be deepened, stated as a test rather than a comment. White on the RAW
+    /// accent is under the 3:1 floor on the MAJORITY of the palette — ~2.1:1 on cyan, ~2.2:1 on
+    /// amber — so "just make the label white" is not available without moving the fill. Anyone
+    /// tempted to fill with `accentColor` and write `.foregroundStyle(.white)` should land here first;
+    /// `accentFillColor` is the fill that makes white legal.
     @Test func hardcodedWhiteOnAccentFailsOnMostHues() {
         let failing = LiquidGlassHue.allCases.filter { hue in
             guard hue != .none else { return false }
@@ -93,16 +93,18 @@ import SwiftUI
     }
 
     /// The dimmed twin of the invariant above, for secondary runs on an accent fill (the Log
-    /// window's selected-chip count): the label dimmed to `AccentLabel.dimmedOnFillOpacity` must
-    /// STILL clear 3:1 on every hue. Graphite is the binding pair — white on it sits ~0.5 above
-    /// the floor at full strength, the old ad-hoc 0.85 dim fell to ~2.97:1, and 0.9 is the
-    /// strongest dimming that stays legal (~3.14:1). Pinned per-hue so a future hue addition
-    /// (or a "harmless" bump of the constant) can't slide back under the floor unnoticed.
+    /// window's selected-chip count, the count pill's chevron): the label dimmed to
+    /// `AccentLabel.dimmedOnFillOpacity` must STILL clear 3:1 on every hue.
+    ///
+    /// Deepening the fills moved the binding pair. It used to be white on Graphite, ~0.5 above the
+    /// floor at full strength and 3.14:1 once dimmed, which is where the 0.9 constant came from.
+    /// Now every fill is at or below the deepening ceiling, so the whole palette dims to ~4:1 and
+    /// the constant has slack it did not have before. Kept at 0.9 rather than loosened: nothing
+    /// wants a fainter secondary, and the slack is worth more as margin.
     @Test func everyGlassHueDimmedLabelClearsLargeTextContrast() {
         for hue in LiquidGlassHue.allCases where hue != .none {
-            let fill = srgb(hue.accentColor)
-            let dimmed = SwiftUI.Color.onFillLabel(hue.accentColor)
-                .opacity(AccentLabel.dimmedOnFillOpacity)
+            let fill = srgb(hue.accentFillColor)
+            let dimmed = hue.onAccentLabelColor.opacity(AccentLabel.dimmedOnFillOpacity)
             let label = srgb(dimmed)
             let ratio = contrast(luminance(of: composite(label, over: fill)), luminance(of: fill))
             #expect(ratio >= 3.0, "\(hue) dimmed label is only \(ratio):1 on its own fill")

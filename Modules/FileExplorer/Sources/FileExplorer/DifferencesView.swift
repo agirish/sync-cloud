@@ -421,7 +421,7 @@ public struct DifferencesView: View {
                 // now that the fills differ. `colorScheme` no longer enters into it: the fill is
                 // the accent under both appearances and `onAccentLabelColor` pairs against the
                 // fill, not the window.
-                semantic: .onAccent(fill: glassHue.accentColor, label: glassHue.onAccentLabelColor)
+                semantic: .onAccent(fill: glassHue.accentFillColor, label: glassHue.onAccentLabelColor)
             )
             .scaleEffect(isCountPillHovered ? 1.03 : 1)
         }

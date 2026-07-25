@@ -138,19 +138,31 @@ public enum LiquidGlassHue: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Text/glyph color for content drawn ON this hue's `accentColor` fill — the ONE place that
-    /// pairing is decided, so a chip, pill or button can't drift to a hardcoded `.white` that goes
-    /// unreadable on the light hues. Seven of the eleven hues (cyan, amber, coral, green, rose,
-    /// teal, and anything else above the 0.30 luminance cutoff) need dark text to clear WCAG's
-    /// 3:1 large-text floor; white on Amber is only 2.2:1.
+    /// What a solid accent surface actually fills with: `accentColor` deepened until a white label
+    /// on it clears WCAG AA (see `AccentFill`). Half the hues are already dark enough and come back
+    /// untouched; the light ones (Amber, Cyan, Green, Coral, Rose, Teal) get materially deeper.
     ///
-    /// `.none` routes to `onAccentLabel` rather than `onFillLabel`: its `accentColor` is the
-    /// *system* accent, a dynamic color, and `onFillLabel` would freeze it to whatever the current
-    /// appearance resolved at call time instead of re-resolving when the user changes it.
-    @MainActor
-    public var onAccentLabelColor: Color {
-        self == .none ? .onAccentLabel : .onFillLabel(accentColor)
-    }
+    /// Buttons, selected chips and filled pills take THIS, not `accentColor`. `accentColor` remains
+    /// the right thing for a tint wash, a hairline, or accent-coloured text — none of which have a
+    /// white label to carry, and all of which would go muddy if deepened.
+    public var accentFillColor: Color { AccentFill.deepened(accentColor) }
+
+    /// Text/glyph color for content drawn ON this hue's `accentFillColor` — the ONE place that
+    /// pairing is decided, so a chip, pill or button can't drift to a local literal.
+    ///
+    /// It is now unconditionally white, and that is a real change of approach rather than a
+    /// simplification of the old one. White on the RAW accent is illegible on the light hues (2.68:1
+    /// on Green, 2.20:1 on Amber), and this property used to answer by flipping the label to
+    /// near-black there — correct per-hue, but it made the filled controls read as two button
+    /// families, white-on-Blue beside black-on-Green. Fixing the label at white and deepening the
+    /// FILL instead (`accentFillColor`) buys one consistent treatment, at ≥4.5:1 on every hue by
+    /// construction. `AccentFillTests` measures that over all twelve rather than trusting this
+    /// comment, so the guarantee cannot rot when a hue is added.
+    ///
+    /// Correspondingly this no longer needs to be `@MainActor` — it no longer resolves the system
+    /// accent to weigh its luminance. Callers that were only main-actor-bound for this reason may
+    /// now be free of it.
+    public var onAccentLabelColor: Color { .white }
 }
 
 /// How much the glass surfaces obscure what is behind them — the *material* half of the

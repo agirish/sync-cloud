@@ -130,18 +130,20 @@ extension ContentView {
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// One button in the pane action bar: solid accent chrome with an on-fill label — the same look
-    /// as the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes
-    /// red. The label color is paired to the fill here (not hardcoded white inside the button): the
-    /// hue's own luminance decides it, so Amber and Cyan get dark text instead of an unreadable
-    /// ~2.2:1 white.
+    /// One button in the pane action bar: solid accent chrome with a white label — the same look as
+    /// the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes red.
+    ///
+    /// The fill is DEEPENED (`AccentFill`) rather than the raw accent, and that is what earns the
+    /// white label: these pills are ~90% opaque, so on Amber or Cyan white text sat at ~2.2:1. The
+    /// destructive red needs no deepening — it already carries white — but goes through the same call
+    /// so there is one rule here instead of a special case.
     @ViewBuilder
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  isPrimary: Bool = false, role: ButtonRole? = nil,
                                  action: @escaping () -> Void) -> some View {
         let isDestructive = role == .destructive
         PaneActionButton(title: title, systemImage: systemImage,
-                         tint: isDestructive ? .red : accent,
+                         tint: AccentFill.deepened(isDestructive ? .red : accent),
                          onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor,
                          isPrimary: isPrimary, role: role, action: action)
     }
@@ -158,9 +160,9 @@ extension ContentView {
         // tab could never carry the app accent. These plain buttons draw their own accent fill, which
         // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
         let selection = primaryTabSelection
-        let accentFill = glassHue.accentColor
-        // Paired to the fill's luminance, never a flat `.white`: this pill fills with the RAW
-        // accent, so on Amber/Cyan/Green white text lands at ~2.1–2.7:1 — under WCAG's 3:1 floor.
+        // The DEEPENED accent, which is what makes the white label below legible: filled with the
+        // raw accent this pill stranded white text at ~2.1–2.7:1 on Amber/Cyan/Green.
+        let accentFill = glassHue.accentFillColor
         let onAccent = glassHue.onAccentLabelColor
         return HStack(spacing: 4) {
             ForEach(BottomTab.allCases, id: \.self) { tab in

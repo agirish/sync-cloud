@@ -124,10 +124,14 @@ public struct LogViewer: View {
 
     private var hueAccent: Color { glassHue.accentColor }
 
-    /// Text/glyph color that stays legible on a `hueAccent` fill. `Color.onAccentLabel` pairs
-    /// with the *system* accent, but the selected chip now fills with the glass hue — so the
-    /// pairing comes from the hue's own sRGB luminance. The `.none` hue fills with the system
-    /// accent, where `onAccentLabel` is exactly right.
+    /// What the SELECTED level chip fills with: the deepened accent, since it carries a white
+    /// label. Everything else here (hover washes, token-chip tints, hairlines) keeps `hueAccent` —
+    /// no white label to carry, and deepening a wash only muddies it.
+    private var hueAccentFill: Color { glassHue.accentFillColor }
+
+    /// Text/glyph color on a `hueAccentFill` fill — white for every hue, because that fill is
+    /// deepened until white clears 4.5:1 on it. See `LiquidGlassHue.onAccentLabelColor` for why the
+    /// app moved the fill instead of flipping the label per-hue.
     private var onHueAccent: Color { glassHue.onAccentLabelColor }
 
     private var density: ListDensity { ListDensity(rawValue: listDensityRaw) ?? .comfortable }
@@ -473,10 +477,10 @@ public struct LogViewer: View {
         Button {
             selectedLevel = level
         } label: {
-            // Text on the accent fill uses a luminance-derived pairing, not hardcoded
-            // white and NOT alternateSelectedControlTextColor: AppKit returns white for that
-            // under EVERY accent (it pairs with the darkened selection fill, not the raw accent
-            // this capsule fills with), so under Yellow it was still white-on-yellow (~1.6:1).
+            // White on a deepened fill — which is, in the end, what AppKit's
+            // alternateSelectedControlTextColor always claimed: it returns white under every accent
+            // because it pairs with the *darkened* selection fill. The old bug was pairing it with
+            // the RAW accent (white-on-Yellow, ~1.6:1). Deepening the fill makes the claim true.
             let onAccent = onHueAccent
             HStack(spacing: 5) {
                 Text(label)
@@ -495,7 +499,7 @@ public struct LogViewer: View {
             .background(
                 // Selected fills with the glass hue (the accent every other window's chips use);
                 // unselected wears the canonical badge wash (`PillVariant.fillOpacity`).
-                Capsule().fill(selected ? AnyShapeStyle(hueAccent) : AnyShapeStyle(Color.secondary.opacity(PillVariant.fillOpacity)))
+                Capsule().fill(selected ? AnyShapeStyle(hueAccentFill) : AnyShapeStyle(Color.secondary.opacity(PillVariant.fillOpacity)))
             )
             .overlay(Capsule().strokeBorder(.quaternary, lineWidth: selected ? 0 : 0.5))
             .contentShape(Capsule())

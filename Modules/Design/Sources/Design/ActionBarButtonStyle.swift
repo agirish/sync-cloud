@@ -80,8 +80,10 @@ public enum ActionBarMetrics {
 public struct ActionBarButtonStyle: ButtonStyle {
     let weight: ActionBarWeight
     let tint: Color
-    /// Label colour on a `.primary` fill. Callers pass `LiquidGlassHue.onAccentLabelColor` — never
-    /// `.white`, which is under WCAG's 3:1 floor on seven of the eleven hues.
+    /// Label colour on a `.primary` fill. Callers pass `LiquidGlassHue.onAccentLabelColor`, which is
+    /// now white for every hue — because `fill` deepens the tint until white clears 4.5:1 on it. The
+    /// parameter stays rather than collapsing to a literal: a caller filling with something other
+    /// than the app accent (the destructive red) still has to name its own pairing.
     let onTint: Color
     /// Renders a square (so, capsule-clipped, circular) control for a bare glyph.
     let isIconOnly: Bool
@@ -125,8 +127,16 @@ private struct ActionBarButtonBody: View {
 
     /// Hover adds to the resting fill rather than replacing it, so a quiet button warms toward
     /// the primary instead of flashing a different colour.
+    ///
+    /// `.primary` fills with the DEEPENED tint, the other two with the raw one. That split is the
+    /// point rather than an inconsistency: only `.primary` puts a white label on its fill, so only
+    /// `.primary` has a contrast floor to meet. Deepening a 14% wash would just muddy it, and
+    /// `.quiet` draws its label IN the tint, where a deeper value would read as a different colour
+    /// from the pill beside it. A hovered `.quiet` therefore warms toward the raw accent, not toward
+    /// the primary's fill — the two are the same hue at different depths.
     private var fill: Color {
-        tint.opacity(weight.fillOpacity + hover.wash)
+        let base = weight == .primary ? AccentFill.deepened(tint) : tint
+        return base.opacity(weight.fillOpacity + hover.wash)
     }
 
     private var stroke: Color {
