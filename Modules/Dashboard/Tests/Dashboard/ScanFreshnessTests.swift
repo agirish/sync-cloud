@@ -2,15 +2,15 @@ import Testing
 import Foundation
 @testable import Dashboard
 
-/// Coverage for the pane header's scan-freshness pill: the relative-age buckets and the stale flag.
+/// Coverage for the pane header's scan-freshness badge: the relative-age buckets and the stale flag.
 @Suite struct ScanFreshnessTests {
 
     private let base = Date(timeIntervalSince1970: 1_000_000)
     private func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
 
     @Test func relativeBuckets() {
-        #expect(ScanFreshness.relative(0) == "just now")
-        #expect(ScanFreshness.relative(30) == "just now")
+        #expect(ScanFreshness.relative(0) == "0s ago")
+        #expect(ScanFreshness.relative(30) == "30s ago")
         #expect(ScanFreshness.relative(60) == "1m ago")
         #expect(ScanFreshness.relative(4 * 60) == "4m ago")
         #expect(ScanFreshness.relative(60 * 60) == "1h ago")
@@ -21,9 +21,14 @@ import Foundation
 
     /// Pins the unit seams: labels floor, so they can never contradict the next coarser unit.
     @Test func unitBoundariesNeverContradictTheCoarserUnit() {
-        // just now → 1m: continuous at 45s.
-        #expect(ScanFreshness.relative(44) == "just now")
-        #expect(ScanFreshness.relative(45) == "1m ago")
+        // The sub-minute steps. The OLD ladder broke the floor invariant right here: "just now"
+        // ran 0–44s and "1m ago" began at 45s, claiming a minute that had not elapsed. Now 30s
+        // covers 30–59 and 1m starts at a genuine 60.
+        #expect(ScanFreshness.relative(29) == "0s ago")
+        #expect(ScanFreshness.relative(30) == "30s ago")
+        #expect(ScanFreshness.relative(45) == "30s ago")
+        #expect(ScanFreshness.relative(59) == "30s ago")
+        #expect(ScanFreshness.relative(60) == "1m ago")
 
         // No "1m → 2m" jump at 90s (only 1.5 minutes elapsed); 2m starts when 2 minutes have.
         #expect(ScanFreshness.relative(89) == "1m ago")
@@ -51,8 +56,9 @@ import Foundation
     /// (1.5h) must still read "1h ago" — the old ROUNDING behavior jumped to "2h" there.
     @Test func fullBoundaryTable() {
         let table: [(seconds: TimeInterval, label: String)] = [
-            (0, "just now"),
-            (44, "just now"), (45, "1m ago"),                    // just now → 1m
+            (0, "0s ago"),
+            (29, "0s ago"), (30, "30s ago"),                     // 0s → 30s
+            (59, "30s ago"), (60, "1m ago"),                     // 30s → 1m at a full minute
             (89, "1m ago"), (90, "1m ago"),                      // no rounding jump at 1.5m
             (119, "1m ago"), (120, "2m ago"),                    // 1m → 2m only at 2 full minutes
             (3599, "59m ago"), (3600, "1h ago"),                 // minutes cap at 59
@@ -66,8 +72,9 @@ import Foundation
             #expect(ScanFreshness.relative(row.seconds) == row.label,
                     "relative(\(row.seconds)) should be \(row.label)")
         }
-        // Fractional seconds floor too: 44.9s is still "just now", 119.9s still "1m ago".
-        #expect(ScanFreshness.relative(44.9) == "just now")
+        // Fractional seconds floor too: 29.9s is still "0s ago", 119.9s still "1m ago".
+        #expect(ScanFreshness.relative(29.9) == "0s ago")
+        #expect(ScanFreshness.relative(59.9) == "30s ago")
         #expect(ScanFreshness.relative(119.9) == "1m ago")
     }
 
@@ -85,10 +92,50 @@ import Foundation
         #expect(ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1)).isStale == false)
     }
 
-    @Test func aClockSkewIntoTheFutureClampsToJustNow() {
+    @Test func aClockSkewIntoTheFutureClampsToZeroSeconds() {
         // now < scanDate (clock adjustment) must not produce a negative age.
         let r = ScanFreshness.describe(scanDate: at(100), now: base)
-        #expect(r.text == "Scanned just now")
+        #expect(r.text == "Scanned 0s ago")
         #expect(r.isStale == false)
+    }
+
+    /// The ladder change was scoped to the sub-minute steps ONLY. Everything from 120s up must
+    /// come out byte-identical to the previous implementation, which is asserted here against a
+    /// verbatim copy of it rather than against a hand-written table — a table can agree with a
+    /// mistake, an oracle cannot. This also covers the two cases deleted as redundant (`..<120`
+    /// and `..<7200`): if `s / 60` and `s / 3600` did not already subsume them, this fails.
+    @Test func everythingFromTwoMinutesUpIsUnchanged() {
+        // The pre-change implementation, verbatim.
+        func old(_ seconds: TimeInterval) -> String {
+            let s = Int(seconds)
+            switch s {
+            case ..<45: return "just now"
+            case ..<120: return "1m ago"
+            case ..<3600: return "\(s / 60)m ago"
+            case ..<7200: return "1h ago"
+            case ..<86_400: return "\(s / 3600)h ago"
+            default:
+                let days = s / 86_400
+                return days <= 1 ? "1 day ago" : "\(days) days ago"
+            }
+        }
+
+        // Every second across three days, plus each bucket seam far above it.
+        for s in stride(from: 120, through: 3 * 86_400, by: 1) {
+            let t = TimeInterval(s)
+            #expect(ScanFreshness.relative(t) == old(t),
+                    "relative(\(s)) drifted from the previous ladder")
+        }
+        for s in [7 * 86_400, 30 * 86_400, 365 * 86_400] {
+            let t = TimeInterval(s)
+            #expect(ScanFreshness.relative(t) == old(t))
+        }
+    }
+
+    /// Below 120s the change is deliberate, so the oracle above must NOT agree — a guard against
+    /// the equivalence test silently covering the whole range and proving nothing.
+    @Test func belowTwoMinutesTheLadderDeliberatelyDiffers() {
+        #expect(ScanFreshness.relative(0) != "just now")
+        #expect(ScanFreshness.relative(45) != "1m ago")
     }
 }
