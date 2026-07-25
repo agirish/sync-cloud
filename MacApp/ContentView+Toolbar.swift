@@ -71,30 +71,28 @@ extension ContentView {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
         let accent = glassHue.accentColor
-        // The bar is a near-solid tile of the exact Settings accent; its content is white.
-        let onAccent = Color.white
-        return HStack(spacing: 6) {
-            // Selection summary — the "what's selected" half of the bar. Its ✕ (clear selection)
-            // lives at the bar's far trailing edge, past Delete: right next to the ✓ summary the
-            // two circular glyphs read as one confusing pair.
+        return HStack(spacing: 8) {
+            // Selection summary — the "what's selected" half of the bar, in the accent on the
+            // subtle bar. Its ✕ (clear selection) lives at the far trailing edge, past Delete:
+            // right next to the ✓ summary the two circular glyphs read as one confusing pair.
             Label(SelectionSummary.text(for: selectionNodes), systemImage: "checkmark.circle.fill")
                 .labelStyle(.titleAndIcon)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(onAccent)
+                .foregroundStyle(accent)
                 .fixedSize()
                 .padding(.trailing, 4)
 
             if selectionNodes.count == 1, selectionNodes[0].isDirectory {
-                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: onAccent, isPrimary: true) {
+                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent, isPrimary: true) {
                     actionHandler?.focusFolder(selectionNodes[0], isLeft: isLeft,
                                                leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
             }
-            actionBarButton(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy, accent: onAccent) {
+            actionBarButton(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy, accent: accent) {
                 actionHandler?.copyItems(selectionNodes, fromLeft: isLeft,
                                          leftProviderId: leftProviderId, rightProviderId: rightProviderId)
             }
-            actionBarButton(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move, accent: onAccent) {
+            actionBarButton(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move, accent: accent) {
                 Task {
                     _ = await actionHandler?.moveItems(selectionNodes, fromLeft: isLeft,
                                                        leftProviderId: leftProviderId, rightProviderId: rightProviderId)
@@ -103,7 +101,7 @@ extension ContentView {
             // New Folder is intentionally omitted here to keep the bar compact — it stays on the
             // pane's right-click menu (SharedFileMenuItems.newFolder) for now.
             Spacer(minLength: 6)
-            actionBarButton("Delete", systemImage: "trash", accent: onAccent) {
+            actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive) {
                 actionHandler?.confirmDelete(selectionNodes)
             }
 
@@ -115,7 +113,7 @@ extension ContentView {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(onAccent.opacity(0.85))
+                    .foregroundStyle(.secondary)
                     .padding(.leading, 4)
             }
             .buttonStyle(.plain)
@@ -124,24 +122,22 @@ extension ContentView {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        // A near-solid accent glass tile (like the prominent bulk-copy buttons), so its white
-        // content reads cleanly — not a faint tint that would swallow white text.
-        .accentGlassCapsule(accent, strength: 0.9)
-        .overlay(Capsule().strokeBorder(onAccent.opacity(0.25), lineWidth: 0.75))
-        .shadow(color: .black.opacity(0.16), radius: 10, y: 2)
+        // A subtle, transparent-ish accent-tinted glass — not a gray material and not a solid slab.
+        // The buttons carry the accent chrome (below); the bar itself just whispers the hue.
+        .accentGlassCapsule(accent, strength: 0.12)
+        .overlay(Capsule().strokeBorder(accent.opacity(0.35), lineWidth: 0.75))
+        .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// One pill in the pane action bar. The icon carries the app accent hue (destructive stays red);
-    /// `isPrimary` fills the pill with a soft accent wash so the headline action (Compare) reads
-    /// first. Bigger tap target and a hover fill replace the old bare `.borderless` gray labels.
+    /// One button in the pane action bar: solid accent chrome with a white label — the same look as
+    /// the differences header's prominent Copy buttons — on the bar's subtle glass. Delete goes red.
     @ViewBuilder
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
                                  isPrimary: Bool = false, role: ButtonRole? = nil,
                                  action: @escaping () -> Void) -> some View {
-        // `accent` is the on-accent content color (white) — the bar itself is the accent surface, so
-        // buttons draw their icon/label in white and wash white on hover, not their own hue.
-        PaneActionButton(title: title, systemImage: systemImage, tint: accent,
+        PaneActionButton(title: title, systemImage: systemImage,
+                         tint: role == .destructive ? .red : accent,
                          isPrimary: isPrimary, role: role, action: action)
     }
 
@@ -233,16 +229,15 @@ extension ContentView {
     }
 }
 
-/// A single pill in the pane action bar. Split out of the `ContentView` extension because it needs
-/// its own `@State` for the hover fill — the accent-tinted icon, primary wash, and hover feedback
-/// are what replace the old flat gray `.borderless` labels.
+/// A single pill in the pane action bar: a solid accent (or red, for Delete) capsule with a white
+/// label — the differences header's prominent-button look. Split out of the `ContentView` extension
+/// because it needs its own `@State` for the hover brightening.
 private struct PaneActionButton: View {
     let title: String
     let systemImage: String
-    /// The pill's accent (app hue, or red for the destructive Delete). Colors the icon, the
-    /// primary wash, and the hover fill.
+    /// The pill's fill (app hue, or red for the destructive Delete).
     let tint: Color
-    /// The headline action (Compare): a persistent soft wash + hairline so it reads first.
+    /// The headline action (Compare): a white hairline so it reads first among equals.
     var isPrimary: Bool = false
     var role: ButtonRole? = nil
     let action: () -> Void
@@ -254,31 +249,18 @@ private struct PaneActionButton: View {
             HStack(spacing: 6) {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(tint)
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(tint)
             }
-            .padding(.horizontal, 11)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(tint.opacity(fillOpacity))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(tint.opacity(isPrimary ? 0.40 : 0), lineWidth: 0.75)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(height: 28)
+            .background(Capsule().fill(tint.opacity(isHovering ? 1.0 : 0.9)))
+            .overlay(Capsule().strokeBorder(.white.opacity(isPrimary ? 0.45 : 0), lineWidth: 0.75))
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: isHovering)
-    }
-
-    /// Persistent wash for the primary action; a lighter wash appears on hover for the rest.
-    private var fillOpacity: Double {
-        if isPrimary { return isHovering ? 0.22 : 0.14 }
-        return isHovering ? 0.14 : 0
     }
 }
