@@ -1203,6 +1203,17 @@ struct ContentView: View {
                     if !barNodes.isEmpty {
                         paneActionBar(isLeft: isLeft, selectionNodes: barNodes)
                             .padding(10)
+                            // Feed the padded bar's real footprint to the placement math, so the
+                            // flip-to-top triggers exactly when a bottom bar would cover the
+                            // selected row — not at a guessed fixed band. Writes to the shared
+                            // class, so no view invalidation.
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear
+                                        .onAppear { placement.coverage = proxy.size.height }
+                                        .onChange(of: proxy.size.height) { _, h in placement.coverage = h }
+                                }
+                            )
                             // Re-key on the edge so a scroll-crossing flip is a clean cross-fade (old
                             // copy fades out at one edge, new fades in at the other) rather than an
                             // alignment snap. A selection-driven edge change carries no animation

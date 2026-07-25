@@ -117,14 +117,14 @@ public struct FileTreeView: View {
         }
     }
 
-    /// After a scroll/layout update to the row positions, re-resolve the edge; if it flipped, commit
-    /// it and ask the host to re-render (animated cross-fade). Selection changes are NOT handled here
-    /// — they re-render the host anyway, which recomputes the edge synchronously and instantly.
+    /// After a scroll/layout update to the row positions, re-resolve the edge (the resolve commits
+    /// its own anchor); if it flipped, ask the host to re-render (animated cross-fade). Selection
+    /// changes are NOT handled here — they re-render the host anyway, which recomputes the edge
+    /// synchronously and instantly.
     private func flipEdgeIfScrolledAcross() {
         guard let placement, let onBarEdgeFlip else { return }
-        let newAtTop = placement.resolveAtTop(selection: selection)
-        guard newAtTop != placement.atTop else { return }
-        placement.atTop = newAtTop
+        let wasAtTop = placement.atTop
+        guard placement.resolveAtTop(selection: selection) != wasAtTop else { return }
         onBarEdgeFlip()
     }
     
@@ -282,12 +282,9 @@ public struct FileTreeView: View {
             placement?.rowBottoms = bottoms
             flipEdgeIfScrolledAcross()
         }
-        // Selection changed: sync the hysteresis anchor. The host already re-renders on the
-        // selection change and reads the edge synchronously, so no callback (and no animation) is
-        // needed here — the bar lands directly at the correct edge.
-        .onChange(of: selection) {
-            placement?.atTop = placement?.resolveAtTop(selection: selection) ?? false
-        }
+        // No .onChange(of: selection) committer here: the selection change re-renders the host,
+        // whose body resolve is the ONE place the edge (and its hysteresis anchor) commits. A second
+        // committer racing it from this side was part of the old flip-flop.
         .onDeleteCommand {
             let selectedNodes = tree.findNodes(at: selection)
             if !selectedNodes.isEmpty {

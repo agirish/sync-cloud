@@ -9,30 +9,48 @@ import CoreGraphics
 public final class PaneBarPlacement {
     public init() {}
 
-    /// Height of the list viewport; the bottom-band test measures down from this edge.
+    /// Height of the list viewport; the coverage test measures down from this edge.
     var viewportHeight: CGFloat = 0
     /// Every visible row's bottom edge in viewport space, keyed by node id. Tracks all rows (not
     /// just the selected one) so a freshly-clicked row's position is already known at click time.
     var rowBottoms: [String: CGFloat] = [:]
-    /// The last resolved edge, kept for hysteresis so a row parked at the boundary can't chatter.
-    var atTop = false
+    /// The measured footprint of the bottom-docked bar — its padded overlay height, written by the
+    /// host from the bar's real geometry. This is the coverage zone: the bar only hides a row whose
+    /// bottom edge falls inside it, so the flip triggers exactly when covering would happen, not at
+    /// a guessed flat band (the old 72pt band flipped a click several points before any overlap —
+    /// the "premature flip on the way down"). Holds a bar-at-rest estimate until first measured.
+    /// Public: the HOST measures the bar (it renders it) and writes the value here.
+    public var coverage: CGFloat = 64
+    /// The last committed edge — the hysteresis anchor. Written ONLY inside `resolveAtTop`, so
+    /// every caller reasons from the same anchor. (The old shape had the host resolving WITHOUT
+    /// committing while two other paths committed, so consecutive renders could disagree with the
+    /// anchor and the bar flip-flopped.)
+    private(set) var atTop = false
 
-    /// How much of the list's bottom edge the action bar (plus a row of breathing room) covers.
-    private static let band: CGFloat = 72
-    /// Dead-zone (about one row) between the flip-to-top and flip-back-to-bottom thresholds.
-    private static let hysteresis: CGFloat = 28
+    /// Extra clearance (beyond leaving the coverage zone) a selected row must gain before the bar
+    /// drops back to the bottom — about one comfortable row. The old 28pt dead-zone was thinner
+    /// than a row step, so arrowing near the boundary bounced the bar.
+    private static let exitHysteresis: CGFloat = 44
 
-    /// Whether the bar should dock at the top for the given selection: true when the lowest selected
-    /// visible row sits inside the bottom band a bottom-docked bar would cover. A short or unscrolled
-    /// list keeps the bar at the bottom because its rows hug the top of the viewport. Pure w.r.t. the
-    /// inputs except that it reads `atTop` for hysteresis — callers update `atTop` when they commit.
+    /// Resolves — and commits — which edge the bar belongs on for the given selection: top exactly
+    /// when a bottom-docked bar would cover the lowest selected visible row. A short or unscrolled
+    /// list keeps the bar at the bottom because its rows hug the top of the viewport; a selection
+    /// with no visible row does too (there is nothing on screen to cover). Entering the top edge
+    /// happens the moment covering would occur; returning to the bottom additionally requires
+    /// `exitHysteresis` of clearance, so a row parked at the boundary can't chatter the bar.
+    /// Idempotent for unchanged geometry + selection, so the host may call it on every render.
+    @discardableResult
     public func resolveAtTop(selection: Set<String>) -> Bool {
         var lowest = -CGFloat.greatestFiniteMagnitude
         for id in selection {
             if let maxY = rowBottoms[id] { lowest = max(lowest, maxY) }
         }
-        guard lowest > -.greatestFiniteMagnitude, viewportHeight > 0 else { return false }
-        let enterTop = viewportHeight - Self.band
-        return atTop ? lowest > enterTop - Self.hysteresis : lowest > enterTop
+        guard lowest > -.greatestFiniteMagnitude, viewportHeight > 0 else {
+            atTop = false
+            return false
+        }
+        let coveredFrom = viewportHeight - coverage
+        atTop = atTop ? lowest > coveredFrom - Self.exitHysteresis : lowest > coveredFrom
+        return atTop
     }
 }
