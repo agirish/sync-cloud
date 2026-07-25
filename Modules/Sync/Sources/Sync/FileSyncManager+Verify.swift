@@ -110,7 +110,10 @@ extension FileSyncManager {
     /// cleaning up synchronously here could destroy the list before `confirmVerifiedCopy()` claims
     /// it. Both button paths run synchronously in the same turn; whichever claimed the list first
     /// wins and this deferred cleanup becomes a no-op.
-    public func verifiedCopyDialogDismissed() {
+    /// - Returns: The deferred cleanup task, so tests can await the turn instead of sleeping for a
+    ///   guessed duration (same reason `confirmVerifiedCopy()` hands back its copy task).
+    @discardableResult
+    public func verifiedCopyDialogDismissed() -> Task<Void, Never> {
         Task { @MainActor in
             self.dismissVerifiedCopyDialogWithoutCopy()
         }

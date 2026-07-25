@@ -47,12 +47,12 @@ import Foundation
         let (manager, mockFM, diff) = try makeVerifiedCopyFixture()
         manager.verifiedIdenticalForCopy = [diff]
 
-        manager.verifiedCopyDialogDismissed()          // binding setter (dismiss)
+        let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter (dismiss)
         let copyTask = manager.confirmVerifiedCopy()   // confirm button, same main-actor turn
 
         #expect(copyTask != nil)
         await copyTask?.value
-        try await Task.sleep(nanoseconds: 100_000_000) // let the deferred dismiss cleanup run
+        await dismissCleanup.value                     // the deferred dismiss cleanup really ran
 
         // The copy really ran: the existing destination was trashed and replaced.
         #expect(mockFM.trashedPaths.count == 1)
@@ -70,10 +70,10 @@ import Foundation
         manager.verifiedIdenticalForCopy = [diff]
 
         let copyTask = manager.confirmVerifiedCopy()
-        manager.verifiedCopyDialogDismissed()
+        let dismissCleanup = manager.verifiedCopyDialogDismissed()
 
         await copyTask?.value
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await dismissCleanup.value
 
         #expect(mockFM.trashedPaths.count == 1)
         #expect(manager.differences.isEmpty)
@@ -87,9 +87,12 @@ import Foundation
         manager.verifiedIdenticalForCopy = [diff]
 
         manager.dismissVerifiedCopyDialogWithoutCopy() // Cancel button
-        manager.verifiedCopyDialogDismissed()          // binding setter also fires
+        let dismissCleanup = manager.verifiedCopyDialogDismissed() // binding setter also fires
 
-        try await Task.sleep(nanoseconds: 100_000_000)
+        await dismissCleanup.value
+        // Cancel hides the rows through a detached `Task { applyFilters() }`, so the effect lands
+        // on a later main-actor turn. Poll for it: a fixed sleep flaked on a loaded CI runner.
+        await waitUntil("cancelled verified copy hides its rows") { manager.differences.isEmpty }
 
         #expect(mockFM.trashedPaths.isEmpty)
         #expect(manager.verifiedIdenticalForCopy == nil)
