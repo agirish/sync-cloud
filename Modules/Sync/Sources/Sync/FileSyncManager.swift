@@ -1361,6 +1361,20 @@ public class FileSyncManager: ObservableObject {
             return false
         }
 
+        // The other half of syncAll's own "a single row may be mid-flight" guard, which was
+        // written in one direction only. syncAll latches `isBulkSyncRunning` BEFORE its
+        // confirmation prompt, and that prompt's modal spins the run loop — so between the latch
+        // and `markSyncing(toSyncIDs)` a queued syncFile aimed at a row in the bulk set passes
+        // both guards above (the row is not marked yet) and both flows handle the same
+        // difference. `syncingDifferenceIds` is a set, not a refcount, so whichever defer runs
+        // first releases the id the other still owns, and a syncFile parked at its own prompt
+        // becomes invisible to Verify All's exclusion guard — the hashed-mid-overwrite window
+        // these guards exist to close.
+        guard !isBulkSyncRunning else {
+            banner = .warning("Wait for the current operation to finish before syncing")
+            return false
+        }
+
         // Mark the difference as syncing BEFORE any prompt can hold this call, not after:
         // Verify All's exclusion guard reads `syncingDifferenceIds` precisely so that a
         // syncFile parked at a prompt is visible to it — a prompt's modal spins the run loop,

@@ -283,12 +283,34 @@ extension FileSyncManager {
     /// Post-refresh hygiene: removes `.tmp_<UUID>` working files that a crashed or
     /// force-quit safe copy/move left behind (every normal exit path cleans them up via
     /// `defer`). Candidates come from the pane trees this refresh just walked — no extra
-    /// disk I/O — and only artifacts older than `OrphanSweeper.minimumAge` are reaped, so
-    /// an in-flight operation's staging file is never touched; running from the
-    /// post-refresh path also means no operation is mutating these panes right now.
-    /// `.rollback_<UUID>` replacement backups are deliberately left in place: they are
-    /// the undo stack's restorable handle and may be the only copy of a replaced file.
-    func sweepOrphanedTempArtifacts(now: Date = Date()) {
+    /// disk I/O. `.rollback_<UUID>` replacement backups are deliberately left in place: they
+    /// are the undo stack's restorable handle and may be the only copy of a replaced file.
+    ///
+    /// Refuses to run at all while any file operation is in flight. The age gate alone does
+    /// NOT make a live staging file safe, though this comment used to claim it did: a temp
+    /// staged by a same-volume rename inherits the SOURCE's modification date (and so does a
+    /// cross-volume `copyItem`, which preserves attributes), so staging any file untouched for
+    /// an hour produces a temp that is already past `minimumAge` at birth. A refresh landing
+    /// while `replaceItem` is still in flight — the whole reason that call can take real time
+    /// is a slow network volume — could then Trash the live operation's only staged copy out
+    /// from under it, and the resulting failure would report the content as lost to a system
+    /// item-replacement folder rather than sitting in the Trash. The counter is bumped before
+    /// the operation is enqueued and cleared after it completes, so it covers the entire
+    /// window; refreshes are explicitly allowed to walk mid-operation disk state, which is why
+    /// the sibling "no operation is mutating these panes right now" claim was false too.
+    /// Nothing is lost by waiting: an orphan is still an orphan at the next refresh, and only
+    /// a quiescent moment can tell an orphan from a staging file in use.
+    ///
+    /// - Returns: Whether the sweep was allowed to look. Removal itself is detached, so this is
+    ///   the only part of the decision a caller (or a test) can observe synchronously — without
+    ///   it, "nothing was swept" and "nothing has been swept YET" are indistinguishable, and a
+    ///   test asserting the former passes vacuously against the latter.
+    @discardableResult
+    func sweepOrphanedTempArtifacts(now: Date = Date()) -> Bool {
+        guard activeFileOperationsCount == 0 else {
+            Logger.shared.debug("Skipping the orphaned-temp sweep: \(activeFileOperationsCount) file operation(s) in flight")
+            return false
+        }
         let scan = OrphanSweeper.findArtifacts(
             inTrees: [rawLeftTree, rawRightTree],
             olderThan: now.addingTimeInterval(-OrphanSweeper.minimumAge)
@@ -296,7 +318,7 @@ extension FileSyncManager {
         if scan.rollbackCount > 0 {
             Logger.shared.debug("Leaving \(scan.rollbackCount) .rollback_ replacement backup(s) in place (restorable copies of replaced files)")
         }
-        guard !scan.tempPaths.isEmpty else { return }
+        guard !scan.tempPaths.isEmpty else { return true }
 
         let fm = fileManager
         let paths = scan.tempPaths
@@ -310,12 +332,19 @@ extension FileSyncManager {
                 self.prefetchedTrees.removeAll()
             }
         }
+        return true
     }
 
     /// User-triggered sweep from Settings → Advanced. Same age-gated, `.rollback_`-preserving
     /// pass as the automatic post-refresh sweep, plus a banner so the click visibly did
     /// something (the automatic pass logs quietly).
     public func sweepOrphanedTempArtifactsNow() {
+        // The automatic pass declines silently while operations are in flight; a click must say
+        // so instead, or the success banner would claim a check that never happened.
+        guard activeFileOperationsCount == 0 else {
+            banner = .warning("Wait for the current operation to finish before checking for orphaned files")
+            return
+        }
         sweepOrphanedTempArtifacts()
         banner = .success("Checked for orphaned temporary files")
     }
