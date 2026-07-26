@@ -14,51 +14,34 @@ import Events
 
     // MARK: PaneHeader
 
-    /// A comfortable-width header, freshly scanned: provider capsule, accent-tinted "Scanned
-    /// just now" pill with a GREEN status dot, nav cluster, breadcrumb. `Date()` is safe here
-    /// — the "just now" display bucket spans 45 s, orders of magnitude beyond render latency.
-    @Test func paneHeaderFresh() {
+    /// A comfortable-width header: provider capsule, nav cluster, breadcrumb. Scan freshness is
+    /// deliberately absent — it moved to the differences count pill, so this pins that the pane
+    /// header no longer draws a second copy of it.
+    @Test func paneHeaderComfortable() {
         assertViewSnapshot(
-            of: Self.header(providerName: "iCloud Drive", lastScan: Date()),
+            of: Self.header(providerName: "iCloud Drive"),
             size: CGSize(width: 560, height: 92),
-            named: "fresh")
-    }
-
-    /// Stale freshness: 15 minutes past the scan (well past the 10-minute threshold, and
-    /// mid-bucket — "15m ago" holds for a full minute), so the status dot must turn amber and
-    /// the pill grow the re-scan glyph. The capsule itself stays accent-tinted — only the dot
-    /// changes color, which is the whole point of this pairing.
-    @Test func paneHeaderStaleFreshnessPill() {
-        assertViewSnapshot(
-            of: Self.header(providerName: "iCloud Drive", lastScan: Date(timeIntervalSinceNow: -915)),
-            size: CGSize(width: 560, height: 92),
-            named: "stale")
+            named: "comfortable")
     }
 
     /// The burned edge case: a long custom provider name at the split clamp's 250 pt pane
-    /// minimum. Pins the full degradation ladder: the freshness pill hides entirely, the
-    /// logo drops, the name middle-truncates inside its capsule, and the nav cluster steps
-    /// down to .mini controls — every control fully visible, nothing pushed past the pane's
-    /// trailing edge (the pre-fix Menu fixedSize ballooned the name and shoved the nav
-    /// cluster out of view).
+    /// minimum. Pins the full degradation ladder: the logo drops, the name middle-truncates
+    /// inside its capsule, and the nav cluster steps down to .mini controls — every control
+    /// fully visible, nothing pushed past the pane's trailing edge (the pre-fix Menu fixedSize
+    /// ballooned the name and shoved the nav cluster out of view).
     @Test func paneHeaderNarrow250LongProviderName() {
         assertViewSnapshot(
-            of: Self.header(
-                providerName: "Marketing Team Shared Archive Drive",
-                lastScan: Date()),
+            of: Self.header(providerName: "Marketing Team Shared Archive Drive"),
             size: CGSize(width: 250, height: 92),
             named: "narrow-250")
     }
 
     /// The ladder's middle rung, 400 pt with the long name: the logo variant still fits (the
-    /// name keeps its readable floor and middle-truncates), the freshness pill has already
-    /// yielded, and the nav cluster is on its .mini fallback — the name is the identity
-    /// anchor, so it outranks both the pill and full-size controls.
+    /// name keeps its readable floor and middle-truncates) and the nav cluster is on its .mini
+    /// fallback — the name is the identity anchor, so it outranks full-size controls.
     @Test func paneHeaderMid400LongProviderName() {
         assertViewSnapshot(
-            of: Self.header(
-                providerName: "Marketing Team Shared Archive Drive",
-                lastScan: Date()),
+            of: Self.header(providerName: "Marketing Team Shared Archive Drive"),
             size: CGSize(width: 400, height: 92),
             named: "mid-400")
     }
@@ -119,7 +102,7 @@ import Events
 
     // MARK: Fixtures
 
-    private static func header(providerName: String, lastScan: Date?) -> PaneHeader {
+    private static func header(providerName: String) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: CloudProvider(
@@ -137,7 +120,6 @@ import Events
             sortOption: .constant(.name),
             onRefresh: {},
             isRefreshing: false,
-            lastScanDate: lastScan,
             showHiddenFiles: .constant(false))
     }
 }

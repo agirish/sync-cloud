@@ -34,22 +34,20 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// which is precisely the drift the constant exists to stop.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
     func restsAtHeaderHeightAtEveryWidth(width: CGFloat) {
-        #expect(laidOutHeight(Self.header(providerName: "iCloud Drive", lastScan: Date()), width: width)
+        #expect(laidOutHeight(Self.header(providerName: "iCloud Drive"), width: width)
                 == LiquidGlass.headerHeight)
     }
 
     /// The long-name degradation ladder (logo drops, name truncates, nav steps to `.mini`) changes
     /// what's IN the header, never how tall it is.
     @Test func longProviderNameNarrowHoldsHeight() {
-        #expect(laidOutHeight(Self.header(providerName: "Marketing Team Shared Archive Drive", lastScan: Date()),
+        #expect(laidOutHeight(Self.header(providerName: "Marketing Team Shared Archive Drive"),
                               width: 250) == LiquidGlass.headerHeight)
     }
 
-    /// No freshness pill (never scanned) and no provider at all — the two states with the least
-    /// content, and the ones that measured shortest (80 and 66) before the pin.
-    @Test func sparseStatesHoldHeight() {
-        #expect(laidOutHeight(Self.header(providerName: "iCloud Drive", lastScan: nil), width: 560)
-                == LiquidGlass.headerHeight)
+    /// No provider at all — the state with the least content, and the one that measured
+    /// shortest (66) before the pin.
+    @Test func sparseStateHoldsHeight() {
         #expect(laidOutHeight(Self.headerNoProvider(), width: 560) == LiquidGlass.headerHeight)
     }
 
@@ -58,7 +56,7 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// number from the other side of the window.
     @Test func headerBottomEdgeLandsOn83Point5() {
         let bottomEdge = LiquidGlass.cardInset + laidOutHeight(
-            Self.header(providerName: "iCloud Drive", lastScan: Date()), width: 560)
+            Self.header(providerName: "iCloud Drive"), width: 560)
         #expect(bottomEdge == 83.5)
     }
 
@@ -68,10 +66,10 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         PaneHeader(title: "Left", provider: nil, rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
                    canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
                    onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-                   onRefresh: {}, isRefreshing: false, lastScanDate: nil, showHiddenFiles: .constant(false))
+                   onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false))
     }
 
-    private static func header(providerName: String, lastScan: Date?) -> PaneHeader {
+    private static func header(providerName: String) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: providerName, imageName: "icloud-logo",
@@ -79,6 +77,6 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             rootPath: "/Users/test/iCloud", relativePath: "Documents/Reports",
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
-            onRefresh: {}, isRefreshing: false, lastScanDate: lastScan, showHiddenFiles: .constant(false))
+            onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false))
     }
 }

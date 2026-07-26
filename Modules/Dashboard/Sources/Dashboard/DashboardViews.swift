@@ -41,9 +41,6 @@ public struct PaneHeader: View {
     public let onRefresh: (() -> Void)?
     /// Spins the refresh glyph while a scan is running.
     public let isRefreshing: Bool
-    /// When the current comparison last scanned, driving the "Scanned N ago" freshness pill.
-    /// nil hides it (no scan yet, or the comparison state was invalidated).
-    public let lastScanDate: Date?
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
@@ -53,129 +50,8 @@ public struct PaneHeader: View {
     // reader with it.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
-    /// Drives the freshness badge's light/dark palette. Read from the environment rather than
-    /// from the Theme setting, so it follows System just as well as an explicit Light/Dark.
-    @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
-    }
-
-    /// "Scanned N ago" badge — the pane's freshness readout AND its scan control in one capsule:
-    /// status dot, age, hairline, re-scan glyph. Green while fresh, terracotta once the diff may be
-    /// out of date, neutral "Scanning…" while a scan runs. Hidden until the first scan lands, which is
-    /// why `navClusterContent` keeps a standalone Scan button for exactly that pre-scan window.
-    ///
-    /// The timeline is anchored to `lastScanDate`, NOT to `Date()`. Anchored to view creation the
-    /// 30s ticks sat on an arbitrary phase relative to the scan, so a "30s ago" label could appear
-    /// anywhere within 30s of the truth — and, because 600 is a multiple of 30, anchoring also
-    /// lands the fresh→stale flip exactly on the ten-minute threshold instead of up to 30s late.
-    @ViewBuilder
-    private var freshnessPill: some View {
-        if let lastScanDate {
-            TimelineView(.periodic(from: lastScanDate, by: 30)) { context in
-                let freshness = ScanFreshness.describe(scanDate: lastScanDate, now: context.date)
-                let state: FreshnessState = isRefreshing
-                    ? .scanning
-                    : (freshness.isStale ? .stale : .fresh)
-                let style = FreshnessStyle.of(state, colorScheme)
-                let text = state == .scanning ? "Scanning…" : freshness.text
-
-                // Three rungs, widest first. Unlike the pill this replaces, the badge must NOT
-                // vanish under constraint — it now carries the pane's only scan control, and a
-                // narrow pane that cannot be re-scanned is a worse outcome than a shortened
-                // provider name. So it sheds parts instead: the age text goes first, then the dot.
-                //
-                // The `.minimal` rung exists because measurement said so. With `.compact` as the
-                // floor, the 250 pt snapshot showed the provider name collapse from "Ma..." to a
-                // bare "..." — the badge was eating the ~12 pt those characters needed. Glyph-only
-                // is the width of the standalone Scan button it absorbed, so the row is genuinely
-                // no wider than before at any size, and the fill colour still carries fresh/stale
-                // even once the dot is gone.
-                ViewThatFits(in: .horizontal) {
-                    badge(style: style, text: text, density: .full)
-                    badge(style: style, text: text, density: .compact)
-                    badge(style: style, text: text, density: .minimal)
-                }
-                .help(helpText(lastScanDate: lastScanDate, state: state))
-            }
-        }
-    }
-
-    /// How much of the badge is drawn. The rungs shed information in the order it can be spared:
-    /// the age text is recoverable from the tooltip, the dot is redundant with the fill colour,
-    /// and the glyph — the only thing that is also an action — is never dropped.
-    private enum BadgeDensity {
-        /// Dot, age, divider, glyph.
-        case full
-        /// Dot and glyph.
-        case compact
-        /// Glyph alone, on the semantic fill.
-        case minimal
-    }
-
-    /// One rendering of the freshness badge at a given density.
-    @ViewBuilder
-    private func badge(style: FreshnessStyle, text: String, density: BadgeDensity) -> some View {
-        let label = HStack(spacing: density == .full ? 7 : 5) {
-            if density != .minimal {
-                Circle()
-                    .fill(style.dot)
-                    .frame(width: 7, height: 7)
-            }
-            if density == .full {
-                // One line always: in a narrow pane a wrapping badge would grow the whole
-                // header vertically.
-                Text(text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Rectangle()
-                    .fill(style.content.opacity(0.22))
-                    .frame(width: 1, height: 12)
-            }
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 10, weight: .semibold))
-                .symbolEffect(.rotate, options: .repeating, isActive: isRefreshing)
-        }
-        .font(.system(size: 11, design: .monospaced))
-        .foregroundStyle(style.content)
-        // Symmetric once the label is gone, so the lone glyph sits centred rather than shoved
-        // against the leading edge by padding sized for a text run.
-        .padding(.leading, density == .minimal ? 6 : 8)
-        .padding(.trailing, 6)
-        .padding(.vertical, 3)
-        // A FLAT semantic fill — deliberately NOT `accentGlassCapsule`, and deliberately not the
-        // accent hue at all. Measured on the live window, an accent-tinted glass capsule over the
-        // accent-washed header rendered at rgb(244,246,249) — LIGHTER than the rgb(186,204,238)
-        // backdrop behind it — because a tint composited over its own hue has nothing to shift
-        // against. That is what left the label at 1.35:1. A flat fill with same-family text holds
-        // its contrast under every one of the twelve hues and every glass level.
-        .background(style.fill, in: Capsule())
-        .contentShape(Capsule())
-        // fixedSize so the enclosing ViewThatFits makes a real binary choice: a badge free to
-        // truncate would always "fit" and the compact floor would never be reached.
-        .fixedSize()
-
-        if let onRefresh {
-            Button(action: onRefresh) { label }
-                .buttonStyle(.hoverAffordance(.filled, tint: style.dot))
-                // Must not queue a second scan while one is already running.
-                .disabled(isRefreshing)
-        } else {
-            label
-        }
-    }
-
-    /// Coarse in the badge, exact on hover — the age buckets deliberately cannot answer "when
-    /// precisely?", so the tooltip does. Same-day scans drop the date as noise.
-    private func helpText(lastScanDate: Date, state: FreshnessState) -> String {
-        if state == .scanning { return "Scanning for changes…" }
-        let stamp = Calendar.current.isDateInToday(lastScanDate)
-            ? lastScanDate.formatted(date: .omitted, time: .standard)
-            : lastScanDate.formatted(date: .abbreviated, time: .standard)
-        let lead = state == .stale
-            ? "This comparison may be out of date — last scanned \(stamp)"
-            : "Last scanned \(stamp)"
-        return onRefresh == nil ? lead : "\(lead) — click to re-scan"
     }
 
     public init(
@@ -197,7 +73,6 @@ public struct PaneHeader: View {
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
-        lastScanDate: Date? = nil,
         showHiddenFiles: Binding<Bool>
     ) {
         self.title = title
@@ -218,7 +93,6 @@ public struct PaneHeader: View {
         self.onCollapse = onCollapse
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
-        self.lastScanDate = lastScanDate
         self._showHiddenFiles = showHiddenFiles
     }
 
@@ -228,9 +102,9 @@ public struct PaneHeader: View {
                 if let provider = provider {
                     // In a narrow pane the provider NAME is the identity anchor: with the whole
                     // capsule at the row's highest layoutPriority it is offered width before the
-                    // freshness pill and before the nav cluster's full-size variant, so under
-                    // constraint the pill yields first, then the name middle-truncates, and only
-                    // then (below the logo variant's readable floor) the logo drops.
+                    // nav cluster's full-size variant, so under constraint the cluster steps down
+                    // to `.mini` first, then the name middle-truncates, and only then (below the
+                    // logo variant's readable floor) the logo drops.
                     ViewThatFits(in: .horizontal) {
                         providerCapsule(provider, showsLogo: true)
                         providerCapsule(provider, showsLogo: false)
@@ -245,23 +119,6 @@ public struct PaneHeader: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
-
-                if lastScanDate != nil {
-                    // The pill used to YIELD ENTIRELY here (round-5 intent: all-or-nothing rather
-                    // than compressing to a bare dot), handing its width back to the provider
-                    // name. It can't any more — it carries the pane's only scan control, and a
-                    // narrow pane that cannot be re-scanned is a worse outcome than a truncated
-                    // provider name. It now degrades to the compact dot+glyph floor instead,
-                    // chosen inside `freshnessPill`, at roughly the width of the standalone Scan
-                    // button it absorbed — so the row is no wider than before at every size.
-                    //
-                    // Priority 1 still keeps it above the Spacer in layout order (otherwise the
-                    // HStack splits leftover width between them and the badge collapses even in a
-                    // wide pane) and below the provider name's 2.
-                    freshnessPill
-                        .layoutPriority(1)
-                }
-
                 navCluster
             }
             PaneBreadcrumb(
@@ -368,11 +225,13 @@ public struct PaneHeader: View {
             .disabled(!canGoForward)
             .help("Go forward to this pane's next folder")
 
-            // Scan/refresh normally lives INSIDE the freshness badge, which pairs the action with
-            // the state it acts on — the arrows used to sit between them. This standalone button
-            // survives only for the window where that badge does not exist: before the first scan
-            // there is no `lastScanDate`, so without it a fresh comparison could never be scanned.
-            if let onRefresh, lastScanDate == nil {
+            // Scan/refresh used to live INSIDE the pane's freshness badge, pairing the action
+            // with the state it acted on, and this standalone button existed only for the
+            // pre-scan window where that badge had no date to show. Freshness has since moved to
+            // the differences count pill — a toggle, so it cannot also be the scan button — which
+            // makes this the pane's one scan control at every point in the lifecycle. Ungated
+            // accordingly: a gate here now means a pane that can never be scanned.
+            if let onRefresh {
                 // The arrow spins while a scan runs (reduced-motion is honored automatically).
                 Button(action: onRefresh) {
                     Image(systemName: "arrow.clockwise")
@@ -481,9 +340,9 @@ enum PaneNavMetrics {
 /// These used to wear `chromeButtonStyle`, i.e. the system `.glass` style, and three rounds of
 /// hover fixes failed against it — an outer `.foregroundStyle` loses to the style's own label
 /// colour, an outer `.frame` doesn't resize the pill, and any filter or offscreen pass over glass
-/// renders nothing at all. The freshness badge sitting beside these gave up on glass for the same
-/// family of reason (an accent tint over an accent wash has nothing to shift against). This
-/// follows it: the app owns the fill, so the app can guarantee both the size and the hover.
+/// renders nothing at all. The freshness badge that used to sit beside these gave up on glass for
+/// the same family of reason (an accent tint over an accent wash has nothing to shift against).
+/// This follows it: the app owns the fill, so the app can guarantee both the size and the hover.
 struct PaneNavChrome: ViewModifier {
     let accent: Color
     let controlSize: ControlSize

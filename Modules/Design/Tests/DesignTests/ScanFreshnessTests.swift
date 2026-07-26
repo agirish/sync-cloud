@@ -1,8 +1,9 @@
 import Testing
 import Foundation
-@testable import Dashboard
+@testable import Design
 
-/// Coverage for the pane header's scan-freshness badge: the relative-age buckets and the stale flag.
+/// Coverage for the differences count pill's scan-freshness readout: the relative-age buckets,
+/// the two spellings (`text` for a sentence, `age` for the pill's run), and the stale flag.
 @Suite struct ScanFreshnessTests {
 
     private let base = Date(timeIntervalSince1970: 1_000_000)
@@ -137,5 +138,17 @@ import Foundation
     @Test func belowTwoMinutesTheLadderDeliberatelyDiffers() {
         #expect(ScanFreshness.relative(0) != "just now")
         #expect(ScanFreshness.relative(45) != "1m ago")
+    }
+
+    /// The two spellings must stay in lockstep: `text` is the sentence the tooltip and the
+    /// all-in-sync placeholder use, `age` is the bare run that rides inside the count pill next to
+    /// the pill's own "Differences" label. One is the other with a subject bolted on — if they ever
+    /// come from different clocks, a pill and its tooltip would disagree about the same scan.
+    @Test func ageIsTheSentenceWithoutItsSubject() {
+        for offset in [0.0, 45, 90, 610, 4000, 90_000, 200_000] {
+            let result = ScanFreshness.describe(scanDate: base, now: base.addingTimeInterval(offset))
+            #expect(result.text == "Scanned \(result.age)", "offset \(offset)")
+            #expect(result.age == ScanFreshness.relative(offset), "offset \(offset)")
+        }
     }
 }

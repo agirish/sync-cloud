@@ -1,19 +1,31 @@
 import Foundation
 
-/// Pure relative-age text + stale flag for the pane header's "Scanned N ago" pill, kept out of the
-/// view so the buckets and the stale threshold are unit-testable.
-enum ScanFreshness {
+/// Pure relative-age text + stale flag for the "Scanned N ago" readout on the differences
+/// count pill, kept out of the view so the buckets and the stale threshold are unit-testable.
+///
+/// Lives in Design rather than beside its one caller: it used to sit in Dashboard next to the
+/// pane-header badge it fed, and the readout it feeds now is composed in FileExplorer, which
+/// cannot see Dashboard. Design is what both can see, and it is where the `.attention` family
+/// that colours a stale scan already lives.
+public enum ScanFreshness {
     /// Past this age the pill turns terracotta — the diff you're looking at may no longer match disk.
-    static let staleAfter: TimeInterval = 10 * 60 // 10 minutes
+    public static let staleAfter: TimeInterval = 10 * 60 // 10 minutes
 
-    struct Result: Equatable {
-        let text: String
-        let isStale: Bool
+    public struct Result: Equatable, Sendable {
+        /// The full sentence — "Scanned 29m ago". What the tooltip and the all-in-sync empty
+        /// state say, where there is room for a subject.
+        public let text: String
+        /// The bare age — "29m ago". What rides inside the count pill, where the pill's own
+        /// label ("576 Differences") is already the subject and repeating "Scanned" would make
+        /// the capsule a sentence fragment about two different things.
+        public let age: String
+        public let isStale: Bool
     }
 
-    static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter) -> Result {
+    public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter) -> Result {
         let elapsed = max(0, now.timeIntervalSince(scanDate))
-        return Result(text: "Scanned \(relative(elapsed))", isStale: elapsed >= staleAfter)
+        let age = relative(elapsed)
+        return Result(text: "Scanned \(age)", age: age, isStale: elapsed >= staleAfter)
     }
 
     /// Coarse, glanceable buckets — half a minute, minutes, hours, days. Deliberately not
@@ -30,7 +42,7 @@ enum ScanFreshness {
     /// replace it, so 1m now starts at a genuine 60s. Everything from 120s up is unchanged —
     /// `s / 60` already covered 1m–59m and `s / 3600` already covered 1h–23h, so the explicit
     /// `..<120` and `..<7200` cases were redundant restatements and are gone.
-    static func relative(_ seconds: TimeInterval) -> String {
+    public static func relative(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
         switch s {
         case ..<30: return "0s ago"

@@ -40,8 +40,8 @@ import Sync
 
     /// The differences count pill on the flat-capsule path, all three flavors stacked so the point
     /// of the change is visible as a comparison: the accent capsule the pill actually ships (solid
-    /// accent fill, paired label, ringed terracotta dot), the `.attention` family the stale
-    /// freshness badge still wears above it, and `.neutral`. Last row is the tint wash they replaced.
+    /// accent fill, paired label, ringed terracotta dot), the `.attention` family a stale scan
+    /// flips it to, and `.neutral`. Last row is the tint wash they replaced.
     @Test func statPillSemanticCapsule() {
         assertViewSnapshot(
             of: SemanticStatPillSpecimen().padding(12),
@@ -79,6 +79,52 @@ import Sync
                 StatPill(count: 21, label: "Differences", color: .orange,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right")
+            }
+        }
+    }
+
+    /// The three dressings the differences count pill actually ships, in order: fresh (the accent
+    /// capsule it always wore, now with an age run), stale (flat terracotta), scanning (flat
+    /// slate). Freshness used to be a separate badge in each pane header; this is the reference
+    /// for it living on the count instead.
+    ///
+    /// What the eye must find here is that **the fill changes**, and that the dot does not. On a
+    /// saturated accent capsule nothing coloured clears 3:1 (`SemanticCapsuleStyle.dotRing`), so a
+    /// fresh→stale flip carried by the dot would be a signal nobody is guaranteed to see — and an
+    /// earlier cut that recoloured it green rendered green-on-green under the green accent, a
+    /// hollow ring that read as an empty checkbox.
+    @Test func countPillFreshnessStates() {
+        assertViewSnapshot(
+            of: FreshnessCountPillSpecimen().padding(12),
+            size: CGSize(width: 260, height: 130),
+            named: "count-pill-freshness")
+    }
+
+    private struct FreshnessCountPillSpecimen: View {
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            // Green, the hue the pill was designed against — not the environment's accent, which
+            // would make this reference depend on the host's System Settings.
+            let hue = LiquidGlassHue.green
+            let accent = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor,
+                                                       label: hue.onAccentLabelColor)
+            VStack(alignment: .leading, spacing: 10) {
+                StatPill(count: 576, label: "Differences", color: hue.accentColor,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: accent,
+                         detail: "0s ago")
+                StatPill(count: 576, label: "Differences", color: hue.accentColor,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: .of(.attention, scheme),
+                         detail: "29m ago")
+                StatPill(count: 576, label: "Differences", color: hue.accentColor,
+                         systemImage: "exclamationmark.triangle",
+                         trailingSystemImage: "chevron.right",
+                         semantic: .of(.neutral, scheme),
+                         detail: "scanning…")
             }
         }
     }

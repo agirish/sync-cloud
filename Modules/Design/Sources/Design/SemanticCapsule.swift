@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Which meaning a semantic capsule is carrying. Deliberately about the *message*, not the
-/// surface: two capsules saying "this may need your attention" should look identical whether one
-/// is a scan-freshness badge and the other a difference count.
+/// surface: two capsules saying "this may need your attention" should look identical whether the
+/// thing wanting attention is a stale scan or something else entirely.
 public enum SemanticCapsuleFamily: String, CaseIterable, Sendable {
     /// Something is out of date or waiting on you. Terracotta.
     case attention
@@ -13,18 +13,19 @@ public enum SemanticCapsuleFamily: String, CaseIterable, Sendable {
 /// The three colors a semantic capsule is built from, for one family and appearance.
 ///
 /// These are SEMANTIC colors, not the app accent, and flat fills rather than tinted glass. Both
-/// choices were forced by measurement on the pane header's freshness badge: an accent-tinted glass
-/// capsule over the accent-washed header rendered LIGHTER than its own backdrop, stranding its
-/// label at 1.35:1 — a tint composited over its own hue has nothing to shift against. Being
+/// choices were forced by measurement on the pane header's old freshness badge: an accent-tinted
+/// glass capsule over the accent-washed header rendered LIGHTER than its own backdrop, stranding
+/// its label at 1.35:1 — a tint composited over its own hue has nothing to shift against. Being
 /// hue-independent also means a capsule renders identically under all twelve `LiquidGlassHue`
 /// cases, including the two (`.green`, `.amber`) that would otherwise collide with the very colors
 /// carrying the status.
 ///
-/// `.attention` is the app's ONE definition of the colour: `Modules/Dashboard`'s `FreshnessStyle`
-/// reads its `stale` triad straight out of here rather than restating it, so a stale badge in a
-/// pane header and a difference count in the bar below it cannot drift into two nearly-matching
-/// warms. `SemanticCapsuleTests` measures the contrast rather than trusting a comment, and
-/// `DashboardTests.staleFreshnessIsTheAttentionCapsule` pins the sharing.
+/// These two families are the app's ONE definition of these colours. Scan freshness used to keep
+/// its own `FreshnessStyle` triad per state, which was three-quarters duplication — `stale` already
+/// delegated here and `scanning` was a verbatim copy of `.neutral` — and exactly the "two warms
+/// that nearly match" drift this type exists to prevent. `DifferencesView.countPillDressing` now
+/// reads these directly. `SemanticCapsuleTests` measures the contrast rather than trusting a
+/// comment.
 ///
 /// The family is terracotta, not the amber it started as. Amber's yellow cast went muddy against
 /// the mint/emerald window wash — the earthier red-orange reads as a deliberate choice there while

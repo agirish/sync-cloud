@@ -26,6 +26,9 @@ public struct DifferencesView: View {
     /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
     @State private var isCountPillHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Drives the count pill's freshness palette. Read from the environment rather than from the
+    /// Theme setting, so it follows System just as well as an explicit Light/Dark.
+    @Environment(\.colorScheme) private var colorScheme
     @State private var searchText = ""
     @State private var selection = Set<FileDifference.ID>()
     @State private var sortOrder: [KeyPathComparator<FileDifference>] = [KeyPathComparator(\.fileName, comparator: .localizedStandard, order: .forward)]
@@ -309,6 +312,83 @@ public struct DifferencesView: View {
         }
     }
 
+    // MARK: Header — scan freshness
+
+    /// What scan freshness contributes to the differences count pill at one moment in time.
+    ///
+    /// Freshness used to be a standalone badge in each pane header — two capsules reporting one
+    /// fact, because a single Scan drives both panes, so they could only ever differ mid-scan.
+    /// It lives here now: the count and its age are one statement ("576 differences, as of 29
+    /// minutes ago"), and staleness lands on the very number it undermines.
+    private struct CountPillDressing {
+        let semantic: SemanticCapsuleStyle
+        /// The secondary run inside the pill — "29m ago", or nil before the first scan.
+        let detail: String?
+        /// The exact timestamp sentence, appended to the pill's tooltip. The age buckets are
+        /// deliberately coarse and cannot answer "when precisely?", so hover does.
+        let help: String?
+    }
+
+    /// The dressing for `now`. Three states, each on a treatment that already existed:
+    ///
+    /// - **fresh** changes nothing but the age run — the pill keeps the accent capsule it wears as
+    ///   a *toggle*, because reading as a control matters more than restating a status everything
+    ///   is already fine about. Reassurance does not deserve a colour.
+    /// - **stale** takes the whole capsule to the flat `.attention` family, which is the treatment
+    ///   the pane badge wore. Hue-independent, so it survives the `.green`/`.amber` accents that
+    ///   would otherwise collide with the colour carrying the status.
+    /// - **scanning** takes flat `.neutral`, and deliberately not green: a scan in flight has not
+    ///   yet earned "fresh", and colouring it as success flashes a verdict before the result exists.
+    ///
+    /// The FILL is the signal here, never the dot. On a saturated accent capsule nothing coloured
+    /// clears 3:1 (see `SemanticCapsuleStyle.dotRing`) — an earlier cut of this recoloured the dot
+    /// green while fresh and, under the green accent, painted a green dot on a green fill inside a
+    /// white ring: a hollow circle that read as an empty checkbox. The dot stays the one terracotta
+    /// `onAccent` gives it.
+    private func countPillDressing(at now: Date) -> CountPillDressing {
+        let accent = SemanticCapsuleStyle.onAccent(fill: glassHue.accentFillColor,
+                                                   label: glassHue.onAccentLabelColor)
+        guard let scanDate = syncManager.lastScanDate else {
+            // Pre-scan: "0 Differences" with no age is honest; an age run would have nothing to
+            // report and the pill is already a no-op toggle here.
+            return CountPillDressing(semantic: accent, detail: nil, help: nil)
+        }
+        let stamp = Calendar.current.isDateInToday(scanDate)
+            ? scanDate.formatted(date: .omitted, time: .standard)
+            : scanDate.formatted(date: .abbreviated, time: .standard)
+        if syncManager.isScanning {
+            return CountPillDressing(semantic: .of(.neutral, colorScheme),
+                                     detail: "scanning…",
+                                     help: "Scanning for changes…")
+        }
+        let freshness = ScanFreshness.describe(scanDate: scanDate, now: now)
+        guard freshness.isStale else {
+            return CountPillDressing(semantic: accent, detail: freshness.age,
+                                     help: "Last scanned \(stamp)")
+        }
+        return CountPillDressing(semantic: .of(.attention, colorScheme),
+                                 detail: freshness.age,
+                                 help: "This comparison may be out of date — last scanned \(stamp)")
+    }
+
+    /// Runs `content` on a 30s tick so the age stays honest without the view polling.
+    ///
+    /// Anchored to `lastScanDate`, NOT to `Date()`: anchored to view creation the ticks sat on an
+    /// arbitrary phase relative to the scan, so a "30s ago" label could land anywhere within 30s
+    /// of the truth — and, because the 600s stale threshold is a multiple of 30, anchoring also
+    /// puts the fresh→stale flip exactly on ten minutes instead of up to 30s late. Pre-scan there
+    /// is nothing to tick, so the content renders once.
+    @ViewBuilder
+    private func withScanFreshness(@ViewBuilder _ content: @escaping (CountPillDressing) -> some View) -> some View {
+        if let scanDate = syncManager.lastScanDate {
+            TimelineView(.periodic(from: scanDate, by: 30)) { context in
+                content(countPillDressing(at: context.date))
+            }
+        } else {
+            content(countPillDressing(at: Date()))
+        }
+    }
+
     // MARK: Header
 
     /// The header's normal (non-review) trailing controls: count pill, filter, selection chip,
@@ -318,18 +398,24 @@ public struct DifferencesView: View {
     /// belong to the expanded header.
     @ViewBuilder
     private var collapsedHeader: some View {
-        StatPill(
-            count: syncManager.differences.count,
-            label: "Differences",
-            // Unused on the capsule path — see `countPillToggle`, whose note this mirrors.
-            color: glassHue.accentColor,
-            systemImage: "exclamationmark.triangle",
-            // The same accent capsule the expanded header's pill wears. Collapsing the pane
-            // changes how much of the header survives, never what its colour language means:
-            // wearing the old `.warning` wash here made one count read as two conventions
-            // depending on a state the user toggles freely.
-            semantic: .onAccent(fill: glassHue.accentFillColor, label: glassHue.onAccentLabelColor)
-        )
+        // Freshness matters MORE here than in the expanded header, not less: collapsed, this pill
+        // is the only thing left on screen that says anything about the scan at all.
+        withScanFreshness { dressing in
+            StatPill(
+                count: syncManager.differences.count,
+                label: "Differences",
+                // Unused on the capsule path — see `countPillToggle`, whose note this mirrors.
+                color: glassHue.accentColor,
+                systemImage: "exclamationmark.triangle",
+                // The same capsule the expanded header's pill wears, freshness and all. Collapsing
+                // the pane changes how much of the header survives, never what its colour language
+                // means: wearing the old `.warning` wash here made one count read as two
+                // conventions depending on a state the user toggles freely.
+                semantic: dressing.semantic,
+                detail: dressing.detail
+            )
+            .help(dressing.help ?? "")
+        }
         Spacer()
     }
 
@@ -433,6 +519,7 @@ public struct DifferencesView: View {
     /// click again to collapse. No-op until a scan has run (nothing meaningful to show) —
     /// so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
     private var countPillToggle: some View {
+        withScanFreshness { dressing in
         Button {
             guard syncManager.hasScanned else { return }
             withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
@@ -449,14 +536,12 @@ public struct DifferencesView: View {
                 // points the way the next click will send them, and is withheld pre-scan
                 // (CountPillChevron owns both rules).
                 trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts),
-                // The accent hue, with the attention signal moved into the ringed terracotta dot.
-                // This pill is a toggle, and a solid accent capsule reads as a control the way a
-                // pale semantic wash does not — the stale freshness badge above still wears the
-                // flat `.attention` capsule, and the shared dot colour is what ties them together
-                // now that the fills differ. `colorScheme` no longer enters into it: the fill is
-                // the accent under both appearances and `onAccentLabelColor` pairs against the
-                // fill, not the window.
-                semantic: .onAccent(fill: glassHue.accentFillColor, label: glassHue.onAccentLabelColor)
+                // Accent while the scan is fresh — this pill is a toggle, and a solid accent
+                // capsule reads as a control the way a pale semantic wash does not — flipping to
+                // the flat `.attention` or `.neutral` capsule once freshness has something to say.
+                // See `countPillDressing`, which owns the whole rule.
+                semantic: dressing.semantic,
+                detail: dressing.detail
             )
             // Reduce Motion suppresses the grow, matching `HoverAffordanceMetrics.resolve` — the
             // choke point this control is deliberately exempt from still sets the house rule, and
@@ -483,13 +568,17 @@ public struct DifferencesView: View {
                 isCountPillHovered = false
             }
         }
-        .help(syncManager.hasScanned
-              ? "\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)"
-              : "Scan to see per-side item totals")
+        // Two facts, two lines: what a click does, then when this was last scanned. The exact
+        // timestamp only exists here — the pill's age run is bucketed and cannot answer "when?".
+        .help([syncManager.hasScanned
+               ? "\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)"
+               : "Scan to see per-side item totals",
+               dressing.help].compactMap { $0 }.joined(separator: "\n"))
         // StatPill collapses itself to one element labeled "N Differences"; the value/hint
         // ride on the button so VoiceOver conveys the toggle state and what a click does.
         .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
         .accessibilityHint(syncManager.hasScanned ? "Shows or hides the per-side item totals" : "")
+        }
     }
 
     /// The per-side totals the count pill reveals. `hasScanned` keeps it from ever reading

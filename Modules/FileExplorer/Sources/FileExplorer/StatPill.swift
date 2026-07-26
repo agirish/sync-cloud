@@ -19,13 +19,22 @@ struct StatPill: View {
     /// one solid fill, a dot, and text drawn to pair with that fill.
     ///
     /// Two flavors, and the difference is which of them owns the "wants your attention" signal.
-    /// `SemanticCapsuleStyle.of(.attention, _)` puts it in the whole capsule — the treatment a stale
-    /// freshness badge wears in the pane header above, hue-independent and therefore safe under the
-    /// `.amber`/`.green` accents that would otherwise collide with it. `.onAccent(fill:label:)`
-    /// gives the capsule to the accent hue and leaves the signal to the ringed terracotta dot; the
-    /// differences count pill takes that path, because it is a *button* and reading as one matters
-    /// more there than carrying its severity in the fill.
+    /// `SemanticCapsuleStyle.of(.attention, _)` puts it in the whole capsule — hue-independent and
+    /// therefore safe under the `.amber`/`.green` accents that would otherwise collide with it.
+    /// `.onAccent(fill:label:)` gives the capsule to the accent hue and leaves the signal to the
+    /// ringed dot; a pill that is also a *button* takes that path, because reading as a control
+    /// matters more there than carrying severity in the fill.
+    ///
+    /// The differences count pill now chooses between the two per scan-freshness state (see
+    /// `DifferencesView.countPillStyle`): accent while the scan is fresh, the flat `.attention`
+    /// capsule once it is stale, flat `.neutral` while a scan runs.
     var semantic: SemanticCapsuleStyle? = nil
+    /// A short secondary run after the label, behind a hairline divider — "29m ago" on the
+    /// differences count pill. Set in `labelFont` at full `content` strength, NOT at
+    /// `dimmedOnFillOpacity`: that opacity is sanctioned for non-text indicators (the trailing
+    /// chevron) against a 3:1 floor, and text answers to 4.5:1. The size difference against the
+    /// semibold `numberFont` beside it is what makes it read as secondary.
+    var detail: String? = nil
 
     var body: some View {
         Group {
@@ -64,6 +73,21 @@ struct StatPill: View {
                         .monospacedDigit()
                     Text(label)
                         .font(PillVariant.standard.labelFont)
+                    if let detail {
+                        // Same divider recipe the pane-header freshness badge used before this
+                        // readout moved in here: a 1pt rule at the content colour's dimmed
+                        // strength. The rule is a non-text indicator, so it may take
+                        // `dimmedOnFillOpacity`; the text after it may not.
+                        Rectangle()
+                            .fill((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
+                            .frame(width: 1, height: 11)
+                        Text(detail)
+                            .font(PillVariant.standard.labelFont)
+                            .monospacedDigit()
+                            // One line always: this rides in a header row whose height is pinned,
+                            // and a wrapping capsule would push the pill past it.
+                            .lineLimit(1)
+                    }
                     if let trailingSystemImage {
                         Image(systemName: trailingSystemImage)
                             .font(.system(size: 9, weight: .semibold))
@@ -85,9 +109,11 @@ struct StatPill: View {
                 Pill(.standard, tint: color, systemImage: systemImage, count: count, label: label)
             }
         }
-        // One element, not icon + two texts: VoiceOver reads "7 Differences".
+        // One element, not icon + two texts: VoiceOver reads "7 Differences" — or "7 Differences,
+        // scanned 29m ago" once a detail run is present, since a divider is not something to speak.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(count.formatted()) \(label)")
+        .accessibilityLabel(detail.map { "\(count.formatted()) \(label), scanned \($0)" }
+                            ?? "\(count.formatted()) \(label)")
     }
 }
 
