@@ -29,13 +29,33 @@ import Testing
 
     // MARK: Labels
 
-    @Test func testCopyIsUnmarkedAndMoveIsSpelledOut() {
-        // Copy carries no verb — the arrow says "to there". Move is the marked variant because it
-        // is the one that removes the source.
-        #expect(BulkActionLabel.text(count: 17, destination: "Dropbox", isMove: false) == "17 to Dropbox")
+    @Test func testBothVerbsAreSpelledOutWhileTheDestinationFits() {
+        // The pair a user actually compares. Copy used to be the unmarked default and carried no
+        // verb at all; both are spelled out now, so telling them apart needs no prior knowledge of
+        // the convention and the ⇧ flip is one swapped word.
+        #expect(BulkActionLabel.text(count: 17, destination: "Dropbox", isMove: false) == "Copy 17 to Dropbox")
         #expect(BulkActionLabel.text(count: 17, destination: "Dropbox", isMove: true) == "Move 17 to Dropbox")
+    }
+
+    @Test func testCopyShedsItsVerbWithTheDestinationButMoveNever() {
+        // The narrow rungs, where the ladder has already taken the destination. Copy's verb goes
+        // with it — a bare count is what that rung has always shown, and this change is not
+        // allowed to make narrow windows compact any earlier than they already do. Move's verb
+        // stays at every width: it is the one word saying the source will not survive.
         #expect(BulkActionLabel.text(count: 4, destination: nil, isMove: false) == "4")
         #expect(BulkActionLabel.text(count: 4, destination: nil, isMove: true) == "Move 4")
+    }
+
+    /// The mutation this file exists to catch: if `text` ever spells Copy out at the narrow rung
+    /// too, the row grows at exactly the widths that had no room to begin with, and (i) has
+    /// silently become (ii). Asserting the LENGTHS rather than the strings is what makes the
+    /// intent — "the shed label is never longer than the one it replaced" — the checked property.
+    @Test func testShedCopyLabelIsNoLongerThanBeforeTheVerbExisted() {
+        let shed = BulkActionLabel.text(count: 560, destination: nil, isMove: false)
+        let named = BulkActionLabel.text(count: 560, destination: "Dropbox", isMove: false)
+        #expect(shed.count == "560".count)
+        #expect(shed.count < named.count)
+        #expect(!shed.contains("Copy"))
     }
 
     @Test func testHelpAlwaysNamesTheVerbAndDestination() {

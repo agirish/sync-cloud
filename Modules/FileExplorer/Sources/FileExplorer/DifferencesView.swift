@@ -809,11 +809,11 @@ public struct DifferencesView: View {
         .disabled(isSyncActionBlocked)
         // The label may shed the destination; the tooltip never does, and it always names the verb.
         .help(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
-        // …and neither does the accessible name. The visible label deliberately drops the verb for
-        // Copy (the arrow in the icon carries direction) and sheds the destination as the row
-        // tightens, so at the narrow rungs it reads just "12" — which leaves a VoiceOver user unable
-        // to tell Copy from Move, the one pair where the difference is whether the source survives.
-        // An icon and a tooltip are not announced; the name is.
+        // …and neither does the accessible name. The visible label names both verbs while it has
+        // room, but Copy sheds its verb along with the destination as the row tightens, so at the
+        // narrow rungs it reads just "12" — which would leave a VoiceOver user unable to tell Copy
+        // from Move, the one pair where the difference is whether the source survives. An icon and
+        // a tooltip are not announced; the name is.
         .accessibilityLabel(BulkActionLabel.help(count: count, destination: destination, isMove: isMove))
     }
 

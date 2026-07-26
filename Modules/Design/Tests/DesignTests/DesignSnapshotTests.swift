@@ -207,6 +207,11 @@ import Testing
     /// from a fill and a hairline we own rather than from a system material, which is the same
     /// property that keeps it from graying out when the app isn't frontmost
     /// (`ActionBarFocusIndependenceTests`).
+    ///
+    /// The label text is ILLUSTRATIVE, not a copy reference. It is shaped like the differences
+    /// bar's buttons because that is this style's main caller, but the exact wording lives in
+    /// `BulkActionLabel` (FileExplorer) and has since gained a "Copy" verb these specimens do not
+    /// carry — they are sized to a fixed canvas, and this suite asserts weights, not words.
     @Test func actionBarWeights() {
         assertViewSnapshot(
             of: HStack(spacing: 10) {

@@ -37,14 +37,26 @@ enum BulkActionLabel {
 
     /// A transfer button's label.
     ///
-    /// Copy is the unmarked default and carries no verb — the arrow in the button's icon says
-    /// "to there", and the destination says where. Only Move is spelled out, because it is the
-    /// one that removes the source: the marked, destructive variant should be the one that reads
-    /// differently, not the one you get by default.
+    /// Both verbs are spelled out while the button has room for a destination — "Copy 17 to
+    /// Dropbox" against "Move 17 to Dropbox". This deliberately REPLACES the markedness rule the
+    /// button shipped with, where Copy was the unmarked default and carried no verb at all on the
+    /// grounds that the arrow glyph already said "to there". The argument against it: a bare
+    /// "17 to Dropbox" is only unambiguous once you know the convention, and the convention is
+    /// invisible — nothing on screen teaches that a verbless button means copy. Symmetry costs one
+    /// word and needs no prior knowledge; the ⇧ flip then reads as one swapped word rather than a
+    /// verb materialising out of nowhere.
+    ///
+    /// What survives from the old rule is its safety half, at the narrow rungs. When the
+    /// destination has been shed (`destination == nil`) Copy drops its verb with it and the button
+    /// falls back to a bare count, exactly as before — but **Move never sheds its verb at any
+    /// width**. The asymmetry is the point: the word that has to be there is the one saying the
+    /// source will not survive, and losing "Copy" costs a narrow window nothing it can act on.
     static func text(count: Int, destination: String?, isMove: Bool) -> String {
-        let verb = isMove ? "Move " : ""
-        guard let destination else { return "\(verb)\(count.formatted())" }
-        return "\(verb)\(count.formatted()) to \(destination)"
+        guard let destination else {
+            // Narrow rung: Move keeps its verb, Copy is the bare count it has always been.
+            return isMove ? "Move \(count.formatted())" : count.formatted()
+        }
+        return "\(isMove ? "Move" : "Copy") \(count.formatted()) to \(destination)"
     }
 
     /// The tooltip, which always spells out the verb and the destination however terse the label
