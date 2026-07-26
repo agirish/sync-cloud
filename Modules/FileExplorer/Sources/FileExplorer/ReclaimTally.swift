@@ -27,6 +27,20 @@ struct ReclaimTally: Equatable {
 
     var hasReclaimed: Bool { totalBytes > 0 }
 
+    /// The bytes a BATCH resolve may credit, given the drop it caused in the engine's
+    /// still-reclaimable figure and this tally's total read just before the batch started.
+    ///
+    /// The batch is measured by that drop rather than by the total its dialog promised, so a
+    /// partial failure counts only what really landed. But the drop is a *shared* meter: a per-card
+    /// resolve that completes while the batch runs credits its own `group.reclaimableBytes` to this
+    /// tally AND lowers the engine's figure by the same bytes, so crediting the raw drop counts
+    /// that group twice and "freed this session" overstates the win. Subtracting whatever this
+    /// tally banked in the meantime attributes each group exactly once. Per-card resolves outside
+    /// the batch-eligible set credit 0 here and move the engine's figure by 0, so they cancel out.
+    func netBatchCredit(reclaimableDrop: Int, bankedAtStart: Int) -> Int {
+        reclaimableDrop - (totalBytes - bankedAtStart)
+    }
+
     /// The "… freed this session" caption from an already-formatted byte string. Formatting is kept
     /// out of this type on purpose — `ByteCountFormatter`'s output is locale-dependent, so the label
     /// stays deterministic and testable by taking the pre-formatted string. nil until something's

@@ -93,6 +93,28 @@ enum TidyMatchStyle {
     }
 }
 
+// MARK: - Scan-start session reset
+
+/// Everything a fresh Duplicates scan retires, as one named list instead of loose assignments
+/// inside `.onChange`.
+///
+/// The defect this exists to prevent was an OMISSION from that list: the reclaim tally and the
+/// search query were cleared on scan start, but the type filter was not — so a "Versions" filter
+/// picked against the previous results silently survived into the new scan. The lens then showed a
+/// partial list with no visible cause, or the "Nothing matches" dead end, whose copy blames *the
+/// search* and offers to clear it — advice that fixes nothing when no search is active. Both
+/// narrowings are one narrowing to the user (the same empty state's button clears both), so both
+/// belong to the results they were aimed at and neither may outlive them.
+enum TidyScanReset {
+    static func duplicatesScanStarted(filter: inout TidyFilter,
+                                      searchQuery: inout String,
+                                      reclaim: inout ReclaimTally) {
+        filter = .all
+        searchQuery = ""
+        reclaim.reset()
+    }
+}
+
 // MARK: - TidyView
 
 /// The Tidy workspace: a single-source hub of lenses (Duplicates, Rename, Organize, Automations, and
@@ -406,12 +428,15 @@ public struct TidyView: View {
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
-        // counts the current results' work (H5). The search resets too: a query typed against the
-        // previous results silently pre-filtering (or hiding) the new scan's groups is a dead end.
+        // counts the current results' work (H5). The search and the type filter reset too: either one
+        // typed against the previous results silently pre-filtering (or hiding) the new scan's groups
+        // is a dead end. The list lives in ``TidyScanReset`` so it can be tested — the defect was an
+        // omission from it.
         .onChange(of: syncManager.isFindingDuplicates) { _, isScanning in
             if isScanning {
-                reclaim.reset()
-                searchQueries[.duplicates] = ""
+                TidyScanReset.duplicatesScanStarted(filter: &filter,
+                                                    searchQuery: &searchQueries[.duplicates, default: ""],
+                                                    reclaim: &reclaim)
             }
         }
         // Same reasoning for the other scanning lenses: a query left over from the previous
@@ -1476,10 +1501,17 @@ public struct TidyView: View {
         // Credit the batch by the reclaimable it actually erased (the drop in the still-reclaimable
         // figure), so a partial failure counts only what really landed — `applyRecommendedDuplicates`
         // returns Void, so we measure the delta rather than trust the dialog's promised total.
+        //
+        // That delta is a shared meter, though: a per-card `apply` finishing while this batch runs
+        // lowers it too, and that path already credited the group itself — so the raw drop would
+        // count those bytes twice. `netBatchCredit` nets out whatever the tally banked meanwhile,
+        // which is exactly the concurrent per-card credits (see ``ReclaimTally``).
         let before = syncManager.duplicateSummary.reclaimableBytes
+        let bankedAtStart = reclaim.totalBytes
         Task {
             await syncManager.applyRecommendedDuplicates(groups)
-            creditReclaim(before - syncManager.duplicateSummary.reclaimableBytes)
+            let drop = before - syncManager.duplicateSummary.reclaimableBytes
+            creditReclaim(reclaim.netBatchCredit(reclaimableDrop: drop, bankedAtStart: bankedAtStart))
         }
     }
 

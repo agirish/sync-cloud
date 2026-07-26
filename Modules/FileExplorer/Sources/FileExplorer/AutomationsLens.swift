@@ -159,6 +159,12 @@ public struct AutomationsLens: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { syncManager.ensureAutomationRulesLoaded() }
+        // A new dry run retires any per-file review still in progress — the review's rows belong to
+        // the report this run is about to replace (see `dryRunRunningChanged`). TidyView applies the
+        // same rule to its lenses' session state on scan start.
+        .onChange(of: syncManager.isRunningAutomationDryRun) { _, isRunning in
+            filing.dryRunRunningChanged(to: isRunning)
+        }
         .sheet(item: $editingRule) { rule in
             AutomationRuleEditor(
                 rule: rule,

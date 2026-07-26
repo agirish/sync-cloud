@@ -69,4 +69,21 @@ struct FilingWalkthrough: Equatable {
     mutating func cancel() {
         self = FilingWalkthrough()
     }
+
+    /// Tracks the dry-run preview's running flag, retiring an in-progress walkthrough when a NEW
+    /// preview STARTS.
+    ///
+    /// The queue is a snapshot of ONE report's rows, and each row carries the destination *that*
+    /// report computed. Hitting "Preview all" mid-review replaces the report underneath the cursor:
+    /// without this, the walkthrough survives the run and resumes at "File 2 of 5" over the
+    /// superseded rows, so approving one files the file into a destination the fresh preview no
+    /// longer proposes. Discarding is the safe direction — `cancel` banks nothing, so a retired
+    /// walkthrough moves no files at all and the user simply re-enters from the new report.
+    ///
+    /// Only the rising edge retires: the flag also goes back to false when the run FINISHES, and
+    /// clearing there would wipe a walkthrough the user had legitimately started meanwhile.
+    mutating func dryRunRunningChanged(to isRunningDryRun: Bool) {
+        guard isRunningDryRun else { return }
+        cancel()
+    }
 }

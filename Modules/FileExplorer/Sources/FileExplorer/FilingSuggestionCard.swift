@@ -112,14 +112,12 @@ struct FilingSuggestionCard: View {
     }
 
     /// Counts the destination folder's visible entries off the render path (small folders, cheap).
+    /// A nil result is deliberately NOT written back: it means either "unreadable" (the field is
+    /// already nil, so writing changes nothing) or "superseded" — see ``DestinationPeek``.
     private func loadDestinationCount(for dest: FilingDestination) async {
         destinationItemCount = nil   // drop any stale count from a prior destination while reloading
         guard !dest.isNew else { return }
-        let path = dest.path
-        let count = await Task.detached(priority: .utility) { () -> Int? in
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
-            return entries.filter { !$0.hasPrefix(".") }.count
-        }.value
+        guard let count = await DestinationPeek.itemCount(atPath: dest.path) else { return }
         destinationItemCount = count
     }
 
@@ -326,5 +324,34 @@ struct FilingSuggestionCard: View {
             }
                 .buttonStyle(.hoverAffordance(.segment, tint: hueAccent)).controlSize(.small)
         }
+    }
+}
+
+// MARK: - Destination peek (G6)
+
+/// Reads the "· N items" peek for a Filing destination off the render path.
+///
+/// Extracted from the card so the CANCELLATION rule is testable, because that rule is the whole
+/// point of this type. The card loads the peek from `.task(id: dest.path)`, which cancels the
+/// in-flight read when "Try another" swaps the destination — but `Task.detached` does not inherit
+/// cancellation, so a slow cloud directory listing for the OLD destination keeps running and can
+/// resolve AFTER the new one. Without a cancellation check the loser of that race writes last and
+/// the card shows the old folder's item count under the new folder's name — a wrong fact about a
+/// destination the user is deciding on.
+enum DestinationPeek {
+    /// The number of visible (non-dot) entries in `path`, or nil when there is nothing to publish:
+    /// the folder was unreadable, or this task was superseded while the listing ran. Both mean the
+    /// caller must NOT write — in the superseded case another read already owns the field, and
+    /// stamping it (even with nil) would blank a count that is correct for what's on screen.
+    static func itemCount(atPath path: String) async -> Int? {
+        let count = await Task.detached(priority: .utility) { () -> Int? in
+            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: path) else { return nil }
+            return entries.filter { !$0.hasPrefix(".") }.count
+        }.value
+        // Checked AFTER the await, not before: the read is only stale once it has finished late.
+        // (Same shape as FileTreeView's download-watch poll, which re-checks `Task.isCancelled`
+        // after each detached lstat before touching its badge state.)
+        guard !Task.isCancelled else { return nil }
+        return count
     }
 }

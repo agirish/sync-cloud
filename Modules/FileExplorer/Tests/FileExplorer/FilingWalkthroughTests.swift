@@ -87,6 +87,37 @@ import Sync
         #expect(walk.current == nil)
     }
 
+    @Test func aNewDryRunRetiresAWalkthroughOverTheSupersededReport() {
+        var walk = FilingWalkthrough()
+        walk.start([row("a.pdf"), row("b.pdf"), row("c.pdf")])
+        _ = walk.advance(approved: true)          // mid-review: "File 2 of 3", one approval banked
+
+        walk.dryRunRunningChanged(to: true)       // the user hits "Preview all"
+
+        // The queue's rows carry the destinations the OLD preview computed. Resuming the review
+        // over them would file to homes the fresh preview no longer proposes, so the walkthrough
+        // is retired outright — and its banked approval goes with it, since nothing has moved yet.
+        #expect(!walk.isRunning)
+        #expect(walk.current == nil)
+        #expect(walk.approved.isEmpty)
+        #expect(walk.queue.isEmpty)
+    }
+
+    @Test func aDryRunFinishingLeavesAWalkthroughAlone() {
+        var walk = FilingWalkthrough()
+        walk.start([row("a.pdf"), row("b.pdf")])
+        _ = walk.advance(approved: true)
+
+        // Only the RISING edge supersedes. The same flag goes back to false when the run ends, and
+        // clearing on that edge would silently discard a review the user had legitimately started.
+        walk.dryRunRunningChanged(to: false)
+
+        #expect(walk.isRunning)
+        #expect(walk.current?.fileName == "b.pdf")
+        let toFile = walk.advance(approved: true)
+        #expect(toFile?.map(\.fileName) == ["a.pdf", "b.pdf"])
+    }
+
     @Test func theDisplayPositionIsOneBasedAndClamped() {
         var walk = FilingWalkthrough()
         walk.start([row("a.pdf"), row("b.pdf")])
