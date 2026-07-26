@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SyncCloud — Release Notes</title>
+<meta name="description" content="What's new in SyncCloud for macOS, release by release — v2.1, v2.0, and the v1.x foundation.">
+<link rel="icon" type="image/png" href="assets/icon-256.png">
+<meta property="og:title" content="SyncCloud — Release Notes">
+<meta property="og:description" content="What's new in SyncCloud for macOS, release by release.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="assets/screenshots/hero-compare.png">
+<style>
+  :root{
+    --bg:#070a0f;--bg-2:#0b1018;
+    --panel:rgba(255,255,255,.045);--panel-2:rgba(255,255,255,.03);
+    --stroke:rgba(255,255,255,.09);--stroke-strong:rgba(255,255,255,.16);
+    --ink:#eef2f7;--ink-dim:#a7b0be;--ink-faint:#6f7987;
+    --blue:#4c8dff;--purple:#9a7bff;--cyan:#37d0d6;--green:#43c98a;--amber:#f2b13c;
+    --grad:linear-gradient(120deg,#4c8dff 0%,#8a7bff 55%,#b06bff 100%);
+    --grad-soft:linear-gradient(120deg,rgba(76,141,255,.18),rgba(154,123,255,.14));
+    --radius:18px;--radius-lg:26px;
+    --shadow:0 24px 60px -20px rgba(0,0,0,.75);
+    --maxw:1140px;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;font-family:var(--font);color:var(--ink);background:var(--bg);
+    -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;line-height:1.6;overflow-x:hidden;}
+  body::before{content:"";position:fixed;inset:0;z-index:-2;pointer-events:none;
+    background:
+      radial-gradient(60vw 50vh at 78% -8%, rgba(120,110,255,.20), transparent 60%),
+      radial-gradient(55vw 45vh at 8% 6%, rgba(60,140,255,.16), transparent 60%),
+      radial-gradient(70vw 60vh at 50% 108%, rgba(70,120,255,.10), transparent 60%),
+      var(--bg);}
+  body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.5;
+    background-image:radial-gradient(rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size:34px 34px;mask-image:linear-gradient(#000,transparent 75%);}
+  a{color:inherit;text-decoration:none}
+  img{max-width:100%;display:block}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+
+  header.nav{position:sticky;top:0;z-index:50;
+    backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+    background:rgba(9,12,18,.62);border-bottom:1px solid var(--stroke);}
+  .nav-inner{display:flex;align-items:center;gap:22px;height:62px}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:650;letter-spacing:-.01em;font-size:17px}
+  .brand img{width:28px;height:28px;border-radius:7px}
+  .nav-links{display:flex;gap:26px;margin-left:auto;align-items:center}
+  .nav-links a{color:var(--ink-dim);font-size:14.5px;font-weight:500;transition:color .2s}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-links a.active{color:var(--ink)}
+  .btn{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14.5px;
+    padding:10px 18px;border-radius:11px;border:1px solid var(--stroke-strong);
+    background:var(--panel);color:var(--ink);transition:transform .15s ease,border-color .2s,background .2s;white-space:nowrap;}
+  .btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.28);background:rgba(255,255,255,.08)}
+  .nav .btn{padding:8px 15px}
+  @media(max-width:820px){.nav-links a:not(.btn){display:none}}
+
+  /* ---------- releases ---------- */
+  .head{padding:72px 0 22px;text-align:center}
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:13px;font-weight:600;letter-spacing:.02em;
+    color:var(--ink-dim);padding:7px 15px;border:1px solid var(--stroke);border-radius:999px;
+    background:var(--panel-2);margin-bottom:22px;}
+  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+  h1{font-size:clamp(34px,5vw,52px);line-height:1.06;letter-spacing:-.03em;margin:0 0 16px;font-weight:720}
+  h1 .g{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .head p{max-width:600px;margin:0 auto;font-size:17px;color:var(--ink-dim)}
+
+  .timeline{max-width:840px;margin:40px auto 0;padding:0 24px 40px}
+  .rel{border:1px solid var(--stroke);border-radius:var(--radius-lg);background:var(--panel-2);
+    box-shadow:var(--shadow);padding:36px 40px;margin-bottom:34px;position:relative;overflow:hidden}
+  .rel::before{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(120deg,rgba(120,150,255,.4),rgba(160,120,255,.12) 45%,transparent 72%);
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+    -webkit-mask-composite:xor;mask-composite:exclude;opacity:.7;}
+  .rel-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .rel-head .v{font-size:30px;font-weight:720;letter-spacing:-.02em}
+  .rel-head .tag{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--blue);
+    background:rgba(76,141,255,.12);border:1px solid rgba(76,141,255,.25);padding:4px 9px;border-radius:6px}
+  .rel-head .tag.latest{color:var(--green);background:rgba(67,201,138,.12);border-color:rgba(67,201,138,.28)}
+  .rel > .lede{color:var(--ink-dim);font-size:16px;margin:0 0 26px;max-width:64ch}
+
+  .grp{margin-top:24px}
+  .grp:first-of-type{margin-top:0}
+  .grp h3{font-size:13px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;color:var(--blue);margin:0 0 12px}
+  .flist{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:11px}
+  .flist li{display:flex;gap:12px;align-items:flex-start;font-size:15px;color:var(--ink);line-height:1.55}
+  .flist .ic{flex:0 0 22px;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
+    background:var(--grad-soft);border:1px solid var(--stroke);margin-top:2px;font-size:11px}
+  .flist b{font-weight:640}
+  .flist .k{color:var(--ink-dim)}
+
+  footer{border-top:1px solid var(--stroke);padding:48px 0 60px;margin-top:20px;color:var(--ink-faint);font-size:13.5px}
+  .foot-top{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:flex-start}
+  .foot-links{display:flex;gap:26px;flex-wrap:wrap}
+  .foot-links a{color:var(--ink-dim)}
+  .foot-links a:hover{color:var(--ink)}
+  .disclaimer{margin-top:26px;max-width:720px;line-height:1.6}
+  @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="index.html"><img src="assets/icon-256.png" alt="SyncCloud icon">SyncCloud</a>
+    <nav class="nav-links">
+      <a href="index.html#compare">Compare</a>
+      <a href="index.html#tidy">Tidy</a>
+      <a href="index.html#ai">AI Filing</a>
+      <a href="index.html#safety">Safety</a>
+      <a class="active" href="releases.html">Releases</a>
+      <a class="btn" href="https://github.com/agirish/sync-cloud">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<section class="head">
+  <div class="wrap">
+    <span class="eyebrow"><span class="dot"></span> Release notes</span>
+    <h1>What's <span class="g">new</span> in SyncCloud</h1>
+    <p>User-facing changes, release by release. For the full commit history, see the <a href="https://github.com/agirish/sync-cloud/commits/main" style="color:var(--blue)">repository</a>.</p>
+  </div>
+</section>
+
+<div class="timeline">
+
+  <!-- v2.1 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v2.1</span><span class="tag latest">Latest</span></div>
+    <p class="lede">A large reliability and polish release. Where v2.0 reshaped the window, v2.1 made it trustworthy — undo now covers every destructive path, the duplicate finder stops touching files it shouldn't, and the whole app picked up a proper Theme system.</p>
+
+    <div class="grp">
+      <h3>Appearance &amp; theming</h3>
+      <ul class="flist">
+        <li><span class="ic">🎨</span><span><b>Light / Dark / Follow macOS</b> — a Theme control sets the app's appearance independent of the system, and switching it updates everything live, down to the title bar.</span></li>
+        <li><span class="ic">🌘</span><span><b>Bolder Dark mode</b> — a deeper base, accent glow, and specular-edged cards.</span></li>
+        <li><span class="ic">◼︎</span><span><b>Graphite accent</b> — a new true-neutral, monochrome accent hue.</span></li>
+        <li><span class="ic">⌘</span><span><b>Compare | Tidy in the title bar</b> — the mode switch moved into the window's title bar, and controls read as frosted glass that lets the desktop show through at rest.</span></li>
+        <li><span class="ic">✓</span><span><b>One consistent look</b> — badges, pills, and meaning-colors (caution / risk tiers) now come from a single shared palette.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Search</h3>
+      <ul class="flist">
+        <li><span class="ic">🔎</span><span><b>Token search everywhere</b> — Compare, the Activity Log, and Tidy duplicates all gained a chip-based search with removable tokens and suggestions.</span></li>
+        <li><span class="ic">⛃</span><span><b>Filters that mean something</b> — <span class="k"><code>kind:image</code></span> and similar type filters, size tokens, and a Clear Filters affordance.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Compare</h3>
+      <ul class="flist">
+        <li><span class="ic">⏱</span><span><b>"Scanned N ago" freshness pill</b> on the pane header, so you always know how current a comparison is.</span></li>
+        <li><span class="ic">Σ</span><span><b>Selection size</b> — the action bar shows the total size of what's selected.</span></li>
+        <li><span class="ic">↳</span><span><b>Folder quick-jump menu</b> in the pane header for hopping between subfolders.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Tidy &amp; duplicates</h3>
+      <ul class="flist">
+        <li><span class="ic">🖼</span><span><b>Content thumbnails</b> in duplicate cards, so you can see what you're about to merge or trash.</span></li>
+        <li><span class="ic">⇆</span><span><b>"Compare copies"</b> hands a duplicate group straight over to the Compare tab.</span></li>
+        <li><span class="ic">🛡</span><span><b>Safer grouping</b> — files are grouped as "versions" only with a real version marker or shared folder; symlinks and cloud-only placeholders are no longer mistaken for duplicates.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Cloud-only files</h3>
+      <ul class="flist">
+        <li><span class="ic">☁︎</span><span>Not-yet-downloaded files are <b>flagged</b>, with a best-effort Download action; the badge clears once the file actually lands.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Activity Log</h3>
+      <ul class="flist">
+        <li><span class="ic">📅</span><span><b>Grouped by day</b>, with per-file operation runs folded together.</span></li>
+        <li><span class="ic">↩</span><span>Long messages wrap instead of truncating; severity chips scroll rather than getting cut off.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Automations &amp; density</h3>
+      <ul class="flist">
+        <li><span class="ic">⚙︎</span><span><b>One rule system</b> — remembered rules and automations were unified; every newly learned rule is surfaced in Automations for review, with Preview / Reveal inspection.</span></li>
+        <li><span class="ic">▤</span><span><b>Compact list density</b> now threads through the file panes, Activity Log, Sync History, and lens cards.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Safety &amp; correctness</h3>
+      <ul class="flist">
+        <li><span class="ic">↺</span><span><b>Undo covers everything</b> — a full move / copy / delete undo-then-redo matrix, plus an Undo affordance on completion banners for reversible operations.</span></li>
+        <li><span class="ic">🛑</span><span>The duplicate finder <b>never trashes the last copy</b>, and re-verifies a redundant copy right before trashing it.</span></li>
+        <li><span class="ic">📆</span><span>Filing no longer misfiles by a year found in a camera filename, and prefers the filename's year over modification time.</span></li>
+        <li><span class="ic">📁</span><span><b>Never</b> auto-replaces a folder from a file's "Apply to all"; permanent delete is no longer offered after a merely transient trash failure.</span></li>
+        <li><span class="ic">✕</span><span>Fixed OneDrive name-rule false positives and an integer-overflow crash in the "Larger than N MB" rule.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>CLI</h3>
+      <ul class="flist">
+        <li><span class="ic">⌨︎</span><span>Destination names are validated exactly as the app does, and sync skips are reported by cause rather than assumed to be collisions.</span></li>
+      </ul>
+    </div>
+  </article>
+
+  <!-- v2.0 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v2.0</span><span class="tag">Restructure</span></div>
+    <p class="lede">A ground-up restructure of the window. The app moved from a provider-sidebar layout to a focused, tab-driven workspace.</p>
+
+    <div class="grp">
+      <h3>A new window shape</h3>
+      <ul class="flist">
+        <li><span class="ic">▦</span><span><b>Persistent tab strip</b> with a single-source rail replaces the old provider sidebar; the tab bar is pinned to a fixed height so switching tabs never nudges the layout.</span></li>
+        <li><span class="ic">◫</span><span><b>Self-contained panes</b> — the provider sidebar is gone; scanning and per-pane actions now live directly on the pane headers.</span></li>
+        <li><span class="ic">▬</span><span><b>A leaner title bar</b>, pared down to Logs and Settings.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Compare (formerly Differences)</h3>
+      <ul class="flist">
+        <li><span class="ic">⇎</span><span>The <b>Differences</b> view is now <b>Compare</b>, with the old Details panel folded into a dedicated Compare inspector.</span></li>
+        <li><span class="ic">ⓘ</span><span><b>Get Info</b> is routed to the Compare inspector and added to the differences table; the Info toggle reads as enabled with a resizable pane.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Organize &amp; Rename</h3>
+      <ul class="flist">
+        <li><span class="ic">✎</span><span>The <b>Name Normalizer</b> returns as its own <b>"Rename"</b> sub-tab under Tidy.</span></li>
+        <li><span class="ic">📥</span><span>Organize's loose-files scan defaults to a configurable <b>TODO inbox</b>.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Automations</h3>
+      <ul class="flist">
+        <li><span class="ic">▶</span><span>Previewed automations are now <b>filed for real, one file at a time</b>, anchored at the provider root rather than the focused subfolder.</span></li>
+        <li><span class="ic">💡</span><span>After filing a loose file, SyncCloud <b>offers a learned rule</b> — but only prompts when the file actually moved.</span></li>
+      </ul>
+    </div>
+
+    <div class="grp">
+      <h3>Performance</h3>
+      <ul class="flist">
+        <li><span class="ic">⚡</span><span>The comparison panes no longer re-walk their 40k-node trees on every selection, and a dead first-click when selecting is fixed.</span></li>
+      </ul>
+    </div>
+  </article>
+
+  <!-- v1.x -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v1.x</span><span class="tag">Foundation</span></div>
+    <p class="lede">The v1 line established SyncCloud's foundation: comparing and reconciling the folders you keep across iCloud Drive, OneDrive, Dropbox, and Google Drive — with duplicate finding, AI-assisted filing, a storage treemap, and undo-everything safety.</p>
+  </article>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="brand" href="index.html"><img src="assets/icon-256.png" alt="" style="width:26px;height:26px;border-radius:6px">SyncCloud</a>
+      <nav class="foot-links">
+        <a href="index.html">Home</a>
+        <a href="releases.html">Releases</a>
+        <a href="https://github.com/agirish/sync-cloud">GitHub</a>
+        <a href="https://github.com/agirish/sync-cloud/blob/main/RELEASE_NOTES.md">Release notes (md)</a>
+      </nav>
+    </div>
+    <p class="disclaimer">SyncCloud is an independent macOS project and is not affiliated with, endorsed by, or sponsored by Apple, Microsoft, Dropbox, Google, or Anthropic. Product names and logos are trademarks of their respective owners, shown here to indicate compatibility. Provided as-is for educational and personal use.</p>
+  </div>
+</footer>
+
+</body>
+</html>
