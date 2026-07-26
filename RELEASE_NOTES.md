@@ -15,6 +15,7 @@ A retuned palette and a hardening pass.
   label, with on-accent text paired to the fill's own luminance.
 - **Freshness badge** redesigned — scan freshness now lives in the status dot, the
   badge carries its own colour, and the scan action follows it.
+- **Clear reads as glass**, with its background carrying the accent.
 
 ### Chrome
 - **Pane nav controls are drawn in-app** rather than fought from outside: levelled
@@ -23,12 +24,23 @@ A retuned palette and a hardening pass.
 - **Differences bar zoned**, with its primary action fixed left-to-right; the
   difference count gained the same capsule a stale badge wears, and the sort menu
   now matches its neighbours.
+- **The action bar says which pane** it is about to act on, and places itself from
+  rows that are actually on screen.
+- The **differences pane stays open** during a guided review.
+- The Tidy rail has its own chrome back, and the count pill stops changing dialect.
+- The Activity Log's **search reveal is animated**, and its severity chips count the
+  history you have actually revealed.
 
 ### Filing
 - Cloud Filing's Opus option moved to **Opus 5**, with the generation named in the
   model picker.
 
+### Accessibility
+- The transfer buttons are **named for VoiceOver**, and the compaction ladder is
+  pinned.
+
 ### Fixes
+- A filing walkthrough no longer resumes over a preview it no longer describes.
 - Closed the bulk-sync exclusion in both directions, and let a sweep stand down
   mid-operation.
 - Case is folded when deciding a file is already filed; a stranded review pin is
