@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Security
+import Events
 @testable import Sync
 
 /// An in-memory ``KeychainStore`` holding the single item slot the helper manages, recording the
@@ -99,6 +100,59 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
         store.itemData = Data([0xFF, 0xFE, 0xFD])   // not valid UTF-8
         #expect(AnthropicKeychain.read(from: store) == nil)
+    }
+
+    /// `read`'s `String?` collapses "the user never configured a key" and "the Keychain refused to
+    /// hand the key over right now" (locked keychain, denied prompt, MDM policy) into one `nil`, so
+    /// the app fell back to the on-device model as though cloud Filing had never been opted into —
+    /// the same invisible failure `store` returns its status to avoid. `readOutcome` separates them.
+    @Test func readOutcomeTellsAMissingKeyApartFromAnUnreadableOne() {
+        let empty = FakeKeychainStore()
+        #expect(AnthropicKeychain.readOutcome(from: empty) == .notConfigured)
+
+        let locked = FakeKeychainStore()
+        locked.itemData = Data("sk-ant-test".utf8)          // a key IS stored…
+        locked.forcedCopyStatus = errSecInteractionNotAllowed  // …but the keychain is locked
+        #expect(AnthropicKeychain.readOutcome(from: locked) == .unreadable(errSecInteractionNotAllowed))
+
+        // An item that is present but not decodable text is likewise "there but unusable", not
+        // "never configured" — telling the user to re-enter a key that is already there is wrong.
+        let garbage = FakeKeychainStore()
+        garbage.itemData = Data([0xFF, 0xFE, 0xFD])
+        #expect(AnthropicKeychain.readOutcome(from: garbage) == .unreadable(errSecDecode))
+
+        // A stored EMPTY item genuinely means unconfigured (`store("")` deletes).
+        let blank = FakeKeychainStore()
+        blank.itemData = Data()
+        #expect(AnthropicKeychain.readOutcome(from: blank) == .notConfigured)
+
+        let configured = FakeKeychainStore()
+        AnthropicKeychain.store("sk-ant-test", in: configured)
+        #expect(AnthropicKeychain.readOutcome(from: configured) == .found("sk-ant-test"))
+
+        // The change is additive: every existing caller's `String?` spelling is unchanged.
+        #expect(AnthropicKeychain.read(from: empty) == nil)
+        #expect(AnthropicKeychain.read(from: locked) == nil)
+        #expect(AnthropicKeychain.read(from: garbage) == nil)
+        #expect(AnthropicKeychain.read(from: configured) == "sk-ant-test")
+        #expect(AnthropicKeychain.hasKey(in: locked) == false)
+    }
+
+    /// A refusing keychain must also reach the log, so callers that keep the plain `String?`
+    /// spelling (the app's `readAPIKey` seam) still leave a trace of WHY cloud Filing went quiet.
+    @MainActor
+    @Test func anUnreadableKeychainIsLogged() async {
+        let locked = FakeKeychainStore()
+        locked.itemData = Data("sk-ant-test".utf8)
+        locked.forcedCopyStatus = errSecInteractionNotAllowed
+
+        _ = AnthropicKeychain.read(from: locked)
+
+        await waitUntil("the refusing keychain is logged") {
+            Logger.shared.entries.contains {
+                $0.level == .warning && $0.message.contains("a stored key may exist but cannot be read right now")
+            }
+        }
     }
 
     @Test func deleteRemovesTheStoredKey() {

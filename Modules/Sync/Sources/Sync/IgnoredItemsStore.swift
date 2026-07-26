@@ -63,7 +63,16 @@ public final class IgnoredItemsStore: ObservableObject {
     }
 
     private func save() {
-        guard let activeKey else { return }
+        guard let activeKey else {
+            // No pair is active yet, so there is nowhere to write. The edit already landed in the
+            // published set, which is what the UI shows — so an ignore added before `activate()`
+            // (a context-menu Ignore during launch, before the provider-id onChange has fired)
+            // looked durable and silently vanished on relaunch. Nothing else reports this: the
+            // caller gets no return value and no error, and the visible state is indistinguishable
+            // from a successful save. Say so in the log so the disappearance is explainable.
+            Logger.shared.warning("Ignored items: \(rootRelativePaths.count) ignore(s) were not persisted — no provider pair is active yet, so this edit is session-only")
+            return
+        }
         if rootRelativePaths.isEmpty {
             userDefaults.removeObject(forKey: activeKey)
         } else {

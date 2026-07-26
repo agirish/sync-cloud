@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import Sync
@@ -123,5 +124,68 @@ import Sync
         let body = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.02, monthlySpentUSD: 0.10, monthlyCapUSD: 1.00))
         #expect(!body.contains("blocked"))
+    }
+
+    // MARK: Button → decision mapping
+    //
+    // The alerts themselves can't be driven headlessly, but the half that turns a click into a
+    // destructive decision now can: each test resolves a button BY TITLE to the response NSAlert
+    // would send for it, then asserts what that response means. A swapped title or a swapped
+    // switch arm turns a "Skip" click into a replace — silent, and only discovered once the
+    // user's file is gone.
+
+    /// The response `NSAlert` reports when the user clicks the button titled `title`.
+    private func response(for title: String, in titles: [String]) throws -> NSApplication.ModalResponse {
+        let index = try #require(titles.firstIndex(of: title), "no button titled \(title)")
+        return SyncOperationAlerts.modalResponse(forButtonAt: index)
+    }
+
+    @Test func collisionButtonsMapToTheResolutionTheyName() throws {
+        let titles = SyncOperationAlerts.collisionButtonTitles
+        #expect(SyncOperationAlerts.collisionResolution(for: try response(for: "Skip", in: titles)) == .skip)
+        #expect(SyncOperationAlerts.collisionResolution(for: try response(for: "Replace", in: titles)) == .replace)
+        #expect(SyncOperationAlerts.collisionResolution(for: try response(for: "Keep Both", in: titles)) == .keepBoth)
+    }
+
+    @Test func collisionAlertOffersExactlyTheThreeChoicesWithKeepBothAsTheDefault() {
+        // Order is load-bearing twice over: it is the response mapping, and the FIRST button is
+        // the Return-key default — which must never be the destructive Replace.
+        #expect(SyncOperationAlerts.collisionButtonTitles == ["Keep Both", "Skip", "Replace"])
+        #expect(SyncOperationAlerts.collisionResolution(for: .alertFirstButtonReturn) != .replace)
+    }
+
+    @Test func anUnexpectedCollisionResponseFailsSafeToSkip() {
+        // A programmatic dismissal (no button clicked) must never be read as consent to replace.
+        #expect(SyncOperationAlerts.collisionResolution(for: .cancel) == .skip)
+        #expect(SyncOperationAlerts.collisionResolution(for: .stop) == .skip)
+    }
+
+    @Test func invalidNameButtonsMapToTheResolutionTheyName() throws {
+        let titles = SyncOperationAlerts.invalidNameButtonTitles(Self.violation())
+        #expect(titles.first == "Use \"report.pdf\"")   // Return-key default: the safe, sanitized name
+        #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Use \"report.pdf\"", in: titles))
+                == .useSanitizedName)
+        #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Skip", in: titles)) == .skip)
+        #expect(SyncOperationAlerts.invalidNameResolution(for: try response(for: "Keep Invalid Name", in: titles))
+                == .keepOriginalName)
+        // And an unexpected response skips rather than writing an unsyncable name.
+        #expect(SyncOperationAlerts.invalidNameResolution(for: .cancel) == .skip)
+    }
+
+    @Test func onlyTheFirstButtonConfirmsAYesNoPrompt() {
+        // Every Bool prompt (transfer, undo-last-run, permanent delete, cloud spend) puts its
+        // affirmative action first and Cancel second; reading the second button as consent would
+        // permanently delete on a Cancel click.
+        #expect(SyncOperationAlerts.isConfirmed(.alertFirstButtonReturn))
+        #expect(!SyncOperationAlerts.isConfirmed(.alertSecondButtonReturn))
+        #expect(!SyncOperationAlerts.isConfirmed(.alertThirdButtonReturn))
+        #expect(!SyncOperationAlerts.isConfirmed(.cancel))
+    }
+
+    @MainActor
+    @Test func permanentDeleteOfNothingIsRefusedWithoutAnAlert() {
+        // The empty-list guard runs before any AppKit call, so this is reachable headlessly —
+        // and it is the guard that keeps a no-selection delete from presenting a modal.
+        #expect(!SyncOperationAlerts.confirmPermanentDelete(itemNames: []))
     }
 }

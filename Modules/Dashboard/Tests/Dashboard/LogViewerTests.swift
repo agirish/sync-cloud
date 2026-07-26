@@ -214,4 +214,77 @@ import Events
         let outcome = LogHistoryLoader.loadOlderThan(base.addingTimeInterval(60), fileURL: url)
         #expect(outcome.loadedEntries?.map(\.message) == ["earlier session"])
     }
+
+    // MARK: The window's derived contents
+
+    /// The composition the `body` used to perform inline, now a value (`LogViewerContents`) so the
+    /// pieces are derived from ONE history state instead of five independent reads of it. The chip
+    /// counts have their own suite; these pin the rest of what moved, so the extraction is provably
+    /// behavior-preserving.
+    ///
+    /// `@MainActor` because `LogViewerContents` reaches `LogViewer.thresholdCounts`, a static on a
+    /// SwiftUI `View`.
+    @MainActor
+    @Suite struct ContentsTests {
+        private let now = Date(timeIntervalSince1970: 1_780_000_000)
+
+        private func entry(_ level: LogLevel, _ message: String) -> LogEntry {
+            LogEntry(timestamp: Date(timeIntervalSince1970: 1_780_000_000), level: level, message: message)
+        }
+
+        private func contents(session: [LogEntry] = [],
+                              history: LogHistoryState = .notLoaded,
+                              level: LogLevel? = nil,
+                              search: String = "",
+                              pageSize: Int = 25) -> LogViewerContents {
+            LogViewerContents(session: session, history: history, minimumLevel: level,
+                              search: search, pageSize: pageSize, now: now)
+        }
+
+        @Test func sessionRowsAreFilteredAndNewestFirst() {
+            let session = [entry(.debug, "first"), entry(.error, "second"), entry(.warning, "third")]
+            let rows = contents(session: session, level: .warning).sessionRows
+            #expect(rows.map(\.message) == ["third", "second"])
+        }
+
+        @Test func onlyTheRevealedPageOfHistoryIsVisibleAndTheRemainderIsOffered() {
+            let history = (0..<30).map { entry(.info, "h\($0)") }
+            let shown = contents(history: .loaded(entries: history, revealed: 25))
+            #expect(shown.visibleHistory.count == 25)
+            #expect(shown.visibleHistory.first?.message == "h0")
+            // The LAST page offers the true remainder, not another full page — the footer button
+            // used to promise 25 and hand over 5.
+            #expect(shown.nextReveal == 5)
+            #expect(contents(history: .loaded(entries: history, revealed: 30)).nextReveal == 0)
+        }
+
+        @Test func theHistoryPageIsCutFromTheFilteredMatchesNotTheRawEntries() {
+            // `revealed` caps the FILTERED matches, so narrowing the filter re-pages from the top
+            // rather than revealing a window into an unfiltered list.
+            let history = [entry(.info, "quiet"), entry(.error, "boom"), entry(.error, "bang")]
+            let shown = contents(history: .loaded(entries: history, revealed: 2), level: .error)
+            #expect(shown.visibleHistory.map(\.message) == ["boom", "bang"])
+            #expect(shown.nextReveal == 0)
+        }
+
+        @Test func theEmptyStateNamesWhichDeadEndTheWindowIsIn() {
+            // Nothing logged, history never asked for.
+            #expect(contents().emptyState == .noActivity)
+            // Loaded, and the log holds nothing older.
+            #expect(contents(history: .loaded(entries: [], revealed: 25)).emptyState == .noEarlierActivity)
+            // Entries exist but the filter hides them all.
+            #expect(contents(session: [entry(.debug, "d")], level: .error).emptyState == .noMatches)
+            // Rows on screen: no empty state at all.
+            #expect(contents(session: [entry(.error, "e")]).emptyState == .none)
+            // Revealed history alone is enough to count as "rows on screen".
+            #expect(contents(history: .loaded(entries: [entry(.error, "e")], revealed: 25)).emptyState == .none)
+        }
+
+        @Test func aFailedReadIsNotAnEmptyHistory() {
+            // `.failed` must not read as "loaded, and there is nothing older" — the footer says
+            // different things, and the empty state is one of them.
+            #expect(contents(history: .failed).emptyState == .noActivity)
+            #expect(contents(history: .failed).visibleHistory.isEmpty)
+        }
+    }
 }

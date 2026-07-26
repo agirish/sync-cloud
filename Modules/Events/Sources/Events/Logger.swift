@@ -198,7 +198,35 @@ public class Logger: ObservableObject {
     /// production code only ever uses the `shared` instance.
     init(logFileURL: URL) {
         self.logFileURL = logFileURL
-        logWriter = LogFileWriter(url: logFileURL)
+        // The writer needs its failure callback at construction (so a failure during its own
+        // startup trim is covered), which is before `self` can be captured — hence the relay,
+        // whose real handler is installed on the next line.
+        let relay = WriteFailureRelay()
+        logWriter = LogFileWriter(url: logFileURL, onWriteFailure: { reason in relay.report(reason) })
+        relay.install { [weak self] reason in self?.noteDiskWriteFailure(reason) }
+    }
+
+    /// The one-shot, IN-MEMORY-ONLY notice that the disk log stopped accepting writes.
+    ///
+    /// A write failure is the one failure this class cannot report the usual way: `log()` would
+    /// hand the report straight back to the writer that just failed, and on a full volume that
+    /// second write fails too — a per-line failure would then cost a per-line futile write. So the
+    /// signal is deliberately asymmetric: `LogFileWriter` reports the FIRST failure only (see
+    /// `reportWriteFailure`), and this appends the notice directly to the in-memory buffer,
+    /// bypassing the disk path entirely. Without it the volume filling looks exactly like a quiet
+    /// session — the Activity Log keeps scrolling from memory while `~/sync-cloud.log` silently
+    /// stops growing, and the loss is only discovered when someone goes looking for the history.
+    ///
+    /// The `minimumLevel` gate is deliberately NOT applied: that setting throttles *event* noise,
+    /// and this is one line per session about the logging machinery itself, which a raised
+    /// threshold must not be able to hide.
+    private nonisolated func noteDiskWriteFailure(_ reason: String) {
+        let entry = LogEntry(
+            level: .warning,
+            message: "The log file \(logFileURL.lastPathComponent) could not be written: \(reason). "
+                + "Activity Log entries continue in memory for this session, but the on-disk log has stopped growing.")
+        // Same handoff every other entry uses (so it lands in order), minus the `logWriter.append`.
+        _ = pendingEntries.enqueue(entry) { [weak self] in self?.flushPendingEntries() }
     }
 
     /// Resolves the disk destination for the `shared` logger.
@@ -363,6 +391,32 @@ private final class MinimumLevelBox: @unchecked Sendable {
     }
 }
 
+/// Lock-guarded, late-bound handler cell for the disk writer's one-shot failure report.
+///
+/// `Logger` must hand `LogFileWriter` its failure callback at the writer's construction — the
+/// writer's startup tail-trim runs immediately and can itself fail — but at that point `self` is
+/// not yet fully initialized and cannot be captured. The writer is therefore given this relay, and
+/// the real handler is installed the moment init finishes. A report arriving in the gap (the
+/// writer's queue would have to outrun the next statement) is dropped rather than crashing, which
+/// is the right trade for a diagnostic.
+private final class WriteFailureRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handler: (@Sendable (String) -> Void)?
+
+    func install(_ handler: @escaping @Sendable (String) -> Void) {
+        lock.lock()
+        self.handler = handler
+        lock.unlock()
+    }
+
+    func report(_ reason: String) {
+        lock.lock()
+        let handler = self.handler
+        lock.unlock()
+        handler?(reason)
+    }
+}
+
 /// Lock-guarded FIFO handing `LogEntry` values from nonisolated log callers to the MainActor
 /// flush. Enqueue order is the order entries appear in the Activity Log.
 ///
@@ -441,9 +495,25 @@ final class LogFileWriter: @unchecked Sendable {
     private var bytesSinceTrimCheck = 0
     private let trimCheckInterval: Int
 
-    init(url: URL, maxFileSize: Int = LogFileWriter.defaultMaxFileSize) {
+    /// Called with the description of the FIRST disk-write failure this writer sees, on `queue`.
+    ///
+    /// One shot, by design. The thing that fails here is the log itself, so the failure cannot be
+    /// logged the normal way (that would enqueue another write into the writer that just failed);
+    /// and the realistic cause — a full or unmounted volume — fails every subsequent line too, so a
+    /// per-failure callback would put a futile report on every log line for the rest of the session.
+    /// One signal is enough to answer the question that matters: "did this session's on-disk log
+    /// stop growing?" See `Logger.noteDiskWriteFailure`, which turns it into a single in-memory
+    /// warning entry.
+    private let onWriteFailure: (@Sendable (String) -> Void)?
+    /// Whether `onWriteFailure` has already fired (confined to `queue`, like the handle itself).
+    private var didReportWriteFailure = false
+
+    init(url: URL,
+         maxFileSize: Int = LogFileWriter.defaultMaxFileSize,
+         onWriteFailure: (@Sendable (String) -> Void)? = nil) {
         self.url = url
         self.maxFileSize = maxFileSize
+        self.onWriteFailure = onWriteFailure
         trimCheckInterval = min(1024 * 1024, max(1, maxFileSize / 2))
         queue.async { [self] in
             withTrimLock { trimTailIfOversized(maxFileSize: maxFileSize) }
@@ -518,7 +588,21 @@ final class LogFileWriter: @unchecked Sendable {
         if let newline = tail.firstIndex(of: UInt8(ascii: "\n")) {
             tail = tail.suffix(from: tail.index(after: newline))
         }
-        try? tail.write(to: url, options: .atomic)
+        // A failed trim leaves the file oversized but intact, so it is not fatal — it is still a
+        // disk write that didn't happen, and it fails for the same reasons an append does (no
+        // space, volume gone), so it feeds the same one-shot signal.
+        do {
+            try tail.write(to: url, options: .atomic)
+        } catch {
+            reportWriteFailure(error)
+        }
+    }
+
+    /// Fires `onWriteFailure` for the first failure only. Runs on `queue`.
+    private func reportWriteFailure(_ error: Error) {
+        guard !didReportWriteFailure else { return }
+        didReportWriteFailure = true
+        onWriteFailure?(error.localizedDescription)
     }
 
     /// Reopens the write handle when the path's current inode no longer matches the handle's —
@@ -546,16 +630,24 @@ final class LogFileWriter: @unchecked Sendable {
             // Without this an externally replaced log would silently swallow every line: the
             // handle keeps writing into the inode nobody reads any more. See `reopenHandleIfStale`.
             self.reopenHandleIfStale()
-            if let handle = self.handle {
-                _ = try? handle.seekToEnd()
-                try? handle.write(contentsOf: data)
-            } else {
-                // Last-resort fallback when the handle could not be opened. Append manually — a
-                // bare `.atomic` write would replace the entire log history with this one line.
-                // (Known cost: this re-reads and rewrites the whole file per line, but it only
-                // runs while the handle is unopenable, which self-heals on the next append.)
-                let existing = (try? Data(contentsOf: self.url)) ?? Data()
-                try? (existing + data).write(to: self.url, options: .atomic)
+            // Both branches funnel their failure into the one-shot report: a line that never
+            // reaches disk is invisible otherwise — the in-memory Activity Log keeps scrolling
+            // while the file quietly stops growing. Still non-throwing and still best-effort; the
+            // report costs nothing after the first failure (see `reportWriteFailure`).
+            do {
+                if let handle = self.handle {
+                    _ = try? handle.seekToEnd()
+                    try handle.write(contentsOf: data)
+                } else {
+                    // Last-resort fallback when the handle could not be opened. Append manually — a
+                    // bare `.atomic` write would replace the entire log history with this one line.
+                    // (Known cost: this re-reads and rewrites the whole file per line, but it only
+                    // runs while the handle is unopenable, which self-heals on the next append.)
+                    let existing = (try? Data(contentsOf: self.url)) ?? Data()
+                    try (existing + data).write(to: self.url, options: .atomic)
+                }
+            } catch {
+                self.reportWriteFailure(error)
             }
             self.bytesSinceTrimCheck += data.count
             if self.bytesSinceTrimCheck >= self.trimCheckInterval {

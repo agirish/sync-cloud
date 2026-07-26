@@ -167,6 +167,66 @@ enum LogEmptyState: Equatable {
     }
 }
 
+/// Everything the Activity Log's list and chip row derive from the session entries plus the history
+/// STATE — computed in one pure pass so the parts cannot disagree with each other.
+///
+/// The bug this exists to prevent is a disagreement, not a miscount: the severity chips set a
+/// threshold that filters the session rows AND the loaded history, but the counts were tallied from
+/// the session alone, so an "Errors 0" chip sat above a screenful of history error rows. Fixing the
+/// tally at the call site left the hole open — `history: []` is a one-line edit, and every test
+/// passed either way because they all called `thresholdCounts` directly.
+///
+/// So the history state enters here ONCE and feeds both the counts and the rows. Reverting the
+/// counts now means handing this a different history than the rows are drawn from, which no longer
+/// fits through the API: there is one `history` parameter, and emptying it empties the visible rows
+/// too — a change that is loud on screen instead of silent.
+struct LogViewerContents {
+    /// Session entries after the level/search filter, newest-first — the main list.
+    let sessionRows: [LogEntry]
+    /// Per-threshold tallies for the chip row, keyed by `LogLevel?` (nil is the "All" total).
+    let levelCounts: [LogLevel?: Int]
+    /// The revealed page of filtered history rows (empty unless history is loaded).
+    let visibleHistory: [LogEntry]
+    /// How many rows the next "Show N more" tap would actually reveal; 0 gates the button off.
+    let nextReveal: Int
+    /// Which empty state (if any) the list shows.
+    let emptyState: LogEmptyState
+
+    /// - Parameters:
+    ///   - session: the live in-memory entries, oldest-first as logged.
+    ///   - history: the on-demand history's state — the same value that decides what the footer
+    ///     renders. Deliberately the STATE and not an array: "not loaded", "loading", "failed" and
+    ///     "loaded but empty" contribute nothing to the tally for different reasons, and passing
+    ///     entries would let a caller quietly substitute a different set for the counts.
+    ///   - now: clock for `since:` search tokens, taken once so the session rows, the history rows
+    ///     and the counts are all filtered against the same instant.
+    init(session: [LogEntry],
+         history: LogHistoryState,
+         minimumLevel: LogLevel?,
+         search: String,
+         pageSize: Int,
+         now: Date = Date()) {
+        let loadedHistory = history.entries
+        sessionRows = LogEntryFilter.matches(session, minimumLevel: minimumLevel, search: search, now: now).reversed()
+        // The chips count what the threshold filters: the session AND all LOADED history — not the
+        // revealed page. "Show more" reveals further into this same set, so a count that grew as
+        // you paged would describe the scroll position rather than what the window holds.
+        levelCounts = LogViewer.thresholdCounts(session: session, history: loadedHistory ?? [])
+        // History respects the same Level/Search filters as the session; it is already newest-first.
+        let historyMatches = loadedHistory.map {
+            LogEntryFilter.matches($0, minimumLevel: minimumLevel, search: search, now: now)
+        } ?? []
+        visibleHistory = Array(historyMatches.prefix(history.revealed))
+        nextReveal = LogHistoryState.nextRevealCount(
+            matchCount: historyMatches.count, revealed: history.revealed, pageSize: pageSize)
+        emptyState = LogEmptyState.classify(
+            hasVisibleRows: !(sessionRows.isEmpty && visibleHistory.isEmpty),
+            hasRawEntries: !session.isEmpty || !(loadedHistory?.isEmpty ?? true),
+            historyLoaded: history.isLoaded
+        )
+    }
+}
+
 /// An interactive slide-over or floating inspector pane that filters and displays historical LogEntry traces.
 public struct LogViewer: View {
     @ObservedObject public var logger = Logger.shared
@@ -257,7 +317,9 @@ public struct LogViewer: View {
     /// the exact situation someone opens the history for. The two arrays are walked in place rather
     /// than concatenated: this runs on every body render, and the session list alone reaches
     /// thousands of entries.
-    // Internal, not private: `LogLevelChipCountTests` pins the session+history tally directly.
+    // Internal, not private: `LogLevelChipCountTests` pins the session+history tally directly. It is
+    // reached from `body` only through `LogViewerContents`, which is what decides — from the history
+    // STATE — which entries are counted; this function just adds up whatever it is handed.
     static func thresholdCounts(session: [LogEntry], history: [LogEntry]) -> [LogLevel?: Int] {
         var perLevel: [LogLevel: Int] = [:]
         for e in session { perLevel[e.level, default: 0] += 1 }
@@ -333,28 +395,24 @@ public struct LogViewer: View {
     }
 
     public var body: some View {
-        // Computed once per body evaluation; the isEmpty check and the ForEach below would
-        // otherwise each run the full filter pass.
-        let filtered = LogEntryFilter.apply(logger.entries, minimumLevel: selectedLevel, search: searchText)
-        // Loaded history counts toward the chips, NOT just the revealed page: "Show more" reveals
-        // further into this same set, so a count that grew as you paged would be describing the
-        // scroll position rather than how much the window holds at that level.
-        let levelCounts = Self.thresholdCounts(session: logger.entries, history: history.entries ?? [])
-        // History respects the same Level/Search filters as the session; it's already newest-first, so
-        // no reordering. `visibleHistory` is the revealed page; `nextReveal` gates the "Show more".
-        let historyMatches = history.entries.map { LogEntryFilter.matches($0, minimumLevel: selectedLevel, search: searchText) } ?? []
-        let visibleHistory = Array(historyMatches.prefix(history.revealed))
-        // How many rows the next "Show N more" tap really reveals — a full page, or just the
-        // remainder on the last one. Zero doubles as the "nothing left to reveal" gate.
-        let nextReveal = LogHistoryState.nextRevealCount(
-            matchCount: historyMatches.count, revealed: history.revealed, pageSize: Self.historyPageSize)
-        // Classified once, here, and handed to BOTH the in-flow empty state and the footer — the
-        // two used to decide independently and could then say the same thing twice.
-        let emptyState = LogEmptyState.classify(
-            hasVisibleRows: !(filtered.isEmpty && visibleHistory.isEmpty),
-            hasRawEntries: !logger.entries.isEmpty || !(history.entries?.isEmpty ?? true),
-            historyLoaded: history.isLoaded
+        // One pure pass per body evaluation, from the session entries and the history STATE: the
+        // filtered rows, the chip tallies, the revealed history page, the "Show N more" remainder
+        // and the empty state. They are derived together (see `LogViewerContents`) because they
+        // must describe the same set — the chips counting one thing while the list showed another
+        // is the bug this window shipped. It is also cheaper: the isEmpty checks and the ForEach
+        // below would otherwise each re-run the full filter pass.
+        let contents = LogViewerContents(
+            session: logger.entries,
+            history: history,
+            minimumLevel: selectedLevel,
+            search: searchText,
+            pageSize: Self.historyPageSize
         )
+        let filtered = contents.sessionRows
+        let levelCounts = contents.levelCounts
+        let visibleHistory = contents.visibleHistory
+        let nextReveal = contents.nextReveal
+        let emptyState = contents.emptyState
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {

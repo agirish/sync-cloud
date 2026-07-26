@@ -32,21 +32,27 @@ struct SyncOperationAlerts {
         return text
     }
 
-    /// The collision alert shared by both prompts below: identical text, buttons, and
-    /// response mapping — the only variation between them is the optional accessory view,
-    /// so the two can't drift apart.
-    private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
-        let alert = NSAlert()
-        alert.messageText = "An item named \"\(collision.fileName)\" already exists in this location."
-        alert.informativeText = collisionInformativeText(collision)
-        alert.accessoryView = accessoryView
+    /// The collision alert's button titles, in `NSAlert.addButton` order (right to left, so the
+    /// first is the rightmost / Return-key default). The single source of both what is drawn and
+    /// what each response means: `collisionResolution(for:)` maps the Nth button's response to the
+    /// Nth entry's meaning, so a reordering here without one there is a test failure rather than a
+    /// silent "Skip click replaces the file".
+    nonisolated static let collisionButtonTitles = ["Keep Both", "Skip", "Replace"]
 
-        // Buttons added right to left.
-        alert.addButton(withTitle: "Keep Both") // First added (Rightmost, Return key default)
-        alert.addButton(withTitle: "Skip")      // Second added (Middle)
-        alert.addButton(withTitle: "Replace")   // Third added (Leftmost)
+    /// The modal response a click on the button at `index` of an `NSAlert`'s button list produces.
+    /// `NSAlert` numbers them from `.alertFirstButtonReturn` in add order; spelled out here so the
+    /// mapping tests can address a button by title rather than by a magic constant.
+    nonisolated static func modalResponse(forButtonAt index: Int) -> NSApplication.ModalResponse {
+        NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + index)
+    }
 
-        switch alert.runModal() {
+    /// Maps the collision alert's modal response to the resolution it stands for. Extracted from
+    /// the `runModal()` call so the button-order → resolution mapping is unit-testable: swapping
+    /// two arms here silently turns a "Skip" click into a replace, which destroys the user's file
+    /// and is invisible until it does. Any unexpected response (a programmatic dismissal) falls
+    /// back to the safe answer, `.skip`.
+    nonisolated static func collisionResolution(for response: NSApplication.ModalResponse) -> CollisionResolution {
+        switch response {
         case .alertFirstButtonReturn:
             return .keepBoth
         case .alertSecondButtonReturn:
@@ -56,6 +62,23 @@ struct SyncOperationAlerts {
         default:
             return .skip
         }
+    }
+
+    /// The collision alert shared by both prompts below: identical text, buttons, and
+    /// response mapping — the only variation between them is the optional accessory view,
+    /// so the two can't drift apart.
+    private static func runCollisionAlert(_ collision: FileCollision, accessoryView: NSView?) -> CollisionResolution {
+        let alert = NSAlert()
+        alert.messageText = "An item named \"\(collision.fileName)\" already exists in this location."
+        alert.informativeText = collisionInformativeText(collision)
+        alert.accessoryView = accessoryView
+
+        // Buttons added right to left, from the shared title list.
+        for title in collisionButtonTitles {
+            alert.addButton(withTitle: title)
+        }
+
+        return collisionResolution(for: alert.runModal())
     }
 
     /// Presents a native macOS alert to resolve file collisions (Replace, Keep Both, Skip).
@@ -106,12 +129,25 @@ struct SyncOperationAlerts {
         alert.messageText = invalidNameMessage(prompt)
         alert.informativeText = invalidNameInformativeText(prompt)
 
-        // Buttons added right to left.
-        alert.addButton(withTitle: "Use \"\(prompt.sanitizedName)\"") // Rightmost, Return key default
-        alert.addButton(withTitle: "Skip")                            // Middle
-        alert.addButton(withTitle: "Keep Invalid Name")               // Leftmost
+        // Buttons added right to left, from the shared title list.
+        for title in invalidNameButtonTitles(prompt) {
+            alert.addButton(withTitle: title)
+        }
 
-        switch alert.runModal() {
+        return invalidNameResolution(for: alert.runModal())
+    }
+
+    /// The invalid-name alert's button titles in `NSAlert.addButton` order (rightmost first),
+    /// paired with `invalidNameResolution(for:)` the same way the collision pair is.
+    nonisolated static func invalidNameButtonTitles(_ prompt: NameViolationPrompt) -> [String] {
+        ["Use \"\(prompt.sanitizedName)\"", "Skip", "Keep Invalid Name"]
+    }
+
+    /// Maps the invalid-name alert's modal response to the resolution it stands for. Extracted
+    /// for the same reason as `collisionResolution(for:)`: a swapped arm here answers "Skip"
+    /// with "Keep Invalid Name", writing an item the provider will never upload.
+    nonisolated static func invalidNameResolution(for response: NSApplication.ModalResponse) -> InvalidNameResolution {
+        switch response {
         case .alertFirstButtonReturn:
             return .useSanitizedName
         case .alertSecondButtonReturn:
@@ -121,6 +157,15 @@ struct SyncOperationAlerts {
         default:
             return .skip
         }
+    }
+
+    /// Whether a two-button confirmation's response means "yes, proceed". Every Bool-answering
+    /// prompt here puts its affirmative action first (rightmost, Return-key default) and Cancel
+    /// second (Escape), so the single rule is "only the first button confirms" — and any other
+    /// response (a programmatic dismissal) declines. Shared so no confirmation can drift into
+    /// treating Cancel as consent.
+    nonisolated static func isConfirmed(_ response: NSApplication.ModalResponse) -> Bool {
+        response == .alertFirstButtonReturn
     }
 
     /// Message line of the transfer confirmation: verb + what + where, e.g.
@@ -153,7 +198,7 @@ struct SyncOperationAlerts {
         alert.informativeText = transferConfirmationInformativeText(summary)
         alert.addButton(withTitle: summary.isMove ? "Move" : "Copy") // Return key default
         alert.addButton(withTitle: "Cancel")                         // Escape
-        return alert.runModal() == .alertFirstButtonReturn
+        return isConfirmed(alert.runModal())
     }
 
     /// Message line of the cloud-spend pre-flight: what's about to be classified and by which model,
@@ -206,7 +251,7 @@ struct SyncOperationAlerts {
         }
         alert.addButton(withTitle: "Classify")   // Return key default
         alert.addButton(withTitle: "Cancel")      // Escape
-        return alert.runModal() == .alertFirstButtonReturn
+        return isConfirmed(alert.runModal())
     }
 
     /// Confirms reversing the most recent sync run before it touches any files, itemizing exactly
@@ -220,7 +265,7 @@ struct SyncOperationAlerts {
         alert.informativeText = preview.confirmationDetail()
         alert.addButton(withTitle: "Undo Last Run") // Return key default
         alert.addButton(withTitle: "Cancel")         // Escape
-        return alert.runModal() == .alertFirstButtonReturn
+        return isConfirmed(alert.runModal())
     }
 
     /// Presents a fallback permanent deletion confirmation if moving to Trash fails (e.g., on network drives).
@@ -253,6 +298,6 @@ struct SyncOperationAlerts {
             deleteButton.keyEquivalent = ""
         }
 
-        return alert.runModal() == .alertFirstButtonReturn
+        return isConfirmed(alert.runModal())
     }
 }

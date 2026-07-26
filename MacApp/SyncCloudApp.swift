@@ -86,14 +86,7 @@ struct SyncCloudApp: App {
         // Each prompt first consults the user's standing conflict policy (Settings → Sync),
         // re-read per collision so a Settings change applies to the very next conflict;
         // folder collisions always fall through to the prompt (see ConflictPolicy).
-        manager.collisionResolver = { collision in
-            Self.policyAutoResolution(for: collision)
-                ?? SyncOperationAlerts.promptForCollision(collision)
-        }
-        manager.bulkCollisionResolver = { collision in
-            Self.policyAutoResolution(for: collision).map { ($0, false) }
-                ?? SyncOperationAlerts.promptForCollisionWithApplyToAll(collision)
-        }
+        Self.wireCollisionResolvers(into: manager)
         // Copy/move confirmation, gated by Settings → Sync ("Confirm before copying or
         // moving"). Re-read per transfer so a Settings change applies to the very next one.
         manager.transferConfirmer = { summary in
@@ -127,7 +120,12 @@ struct SyncCloudApp: App {
         // key, else the on-device Apple Foundation Models model. Always injected so the cloud toggle
         // and key can change at runtime; the routing closure resolves the backend per scan.
         manager.filingClassifier = { taxonomy, files in
-            if UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey), AnthropicKeychain.hasKey {
+            // The router also LOGS the one silent case — cloud Filing on, no usable key — which
+            // otherwise left the user believing Claude filed documents the on-device model filed.
+            let route = FilingBackendRouter.route(
+                cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
+                hasCloudKey: AnthropicKeychain.hasKey)
+            if route == .cloud {
                 if let cloud = await CloudFilingClassifier.classify(taxonomyFolders: taxonomy, files: files) {
                     return cloud   // cloud succeeded (even if it placed nothing)
                 }
@@ -162,12 +160,49 @@ struct SyncCloudApp: App {
     /// so the policy check and its log line can't drift between the single and bulk prompts;
     /// reads the persisted policy once per collision so a Settings change applies to the
     /// very next conflict.
+    ///
+    /// `defaults` is a seam: production reads `.standard` (the user's live policy), tests inject
+    /// their own suite so pinning the policy never writes into the user's real settings domain.
     @MainActor
-    private static func policyAutoResolution(for collision: FileCollision) -> CollisionResolution? {
-        let policy = ConflictPolicy.persisted()
+    static func policyAutoResolution(for collision: FileCollision,
+                                     defaults: UserDefaults = .standard) -> CollisionResolution? {
+        let policy = ConflictPolicy.persisted(from: defaults)
         guard let auto = policy.autoResolution(isDirectory: collision.isDirectory) else { return nil }
         Logger.shared.info("Collision on \"\(collision.fileName)\" auto-resolved by Settings policy: \(policy.displayName)")
         return auto
+    }
+
+    /// Wires the two collision seams — the single-item resolver and the bulk-sync one — to the
+    /// standing conflict policy, falling through to the NSAlert prompt whenever the policy says
+    /// ask (which includes every FOLDER collision; see `ConflictPolicy`). Split out of `init` so
+    /// the wiring itself is testable: the policy function is covered by Sync's `ConflictPolicyTests`,
+    /// but nothing pinned that BOTH seams route through it, that a folder collision still reaches
+    /// the prompt, or that the policy is re-read per collision — and an inverted gate or a dropped
+    /// wiring silently replaces the user's files with no prompt and no undo trail.
+    ///
+    /// The two prompts are parameters (defaulting to the real alerts) purely so a test can assert
+    /// the routing without driving a modal; production behavior is exactly the pre-extraction code.
+    /// A policy answer never offers "apply to all" — the policy already applies to every
+    /// collision, so `false` is the only consistent answer.
+    @MainActor
+    static func wireCollisionResolvers(
+        into manager: FileSyncManager,
+        defaults: UserDefaults = .standard,
+        prompt: @escaping @MainActor (FileCollision) -> CollisionResolution = {
+            SyncOperationAlerts.promptForCollision($0)
+        },
+        bulkPrompt: @escaping @MainActor (FileCollision) -> (resolution: CollisionResolution, applyToAll: Bool) = {
+            SyncOperationAlerts.promptForCollisionWithApplyToAll($0)
+        }
+    ) {
+        manager.collisionResolver = { collision in
+            Self.policyAutoResolution(for: collision, defaults: defaults)
+                ?? prompt(collision)
+        }
+        manager.bulkCollisionResolver = { collision in
+            Self.policyAutoResolution(for: collision, defaults: defaults).map { ($0, false) }
+                ?? bulkPrompt(collision)
+        }
     }
     
     var body: some Scene {

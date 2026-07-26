@@ -201,6 +201,135 @@ import Sync
         #expect(targets == ["/root/abc/x", "y"])
     }
 
+    // MARK: ignoreBasePath — the base `relativeIgnoreTargets` is measured against
+    //
+    // `relativeIgnoreTargets` above is only as good as this base: a wrong one produces relative
+    // paths that miss the base, get stored verbatim, and hide the wrong files from every future
+    // comparison via the durable per-pair ignore store.
+
+    @Test func testIgnoreBasePathAtAPaneRootIsTheExpandedRoot() {
+        #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Left", rightRoot: "/Right",
+                                         leftRelativePath: "", rightRelativePath: "") == "/Left")
+        #expect(PaneLogic.ignoreBasePath(isLeft: false, leftRoot: "/Left", rightRoot: "/Right",
+                                         leftRelativePath: "", rightRelativePath: "") == "/Right")
+    }
+
+    @Test func testIgnoreBasePathAppendsThePanesOwnFocus() {
+        // The cross-pairing catch: each side must take BOTH its root and its focus from its own
+        // pane. Mixing them (left root + right focus) points the base at a folder that may not
+        // even exist, and every node then falls through as an absolute path.
+        #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "/Left", rightRoot: "/Right",
+                                         leftRelativePath: "Docs/2024", rightRelativePath: "Photos")
+                == "/Left/Docs/2024")
+        #expect(PaneLogic.ignoreBasePath(isLeft: false, leftRoot: "/Left", rightRoot: "/Right",
+                                         leftRelativePath: "Docs/2024", rightRelativePath: "Photos")
+                == "/Right/Photos")
+    }
+
+    @Test func testIgnoreBasePathExpandsATildeRoot() {
+        // Provider roots are stored with `~`; an unexpanded base matches no node id on disk.
+        let home = NSHomeDirectory()
+        #expect(PaneLogic.ignoreBasePath(isLeft: true, leftRoot: "~/CloudStorage/iCloud", rightRoot: "/Right",
+                                         leftRelativePath: "Docs", rightRelativePath: "")
+                == "\(home)/CloudStorage/iCloud/Docs")
+    }
+
+    @Test func testIgnoreBaseFeedsRelativeTargetsEndToEnd() {
+        // The composition and the stripper together, as `handleIgnore` runs them: nodes selected
+        // in the RIGHT pane while it is focused on a subfolder must reduce to bare, pane-agnostic
+        // relative paths — that is what makes one ignore apply to both sides.
+        let base = PaneLogic.ignoreBasePath(isLeft: false, leftRoot: "~/Left", rightRoot: "~/Right",
+                                            leftRelativePath: "Other", rightRelativePath: "Docs/2024")
+        let home = NSHomeDirectory()
+        let targets = PaneLogic.relativeIgnoreTargets(
+            nodeIds: ["\(home)/Right/Docs/2024/receipt.pdf", "\(home)/Right/Docs/2024/sub/scan.png"],
+            basePath: base)
+        #expect(targets == ["receipt.pdf", "sub/scan.png"])
+    }
+
+    // MARK: paneFocusRestores — reopening last session's folders
+
+    private func restore(_ relativePath: String, _ fullPath: String, isLeft: Bool) -> PaneLogic.PaneFocusRestore {
+        PaneLogic.PaneFocusRestore(relativePath: relativePath, fullPath: fullPath, isLeft: isLeft)
+    }
+
+    @Test func testFocusRestoreComposesRootAndRelativePathPerPane() async {
+        // The composed path is what gets validated and, once valid, becomes the coordinate system
+        // for every later relative operation in the session — so both the pairing and the tilde
+        // expansion are pinned here.
+        let home = NSHomeDirectory()
+        var probed: [String] = []
+        let restores = await PaneLogic.paneFocusRestores(
+            isEnabled: true,
+            left: (relativePath: "Docs/2024", root: "~/Left"),
+            right: (relativePath: "Photos", root: "/Right"),
+            isRestorableDirectory: { probed.append($0); return true })
+
+        #expect(probed == ["\(home)/Left/Docs/2024", "/Right/Photos"])
+        #expect(restores == [restore("Docs/2024", "\(home)/Left/Docs/2024", isLeft: true),
+                             restore("Photos", "/Right/Photos", isLeft: false)])
+    }
+
+    @Test func testFocusRestoreDoesNothingWhenTheSettingIsOff() async {
+        var probed = 0
+        let restores = await PaneLogic.paneFocusRestores(
+            isEnabled: false,
+            left: (relativePath: "Docs", root: "/Left"),
+            right: (relativePath: "Photos", root: "/Right"),
+            isRestorableDirectory: { _ in probed += 1; return true })
+        #expect(restores.isEmpty)
+        #expect(probed == 0)   // the setting gates before any disk work
+    }
+
+    @Test func testFocusRestoreSkipsPanesWithNothingRememberedOrNoRoot() async {
+        // Nothing remembered (first launch) and an unresolved provider root both mean "stay at
+        // the root" — and neither may be probed, since composing them yields the root itself,
+        // which exists and would "restore" a pane onto a path it is already on.
+        var probed: [String] = []
+        let restores = await PaneLogic.paneFocusRestores(
+            isEnabled: true,
+            left: (relativePath: "", root: "/Left"),
+            right: (relativePath: "Photos", root: ""),
+            isRestorableDirectory: { probed.append($0); return true })
+        #expect(restores.isEmpty)
+        #expect(probed.isEmpty)
+    }
+
+    @Test func testFocusRestoreDropsThePaneWhoseFolderIsGone() async {
+        // One pane's folder deleted since last session must not disturb the other's restore.
+        let restores = await PaneLogic.paneFocusRestores(
+            isEnabled: true,
+            left: (relativePath: "Gone", root: "/Left"),
+            right: (relativePath: "Photos", root: "/Right"),
+            isRestorableDirectory: { $0 == "/Right/Photos" })
+        #expect(restores == [restore("Photos", "/Right/Photos", isLeft: false)])
+    }
+
+    /// The real on-disk check (no injected predicate), which is what decides between reopening a
+    /// folder and falling back to the provider root: a directory restores, a missing path doesn't,
+    /// and neither does a FILE at that path (a folder replaced by a file of the same name would
+    /// otherwise "restore" a pane onto something it cannot show).
+    @Test func testFocusRestoreValidatesAgainstTheRealFileSystem() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pane-focus-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Reports"),
+                                                withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: root.appendingPathComponent("notes.txt"))
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let existing = await PaneLogic.paneFocusRestores(
+            isEnabled: true,
+            left: (relativePath: "Reports", root: root.path),
+            right: (relativePath: "Gone", root: root.path))
+        #expect(existing == [restore("Reports", root.appendingPathComponent("Reports").path, isLeft: true)])
+
+        let fileNotFolder = await PaneLogic.paneFocusRestores(
+            isEnabled: true,
+            left: (relativePath: "notes.txt", root: root.path),
+            right: (relativePath: "", root: root.path))
+        #expect(fileNotFolder.isEmpty)
+    }
+
     // The toggledIgnoredPaths cases moved to Sync's PersistentIgnoresTests alongside
     // `FileSyncManager.toggleIgnored(focusRelativePaths:)`, which superseded the helper.
 

@@ -119,4 +119,73 @@ import Foundation
         #expect(store.records.count == 1)
         #expect(store.records.first?.sourcePath == "/src/ok.txt")
     }
+
+    // MARK: Un-encodable records
+
+    /// A record whose timestamp is non-finite cannot be JSON-encoded (a `Date` encodes as a
+    /// `Double`, and the encoder rejects infinity). It stands in here for any record the codec
+    /// refuses — the only way this store loses a line.
+    private func unencodableRecord(runId: UUID, source: String) -> SyncHistoryRecord {
+        SyncHistoryRecord(
+            runId: runId,
+            timestamp: Date(timeIntervalSinceReferenceDate: .infinity),
+            action: .delete,
+            sourcePath: source)
+    }
+
+    /// The premise of the two tests below: the record really is un-encodable, so a green result
+    /// there can't come from a batch that quietly encoded fine.
+    @Test func testTheUnencodableFixtureReallyFailsToEncode() {
+        #expect((try? JSONEncoder().encode(unencodableRecord(runId: UUID(), source: "/src/x"))) == nil)
+    }
+
+    /// Dropping the record is the documented design (persistence must never fail the file operation
+    /// that produced it) — dropping it SILENTLY is not: this file is the durable audit trail of a
+    /// real mutation, so a missing line has to be announced somewhere.
+    @Test func testADroppedRecordIsReportedOncePerBatchWithItsIdentity() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reports = ReportSpy()
+        let runId = UUID()
+        let store = SyncHistoryStore(fileURL: url, reportDroppedRecords: { reports.messages.append($0) })
+
+        store.appendBatch([
+            record(runId: runId, source: "/src/good.txt"),
+            unencodableRecord(runId: runId, source: "/src/lost.txt"),
+            unencodableRecord(runId: runId, source: "/src/lost-too.txt"),
+        ])
+
+        // One report for the batch (a bulk run must not emit a line per file), naming how many
+        // were lost and enough of the first to find it.
+        #expect(reports.messages.count == 1)
+        let message = reports.messages.first ?? ""
+        #expect(message.contains("2"))
+        #expect(message.contains("/src/lost.txt"))
+        #expect(message.contains(url.lastPathComponent))
+
+        // Best-effort persistence is preserved: the encodable record still reached disk, and the
+        // caller's operation was never failed.
+        store.flushToDisk()
+        let reloaded = SyncHistoryStore(fileURL: url)
+        #expect(reloaded.records.map(\.sourcePath) == ["/src/good.txt"])
+    }
+
+    @Test func testNothingIsReportedWhenEveryRecordEncodes() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reports = ReportSpy()
+        let store = SyncHistoryStore(fileURL: url, reportDroppedRecords: { reports.messages.append($0) })
+        store.appendBatch([record(runId: UUID()), record(runId: UUID())])
+
+        #expect(reports.messages.isEmpty)
+    }
+}
+
+/// Captures the drop reports. A reference type so the closure handed to the store writes into the
+/// same instance the test reads; main-actor-isolated because that is where the store calls it.
+@MainActor
+private final class ReportSpy {
+    var messages: [String] = []
 }

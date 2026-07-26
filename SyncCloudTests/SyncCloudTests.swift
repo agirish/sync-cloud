@@ -1,6 +1,8 @@
 import Testing
 import AppKit
 import AppIntents
+import Events
+import Settings
 import Sync
 @testable import SyncCloud
 
@@ -251,5 +253,169 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         let home = NSHomeDirectory()
         #expect(SyncOperationAlerts.displayPath("\(home)/Documents") == "~/Documents")
         #expect(SyncOperationAlerts.displayPath("/Volumes/External/x") == "/Volumes/External/x")
+    }
+
+    // MARK: Collision-resolver wiring (Settings policy → the two manager seams)
+    //
+    // `ConflictPolicyTests` (Sync) covers the policy function; these pin the app-side wiring it
+    // hangs off — that BOTH seams consult it, that folder collisions still reach the prompt, and
+    // that it is re-read per collision. A dropped wiring or an inverted directory gate replaces
+    // the user's files with no prompt at all, and nothing on the Sync side can catch it. The
+    // prompts are recorded rather than shown; a policy answer must never reach them.
+
+    /// A prompt recorder standing in for the NSAlert. Its sentinel answers are deliberately
+    /// distinguishable from every policy answer's "apply to all" flag, so a test can tell which
+    /// side produced a resolution even when the resolution itself matches.
+    @MainActor
+    private final class PromptSpy {
+        var singleCalls: [FileCollision] = []
+        var bulkCalls: [FileCollision] = []
+        var single: @MainActor (FileCollision) -> CollisionResolution {
+            { collision in self.singleCalls.append(collision); return .keepBoth }
+        }
+        var bulk: @MainActor (FileCollision) -> (resolution: CollisionResolution, applyToAll: Bool) {
+            { collision in self.bulkCalls.append(collision); return (.keepBoth, true) }
+        }
+    }
+
+    @MainActor
+    private func wiredManager(policy: ConflictPolicy?, defaults: UserDefaults, spy: PromptSpy) -> FileSyncManager {
+        if let policy {
+            defaults.set(policy.rawValue, forKey: ConflictPolicy.defaultsKey)
+        } else {
+            defaults.removeObject(forKey: ConflictPolicy.defaultsKey)
+        }
+        let manager = FileSyncManager()
+        SyncCloudApp.wireCollisionResolvers(into: manager, defaults: defaults,
+                                            prompt: spy.single, bulkPrompt: spy.bulk)
+        return manager
+    }
+
+    @MainActor
+    @Test func testBothCollisionSeamsAreWiredToTheStandingPolicy() throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        for policy in [ConflictPolicy.replace, .skip, .keepBoth] {
+            let spy = PromptSpy()
+            let manager = wiredManager(policy: policy, defaults: test.defaults, spy: spy)
+            let expected = try #require(policy.autoResolution(isDirectory: false))
+
+            // Unwired, each seam keeps Sync's fail-safe default (skip / (skip, false)), so a
+            // dropped wiring shows up as the wrong answer for every policy but `.skip`.
+            #expect(manager.collisionResolver(Self.collision()) == expected)
+            let bulk = manager.bulkCollisionResolver(Self.collision())
+            #expect(bulk.resolution == expected)
+            // A standing policy already applies to every collision, so "apply to all" is moot —
+            // and `true` here is the spy's sentinel, i.e. proof the prompt was reached.
+            #expect(bulk.applyToAll == false)
+
+            #expect(spy.singleCalls.isEmpty)
+            #expect(spy.bulkCalls.isEmpty)
+        }
+    }
+
+    @MainActor
+    @Test func testFolderCollisionsStillPromptUnderEveryAutoPolicy() {
+        let test = TestDefaults()
+        defer { test.wipe() }
+
+        // Replacing a folder trashes everything in it, including items that exist ONLY there, so
+        // no standing policy may automate it away. An inverted `isDirectory` gate would answer
+        // these from the policy — the single most destructive silent failure in the app.
+        for policy in [ConflictPolicy.replace, .skip, .keepBoth] {
+            let spy = PromptSpy()
+            let manager = wiredManager(policy: policy, defaults: test.defaults, spy: spy)
+
+            #expect(manager.collisionResolver(Self.collision(isDirectory: true)) == .keepBoth)
+            #expect(spy.singleCalls.count == 1)
+
+            let bulk = manager.bulkCollisionResolver(Self.collision(isDirectory: true))
+            #expect(bulk.resolution == .keepBoth)
+            #expect(bulk.applyToAll)   // the spy's sentinel: this came from the prompt, not the policy
+            #expect(spy.bulkCalls.count == 1)
+        }
+    }
+
+    @MainActor
+    @Test func testAskPolicyAlwaysReachesThePrompt() {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let spy = PromptSpy()
+        let manager = wiredManager(policy: .ask, defaults: test.defaults, spy: spy)
+
+        #expect(manager.collisionResolver(Self.collision()) == .keepBoth)
+        #expect(manager.bulkCollisionResolver(Self.collision()).applyToAll)
+        #expect(spy.singleCalls.count == 1)
+        #expect(spy.bulkCalls.count == 1)
+
+        // Unset (never configured) is `.ask` too — the historical always-prompt behavior.
+        let unsetSpy = PromptSpy()
+        let unset = wiredManager(policy: nil, defaults: test.defaults, spy: unsetSpy)
+        #expect(unset.collisionResolver(Self.collision()) == .keepBoth)
+        #expect(unsetSpy.singleCalls.count == 1)
+    }
+
+    @MainActor
+    @Test func testPolicyIsRereadForEveryCollisionSoASettingsChangeAppliesImmediately() {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let spy = PromptSpy()
+        // Wired ONCE, up front — exactly as `App.init` does it. Reading the policy at wiring time
+        // instead of per collision would pin the app to whatever was set at launch.
+        let manager = wiredManager(policy: .replace, defaults: test.defaults, spy: spy)
+        #expect(manager.collisionResolver(Self.collision()) == .replace)
+
+        test.defaults.set(ConflictPolicy.skip.rawValue, forKey: ConflictPolicy.defaultsKey)
+        #expect(manager.collisionResolver(Self.collision()) == .skip)
+        #expect(manager.bulkCollisionResolver(Self.collision()).resolution == .skip)
+
+        // …including a switch back to "Ask every time", which must restore the prompt.
+        test.defaults.set(ConflictPolicy.ask.rawValue, forKey: ConflictPolicy.defaultsKey)
+        #expect(manager.collisionResolver(Self.collision()) == .keepBoth)
+        #expect(spy.singleCalls.count == 1)
+    }
+
+    // MARK: Reset All Settings
+
+    @MainActor
+    @Test func testResetAllSettingsWipesDefaultsResetsTheLogGateAndClearsIgnores() throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        // A key nothing re-writes on reset, so its disappearance proves the domain was wiped.
+        test.defaults.set(true, forKey: "openSettingsOnLaunch")
+
+        let settings = SettingsManager(autoDiscover: false, userDefaults: test.defaults,
+                                       overridesDomainName: test.suiteName,
+                                       cloudStorageLister: { [] })
+        settings.ignorePatterns = ["*.tmp"]
+        settings.conflictPolicy = .replace
+
+        let manager = FileSyncManager()
+        manager.ignoredPaths = ["Documents/private.pdf"]
+
+        // Recorded rather than applied: the live `Logger.shared` gate is process-wide, and
+        // raising it here would swallow other suites' entries. Each record also captures whether
+        // the defaults wipe had already happened, which is what pins the ORDER — running the log
+        // reset first would let `resetAllSettings`'s own re-seed overwrite it.
+        var logLevels: [(level: LogLevel, patternsAlreadyCleared: Bool)] = []
+
+        ContentView.applyFullSettingsReset(settings: settings, syncManager: manager) { level in
+            logLevels.append((level, settings.ignorePatterns.isEmpty))
+        }
+
+        // 1. The defaults domain is gone (and the manager republished at its defaults).
+        #expect(test.defaults.object(forKey: "openSettingsOnLaunch") == nil)
+        #expect(settings.ignorePatterns.isEmpty)
+        #expect(settings.conflictPolicy == .ask)
+        // 2. The log gate is back to logging everything — it does NOT flow through any
+        //    `.onChange` mirror, so only this call restores it before a relaunch.
+        #expect(logLevels.count == 1)
+        let logged = try #require(logLevels.first)
+        #expect(logged.level == .debug)
+        #expect(logged.patternsAlreadyCleared)
+        // 3. The in-memory ignore sets are cleared — also not mirrored, so items ignored under
+        //    the old settings would otherwise stay hidden from every comparison this session.
+        #expect(manager.ignoredPaths.isEmpty)
     }
 }

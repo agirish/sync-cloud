@@ -53,11 +53,15 @@ struct PaneActionDelegate: FileActionDelegate {
         syncManager.sortOption = option 
     }
     func handleIgnore(_ nodes: [FileNode]) {
-        let rootPath = isLeft ? settings.path(for: leftProviderId) : settings.path(for: rightProviderId)
-        let expandedRoot = (rootPath as NSString).expandingTildeInPath
-        let relPrefix = isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath
-        
-        let basePath = relPrefix.isEmpty ? expandedRoot : (expandedRoot as NSString).appendingPathComponent(relPrefix)
+        // Root + in-pane focus for THIS pane, composed in PaneLogic so the pairing (and the
+        // tilde expansion) is pinned by tests — a wrong base persists wrong relative paths
+        // into the durable ignore store.
+        let basePath = PaneLogic.ignoreBasePath(
+            isLeft: isLeft,
+            leftRoot: settings.path(for: leftProviderId),
+            rightRoot: settings.path(for: rightProviderId),
+            leftRelativePath: syncManager.leftRelativePath,
+            rightRelativePath: syncManager.rightRelativePath)
 
         // Convert to relative paths from current focal point so they sync across panes seamlessly
         let relativeTargets = PaneLogic.relativeIgnoreTargets(nodeIds: nodes.map(\.id), basePath: basePath)

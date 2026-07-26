@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Events
 @testable import Sync
 
 /// Pins the durable ignore store: per-pair persistence round-trips, order-independent pair
@@ -62,6 +63,30 @@ import Foundation
         // over the in-memory set.
         store.activate(pairKey: key)
         #expect(store.rootRelativePaths == ["kept"])
+    }
+
+    /// An `add()` before any `activate()` updates the published set — so the row greys out and the
+    /// Settings list shows the entry, exactly as a durable ignore would — while `save()`'s
+    /// `guard let activeKey` drops the write on the floor. Nothing else can report it: `add` has no
+    /// return value, no error surfaces, and the visible state is identical to a successful save, so
+    /// the ignore simply is not there after a relaunch. The log line is the only signal.
+    @MainActor
+    @Test func testAddBeforeActivateIsSessionOnlyAndSaysSo() async {
+        let (defaults, suite) = makeDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = IgnoredItemsStore(userDefaults: defaults)   // deliberately NOT activated
+        store.add(["Docs/orphan.txt"])
+
+        // The UI-visible state claims the ignore took…
+        #expect(store.rootRelativePaths == ["Docs/orphan.txt"])
+        // …but nothing was written under any pair key.
+        #expect(defaults.dictionaryRepresentation().keys.contains { $0.hasPrefix("ignoredItems_v1_") } == false)
+        await waitUntil("the dropped save is logged") {
+            Logger.shared.entries.contains {
+                $0.level == .warning && $0.message.contains("no provider pair is active yet")
+            }
+        }
     }
 
     @MainActor

@@ -16,3 +16,20 @@ func waitUntil(_ what: Comment, timeout: TimeInterval = 5, _ condition: () -> Bo
     }
     #expect(condition(), what)
 }
+
+/// A throwaway `UserDefaults` suite, so a test can pin a defaults-driven decision without writing
+/// into the app's real domain — which, when the test host IS the app, is the user's live settings.
+/// Mirrors `Modules/Settings/Tests/Settings`' helper of the same name. Always `defer { wipe() }`.
+struct TestDefaults {
+    let suiteName: String
+    let defaults: UserDefaults
+
+    init(_ function: String = #function) {
+        self.suiteName = "SyncCloudTests-\(function)-\(UUID().uuidString)"
+        self.defaults = UserDefaults(suiteName: suiteName)!
+    }
+
+    func wipe() {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
+}

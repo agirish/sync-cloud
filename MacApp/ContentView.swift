@@ -750,24 +750,18 @@ struct ContentView: View {
     /// disk first (off the main actor — cloud roots stat slowly), so a folder deleted or
     /// unmounted since last session silently falls back to the provider root.
     private func restoreLastPaneFocusIfEnabled() async {
-        guard GeneralSettings.shouldRestoreLastFocus() else { return }
-        let panes: [(rel: String, root: String, isLeft: Bool)] = [
-            (UserDefaults.standard.string(forKey: GeneralSettings.lastLeftFocusKey) ?? "",
-             settings.path(for: leftProviderId), true),
-            (UserDefaults.standard.string(forKey: GeneralSettings.lastRightFocusKey) ?? "",
-             settings.path(for: rightProviderId), false),
-        ]
-        for pane in panes where !pane.rel.isEmpty && !pane.root.isEmpty {
-            let fullPath = ((pane.root as NSString).expandingTildeInPath as NSString)
-                .appendingPathComponent(pane.rel)
-            let isRestorable = await Task.detached(priority: .userInitiated) { () -> Bool in
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: fullPath, isDirectory: &isDirectory)
-                    && isDirectory.boolValue
-            }.value
-            guard isRestorable else { continue }
-            Logger.shared.info("Restoring \(pane.isLeft ? "left" : "right") pane to last session's folder: \(pane.rel)")
-            syncManager.focusOn(relativePath: pane.rel, isLeft: pane.isLeft)
+        // The gate, the root+relative composition, the on-disk validation and the
+        // drop-to-root fallback all live in `PaneLogic.paneFocusRestores` (pinned by tests);
+        // this only applies the answer.
+        let restores = await PaneLogic.paneFocusRestores(
+            isEnabled: GeneralSettings.shouldRestoreLastFocus(),
+            left: (UserDefaults.standard.string(forKey: GeneralSettings.lastLeftFocusKey) ?? "",
+                   settings.path(for: leftProviderId)),
+            right: (UserDefaults.standard.string(forKey: GeneralSettings.lastRightFocusKey) ?? "",
+                    settings.path(for: rightProviderId)))
+        for restore in restores {
+            Logger.shared.info("Restoring \(restore.isLeft ? "left" : "right") pane to last session's folder: \(restore.relativePath)")
+            syncManager.focusOn(relativePath: restore.relativePath, isLeft: restore.isLeft)
         }
     }
 
@@ -775,10 +769,29 @@ struct ContentView: View {
     /// domain and republishes the manager's own settings (each `.onChange` mirror above then
     /// re-seeds the engine); the pieces built from the old values that DON'T flow through
     /// those mirrors — the log gate and the in-memory ignore sets — are reset here.
-    private func resetAllSettingsAction() {
+    ///
+    /// A static over the two collaborators so a test can pin all three steps together (the view
+    /// method below is the only caller). The order matters and is part of what's pinned:
+    /// `resetAllSettings()` re-seeds the live log gate from the just-cleared defaults, so the
+    /// `.debug` write must follow it — ahead of it, the re-seed would overwrite it and a user who
+    /// had raised the threshold would stay half-reset, seeing no INFO entries after a "reset all".
+    ///
+    /// `setLogLevel` is a seam only so the test can observe that write without mutating the
+    /// process-wide `Logger.shared` gate (which would swallow other suites' entries); production
+    /// passes the real one.
+    @MainActor
+    static func applyFullSettingsReset(
+        settings: SettingsManager,
+        syncManager: FileSyncManager,
+        setLogLevel: (LogLevel) -> Void = { Logger.shared.minimumLevel = $0 }
+    ) {
         settings.resetAllSettings()
-        Logger.shared.minimumLevel = .debug
+        setLogLevel(.debug)
         syncManager.clearAllIgnoredItems()
+    }
+
+    private func resetAllSettingsAction() {
+        Self.applyFullSettingsReset(settings: settings, syncManager: syncManager)
     }
 
     /// The first-run welcome tour (H1). FirstRunOverlay owns the paged layout and primary-action

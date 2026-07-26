@@ -1,5 +1,6 @@
 import SwiftUI
 import Sync
+import Events
 import Combine
 import UniformTypeIdentifiers
 import AppKit
@@ -124,9 +125,24 @@ public struct DetailsSidebar: View {
         let generation: Int
     }
 
-    static func loadMetadata(for activePath: String) -> FileMetadata? {
+    /// Stats `activePath` for the metadata card, or nil when there is nothing to show.
+    ///
+    /// nil is genuinely ambiguous to the caller — a path that isn't there and a path the app is not
+    /// allowed to read both render the same empty inspector — so the second case leaves a
+    /// breadcrumb before returning. Without it a permissions or IO failure on a cloud provider was
+    /// indistinguishable from "nothing selected", with nothing recorded anywhere to say otherwise.
+    ///
+    /// `fileManager` and `logError` are injected (defaulting to the real ones) so that failure path
+    /// is testable, following `FolderJump.siblings`. Warning rather than debug: unlike the sibling
+    /// listing, this fires on a selection the user actively made, and the memoizing cache means it
+    /// fires once per path rather than once per render.
+    static func loadMetadata(
+        for activePath: String,
+        fileManager: FileManager = .default,
+        logError: @MainActor (String) -> Void = { _ = Logger.shared.warning($0) }
+    ) -> FileMetadata? {
         let url = URL(fileURLWithPath: activePath)
-        let fm = FileManager.default
+        let fm = fileManager
         var isDir: ObjCBool = false
 
         guard fm.fileExists(atPath: activePath, isDirectory: &isDir) else { return nil }
@@ -170,6 +186,10 @@ public struct DetailsSidebar: View {
                 isDirectory: isDir.boolValue
             )
         } catch {
+            // The item exists (the guard above passed) but its attributes could not be read —
+            // a permissions failure, or a cloud provider's placeholder that won't materialize.
+            // Say so; the inspector itself can only fall silent.
+            logError("Details: couldn't read attributes of \(activePath): \(error.localizedDescription)")
             return nil
         }
     }

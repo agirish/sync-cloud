@@ -138,4 +138,50 @@ import Sync
         OnDeviceFilingClassifier.prewarm()
         OnDeviceFilingClassifier.prewarm()
     }
+
+    // MARK: Hybrid backend routing (cloud vs. on-device)
+
+    /// Runs the router with a recording sink in place of `Logger.shared`, returning both halves of
+    /// the answer so a test can assert the route AND whether the user was told about a downgrade.
+    private func routed(cloudEnabled: Bool, hasCloudKey: Bool) -> (route: FilingBackendRoute, reported: [String]) {
+        var reported: [String] = []
+        let route = FilingBackendRouter.route(cloudEnabled: cloudEnabled, hasCloudKey: hasCloudKey) {
+            reported.append($0)
+        }
+        return (route, reported)
+    }
+
+    @Test func cloudFilingOffRunsOnDeviceWithNothingToReport() {
+        // Cloud off is not a downgrade — it's what the user asked for, key or no key.
+        let noKey = routed(cloudEnabled: false, hasCloudKey: false)
+        #expect(noKey.route == .onDevice)
+        #expect(noKey.reported.isEmpty)
+
+        let staleKey = routed(cloudEnabled: false, hasCloudKey: true)
+        #expect(staleKey.route == .onDevice)
+        #expect(staleKey.reported.isEmpty)
+    }
+
+    @Test func cloudFilingOnWithAKeyRunsInTheCloudSilently() {
+        let result = routed(cloudEnabled: true, hasCloudKey: true)
+        #expect(result.route == .cloud)
+        #expect(result.reported.isEmpty)
+    }
+
+    /// The gap this closes: the toggle is ON but no key can be read (never entered, deleted, or a
+    /// locked Keychain), so the on-device model files the documents while the user believes Claude
+    /// did. Before, that fell through with no log line at all — indistinguishable from a real cloud
+    /// run in the Activity Log.
+    @Test func cloudFilingOnWithoutAKeyDowngradesAndSaysSoExactlyOnce() throws {
+        let result = routed(cloudEnabled: true, hasCloudKey: false)
+        #expect(result.route == .onDeviceCloudKeyUnavailable)
+        #expect(result.reported.count == 1)
+
+        let message = try #require(result.reported.first)
+        #expect(message == FilingBackendRouter.missingKeyDowngradeMessage)
+        // The message has to carry all three: what was expected, what actually ran, and the fix.
+        #expect(message.contains("Cloud (Claude) Filing is enabled"))
+        #expect(message.contains("on-device"))
+        #expect(message.contains("Settings → Tidy"))
+    }
 }

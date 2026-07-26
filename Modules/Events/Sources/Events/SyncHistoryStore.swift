@@ -11,7 +11,9 @@ import SwiftUI
 /// The store is `@MainActor` because its `@Published records` drives the Sync History window.
 /// Writes never block or fail an operation: `append`/`appendBatch` mutate the array and hand the
 /// disk write to a background queue that swallows its own errors — recording is a best-effort
-/// side effect, never a gate on the file operation that produced it.
+/// side effect, never a gate on the file operation that produced it. Best-effort is not the same
+/// as silent, though: a record the codec refuses is dropped from the file *and* announced through
+/// `reportDroppedRecords`, because this file is the audit trail of a real file mutation.
 @MainActor
 public final class SyncHistoryStore: ObservableObject {
     /// The shared instance the Sync layer records into by default. Tests inject their own store
@@ -31,6 +33,17 @@ public final class SyncHistoryStore: ObservableObject {
 
     private let writer: LogFileWriter
 
+    /// Where a dropped record is announced. Best-effort persistence is the design (a failed encode
+    /// must never fail the file operation that produced it), but a *silent* drop is not: this file
+    /// is the durable audit trail of a real file mutation, so a record that never reaches disk has
+    /// to leave a breadcrumb somewhere. It goes to the Activity Log, which is a different file and
+    /// a different writer — no loop back into this store.
+    ///
+    /// Injected (defaulting to the shared logger) rather than called directly so the drop path is
+    /// testable without reading `Logger.shared`'s asynchronous in-memory buffer, following
+    /// `FolderJump.siblings`' `logError`.
+    private let reportDroppedRecords: @MainActor (String) -> Void
+
     /// One shared codec so persisted lines and in-memory records agree byte-for-byte. The
     /// default `Date` strategy (a numeric interval) is compact and round-trips exactly; the
     /// human-readable ISO-8601 form is reserved for the export path, not this internal store.
@@ -39,9 +52,14 @@ public final class SyncHistoryStore: ObservableObject {
 
     /// Production uses the shared file; tests inject an isolated temp URL. `LogFileWriter`'s
     /// 5 MB cap can be overridden for the size-cap test.
-    public init(fileURL: URL = SyncHistoryStore.defaultFileURL(), maxFileSize: Int = 5 * 1024 * 1024) {
+    public init(
+        fileURL: URL = SyncHistoryStore.defaultFileURL(),
+        maxFileSize: Int = 5 * 1024 * 1024,
+        reportDroppedRecords: @escaping @MainActor (String) -> Void = { _ = Logger.shared.error($0) }
+    ) {
         self.fileURL = fileURL
         self.writer = LogFileWriter(url: fileURL, maxFileSize: maxFileSize)
+        self.reportDroppedRecords = reportDroppedRecords
         self.records = Self.loadRecords(from: fileURL)
     }
 
@@ -74,8 +92,8 @@ public final class SyncHistoryStore: ObservableObject {
 
     // MARK: - Recording
 
-    /// Appends one record to memory and disk. Never throws — a failed encode is dropped so the
-    /// caller's file operation is never affected.
+    /// Appends one record to memory and disk. Never throws — a failed encode is dropped (and
+    /// reported to the Activity Log) so the caller's file operation is never affected.
     public func append(_ record: SyncHistoryRecord) {
         appendBatch([record])
     }
@@ -88,9 +106,23 @@ public final class SyncHistoryStore: ObservableObject {
         if records.count > Self.maxInMemoryRecords {
             records.removeFirst(records.count - Self.maxInMemoryRecords)
         }
+        // A record that cannot be encoded is still dropped from the file rather than failing the
+        // caller's operation — but it is COUNTED and announced once per batch afterwards, never
+        // once per record: a batch is one user gesture, and a systematic encode failure would
+        // otherwise emit a log line per file in a bulk run.
+        var dropped: [SyncHistoryRecord] = []
         for record in newRecords {
-            guard let line = Self.encode(record) else { continue }
+            guard let line = Self.encode(record) else {
+                dropped.append(record)
+                continue
+            }
             writer.append(line + "\n")
+        }
+        if let first = dropped.first {
+            reportDroppedRecords(
+                "Sync history: \(dropped.count) record\(dropped.count == 1 ? "" : "s") could not be encoded and "
+                + "\(dropped.count == 1 ? "is" : "are") missing from \(fileURL.lastPathComponent) "
+                + "— first: \(first.action.rawValue) \(first.sourcePath)")
         }
     }
 

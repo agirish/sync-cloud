@@ -24,7 +24,9 @@ final class DetailsMetadataCache {
     private(set) var generation = 0
 
     init(
-        loadMetadata: @escaping @MainActor (String) -> DetailsSidebar.FileMetadata? = DetailsSidebar.loadMetadata(for:),
+        // Wrapped in a closure rather than referenced as `DetailsSidebar.loadMetadata(for:)`: the
+        // loader now takes injectable FileManager/log hooks, and its defaults belong to it.
+        loadMetadata: @escaping @MainActor (String) -> DetailsSidebar.FileMetadata? = { DetailsSidebar.loadMetadata(for: $0) },
         loadIcon: @escaping @MainActor (String) -> NSImage = { NSWorkspace.shared.icon(forFile: $0) }
     ) {
         self.loadMetadata = loadMetadata

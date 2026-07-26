@@ -330,6 +330,164 @@ import Sync
         #expect(rec.out.contains("  Swimming  — \(expectedReason)"))
     }
 
+    // MARK: sync — the right→left direction
+    // Every leftward mechanism (the source/target swap, the guard reading the LEFT provider's
+    // type, the validated path taken against the LEFT root) was unit-tested in isolation, but the
+    // sync loop that composes them only ever ran left→right — so no test could catch them being
+    // wired together the wrong way round.
+
+    @Test func syncCopiesRightOnlyFilesLeftwardWithTheEndpointsSwapped() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        try write(right.appendingPathComponent("only-right.txt"), "abc")
+
+        let rec = Recorder()
+        try await makeRunner(rec).runSync(left: left.path, right: right.path,
+                                          direction: .toLeft, showHidden: false, ignore: [],
+                                          strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.out.contains("- only-right.txt ← [missing-on-left]"),
+                "the plan must show the leftward arrow: \(rec.out)")
+        #expect(rec.copies.count == 1)
+        let copy = try #require(rec.copies.first)
+        #expect(copy.source.path == right.appendingPathComponent("only-right.txt").path,
+                "copying leftward reads from the RIGHT side")
+        #expect(copy.target.path == left.appendingPathComponent("only-right.txt").path,
+                "copying leftward writes into the LEFT root")
+        #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 0, Failed: 0."))
+        #expect(rec.err.isEmpty)
+    }
+
+    @Test func syncSkipsANameTheLeftProviderForbidsWhenCopyingRightToLeft() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        // "CON" is reserved on OneDrive. The offending file sits on the RIGHT and would be
+        // written into the LEFT (OneDrive) root, so it is the LEFT provider's rules that decide.
+        try write(right.appendingPathComponent("CON.txt"), "reserved")
+        try write(right.appendingPathComponent("normal.txt"), "fine")
+        let oneDrive = CloudProvider(id: "onedrive-test", displayName: "OneDrive (Personal)",
+                                     imageName: "folder", path: left.path, type: .oneDrive)
+        let expectedReason = try #require(
+            ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
+
+        let rec = Recorder()
+        try await makeRunner(rec, providers: [oneDrive]).runSync(
+            left: "onedrive-test", right: right.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: true, failFast: false, verify: false)
+
+        // Exactly one copy: the valid name. The reserved one is refused BEFORE any write, even
+        // though the RIGHT (source) side — an ordinary folder — has no name rules at all.
+        #expect(rec.copies.map(\.source.lastPathComponent) == ["normal.txt"])
+        #expect(rec.err == "Skipping CON.txt: \(expectedReason) OneDrive (Personal) would not upload it.\n")
+        #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
+        #expect(rec.out.contains("  CON.txt — \(expectedReason)"))
+    }
+
+    @Test func syncLeftwardValidatesTheDestinationSpellingNotTheSourceOne() async throws {
+        let left = try makeTempRoot(), right = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: right) }
+        // A name-conflict pair: the LEFT (Dropbox) side already holds the provider-valid spelling,
+        // the RIGHT holds the trailing-space doppelganger and is newer, so the row syncs right→left
+        // ONTO the existing, valid left path. Validating the source spelling would wrongly skip a
+        // write that never creates the offending name.
+        try write(left.appendingPathComponent("Swimming"), "old",
+                  mtime: Date(timeIntervalSince1970: 1_700_000_000))
+        try write(right.appendingPathComponent("Swimming "), "new",
+                  mtime: Date(timeIntervalSince1970: 1_700_100_000))
+        let dropbox = CloudProvider(id: "dropbox-test", displayName: "Dropbox", imageName: "folder",
+                                    path: left.path, type: .dropBox)
+        // Premise: the SOURCE spelling really is one Dropbox refuses (otherwise this pins nothing).
+        #expect(ProviderNameRules.violation(inRelativePath: "Swimming ", for: .dropBox) != nil)
+
+        let rec = Recorder()
+        try await makeRunner(rec, providers: [dropbox]).runSync(
+            left: "dropbox-test", right: right.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.out.contains("- Swimming ← [name-conflict]"),
+                "expected one leftward name-conflict row: \(rec.out)")
+        #expect(rec.copies.count == 1)
+        let copy = try #require(rec.copies.first)
+        #expect(copy.source.path == right.appendingPathComponent("Swimming ").path)
+        #expect(copy.target.path == left.appendingPathComponent("Swimming").path)
+        #expect(rec.err.isEmpty, "the destination spelling is valid, so nothing may be skipped: \(rec.err)")
+    }
+
+    // MARK: sync — path-addressed cloud roots
+    // A `-L`/`-R` PATH inherits the provider type of whichever discovered provider contains it.
+    // `ProviderResolutionTests` pins the resolution; these pin the CONSEQUENCE — that the two
+    // type-gated guards actually engage for a path-addressed root, which is what the old fixed
+    // `.iCloud` typing silently switched off.
+
+    @Test func syncSkipsAProviderInvalidNameForAPathAddressedOneDriveDestination() async throws {
+        let left = try makeTempRoot(), cloud = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: cloud) }
+        // A realistic CloudStorage layout: discovery found ".../OneDrive-Personal/Documents", and
+        // the user points -R at its sibling ".../OneDrive-Personal/Photos" — a PATH that matches
+        // no provider id or display name, but belongs to the same OneDrive account.
+        let account = cloud.appendingPathComponent("Library/CloudStorage/OneDrive-Personal")
+        let discoveredRoot = account.appendingPathComponent("Documents")
+        let addressedRoot = account.appendingPathComponent("Photos")
+        try FileManager.default.createDirectory(at: discoveredRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: addressedRoot, withIntermediateDirectories: true)
+        try write(left.appendingPathComponent("CON.txt"), "reserved")
+        try write(left.appendingPathComponent("ok.txt"), "fine")
+        let oneDrive = CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)",
+                                     imageName: "folder", path: discoveredRoot.path, type: .oneDrive)
+        let expectedReason = try #require(
+            ProviderNameRules.violation(inRelativePath: "CON.txt", for: .oneDrive)?.reason)
+
+        let rec = Recorder()
+        try await makeRunner(rec, providers: [oneDrive]).runSync(
+            left: left.path, right: addressedRoot.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.copies.map(\.source.lastPathComponent) == ["ok.txt"],
+                "a path-addressed OneDrive root must refuse the reserved name, not copy it")
+        // The message names the ad-hoc "Right" label, not "OneDrive (Personal)" — proof the root
+        // resolved down the PATH branch and still inherited the account's provider type.
+        #expect(rec.err == "Skipping CON.txt: \(expectedReason) Right would not upload it.\n")
+        #expect(rec.out.contains("Sync complete. Copied: 1, Skipped: 1, Failed: 0."))
+    }
+
+    @Test func syncAppliesTheDriveDateNoiseFilterToAPathAddressedGoogleDriveRight() async throws {
+        let left = try makeTempRoot(), cloud = try makeTempRoot()
+        defer { try? FileManager.default.removeItem(at: left); try? FileManager.default.removeItem(at: cloud) }
+        let driveRoot = cloud.appendingPathComponent("Library/CloudStorage/GoogleDrive-me/My Drive/Documents")
+        try FileManager.default.createDirectory(at: driveRoot, withIntermediateDirectories: true)
+        // Same size, right newer — exactly the shape Drive manufactures by rewriting file dates.
+        try write(left.appendingPathComponent("notes.txt"), "aaaa",
+                  mtime: Date(timeIntervalSince1970: 1_700_000_000))
+        try write(driveRoot.appendingPathComponent("notes.txt"), "bbbb",
+                  mtime: Date(timeIntervalSince1970: 1_700_100_000))
+        let drive = CloudProvider(id: "GoogleDrive-me", displayName: "Google Drive (me)",
+                                  imageName: "folder", path: driveRoot.path, type: .googleDrive)
+
+        // Control: with the setting off this is a real, syncable difference — so a later "nothing
+        // to sync" can only come from the filter, never from the fixture failing to produce a row.
+        let control = Recorder()
+        try await makeRunner(control, providers: [drive], ignoreDriveDateNoise: false).runSync(
+            left: left.path, right: driveRoot.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: true, failFast: false, verify: false)
+        #expect(control.out.contains("- notes.txt ← [different]"), "expected a date-only row: \(control.out)")
+        #expect(control.copies.count == 1)
+
+        // The copy primitive is injected, so the control run left the fixture untouched.
+        let rec = Recorder()
+        try await makeRunner(rec, providers: [drive], ignoreDriveDateNoise: true).runSync(
+            left: left.path, right: driveRoot.path,
+            direction: .auto, showHidden: false, ignore: [],
+            strategy: .replace, yes: true, failFast: false, verify: false)
+
+        #expect(rec.out == "Nothing to sync - no differences found.\n",
+                "a path-addressed Drive root must be typed .googleDrive for the filter to engage")
+        #expect(rec.copies.isEmpty)
+    }
+
     // MARK: sync — collision strategies
 
     @Test func syncSkipStrategyLeavesExistingDestinationsUntouched() async throws {

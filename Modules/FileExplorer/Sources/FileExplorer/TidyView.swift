@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Events
 import Sync
 import Design
 
@@ -1230,12 +1231,18 @@ public struct TidyView: View {
     /// the learned rule for review so it can be adjusted while it's fresh. `rememberAutomationRule`
     /// is gated at the call site by `FilingEngine.canRemember`, so it should succeed; a rare no-op
     /// (returns nil) still just dismisses — no misleading "learned" banner, nothing to review.
+    /// The silence is deliberate in the UI only: the no-op is logged, because otherwise a user
+    /// reporting "I clicked Remember and no rule appeared" leaves no trace anywhere to diagnose.
     private func rememberOverride(_ prompt: PendingRememberPrompt) {
         if let rule = syncManager.rememberAutomationRule(fileName: prompt.fileName,
                                                          destinationPath: prompt.destinationPath) {
             let folderName = (prompt.destinationPath as NSString).lastPathComponent
             syncManager.banner = .success("Remembered — files like “\(prompt.fileName)” will go to \(folderName).")
             reviewingAutomationRule = rule
+        } else {
+            Logger.shared.warning(
+                "Could not learn a rule from “\(prompt.fileName)” filed into \(prompt.destinationPath): "
+                + "the name yields no distinctive words to key on. Prompt dismissed without remembering.")
         }
         pendingRememberPrompt = nil
     }

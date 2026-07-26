@@ -11,6 +11,48 @@ import FoundationModels
 ///
 /// Everything stays on the Mac; nothing is sent anywhere. On macOS < 26 or a Mac without Apple
 /// Intelligence, `classify` returns no verdicts and Filing falls back to the keyword engine.
+/// Which backend the hybrid Filing classifier runs a scan on, and — for the one case where the
+/// user's expectation and the reality diverge — whether that divergence has to be reported.
+enum FilingBackendRoute: Equatable {
+    /// Cloud (Claude) Filing is on and a key is available: the cloud backend is primary.
+    case cloud
+    /// Cloud Filing is off: the on-device model is the intended backend, nothing to report.
+    case onDevice
+    /// Cloud Filing is ON but no usable API key could be read, so the scan silently downgrades
+    /// to the on-device model. The user believes Claude is filing their documents — this case
+    /// exists so that belief is corrected in the Activity Log rather than left standing.
+    case onDeviceCloudKeyUnavailable
+}
+
+/// Picks the Filing backend for one scan. Split out of `SyncCloudApp`'s classifier closure so the
+/// gate — and above all the downgrade breadcrumb — is testable: the pre-extraction closure fell
+/// through to the on-device model with no log at all when the cloud toggle was on but the key was
+/// missing or the Keychain locked, which is indistinguishable from a normal cloud run in the log.
+enum FilingBackendRouter {
+
+    /// The user-facing explanation of a cloud→on-device downgrade. Kept next to the route so the
+    /// wording and the condition that emits it can't drift apart.
+    static let missingKeyDowngradeMessage =
+        "Cloud (Claude) Filing is enabled, but no API key could be read from the Keychain — "
+        + "this scan used the free on-device model instead. Re-enter the key in Settings → Tidy."
+
+    /// Resolves the backend, reporting the silent downgrade through `logDowngrade` (which defaults
+    /// to a real `Logger.shared` warning; tests inject a recorder so the pin doesn't depend on the
+    /// process-wide log gate).
+    static func route(
+        cloudEnabled: Bool,
+        hasCloudKey: Bool,
+        logDowngrade: (String) -> Void = { _ = Logger.shared.warning($0) }
+    ) -> FilingBackendRoute {
+        guard cloudEnabled else { return .onDevice }
+        guard hasCloudKey else {
+            logDowngrade(missingKeyDowngradeMessage)
+            return .onDeviceCloudKeyUnavailable
+        }
+        return .cloud
+    }
+}
+
 enum OnDeviceFilingClassifier {
 
     /// Cap on files classified per scan, so a huge loose folder can't spin the model for minutes.
