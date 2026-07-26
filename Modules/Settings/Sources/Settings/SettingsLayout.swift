@@ -196,10 +196,30 @@ struct SettingsRail: View {
     /// largest text size without the label truncating.
     static let width: CGFloat = 176
 
+    /// The rail's vertical rhythm, measured against System Settings sitting next to it rather
+    /// than picked: its sidebar rows run a ~34pt pitch and put a clear gap under the search
+    /// field. The first pass ran a 28pt pitch with a 9pt gap, and read as cramped at the top —
+    /// the search field and the first tab looked like one block.
+    private enum Rhythm {
+        /// Gap between the search field and the first tab.
+        static let searchGap: CGFloat = 16
+        /// Between rows. Small, but enough that the selected row's fill reads as one row and
+        /// not as a band across two.
+        static let rowGap: CGFloat = 2
+        /// Above and below a row's label; sets the row height with the label's own line.
+        static let rowInsetV: CGFloat = 7
+        static let rowInsetH: CGFloat = 9
+        /// The rail's own inset. Taller at the top so the search field isn't jammed against the
+        /// divider under the title row.
+        static let top: CGFloat = 14
+        static let bottom: CGFloat = 10
+        static let sides: CGFloat = 8
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
+        VStack(alignment: .leading, spacing: Rhythm.rowGap) {
             SettingsSearchField(query: $query)
-                .padding(.bottom, 9)
+                .padding(.bottom, Rhythm.searchGap - Rhythm.rowGap)
 
             ForEach(SettingsView.SettingsTab.allCases, id: \.self) { tab in
                 railRow(tab)
@@ -211,13 +231,14 @@ struct SettingsRail: View {
                 Text("SyncCloud \(version)")
                     .scaledFont(.caption2)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 9)
+                    .padding(.horizontal, Rhythm.rowInsetH)
                     .padding(.bottom, 2)
                     .accessibilityLabel("SyncCloud version \(version)")
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Rhythm.sides)
+        .padding(.top, Rhythm.top)
+        .padding(.bottom, Rhythm.bottom)
         .frame(width: Self.width, alignment: .leading)
     }
 
@@ -239,8 +260,8 @@ struct SettingsRail: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(isSelected ? AnyShapeStyle(hue.onAccentLabelColor) : AnyShapeStyle(.primary))
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
+            .padding(.horizontal, Rhythm.rowInsetH)
+            .padding(.vertical, Rhythm.rowInsetV)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 if isSelected {
