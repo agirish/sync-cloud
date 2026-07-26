@@ -81,46 +81,127 @@ import Events
         #expect(a == b)
     }
 
-    // MARK: - RowNode
+    // MARK: - PaneRow
 
-    /// `RowNode` equality is (side, version, path). Same reasoning as `PaneTree`: a path
+    /// `PaneRow` equality is (side, version, path). Same reasoning as `PaneTree`: a path
     /// identifies one node per published tree, and changing that node's contents requires a
     /// republish, which moves the stamp. These pin the two directions that matter.
-    @Test func testRowNodeDiffersWhenTheTreeWasRepublished() {
+    @Test func testPaneRowDiffersWhenTheTreeWasRepublished() {
         let m = FileSyncManager()
         m.leftTree = [node("a")]
-        let before = m.leftPaneTree.row(node("a"))
+        let before = m.leftPaneTree.rows[0]
         m.leftTree = [node("a"), node("b")]          // any republish moves the stamp
-        let after = m.leftPaneTree.row(node("a"))
-        #expect(before != after)
+        let after = m.leftPaneTree.rows[0]
+        #expect(before.id == after.id)               // same path…
+        #expect(before != after)                     // …but a newer publish
     }
 
     /// Different paths within the SAME publish are never conflated — the case that would make a
     /// row render its neighbour's contents.
-    @Test func testRowNodeDistinguishesPathsWithinOnePublish() {
+    @Test func testPaneRowDistinguishesPathsWithinOnePublish() {
         let m = FileSyncManager()
         m.leftTree = [node("a"), node("b")]
         let t = m.leftPaneTree
-        #expect(t.row(node("a")) != t.row(node("b")))
-        #expect(t.row(node("a")) == t.row(node("a")))
+        #expect(t.rows[0] != t.rows[1])
+        #expect(t.rows[0] == t.rows[0])
     }
 
     /// A folder node's `children` are deliberately NOT compared — that is the entire point, since
     /// recursing them is what cost 2,162 ms of main thread per refresh. Safe because differing
     /// children cannot coexist with an unchanged stamp on a real published tree.
-    @Test func testRowNodeIgnoresChildren() {
-        let m = FileSyncManager()
-        m.leftTree = []
-        let t = m.leftPaneTree
+    @Test func testPaneRowIgnoresChildren() {
         let thin = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x")])
         let fat  = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x"), node("y")])
-        #expect(t.row(thin) == t.row(fat))
+        let a = PaneRow.project([thin], side: .left, version: 1)[0]
+        let b = PaneRow.project([fat], side: .left, version: 1)[0]
+        #expect(a == b)
     }
 
     /// Opposite panes never conflate, mirroring the `PaneTree` case.
-    @Test func testRowNodeSameVersionOppositeSidesDiffer() {
-        let l = RowNode(side: .left, version: 4, node: node("a"))
-        let r = RowNode(side: .right, version: 4, node: node("a"))
+    @Test func testPaneRowSameVersionOppositeSidesDiffer() {
+        let l = PaneRow(side: .left, version: 4, node: node("a"), children: nil)
+        let r = PaneRow(side: .right, version: 4, node: node("a"), children: nil)
         #expect(l != r)
+    }
+
+    // MARK: - Row projection and its cache
+
+    /// The row projection is CACHED per publish (`leftRowsCache`), which makes stale rows a real
+    /// new failure vector: a wrong cache key would pin the pane to whatever tree it first
+    /// rendered. This is the test that would catch it.
+    @Test func testRowProjectionCacheInvalidatesOnEveryRepublish() {
+        let m = FileSyncManager()
+        m.leftTree = [node("a")]
+        #expect(m.leftPaneTree.rows.map(\.id) == ["/r/a"])
+
+        m.leftTree = [node("b"), node("c")]
+        #expect(m.leftPaneTree.rows.map(\.id) == ["/r/b", "/r/c"])
+
+        m.leftTree = []
+        #expect(m.leftPaneTree.rows.isEmpty)
+    }
+
+    /// Reading twice with no publish in between must reuse the cache, not re-walk the tree — the
+    /// whole reason the cache exists (the accessor is read once per pane per render).
+    @Test func testRowProjectionIsStableWithoutARepublish() {
+        let m = FileSyncManager()
+        m.leftTree = [node("a")]
+        #expect(m.leftPaneTree.rows == m.leftPaneTree.rows)
+    }
+
+    /// The two panes' caches are independent: republishing one must not serve the other's rows,
+    /// and each row must carry its OWN pane's side (both counters sit at the same integer here,
+    /// which is exactly the collision `side` exists to prevent).
+    @Test func testPanesProjectTheirOwnRowsIndependently() {
+        let m = FileSyncManager()
+        m.leftTree = [node("left-only")]
+        m.rightTree = [node("right-only")]
+        #expect(m.publishedLeftTreeVersion == m.publishedRightTreeVersion)   // same integer…
+        #expect(m.leftPaneTree.rows.map(\.id) == ["/r/left-only"])
+        #expect(m.rightPaneTree.rows.map(\.id) == ["/r/right-only"])
+        #expect(m.leftPaneTree.rows.allSatisfy { $0.side == .left })
+        #expect(m.rightPaneTree.rows.allSatisfy { $0.side == .right })
+        #expect(m.leftPaneTree.rows[0] != m.rightPaneTree.rows[0])          // …still not conflated
+    }
+
+    /// `OutlineGroup` decides whether a row gets a disclosure triangle from `children == nil` vs
+    /// `[]`. `FileNode` uses nil for a file and `[]` for an empty directory, so the projection
+    /// must preserve that distinction exactly — collapsing it would either hide a folder's
+    /// triangle or give every file one.
+    @Test func testProjectionPreservesNilVersusEmptyChildren() {
+        let file = FileNode(id: "/r/f.txt", name: "f.txt", isDirectory: false)                 // nil
+        let emptyDir = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [])        // []
+        let fullDir = FileNode(id: "/r/e", name: "e", isDirectory: true, children: [node("x")])
+        let rows = PaneRow.project([file, emptyDir, fullDir], side: .left, version: 1)
+        #expect(rows[0].children == nil)
+        #expect(rows[1].children?.isEmpty == true)
+        #expect(rows[2].children?.count == 1)
+        // …and recursively, so a nested file keeps its leaf-ness.
+        #expect(rows[2].children?[0].children == nil)
+    }
+
+    /// Nested rows inherit the tree's stamp, so a deep row memoizes on the same terms as a
+    /// top-level one rather than silently comparing as equal across publishes.
+    @Test func testProjectionStampsNestedRowsToo() {
+        let dir = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x")])
+        let rows = PaneRow.project([dir], side: .right, version: 9)
+        let child = rows[0].children![0]
+        #expect(child.side == .right)
+        #expect(child.version == 9)
+        #expect(child.id == "/r/x")
+    }
+
+    /// `FileRowInfo` must carry every scalar the row renders; dropping one would blank part of a
+    /// row rather than fail loudly.
+    @Test func testRowInfoCarriesEveryRenderedScalar() {
+        let when = Date(timeIntervalSince1970: 1_700_000_000)
+        let n = FileNode(id: "/r/f.txt", name: "f.txt", isDirectory: false,
+                         modificationDate: when, fileSize: 1234)
+        let info = FileRowInfo(n)
+        #expect(info.id == "/r/f.txt")
+        #expect(info.name == "f.txt")
+        #expect(info.isDirectory == false)
+        #expect(info.modificationDate == when)
+        #expect(info.fileSize == 1234)
     }
 }

@@ -727,16 +727,40 @@ public class FileSyncManager: ObservableObject {
         didSet { publishedRightTreeVersion += 1 }
     }
 
-    /// The left pane's tree stamped with the publish that produced it. Views must take this
-    /// rather than `leftTree`: storing a bare `[FileNode]` in a view makes SwiftUI deep-compare
-    /// ~40,000 nodes on the main thread on every body-output comparison. See `PaneTree`.
+    /// Row projections, rebuilt only when their pane republishes — same
+    /// invalidate-on-`published*TreeVersion` shape as `leftNodeIndexCache` below. Without the
+    /// cache the projection would walk the whole tree on every access, and `leftPaneTree` is read
+    /// once per pane per render.
+    private var leftRowsCache: (version: Int, rows: [PaneRow])?
+    private var rightRowsCache: (version: Int, rows: [PaneRow])?
+
+    /// The left pane's tree stamped with the publish that produced it, plus its row projection.
+    /// Views must take this rather than `leftTree`: storing a bare `[FileNode]` graph in a view
+    /// makes SwiftUI deep-compare ~40,000 nodes on the main thread on every body-output
+    /// comparison. See `PaneTree`.
     public var leftPaneTree: PaneTree {
-        PaneTree(side: .left, version: publishedLeftTreeVersion, nodes: leftTree)
+        let version = publishedLeftTreeVersion
+        let rows: [PaneRow]
+        if let cached = leftRowsCache, cached.version == version {
+            rows = cached.rows
+        } else {
+            rows = PaneRow.project(leftTree, side: .left, version: version)
+            leftRowsCache = (version, rows)
+        }
+        return PaneTree(side: .left, version: version, nodes: leftTree, rows: rows)
     }
 
     /// Right-pane counterpart of `leftPaneTree`.
     public var rightPaneTree: PaneTree {
-        PaneTree(side: .right, version: publishedRightTreeVersion, nodes: rightTree)
+        let version = publishedRightTreeVersion
+        let rows: [PaneRow]
+        if let cached = rightRowsCache, cached.version == version {
+            rows = cached.rows
+        } else {
+            rows = PaneRow.project(rightTree, side: .right, version: version)
+            rightRowsCache = (version, rows)
+        }
+        return PaneTree(side: .right, version: version, nodes: rightTree, rows: rows)
     }
 
     /// True when the left pane's folder has entries but filtering (hidden files) removed all

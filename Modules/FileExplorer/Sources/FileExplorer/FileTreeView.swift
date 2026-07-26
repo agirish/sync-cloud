@@ -145,7 +145,7 @@ public struct FileTreeView: View {
     /// The placeholder to show when the tree has no rows (see `PaneEmptyState.classify`).
     var emptyState: PaneEmptyState {
         PaneEmptyState.classify(
-            treeIsEmpty: tree.nodes.isEmpty,
+            treeIsEmpty: tree.isEmpty,
             isLoading: isLoading,
             providerIsEnabled: providerIsEnabled,
             rootIsValid: rootPathIsValid,
@@ -213,7 +213,7 @@ public struct FileTreeView: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !tree.nodes.isEmpty && isLoading {
+            if !tree.isEmpty && isLoading {
                 // Subtle corner overlay when refreshing non-empty tree; display-only, so it
                 // must never intercept clicks meant for the rows underneath it.
                 VStack {
@@ -257,8 +257,11 @@ public struct FileTreeView: View {
     @ViewBuilder
     private var paneList: some View {
         List(selection: $selection) {
-            OutlineGroup(tree.nodes, children: \.children) { node in
-                treeRow(for: node)
+            // `tree.rows`, NOT `tree.nodes`: OutlineGroup stores the collection it is given, so
+            // handing it the raw `[FileNode]` puts the recursive `FileNode.==` straight back into
+            // the view graph — which is exactly what `PaneTree` alone failed to prevent.
+            OutlineGroup(tree.rows, children: \.children) { row in
+                treeRow(for: row)
             }
         }
         .listStyle(SidebarListStyle())
@@ -304,7 +307,7 @@ public struct FileTreeView: View {
             // and counted children that the single trash of their parent already covers. The disk
             // outcome was always right — `deleteItems` prunes before trashing — but the dialog the
             // user answers should describe what will actually happen.
-            let selectedNodes = tree.nodes.findNodes(at: selection).pruneNestedNodes()
+            let selectedNodes = tree.selectedNodes(at: selection)
             if !selectedNodes.isEmpty {
                 delegate.handleDelete(selectedNodes)
             }
@@ -332,9 +335,10 @@ public struct FileTreeView: View {
     /// selection is left entirely to the List; drilling into a folder is via the Compare
     /// button / context menu.
     @ViewBuilder
-    private func treeRow(for node: FileNode) -> some View {
-        FileRowView(
-            row: tree.row(node),
+    private func treeRow(for row: PaneRow) -> some View {
+        let node = row.node
+        return FileRowView(
+            node: row.info,
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
@@ -343,7 +347,7 @@ public struct FileTreeView: View {
         .tag(node.id)
         .contextMenu {
             FileContextMenu(
-                row: tree.row(node),
+                row: row,
                 selection: selection,
                 tree: tree,
                 otherTree: otherTree,
@@ -553,7 +557,7 @@ struct FileContextMenu: View {
     /// folder `FileNode` put its entire subtree into every row's comparison. Unlike the row, this
     /// view does need the real node (the delegate handlers take `FileNode`), which is why it is
     /// boxed rather than flattened.
-    let row: RowNode
+    let row: PaneRow
     private var node: FileNode { row.node }
     let selection: Set<String>
     /// Boxed for the same reason as `FileTreeView.tree`: a menu is built per row, so a bare
@@ -696,7 +700,7 @@ struct FileContextMenu: View {
                 // Pruned like every other entry point: the transfer prunes downstream anyway,
                 // so an unpruned list here only mislabeled the count ("Copy 3 items" for a
                 // folder plus two of its own children, which transfer as 1).
-                let otherSelectedNodes = otherTree.nodes.findNodes(at: otherSelection).pruneNestedNodes()
+                let otherSelectedNodes = otherTree.selectedNodes(at: otherSelection)
                 if !otherSelectedNodes.isEmpty {
                     Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                         if otherSelectedNodes.count > 1 {
@@ -720,13 +724,11 @@ struct FileContextMenu: View {
 /// Renders a single row representing a file or directory node with its associated system icon,
 /// plus a trailing sync-status badge when the node (or, for folders, anything beneath it) differs.
 struct FileRowView: View {
-    /// The row's node, tagged with its tree's publish stamp. Stored as a `RowNode` rather than a
-    /// bare `FileNode` because a FOLDER node carries its whole subtree in `children`, and the
-    /// derived `FileNode.==` would recurse through all of it every time SwiftUI compared this
-    /// row's body output. This view only ever reads id/name/isDirectory/date/size — never
-    /// `children` — so nothing here needs the deep value.
-    let row: RowNode
-    private var node: FileNode { row.node }
+    /// The five scalars this row renders. Flat by design: a FOLDER `FileNode` carries its whole
+    /// subtree in `children`, and the derived `FileNode.==` would recurse through all of it every
+    /// time SwiftUI compared this row's body output. Holding `FileRowInfo` makes that subtree
+    /// structurally unreachable from the view rather than merely uncompared.
+    let node: FileRowInfo
     let isIgnored: Bool
     /// Diff status of the node itself, or nil when it is in sync.
     let diffStatus: FileDifference.DifferenceType?
