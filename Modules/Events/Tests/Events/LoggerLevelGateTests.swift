@@ -65,7 +65,7 @@ import Foundation
     @Test func testPersistedMinimumLevelParsing() {
         let suite = "LoggerLevelGateTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         #expect(Logger.persistedMinimumLevel(from: defaults) == .debug)
         defaults.set(LogLevel.warning.rawValue, forKey: Logger.minimumLevelDefaultsKey)

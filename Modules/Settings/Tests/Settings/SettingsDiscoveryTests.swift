@@ -16,7 +16,7 @@ struct TestDefaults {
     }
 
     func wipe() {
-        defaults.removePersistentDomain(forName: suiteName)
+        wipeDefaultsSuite(suiteName)
     }
 }
 

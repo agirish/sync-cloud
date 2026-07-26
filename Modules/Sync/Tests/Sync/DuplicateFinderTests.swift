@@ -778,7 +778,7 @@ import Testing
     @Test func optionsFromDefaultsFallsBackThenReadsOverrides() {
         let suite = "TidyOptTest-\(UUID().uuidString)"
         let d = UserDefaults(suiteName: suite)!
-        defer { d.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         let fallback = DuplicateFinderOptions.fromDefaults(d)   // nothing set → code defaults
         #expect(fallback.minFileSize == 4096)

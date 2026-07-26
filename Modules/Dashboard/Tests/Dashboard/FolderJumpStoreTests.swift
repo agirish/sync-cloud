@@ -11,8 +11,8 @@ import Foundation
         JumpLocation(relativePath: rel, name: (rel as NSString).lastPathComponent)
     }
 
-    private func freshDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "fj-test-\(UUID().uuidString)")!
+    private func freshDefaults() -> ScratchDefaults {
+        ScratchDefaults("fj-test")
     }
 
     // MARK: Recents ordering
@@ -54,7 +54,6 @@ import Foundation
         // Toggling the same folder removes it.
         reloaded.togglePin(root: "/R", relativePath: "Docs", name: "Docs")
         #expect(reloaded.isPinned(root: "/R", relativePath: "Docs") == false)
-        defaults.removePersistentDomain(forName: defaults.description)
     }
 
     // MARK: Siblings

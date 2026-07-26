@@ -90,10 +90,8 @@ struct AppearanceModeTests {
     // MARK: -
 
     /// An isolated defaults suite, so these never read or write the developer's real preferences.
-    private static func emptyDefaults() -> UserDefaults {
-        let suite = "AppearanceModeTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
+    /// A fresh UUID suite is already empty, and it removes itself — domain and plist — on release.
+    private static func emptyDefaults() -> ScratchDefaults {
+        ScratchDefaults("AppearanceModeTests")
     }
 }

@@ -139,7 +139,7 @@ import Settings
     private func makeSettings(providers: [CloudProvider]) -> SettingsManager {
         let settings = SettingsManager(
             autoDiscover: false,
-            userDefaults: UserDefaults(suiteName: "FileActionHandlerTests-\(UUID().uuidString)")!,
+            userDefaults: ScratchDefaults("FileActionHandlerTests"),
             cloudStorageLister: { [] },
             pathValidator: { _ in true }
         )

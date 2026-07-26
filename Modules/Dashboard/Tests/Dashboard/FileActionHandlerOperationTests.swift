@@ -19,7 +19,7 @@ import Settings
     private func makeSettings(providers: [CloudProvider]) -> SettingsManager {
         let settings = SettingsManager(
             autoDiscover: false,
-            userDefaults: UserDefaults(suiteName: "FileActionHandlerOperationTests-\(UUID().uuidString)")!,
+            userDefaults: ScratchDefaults("FileActionHandlerOperationTests"),
             cloudStorageLister: { [] },
             pathValidator: { _ in true }
         )
@@ -375,7 +375,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: UserDefaults(suiteName: "FAH-del-cancel-\(UUID().uuidString)")!, // unset key → confirm (default true)
+            defaults: ScratchDefaults("FAH-del-cancel"), // unset key → confirm (default true)
             deleteConfirmer: { names in
                 promptedNames = names
                 return false
@@ -403,7 +403,7 @@ import Settings
         let handler = FileActionHandler(
             syncManager: manager,
             settings: makeSettings(providers: []),
-            defaults: UserDefaults(suiteName: "FAH-del-confirm-\(UUID().uuidString)")!,
+            defaults: ScratchDefaults("FAH-del-confirm"),
             deleteConfirmer: { _ in true }
         )
 
@@ -434,7 +434,7 @@ import Settings
         let dir = try makeTempDir("del-noprompt")
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = try makeFile(in: dir, named: "silent.txt")
-        let defaults = UserDefaults(suiteName: "FAH-del-noprompt-\(UUID().uuidString)")!
+        let defaults = ScratchDefaults("FAH-del-noprompt")
         defaults.set(false, forKey: GeneralSettings.confirmBeforeDeleteKey)
         var confirmerCalls = 0
         let handler = FileActionHandler(

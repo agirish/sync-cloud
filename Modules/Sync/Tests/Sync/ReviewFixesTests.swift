@@ -98,7 +98,7 @@ import Events
     @MainActor @Test func anUnreadablePersistedStoreIsReportedAndPreserved() throws {
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { wipeDefaultsSuite(suiteName) }
         let key = "automationRules"
         defaults.set(Data("not json at all".utf8), forKey: key)
 
@@ -115,7 +115,7 @@ import Events
         // First run is not a failure: no data, no warning, nothing stashed.
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { wipeDefaultsSuite(suiteName) }
 
         let decoded = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults,
                                                            key: "automationRules",
@@ -127,7 +127,7 @@ import Events
     @MainActor @Test func areadablePersistedStoreDecodesUnchanged() throws {
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { wipeDefaultsSuite(suiteName) }
         let rules = [AutomationRule(name: "Acme", matchMode: .all,
                                     conditions: [.nameMatches("*acme*")], destinationTemplate: "Work/Acme")]
         defaults.set(try JSONEncoder().encode(rules), forKey: "automationRules")
@@ -178,7 +178,7 @@ import Events
         // remembered rule the user had taught, forever, on one failed decode.
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { wipeDefaultsSuite(suiteName) }
         defaults.set(Data("not json".utf8), forKey: FileSyncManager.rulesDefaultsKey)
 
         let manager = FileSyncManager(fileManager: MockFileManager())
@@ -194,7 +194,7 @@ import Events
         // or every launch would re-run the migration forever.
         let suiteName = "review-fixes-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { wipeDefaultsSuite(suiteName) }
 
         let manager = FileSyncManager(fileManager: MockFileManager())
         manager.filingRuleDefaults = defaults
@@ -211,8 +211,8 @@ import Events
         let a = try #require(UserDefaults(suiteName: nameA))
         let b = try #require(UserDefaults(suiteName: nameB))
         defer {
-            a.removePersistentDomain(forName: nameA)
-            b.removePersistentDomain(forName: nameB)
+            wipeDefaultsSuite(nameA)
+            wipeDefaultsSuite(nameB)
         }
         let key = "automationRules"
         a.set(Data("corrupt-A".utf8), forKey: key)

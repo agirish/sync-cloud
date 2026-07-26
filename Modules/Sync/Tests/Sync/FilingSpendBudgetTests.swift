@@ -104,7 +104,7 @@ import Testing
     // MARK: total cap default — absent key means the shipped $5, not UserDefaults.double's 0
 
     @Test func totalBudgetCapAppliesTheFiveDollarDefaultWhenUnset() {
-        let d = UserDefaults(suiteName: "FilingSpendBudgetTests.totalCap.\(UUID().uuidString)")!
+        let d = ScratchDefaults("FilingSpendBudgetTests.totalCap")
         // Absent → the shipped default ($5), NOT 0.
         #expect(FileSyncManager.totalBudgetCap(in: d) == FileSyncManager.defaultTotalBudgetCapUSD)
         #expect(FileSyncManager.defaultTotalBudgetCapUSD == 5.0)

@@ -21,7 +21,7 @@ import Events
     @MainActor
     @Test func testAddRemovePersistAcrossInstances() {
         let (defaults, suite) = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         let key = IgnoredItemsStore.pairKey("iCloud", "Dropbox")
 
         let store = IgnoredItemsStore(userDefaults: defaults)
@@ -37,7 +37,7 @@ import Events
     @MainActor
     @Test func testStoresAreScopedPerProviderPair() {
         let (defaults, suite) = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         let store = IgnoredItemsStore(userDefaults: defaults)
         store.activate(pairKey: IgnoredItemsStore.pairKey("iCloud", "Dropbox"))
@@ -53,7 +53,7 @@ import Events
     @MainActor
     @Test func testActivateSameKeyIsANoOp() {
         let (defaults, suite) = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         let key = IgnoredItemsStore.pairKey("a", "b")
 
         let store = IgnoredItemsStore(userDefaults: defaults)
@@ -73,7 +73,7 @@ import Events
     @MainActor
     @Test func testAddBeforeActivateIsSessionOnlyAndSaysSo() async {
         let (defaults, suite) = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         let store = IgnoredItemsStore(userDefaults: defaults)   // deliberately NOT activated
         store.add(["Docs/orphan.txt"])
@@ -92,7 +92,7 @@ import Events
     @MainActor
     @Test func testRemoveAllClearsThePersistedKey() {
         let (defaults, suite) = makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         let key = IgnoredItemsStore.pairKey("a", "b")
 
         let store = IgnoredItemsStore(userDefaults: defaults)

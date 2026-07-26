@@ -352,7 +352,7 @@ import Combine
         let manager = FileSyncManager()
         let suite = "TidyIgnoreTest-\(UUID().uuidString)"
         manager.duplicateIgnoreDefaults = UserDefaults(suiteName: suite)!
-        defer { manager.duplicateIgnoreDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         await manager.findDuplicates(root: root)
         #expect(manager.duplicateGroups.count == 1)

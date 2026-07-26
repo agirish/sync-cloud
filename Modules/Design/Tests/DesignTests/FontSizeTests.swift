@@ -47,9 +47,9 @@ import Testing
         #expect(FontSize(rawValue: "huge") == nil)
     }
 
-    @Test func resolvedFallsBackToMediumForMissingAndGarbageValues() throws {
-        let defaults = try #require(UserDefaults(suiteName: "FontSizeTests.resolved"))
-        defaults.removePersistentDomain(forName: "FontSizeTests.resolved")
+    @Test func resolvedFallsBackToMediumForMissingAndGarbageValues() {
+        // A fresh UUID suite starts empty, which is what "fresh install" needs here.
+        let defaults = ScratchDefaults("FontSizeTests.resolved")
         #expect(FontSize.resolved(defaults) == .medium, "fresh install must be the default size")
 
         defaults.set("gigantic", forKey: FontSize.defaultsKey)
@@ -57,7 +57,6 @@ import Testing
 
         defaults.set(FontSize.large.rawValue, forKey: FontSize.defaultsKey)
         #expect(FontSize.resolved(defaults) == .large)
-        defaults.removePersistentDomain(forName: "FontSizeTests.resolved")
     }
 
     // MARK: Scale range

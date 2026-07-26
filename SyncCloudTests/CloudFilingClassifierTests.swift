@@ -11,12 +11,13 @@ import Sync
 
     // MARK: Harness
 
-    /// A scratch UserDefaults suite unique to one test (tests run in parallel), removed on teardown.
-    private final class ScratchDefaults {
+    /// A scratch UserDefaults suite unique to one test (tests run in parallel), removed on
+    /// teardown — the domain *and* its backing plist, via `wipeDefaultsSuite`.
+    private final class ClassifierScratch {
         let suiteName = "CloudFilingClassifierTests." + UUID().uuidString
         let defaults: UserDefaults
         init() { defaults = UserDefaults(suiteName: suiteName)! }
-        deinit { defaults.removePersistentDomain(forName: suiteName) }
+        deinit { wipeDefaultsSuite(suiteName) }
     }
 
     /// Thread-safe capture of the requests the classifier hands the transport.
@@ -84,7 +85,7 @@ import Sync
     // MARK: Hard-failure contract (return nil so the caller falls back on-device)
 
     @Test func returnsNilWithoutAPIKeyAndNeverTouchesTheNetwork() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, key: nil, box: box)
         let result = await CloudFilingClassifier.classify(
@@ -94,7 +95,7 @@ import Sync
     }
 
     @Test func emptyBatchReturnsEmptyWithoutANetworkCall() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box)
         let result = await CloudFilingClassifier.classify(taxonomyFolders: ["Documents"], files: [], environment: env)
@@ -103,7 +104,7 @@ import Sync
     }
 
     @Test func non200ResponseReturnsNil() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let errorBody = Data(#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#.utf8)
         let env = Self.environment(defaults: scratch.defaults, status: 400, body: errorBody)
         let result = await CloudFilingClassifier.classify(
@@ -112,7 +113,7 @@ import Sync
     }
 
     @Test func transportFailureReturnsNil() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         var env = Self.environment(defaults: scratch.defaults)
         env.transport = { _ in throw URLError(.notConnectedToInternet) }
         let result = await CloudFilingClassifier.classify(
@@ -121,7 +122,7 @@ import Sync
     }
 
     @Test func unreadable200BodyReturnsNilAndRecordsNoSpend() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let env = Self.environment(defaults: scratch.defaults, body: Data("not json".utf8))
         let result = await CloudFilingClassifier.classify(
             taxonomyFolders: ["Documents"], files: [Self.candidate("a.pdf")], environment: env)
@@ -133,7 +134,7 @@ import Sync
 
     @MainActor
     @Test func monthlyCapAlreadyReachedBlocksTheCall() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let now = Date()
         scratch.defaults.set(1.0, forKey: FileSyncManager.monthlyBudgetCapKey)
         FilingSpendStore.record(FilingSpendEntry(
@@ -151,7 +152,7 @@ import Sync
 
     @MainActor
     @Test func lastMonthsSpendDoesNotCountAgainstTheMonthlyCap() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let now = Date()
         scratch.defaults.set(1.0, forKey: FileSyncManager.monthlyBudgetCapKey)
         // Same spend, but recorded ~40 days ago — outside the current calendar month.
@@ -170,7 +171,7 @@ import Sync
     }
 
     @Test func totalCapDefaultsToFiveDollarsAndBlocksLifetimeSpendPastIt() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         // No cap keys set at all: monthly is off (0), total defaults to $5. Lifetime totals come
         // from the never-trimmed FilingSpendStore totals, regardless of entry age.
         FilingSpendStore.record(FilingSpendEntry(
@@ -187,7 +188,7 @@ import Sync
     }
 
     @Test func totalCapZeroMeansUnlimited() async {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         scratch.defaults.set(0.0, forKey: FileSyncManager.totalBudgetCapKey)   // explicit "off"
         FilingSpendStore.record(FilingSpendEntry(
             timestamp: Date(timeIntervalSince1970: 0), model: "claude-haiku-4-5",
@@ -206,7 +207,7 @@ import Sync
     // MARK: The 150-file cost cap
 
     @Test func capsABatchAtOneHundredFiftyFiles() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box,
                                    body: Self.successBody(placements: []))
@@ -228,7 +229,7 @@ import Sync
 
     @MainActor
     @Test func usesTheModelPickedInDefaultsAndTheStandardHeaders() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         scratch.defaults.set("claude-sonnet-5", forKey: FileSyncManager.cloudModelDefaultsKey)
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box,
@@ -247,7 +248,7 @@ import Sync
 
     @MainActor
     @Test func resolvesASupersededStoredModelToTodaysModelOfTheSameFamily() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         // Picked back when the Opus option was 4.8 — the scan should still run on Opus, today's one.
         scratch.defaults.set("claude-opus-4-8", forKey: FileSyncManager.cloudModelDefaultsKey)
         let box = RequestBox()
@@ -261,7 +262,7 @@ import Sync
     }
 
     @Test func fallsBackToTheDefaultModelWhenNoneIsPicked() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let box = RequestBox()
         let env = Self.environment(defaults: scratch.defaults, box: box,
                                    body: Self.successBody(placements: []))
@@ -274,7 +275,7 @@ import Sync
     // MARK: Response mapping + spend recording
 
     @Test func mapsPlacementsToVerdictsAndRecordsSpend() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let now = Date()
         let files = [Self.candidate("w2-2025.pdf"), Self.candidate("mystery.bin")]
         let body = Self.successBody(placements: [
@@ -309,7 +310,7 @@ import Sync
     }
 
     @Test func truncatedMaxTokensResponseStillReturnsTheVerdictsItGot() async throws {
-        let scratch = ScratchDefaults()
+        let scratch = ClassifierScratch()
         let files = [Self.candidate("a.pdf")]
         let body = Self.successBody(placements: [
             ["index": 0, "folder": "Documents", "confidence": 60, "reason": "Looks like a document."],

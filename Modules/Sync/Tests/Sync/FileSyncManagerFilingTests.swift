@@ -250,7 +250,7 @@ final class Flag: @unchecked Sendable { var value = false }
         let manager = FileSyncManager()
         let suite = "FilingToggle-\(UUID().uuidString)"
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.filingContentDefaults.set(false, forKey: FileSyncManager.readContentsDefaultsKey)
         // An extractor that WOULD give a home — proving it isn't consulted when the toggle is off.
         manager.filingContentExtractor = { _ in ["tesla", "policy"] }
@@ -287,7 +287,7 @@ final class Flag: @unchecked Sendable { var value = false }
     @MainActor
     @Test func tryAnotherAdvancesForTokenlessFilenames() async throws {
         let manager = FileSyncManager()
-        manager.filingRuleDefaults = UserDefaults(suiteName: "tryAnotherTokenless-\(UUID().uuidString)")!
+        manager.filingRuleDefaults = ScratchDefaults("tryAnotherTokenless")
         let first = FilingDestination(path: "/root/A", confidence: .medium, reasons: [], newSegments: [])
         let second = FilingDestination(path: "/root/B", confidence: .medium, reasons: [], newSegments: [])
         let s = FilingSuggestion(filePath: "/root/Loose/IMG 0007.pdf", fileName: "IMG 0007.pdf", size: 1,
@@ -322,7 +322,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let suite = "FilingRules-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         // File it into Archive/Tesla and ask Filing to remember the correction.
         let s = FilingSuggestion(filePath: srcPath.path, fileName: "Tesla Policy.pdf", size: 5000,
@@ -355,7 +355,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let suite = "FilingRules-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         // A rule whose destination lives in a DIFFERENT provider's tree must never fire here.
         manager.filingRules = [FilingRule(tokens: ["tesla"], destinationPath: "/SomeOtherProvider/Cars")]
 
@@ -368,7 +368,7 @@ final class Flag: @unchecked Sendable { var value = false }
     @Test func rememberingCreatesAMentionsAutomation() {
         let suite = "RememberAuto-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         // A learned rule stores the ABSOLUTE folder it filed into — the same provider scoping the
         // legacy remembered rules had, so it can never batch-file into another provider.
@@ -402,7 +402,7 @@ final class Flag: @unchecked Sendable { var value = false }
     @Test func settingAnUnchangedEnabledStateDoesNotDoubleLog() async {
         let suite = "SetRuleNoOp-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         let rule = AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
                                   destinationTemplate: "Cars/Tesla")
@@ -431,7 +431,7 @@ final class Flag: @unchecked Sendable { var value = false }
     @Test func legacyRulesMigrateIntoAutomations() {
         let suite = "RuleMigration-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.filingRules = [
             FilingRule(tokens: ["tesla"], destinationPath: "/p/Cars/Tesla"),
@@ -468,7 +468,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let suite = "PostFlag-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.filingRules = [FilingRule(tokens: ["tesla"],
                                           destinationPath: root.appendingPathComponent("Legacy/Tesla").path)]
         manager.migrateFilingRulesToAutomations()
@@ -498,7 +498,7 @@ final class Flag: @unchecked Sendable { var value = false }
         // Pass 1 — the legacy F3 rule steers (pre-migration path).
         let legacySuite = "SteerLegacy-\(UUID().uuidString)"
         let legacyManager = manager(withRuleSuite: legacySuite)
-        defer { legacyManager.filingRuleDefaults.removePersistentDomain(forName: legacySuite) }
+        defer { wipeDefaultsSuite(legacySuite) }
         legacyManager.filingRules = [FilingRule(tokens: ["tesla"],
                                                 destinationPath: root.appendingPathComponent("Archive/Tesla").path)]
         await legacyManager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"), providerRoot: root)
@@ -507,7 +507,7 @@ final class Flag: @unchecked Sendable { var value = false }
         // Pass 2 — the same rule after migration steers via the automation path.
         let migratedSuite = "SteerMigrated-\(UUID().uuidString)"
         let migratedManager = manager(withRuleSuite: migratedSuite)
-        defer { migratedManager.filingRuleDefaults.removePersistentDomain(forName: migratedSuite) }
+        defer { wipeDefaultsSuite(migratedSuite) }
         migratedManager.filingRules = [FilingRule(tokens: ["tesla"],
                                                   destinationPath: root.appendingPathComponent("Archive/Tesla").path)]
         migratedManager.migrateFilingRulesToAutomations()
@@ -532,7 +532,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let suite = "AutoScope-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.upsertAutomationRule(AutomationRule(name: "Tesla", conditions: [.mentionsAll(["tesla"])],
                                                     destinationTemplate: "/SomeOtherProvider/Cars"))
 
@@ -621,7 +621,7 @@ final class Flag: @unchecked Sendable { var value = false }
 
         let suite = "SnippetParity-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.upsertAutomationRule(AutomationRule(name: "Lease", conditions: [.mentionsAll(["lease"])],
                                                     destinationTemplate: root.appendingPathComponent("Home/Lease").path))
 
@@ -646,7 +646,7 @@ final class Flag: @unchecked Sendable { var value = false }
     @Test func rejectionsPersistMatchAndClear() {
         let suite = "FilingRej-\(UUID().uuidString)"
         let manager = manager(withRuleSuite: suite)   // rejections share filingRuleDefaults
-        defer { manager.filingRuleDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         #expect(manager.rememberFilingRejection(fileName: "Tesla Policy.pdf", destinationPath: "/p/Archive/Old"))
         #expect(manager.filingRejections.count == 1)
@@ -725,7 +725,7 @@ final class Flag: @unchecked Sendable { var value = false }
         let manager = FileSyncManager()
         let suite = "FilingAI-\(UUID().uuidString)"
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.filingContentDefaults.set(false, forKey: FileSyncManager.usesAIDefaultsKey)
         // A classifier that WOULD give a home — proving it isn't consulted when AI is off.
         let consulted = Flag()
@@ -769,7 +769,7 @@ final class Flag: @unchecked Sendable { var value = false }
         let manager = FileSyncManager()
         let suite = "FilingAI-\(UUID().uuidString)"
         manager.filingContentDefaults = UserDefaults(suiteName: suite)!
-        defer { manager.filingContentDefaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         manager.filingClassifier = { _, files in
             Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
                 FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })

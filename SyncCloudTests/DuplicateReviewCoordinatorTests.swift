@@ -213,7 +213,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let harness = Harness()
         let suite = "DuplicateReviewCoordinatorTests-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
         defaults.set(["CrossPair/report.pdf"], forKey: IgnoredItemsStore.pairKey("icloud", "dropbox"))
         defaults.set(["SamePair/notes.txt"], forKey: IgnoredItemsStore.pairKey("icloud", "icloud"))
         let store = IgnoredItemsStore(userDefaults: defaults)

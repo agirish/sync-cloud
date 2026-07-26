@@ -22,7 +22,7 @@ import Foundation
     @MainActor
     @Test func testIgnoreAtRootMirrorsIntoStore() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["junk", "node_modules"]
         #expect(store.rootRelativePaths == ["junk", "node_modules"])
@@ -35,7 +35,7 @@ import Foundation
     @MainActor
     @Test func testIgnoreInSubfolderIsStoredRootRelative() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.focusBoth(relativePath: "Docs/Work")
         manager.ignoredPaths = ["draft.txt"]
@@ -48,7 +48,7 @@ import Foundation
         // the two sides, so there is no well-defined root-relative identity to store: the
         // durable mirror must stay out of it (both directions), leaving session behavior.
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         store.add(["x.txt"])
         manager.focusOn(relativePath: "Docs", isLeft: false) // right pane only; left stays at root
@@ -63,7 +63,7 @@ import Foundation
     @MainActor
     @Test func testNavigationClearsSessionButNotStore() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["junk"]
         manager.focusOn(relativePath: "Docs", isLeft: true)
@@ -78,7 +78,7 @@ import Foundation
     @MainActor
     @Test func testEffectiveSetTranslatesStoreIntoFocus() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         store.add(["Docs/draft.txt", "Docs/Sub/old", "Other/x", "Docs"])
         manager.focusOn(relativePath: "Docs", isLeft: true)
@@ -90,7 +90,7 @@ import Foundation
     @MainActor
     @Test func testRememberOffKeepsSessionOnlyBehavior() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         store.add(["stored-entry"])
         manager.rememberIgnoredItems = false
@@ -103,7 +103,7 @@ import Foundation
     @MainActor
     @Test func testToggleUnignoresDurableEntryTheSessionNeverHeld() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         // Ignored in a previous session: store holds it, session layer is empty.
         store.add(["junk"])
@@ -121,7 +121,7 @@ import Foundation
         // (from both layers), NOT insert the child's own path — which would leave the row
         // struck through and silently excluded even after "docs" is later un-ignored.
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["docs", "other"]
         manager.toggleIgnored(focusRelativePaths: ["docs/report.txt"])
@@ -135,7 +135,7 @@ import Foundation
         // "docs/report.txt" is covered by "docs" and "a" is ignored exactly -> every target
         // is effectively ignored, so the action is un-ignore for all (not re-ignore).
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["docs", "a"]
         manager.toggleIgnored(focusRelativePaths: ["docs/report.txt", "a"])
@@ -146,7 +146,7 @@ import Foundation
     @MainActor
     @Test func testToggleRoundTripIsIdentity() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.toggleIgnored(focusRelativePaths: ["a", "b"])
         #expect(manager.effectiveIgnoredPaths == ["a", "b"])
@@ -158,7 +158,7 @@ import Foundation
     @MainActor
     @Test func testToggleIgnoresWhenAnyTargetIsVisible() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["a"]
         manager.toggleIgnored(focusRelativePaths: ["a", "b"])
@@ -169,7 +169,7 @@ import Foundation
     @MainActor
     @Test func testUnignoreRootRelativeClearsBothLayers() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.focusBoth(relativePath: "Docs")
         manager.ignoredPaths = ["draft.txt"]
@@ -184,7 +184,7 @@ import Foundation
     @MainActor
     @Test func testClearAllEmptiesBothLayers() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         manager.ignoredPaths = ["a", "b"]
         store.add(["c"])
@@ -217,7 +217,7 @@ import Foundation
     @MainActor
     @Test func testIsNodeIgnoredSeesStoreEntriesButNotPatterns() {
         let (manager, store, defaults, suite) = makeManagerWithStore()
-        defer { defaults.removePersistentDomain(forName: suite) }
+        defer { wipeDefaultsSuite(suite) }
 
         store.add(["docs/report.txt"])
         manager.ignorePatterns = ["*.tmp"]

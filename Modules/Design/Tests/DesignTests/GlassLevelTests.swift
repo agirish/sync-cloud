@@ -98,11 +98,10 @@ struct GlassLevelTests {
 
     // MARK: - Migration
 
-    /// A defaults suite scoped to one test, so migrations can't leak into the real domain.
-    private func makeDefaults(_ name: String = UUID().uuidString) -> UserDefaults {
-        let d = UserDefaults(suiteName: name)!
-        d.removePersistentDomain(forName: name)
-        return d
+    /// A defaults suite scoped to one test, so migrations can't leak into the real domain. A fresh
+    /// UUID suite is already empty, and it removes itself — domain and plist — on release.
+    private func makeDefaults() -> ScratchDefaults {
+        ScratchDefaults("GlassLevelTests")
     }
 
     @Test func anyStoredIntensityBecomesFrosted() {

@@ -21,7 +21,7 @@ import Testing
         // drop a spend increment and under-count the total the budget cap is enforced against. The
         // lock must serialize them so every record lands.
         let (defaults, name) = suite()
-        defer { defaults.removePersistentDomain(forName: name) }
+        defer { wipeDefaultsSuite(name) }
 
         let iterations = 100
         DispatchQueue.concurrentPerform(iterations: iterations) { _ in
@@ -37,7 +37,7 @@ import Testing
 
     @Test func recordAccumulatesTotalsAndTracksLast() {
         let (defaults, name) = suite()
-        defer { defaults.removePersistentDomain(forName: name) }
+        defer { wipeDefaultsSuite(name) }
 
         FilingSpendStore.record(entry(cost: 0.01, tokens: 1000), defaults: defaults)
         FilingSpendStore.record(entry(cost: 0.02, tokens: 3000), defaults: defaults)
@@ -52,7 +52,7 @@ import Testing
 
     @Test func lifetimeTotalsSurviveHistoryCap() {
         let (defaults, name) = suite()
-        defer { defaults.removePersistentDomain(forName: name) }
+        defer { wipeDefaultsSuite(name) }
 
         for _ in 0..<(FilingSpendStore.maxEntries + 20) {
             FilingSpendStore.record(entry(cost: 0.001, tokens: 100), defaults: defaults)
@@ -67,7 +67,7 @@ import Testing
 
     @Test func clearResetsEverything() {
         let (defaults, name) = suite()
-        defer { defaults.removePersistentDomain(forName: name) }
+        defer { wipeDefaultsSuite(name) }
         FilingSpendStore.record(entry(cost: 0.5, tokens: 10), defaults: defaults)
         FilingSpendStore.clear(defaults: defaults)
         #expect(FilingSpendStore.entries(defaults: defaults).isEmpty)
