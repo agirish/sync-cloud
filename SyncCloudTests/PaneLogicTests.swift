@@ -445,4 +445,26 @@ import Sync
         #expect(PaneLogic.duplicateKeeperMatchesScan(
             exists: true, isDirectory: false, statSucceeded: true, currentSize: nil, scannedSize: 100))
     }
+
+    // MARK: Escape clears the selection
+
+    @Test func testEscapeOnTheSingleSourceRailReadsThePanesOwnSelection() {
+        // The rail has no action bar, so `barSelectionNodes` — which is hard-gated to compare mode —
+        // is always empty there. Gating Escape on it meant the ONE surface with no ✕ and no action
+        // bar was also the one where Escape did nothing: a picked folder could never be un-picked.
+        #expect(PaneLogic.escapeClearsSelection(
+            isSingleSource: true, hasActionBarSelection: false, paneHasSelection: true))
+        // Nothing selected: Escape must bubble (a sheet or the window may want it).
+        #expect(!PaneLogic.escapeClearsSelection(
+            isSingleSource: true, hasActionBarSelection: false, paneHasSelection: false))
+    }
+
+    @Test func testEscapeInCompareModeStillGatesOnTheActionBarExactly() {
+        // Unchanged on the compare side, deliberately: a selected path the action bar cannot resolve
+        // to a node leaves Escape to bubble, exactly as before.
+        #expect(PaneLogic.escapeClearsSelection(
+            isSingleSource: false, hasActionBarSelection: true, paneHasSelection: true))
+        #expect(!PaneLogic.escapeClearsSelection(
+            isSingleSource: false, hasActionBarSelection: false, paneHasSelection: true))
+    }
 }

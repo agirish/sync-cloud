@@ -80,6 +80,24 @@ final class BannerDismissScheduler {
         if !isHovering { startTimer(delay) }
     }
 
+    /// Arms this scheduler for a banner that was ALREADY on screen when it was created — call from
+    /// the view's `onAppear`.
+    ///
+    /// The scheduler is view `@State` but the banner is owned by the sync manager, which outlives
+    /// the window. Closing the single window and reopening it from the Dock recreates ContentView,
+    /// so a banner still showing at close survives into a scheduler that was never told about it —
+    /// and `onChange(of:)` never fires for an unchanged value, so nothing else was ever going to
+    /// tell it. The success banner then sat there forever, and its ✕ was the only way out.
+    ///
+    /// Deliberately a no-op unless this scheduler has never tracked anything (`dismissTask` and
+    /// `currentDelay` both still nil), so an `onAppear` that fires a second time for the same
+    /// instance cannot restart a countdown that is already running — or resurrect one for a banner
+    /// the user has since dismissed.
+    func adoptExistingBanner(_ banner: OperationBanner?, dismiss: @escaping @MainActor () -> Void) {
+        guard let banner, dismissTask == nil, currentDelay == nil else { return }
+        bannerChanged(to: banner, dismiss: dismiss)
+    }
+
     /// Call from the banner view's `onHover`. Entering pauses the auto-dismiss timer;
     /// exiting restarts it with the full delay window.
     func hoverChanged(isHovering: Bool) {

@@ -94,6 +94,30 @@ import Events
         #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true) == .noEarlierActivity)
     }
 
+    // MARK: The footer's "No earlier activity" note vs. the empty state
+
+    @Test func testFooterStaysQuietWhenTheEmptyStateAlreadySaysNoEarlierActivity() {
+        // The double-render: an empty session over an empty loaded history put
+        // "…the log holds nothing from earlier sessions" (the empty state) directly above
+        // "No earlier activity in the log" (the footer). Exactly one of them may speak.
+        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noEarlierActivity) == false)
+    }
+
+    @Test func testFooterStillSpeaksWhenTheEmptyStateIsSayingSomethingElse() {
+        // A session that DID log something renders no empty state at all (.none) — the footer note
+        // is then the only word on the subject and must survive. Same for a filtered-out session
+        // (.noMatches), whose empty state talks about filters, not about earlier sessions.
+        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .none))
+        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noMatches))
+    }
+
+    @Test func testFooterNeverNotesAnythingWhenHistoryIsNotEmpty() {
+        // Loaded history with rows in it is never "no earlier activity", whatever the empty state
+        // says (it can be .noMatches when the filter hides every one of those rows).
+        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: false, emptyState: .noMatches) == false)
+        #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: false, emptyState: .none) == false)
+    }
+
     // MARK: History loading (parse + boundary + order)
 
     /// Builds a canonical log-file text (oldest-first, as on disk) from (secondsAgo, level, message)
@@ -131,5 +155,63 @@ import Events
         // Boundary before every line → no history.
         let text = logText([(10, .info, "a"), (20, .info, "b")], base: base)
         #expect(LogHistoryLoader.parseOlderThan(base, text: text).isEmpty)
+    }
+
+    // MARK: A failed READ is not an empty history
+
+    /// A scratch file path in the temp directory, removed by the caller's `defer`.
+    private func scratchLogURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("log-read-outcome-\(UUID().uuidString).log")
+    }
+
+    @Test func testAnUnreadableLogFileIsReportedAsUnreadableNotAsEmptyHistory() throws {
+        // The log is appended to by a second process as well as this one, so a crash mid-write can
+        // leave bytes that aren't valid UTF-8 (0xFF is not a legal lead byte anywhere in UTF-8).
+        // Collapsing that into `[]` told the user "No earlier activity in the log" permanently and
+        // falsely, with nothing recorded anywhere.
+        let url = scratchLogURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data([0xFF, 0xFE, 0xFF, 0x0A]).write(to: url)
+
+        let outcome = LogHistoryLoader.loadOlderThan(Date(), fileURL: url)
+        guard case .unreadable(let reason) = outcome else {
+            Issue.record("expected .unreadable, got \(outcome)")
+            return
+        }
+        // The reason is what the caller puts in the log line, so it must not be blank.
+        #expect(!reason.isEmpty)
+        // And the shortcut accessor refuses to hand back an empty array for it.
+        #expect(outcome.loadedEntries == nil)
+    }
+
+    @Test func testAReadableLogFileIsLoadedEvenWhenItParsesToNothing() throws {
+        // The other half of the distinction: a file that reads fine but holds nothing older is
+        // `.loaded([])` — a real answer the footer is entitled to state.
+        let url = scratchLogURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "not a log line\n".write(to: url, atomically: true, encoding: .utf8)
+
+        #expect(LogHistoryLoader.loadOlderThan(Date(), fileURL: url).loadedEntries?.isEmpty == true)
+    }
+
+    @Test func testAMissingLogFileIsNothingOlderRatherThanAFailure() {
+        // No file yet is a true "nothing older", not a torn write — reporting it as unreadable
+        // would put an error note under a first launch that has simply never written the file.
+        let url = scratchLogURL()   // deliberately never created
+        #expect(LogHistoryLoader.loadOlderThan(Date(), fileURL: url).loadedEntries?.isEmpty == true)
+    }
+
+    @Test func testAGoodFileStillLoadsItsHistory() throws {
+        // The control: the read path itself still works, so the two tests above are asserting the
+        // failure/empty distinction and not a loader that returns nothing for everything.
+        let url = scratchLogURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let base = Date(timeIntervalSince1970: 1_780_000_000)
+        let line = LogEntry(timestamp: base, level: .warning, message: "earlier session").formattedString
+        try (line + "\n").write(to: url, atomically: true, encoding: .utf8)
+
+        let outcome = LogHistoryLoader.loadOlderThan(base.addingTimeInterval(60), fileURL: url)
+        #expect(outcome.loadedEntries?.map(\.message) == ["earlier session"])
     }
 }

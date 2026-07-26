@@ -126,6 +126,27 @@ enum PaneLogic {
         leftSelection.min() ?? rightSelection.min()
     }
 
+    /// Whether Escape, pressed over a pane, should clear that pane's selection (and so swallow the
+    /// key) rather than let it bubble to a dialog.
+    ///
+    /// The gate used to be the action bar's resolved selection alone — and that bar is hard-gated to
+    /// COMPARE (`paneActionBarSideActive`), so on the single-source Tidy rail `hasActionBarSelection`
+    /// is always false and Escape was always `.ignored`. The rail is precisely the surface that needs
+    /// this most: it shows no action bar, so it has no ✕ either, and the file lists offer no deselect
+    /// gesture — a folder picked there could never be un-picked, the exact state the Escape handler
+    /// exists to prevent.
+    ///
+    /// Compare keeps the action-bar gate unchanged, deliberately: there, a selected path that no
+    /// longer resolves to a node keeps the bar hidden, and Escape must stay `.ignored` in that state
+    /// exactly as it did before.
+    static func escapeClearsSelection(
+        isSingleSource: Bool,
+        hasActionBarSelection: Bool,
+        paneHasSelection: Bool
+    ) -> Bool {
+        isSingleSource ? paneHasSelection : hasActionBarSelection
+    }
+
     /// Which pane a single-source Tidy scan/inspect should target. The Tidy rail is always the LEFT
     /// pane, so in single-source mode the answer is always "left" — even when a selection lingers in
     /// the (hidden) right pane from a prior Compare session, which would otherwise make `activePane`

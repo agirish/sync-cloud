@@ -105,11 +105,11 @@ enum HelpBook {
                 related: ["choose-folders", "scan"]
             )),
             Topic(id: "choose-folders", title: "Choose your folders", systemImage: "cloud", article: Article(
-                intro: "SyncCloud finds your cloud providers automatically and lists them in the sidebar. Pick one for the left pane and one for the right.",
+                intro: "SyncCloud finds your cloud providers automatically. Each pane names the one it's showing, right in its header — click that name to point the pane somewhere else.",
                 blocks: [
                     .paragraph("Providers are discovered from the system's cloud-storage folder — iCloud Drive, Dropbox, OneDrive, Google Drive, Box, and others show up on their own, each in its own brand color."),
                     .bullets([
-                        "Click a provider in the sidebar to load it into a pane.",
+                        "Click the provider name at the top of a pane and pick another from the menu.",
                         "Use the swap button to flip the left and right panes.",
                         "Compare two folders inside one provider by choosing it on both sides.",
                     ]),

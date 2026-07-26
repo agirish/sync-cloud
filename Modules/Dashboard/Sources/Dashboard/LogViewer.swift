@@ -3,9 +3,9 @@ import AppKit
 import Design
 import Events
 
-/// Dashboard's rendering tint for a log level, drawn from the shared semantic table (C3).
-/// Lives here rather than replacing `LogLevel.color` because Events is a leaf module that
-/// must not depend on Design; non-Dashboard callers keep the original mapping.
+/// Dashboard's rendering tint for a log level, drawn from the shared semantic table (C3) — and the
+/// only place severity is turned into colour. It lives here rather than in Events because Events is
+/// a leaf module that must not depend on Design.
 extension LogLevel {
     var semanticColor: Color {
         switch self {
@@ -45,6 +45,31 @@ enum LogEntryFilter {
     }
 }
 
+/// The outcome of one history read, which is NOT just "the entries".
+///
+/// A read failure and "there is nothing older" are opposite facts and used to be the same empty
+/// array. The log file is appended to by a second process as well as this one, so a crash mid-write
+/// can leave bytes that aren't valid UTF-8 — and `String(contentsOf:)` then throws. Swallowing that
+/// left the window saying "No earlier activity in the log", forever and falsely, with nothing
+/// recorded anywhere: this loader runs off the main actor with no error channel, so it is the one
+/// path in the app that cannot present its failure through `FileSyncManager.present(_:)`.
+enum LogHistoryRead: Sendable {
+    /// The file was read and parsed. The array may legitimately be EMPTY — the log genuinely holds
+    /// nothing older than this session.
+    case loaded([LogEntry])
+    /// The file could not be read or decoded. `reason` is the underlying error's description, for
+    /// the log line the caller writes.
+    case unreadable(reason: String)
+
+    /// The parsed entries, or nil when the read FAILED. The optional is the point: nil is not an
+    /// empty array, so a caller taking this shortcut still cannot mistake a failure for an empty
+    /// history — which is the whole bug this type exists to prevent.
+    var loadedEntries: [LogEntry]? {
+        if case .loaded(let entries) = self { return entries }
+        return nil
+    }
+}
+
 /// Loads previous-session history from the on-disk log so the Activity Log window can show entries
 /// that predate the current launch — pure and nonisolated so the read/parse runs off the main actor
 /// (the file is capped at ~5MB, so a full read per invocation is cheap) and stays unit-testable.
@@ -52,9 +77,22 @@ enum LogHistoryLoader {
     /// Every entry in `fileURL` strictly older than `sessionStart` — i.e. everything from earlier
     /// sessions, excluding the current session's lines (which the window already shows live from
     /// memory) — newest-first. Lines that don't parse are skipped.
-    static func loadOlderThan(_ sessionStart: Date, fileURL: URL) -> [LogEntry] {
-        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else { return [] }
-        return parseOlderThan(sessionStart, text: text)
+    ///
+    /// A read that THROWS comes back as `.unreadable` rather than as an empty history; see
+    /// ``LogHistoryRead``. A missing file is the exception: no log file yet is a true "nothing
+    /// older", not a failure, so it stays `.loaded([])` — reporting it as an error would put a
+    /// scary note under a first launch that has simply never written the file.
+    static func loadOlderThan(_ sessionStart: Date, fileURL: URL) -> LogHistoryRead {
+        do {
+            let text = try String(contentsOf: fileURL, encoding: .utf8)
+            return .loaded(parseOlderThan(sessionStart, text: text))
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
+                return .loaded([])
+            }
+            return .unreadable(reason: nsError.localizedDescription)
+        }
     }
 
     /// ``loadOlderThan(_:fileURL:)`` ordered behind the log writer's pending disk work.
@@ -73,7 +111,7 @@ enum LogHistoryLoader {
         _ sessionStart: Date,
         fileURL: URL,
         drainWriter: () -> Void
-    ) -> [LogEntry] {
+    ) -> LogHistoryRead {
         drainWriter()
         return loadOlderThan(sessionStart, fileURL: fileURL)
     }
@@ -111,6 +149,21 @@ enum LogEmptyState: Equatable {
         if hasVisibleRows { return .none }
         if hasRawEntries { return .noMatches }
         return historyLoaded ? .noEarlierActivity : .noActivity
+    }
+
+    /// Whether the history FOOTER should add its own "No earlier activity in the log" note.
+    ///
+    /// The footer and the in-flow empty state are independent views that reached the same
+    /// conclusion by different routes, so a quiet session over an empty history rendered the fact
+    /// twice on one screen — `.noEarlierActivity`'s "the log holds nothing from earlier sessions"
+    /// directly above "No earlier activity in the log". The empty state is the fuller of the two
+    /// (it also explains what the window records), so it keeps the floor and the footer yields.
+    ///
+    /// It still speaks in every other loaded-and-empty case — most importantly when the session
+    /// DID log something, where the empty state isn't rendered at all and this note is the only
+    /// word on the subject.
+    static func footerNotesNoEarlierActivity(historyIsEmpty: Bool, emptyState: LogEmptyState) -> Bool {
+        historyIsEmpty && emptyState != .noEarlierActivity
     }
 }
 
@@ -257,14 +310,25 @@ public struct LogViewer: View {
         // making the history non-nil again) hide the reload button for the window's lifetime.
         // `finishLoading` applies the parse only while this token is still the one being awaited.
         Task {
-            let parsed = await Task.detached(priority: .userInitiated) {
+            let outcome = await Task.detached(priority: .userInitiated) {
                 LogHistoryLoader.loadOlderThanDrainingWriter(
                     boundary,
                     fileURL: fileURL,
                     drainWriter: drainWriter
                 )
             }.value
-            history.finishLoading(parsed, token: token, pageSize: Self.historyPageSize)
+            switch outcome {
+            case .loaded(let parsed):
+                history.finishLoading(parsed, token: token, pageSize: Self.historyPageSize)
+            case .unreadable(let reason):
+                // The failure is logged HERE, on the main actor, rather than inside the detached
+                // read: `Logger.shared` is a MainActor-isolated static, and the read is the one
+                // place in the app with no error channel of its own. Logging unconditionally (not
+                // only when the token still matches) is deliberate — the read really did fail, and
+                // a superseded load's failure is exactly as diagnostic as a current one's.
+                logger.error("Could not read \(fileURL.lastPathComponent) for the Activity Log's earlier history: \(reason)")
+                history.failLoading(token: token)
+            }
         }
     }
 
@@ -277,10 +341,20 @@ public struct LogViewer: View {
         // scroll position rather than how much the window holds at that level.
         let levelCounts = Self.thresholdCounts(session: logger.entries, history: history.entries ?? [])
         // History respects the same Level/Search filters as the session; it's already newest-first, so
-        // no reordering. `visibleHistory` is the revealed page; `moreHistory` gates the "Show more".
+        // no reordering. `visibleHistory` is the revealed page; `nextReveal` gates the "Show more".
         let historyMatches = history.entries.map { LogEntryFilter.matches($0, minimumLevel: selectedLevel, search: searchText) } ?? []
         let visibleHistory = Array(historyMatches.prefix(history.revealed))
-        let moreHistory = historyMatches.count > history.revealed
+        // How many rows the next "Show N more" tap really reveals — a full page, or just the
+        // remainder on the last one. Zero doubles as the "nothing left to reveal" gate.
+        let nextReveal = LogHistoryState.nextRevealCount(
+            matchCount: historyMatches.count, revealed: history.revealed, pageSize: Self.historyPageSize)
+        // Classified once, here, and handed to BOTH the in-flow empty state and the footer — the
+        // two used to decide independently and could then say the same thing twice.
+        let emptyState = LogEmptyState.classify(
+            hasVisibleRows: !(filtered.isEmpty && visibleHistory.isEmpty),
+            hasRawEntries: !logger.entries.isEmpty || !(history.entries?.isEmpty ?? true),
+            historyLoaded: history.isLoaded
+        )
         VStack(spacing: 0) {
             // Toolbar Area
             HStack {
@@ -386,12 +460,12 @@ public struct LogViewer: View {
             // history" footer below it stays reachable even when this session logged nothing.
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: densityMetrics.logListSpacing) {
-                    if filtered.isEmpty && visibleHistory.isEmpty {
-                        emptyState
-                    } else {
+                    if emptyState == .none {
                         daySections(filtered)
+                    } else {
+                        emptyStateView(emptyState)
                     }
-                    historyFooter(visibleHistory: visibleHistory, moreAvailable: moreHistory)
+                    historyFooter(visibleHistory: visibleHistory, nextReveal: nextReveal, emptyState: emptyState)
                 }
                 .padding(16)
             }
@@ -564,25 +638,39 @@ public struct LogViewer: View {
 
     /// The bottom-of-list history controls: before loading, one "Show older history" button; after,
     /// a divider, the revealed history rows, and either "Show more" or an end-of-log note.
+    ///
+    /// `nextReveal` is how many rows the "Show more" button would actually reveal (0 when none are
+    /// left), and `emptyState` is what the in-flow empty state above is already saying — passed in
+    /// rather than recomputed so the footer can hold its tongue when the two would agree.
     @ViewBuilder
-    private func historyFooter(visibleHistory: [LogEntry], moreAvailable: Bool) -> some View {
+    private func historyFooter(visibleHistory: [LogEntry], nextReveal: Int, emptyState: LogEmptyState) -> some View {
         if let loadedEntries = history.entries {
             if !visibleHistory.isEmpty {
                 historyDivider
                 daySections(visibleHistory)
-                if moreAvailable {
-                    historyActionButton("Show \(Self.historyPageSize) more", icon: "chevron.down") {
+                if nextReveal > 0 {
+                    // The TRUE remainder, not the page size: on the last page this used to promise
+                    // 25 and hand over 5.
+                    historyActionButton("Show \(nextReveal) more", icon: "chevron.down") {
                         history.revealMore(by: Self.historyPageSize)
                     }
                 } else {
                     historyEndNote("No older entries — you're at the start of the log")
                 }
-            } else if loadedEntries.isEmpty {
-                // Loaded, and the log holds nothing before this session.
+            } else if LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: loadedEntries.isEmpty,
+                                                                emptyState: emptyState) {
+                // Loaded, and the log holds nothing before this session — said here only when the
+                // empty state above isn't already saying it.
                 historyEndNote("No earlier activity in the log")
             }
             // else: history exists but the current filter hides it — the empty state / session rows
             // already explain the emptiness; no separate note needed.
+        } else if history.readFailed {
+            // A failed read is NOT "nothing older" (see `LogHistoryState.failed`): say what
+            // happened, and keep the same button so the user can simply try again — an unreadable
+            // log is usually a torn write that the next read gets past.
+            historyEndNote("Couldn't read the log file — earlier activity is unavailable")
+            historyActionButton("Show older history", icon: "clock.arrow.circlepath") { loadHistory() }
         } else {
             historyActionButton("Show older history", icon: "clock.arrow.circlepath",
                                  loading: history.isLoading) { loadHistory() }
@@ -639,11 +727,13 @@ public struct LogViewer: View {
     /// The in-flow empty state: distinguishes a quiet session (offer history), a log with nothing
     /// older (once loaded), and filters that hide everything. Mirrors the app's EmptyStateView
     /// template used elsewhere.
+    ///
+    /// The state is classified by `body` and passed in, not derived here: the footer needs the same
+    /// answer (so it can stay quiet when this view already speaks), and two independent derivations
+    /// are what let the window say "no earlier activity" twice in one render.
     @ViewBuilder
-    private var emptyState: some View {
-        let hasRawEntries = !logger.entries.isEmpty || !(history.entries?.isEmpty ?? true)
-        // Rendered only from the no-visible-rows branch, so hasVisibleRows is false here.
-        switch LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: hasRawEntries, historyLoaded: history.isLoaded) {
+    private func emptyStateView(_ state: LogEmptyState) -> some View {
+        switch state {
         case .none:
             EmptyView()
         case .noMatches:

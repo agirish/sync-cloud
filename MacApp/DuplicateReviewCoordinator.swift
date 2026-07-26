@@ -297,14 +297,25 @@ struct DuplicateReviewCoordinator {
             // compares the pane's focused PATH, not existence or content.) Mirrors the FULL
             // keeperStillExists gate the other duplicate-removal paths honor — existence plus, for
             // files, byte size vs the scan snapshot — via PaneLogic.duplicateKeeperMatchesScan.
+            //
+            // The stat runs OFF the main actor. This `Task` inherits @MainActor isolation, and
+            // `attributesOfItem` is a synchronous stat: against a keeper on an unmounted cloud or
+            // SMB volume it blocks for as long as the mount takes to answer, which on the main
+            // actor beachballs the whole window on a button click. Same rule and same detach as
+            // `ContentView.restoreLastPaneFocusIfEnabled` ("cloud roots stat slowly"). Only the
+            // Sendable facts cross back — the attributes dictionary itself never leaves the task.
             let fm = syncManager.fileManager
-            let attrs = try? fm.attributesOfItem(atPath: review.keepPath)
-            let currentSize = (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int)
+            let keepPath = review.keepPath
+            let keeper = await Task.detached(priority: .userInitiated) { () -> (exists: Bool, statSucceeded: Bool, size: Int?) in
+                let attrs = try? fm.attributesOfItem(atPath: keepPath)
+                let size = (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int)
+                return (exists: fm.fileExists(atPath: keepPath), statSucceeded: attrs != nil, size: size)
+            }.value
             guard PaneLogic.duplicateKeeperMatchesScan(
-                exists: fm.fileExists(atPath: review.keepPath),
+                exists: keeper.exists,
                 isDirectory: review.keepIsDirectory,
-                statSucceeded: attrs != nil,
-                currentSize: currentSize,
+                statSucceeded: keeper.statSucceeded,
+                currentSize: keeper.size,
                 scannedSize: review.keepScannedSize
             ) else {
                 syncManager.banner = .warning("The left copy is no longer what the scan saw — rescan before trashing the right copy.")

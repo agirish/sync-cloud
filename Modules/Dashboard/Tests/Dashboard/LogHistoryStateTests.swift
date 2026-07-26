@@ -179,6 +179,81 @@ import Events
         #expect(token != nil)
     }
 
+    // MARK: A failed read (was: indistinguishable from an empty one)
+
+    @Test func aFailedReadIsNeitherLoadedNorEmptyHistory() {
+        // The whole point of the case: a read failure must not look like "loaded, and there is
+        // nothing older", which is what an unreadable log file used to produce.
+        var state = LogHistoryState.notLoaded
+        let token = state.beginLoading()!
+        let applied = state.failLoading(token: token)
+        #expect(applied)
+        #expect(state.readFailed)
+        #expect(!state.isLoaded)
+        #expect(!state.isLoading)
+        #expect(state.entries == nil)
+    }
+
+    @Test func aFailedReadCanBeRetried() {
+        // An unreadable log is usually a torn write the next read gets past — refusing the retry
+        // (as `.loaded` does, by design) would strand the window on the error for its lifetime.
+        var state = LogHistoryState.notLoaded
+        let first = state.beginLoading()!
+        state.failLoading(token: first)
+
+        let retry = state.beginLoading()
+        #expect(retry != nil)
+        #expect(state.isLoading)
+        #expect(!state.readFailed)   // the retry supersedes the failure
+
+        state.finishLoading([entry("recovered")], token: retry!, pageSize: pageSize)
+        #expect(state.entries?.map(\.message) == ["recovered"])
+    }
+
+    @Test func aFailureFromASupersededReadIsDiscarded() {
+        // Same token guard `finishLoading` applies: a failure arriving after Clear Logs must not
+        // knock the reset state into `.failed` and show an error for a read nobody is awaiting.
+        var state = LogHistoryState.notLoaded
+        let token = state.beginLoading()!
+        state.reset()
+
+        let applied = state.failLoading(token: token)
+        #expect(applied == false)
+        #expect(!state.readFailed)
+        #expect(state.beginLoading() != nil)
+    }
+
+    @Test func successAndFailureAreMutuallyExclusive() {
+        var loaded = LogHistoryState.notLoaded
+        let token = loaded.beginLoading()!
+        loaded.finishLoading([], token: token, pageSize: pageSize)
+        // An EMPTY load is loaded, not failed — the distinction the footer's wording rests on.
+        #expect(loaded.isLoaded && !loaded.readFailed)
+    }
+
+    // MARK: The "Show N more" count
+
+    @Test func theRevealCountIsAFullPageWhileMoreThanAPageIsHidden() {
+        #expect(LogHistoryState.nextRevealCount(matchCount: 100, revealed: 25, pageSize: 25) == 25)
+        #expect(LogHistoryState.nextRevealCount(matchCount: 51, revealed: 25, pageSize: 25) == 25)
+    }
+
+    @Test func theRevealCountIsTheREMAINDEROnTheLastPage() {
+        // The shipped bug: the button hard-coded the page size, so the final tap promised 25 and
+        // produced 5.
+        #expect(LogHistoryState.nextRevealCount(matchCount: 30, revealed: 25, pageSize: 25) == 5)
+        #expect(LogHistoryState.nextRevealCount(matchCount: 26, revealed: 25, pageSize: 25) == 1)
+    }
+
+    @Test func theRevealCountIsZeroWhenNothingIsHidden() {
+        // Zero is also the gate that swaps the button for the "you're at the start of the log"
+        // note, so it must never go negative when `revealed` has run past the match count (which
+        // it does the moment a filter narrows the matches after a few "Show more" taps).
+        #expect(LogHistoryState.nextRevealCount(matchCount: 25, revealed: 25, pageSize: 25) == 0)
+        #expect(LogHistoryState.nextRevealCount(matchCount: 3, revealed: 75, pageSize: 25) == 0)
+        #expect(LogHistoryState.nextRevealCount(matchCount: 0, revealed: 25, pageSize: 25) == 0)
+    }
+
     // MARK: The combinations that are now unrepresentable
 
     @Test func loadingAndLoadedAreMutuallyExclusive() {

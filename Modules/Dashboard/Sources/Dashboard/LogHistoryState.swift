@@ -34,6 +34,16 @@ enum LogHistoryState {
     /// the filter runs first and this caps the result, so changing the filter re-pages from the top.
     case loaded(entries: [LogEntry], revealed: Int)
 
+    /// The read itself failed — the log file could not be read or decoded.
+    ///
+    /// Deliberately NOT `.loaded([])`. The log is written by a second process as well as this one,
+    /// so a crash mid-write can leave bytes that aren't valid UTF-8; collapsing that into "loaded,
+    /// and there is nothing older" told the user their history was empty, permanently, with no
+    /// error anywhere — this loader is the one path that has no way to present one. A separate case
+    /// lets the footer say what actually happened and lets `beginLoading` offer a retry, which
+    /// `.loaded` cannot (it refuses further loads by design).
+    case failed
+
     // MARK: Reading
 
     /// The parsed history, or nil while it has not been loaded. Callers distinguish "no history
@@ -52,6 +62,13 @@ enum LogHistoryState {
     /// Whether history has been parsed — true even when the parse found nothing.
     var isLoaded: Bool { entries != nil }
 
+    /// Whether the last read failed. Distinct from `!isLoaded`: `.notLoaded` has simply not been
+    /// asked for yet, and the two say different things in the footer.
+    var readFailed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
+
     /// How many filtered matches to show. Zero unless loaded, so a `prefix(_:)` against it yields
     /// nothing rather than a page of a list that was never fetched.
     var revealed: Int {
@@ -64,8 +81,15 @@ enum LogHistoryState {
     /// Claims the right to start a read.
     /// - Returns: The token to hand back to `finishLoading`, or nil when a read is already in
     ///   flight or the history is already loaded — the double-fire guard, enforced structurally.
+    ///
+    /// A previously FAILED read may be retried: the file was unreadable at that instant (a crash
+    /// mid-write, a stalled volume), which is exactly the kind of failure that clears on its own,
+    /// so refusing the retry would strand the window on an error for its whole lifetime.
     mutating func beginLoading() -> UUID? {
-        guard case .notLoaded = self else { return nil }
+        switch self {
+        case .notLoaded, .failed: break
+        case .loading, .loaded: return nil
+        }
         let token = UUID()
         self = .loading(token: token)
         return token
@@ -78,6 +102,17 @@ enum LogHistoryState {
     mutating func finishLoading(_ entries: [LogEntry], token: UUID, pageSize: Int) -> Bool {
         guard case .loading(let current) = self, current == token else { return false }
         self = .loaded(entries: entries, revealed: pageSize)
+        return true
+    }
+
+    /// Records that a completed read FAILED, under the same token guard `finishLoading` applies —
+    /// a failure from a read that Clear Logs (or a newer load) superseded must not knock the state
+    /// out of whatever replaced it.
+    /// - Returns: Whether the failure was applied.
+    @discardableResult
+    mutating func failLoading(token: UUID) -> Bool {
+        guard case .loading(let current) = self, current == token else { return false }
+        self = .failed
         return true
     }
 
@@ -98,5 +133,18 @@ enum LogHistoryState {
     mutating func revealMore(by pageSize: Int) {
         guard case .loaded(let entries, let revealed) = self else { return }
         self = .loaded(entries: entries, revealed: revealed + pageSize)
+    }
+
+    /// How many rows the next "Show N more" tap will ACTUALLY reveal: a whole page while there is
+    /// more than a page left, and just the remainder on the last page.
+    ///
+    /// The button used to name the page size unconditionally, so the final tap promised 25 and
+    /// produced 5 — the one number in the footer the user can check, and it was wrong precisely
+    /// when they were about to reach the end of the log. Zero means nothing is hidden, which is
+    /// also what gates the button against the "you're at the start of the log" note.
+    ///
+    /// `matchCount` is the count of FILTERED matches (what `revealed` caps), not `entries.count`.
+    static func nextRevealCount(matchCount: Int, revealed: Int, pageSize: Int) -> Int {
+        max(0, min(pageSize, matchCount - revealed))
     }
 }

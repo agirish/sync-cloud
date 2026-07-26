@@ -8,7 +8,8 @@ import Dashboard
 import QuickLook
 import Design
 
-/// Main window content: provider sidebar, two file panes (left/right), toolbar, and bottom tab (Differences / Details).
+/// Main window content: two file panes (left/right, each choosing its own provider from its header),
+/// toolbar, and bottom tab (Differences / Details).
 struct ContentView: View {
     @ObservedObject var syncManager: FileSyncManager
     @EnvironmentObject var settings: SettingsManager
@@ -1228,10 +1229,20 @@ struct ContentView: View {
                 .animation(.easeOut(duration: 0.11), value: barNodes.isEmpty)
         }
         // Escape clears this pane's selection — the file lists give no deselect gesture, so
-        // without this a folder picked in Compare could never be un-picked. Only swallow the key
-        // when there's actually a selection here; otherwise let it bubble (dialogs, etc.).
+        // without this a folder picked here could never be un-picked. Only swallow the key when
+        // there's actually a selection here; otherwise let it bubble (dialogs, etc.).
+        //
+        // The Tidy rail reads its RAW selection rather than `barNodes`: the action bar (and with it
+        // `barSelectionNodes`) is compare-only, so gating on it alone made Escape dead on the one
+        // surface that has neither a bar nor its ✕ to fall back on. Compare's gate is unchanged —
+        // see `PaneLogic.escapeClearsSelection`.
         .onKeyPress(.escape) {
-            guard !barNodes.isEmpty else { return .ignored }
+            let paneSelection = isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths
+            guard PaneLogic.escapeClearsSelection(
+                isSingleSource: layoutMode == .singleSource,
+                hasActionBarSelection: !barNodes.isEmpty,
+                paneHasSelection: !paneSelection.isEmpty
+            ) else { return .ignored }
             clearSelection(isLeft: isLeft)
             return .handled
         }
@@ -1361,6 +1372,15 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.9), value: syncManager.banner)
+        // A banner that outlived the previous window (the manager owns it; the scheduler below is
+        // view `@State`) gets its auto-dismiss armed here, since the `onChange` never fires for a
+        // value that didn't change. `adoptExistingBanner` no-ops when there's no banner or this
+        // scheduler is already tracking one, so a re-appearance can't restart the countdown.
+        .onAppear {
+            bannerDismissScheduler.adoptExistingBanner(syncManager.banner) {
+                syncManager.banner = nil
+            }
+        }
         .onChange(of: syncManager.banner) { _, newValue in
             bannerDismissScheduler.bannerChanged(to: newValue) {
                 syncManager.banner = nil

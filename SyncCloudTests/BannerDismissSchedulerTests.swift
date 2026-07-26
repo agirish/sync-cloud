@@ -265,4 +265,43 @@ private final class ManualSleeper: @unchecked Sendable {
         #expect(OperationBannerStyle.tint(for: .warning) == SemanticColor.warning)
         #expect(OperationBannerStyle.tint(for: .error) == SemanticColor.error)
     }
+
+    // MARK: A banner that outlived its window
+
+    @MainActor
+    @Test func testAdoptingASurvivingBannerAfterReopenStartsItsWindow() async {
+        // The scheduler is view-@State but the banner is manager-owned, so closing the window during
+        // a banner's window and reopening from the Dock builds a FRESH scheduler that was never told
+        // about the banner still on screen — and `onChange` never fires for an unchanged value, so
+        // the banner became sticky forever.
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        scheduler.adoptExistingBanner(.success("Copied 2 files")) { dismissCount += 1 }
+        await waitUntil("the adopted banner starts its window") { clock.pendingCount == 1 }
+        #expect(clock.requestedDelays == [Self.successDelay])
+
+        clock.releaseAll()
+        await waitUntil("it dismisses on its own") { dismissCount == 1 }
+    }
+
+    @MainActor
+    @Test func testAdoptingIsANoOpForAnEmptyBannerOrASchedulerAlreadyRunning() async {
+        let clock = ManualSleeper()
+        let scheduler = BannerDismissScheduler(delays: Self.testDelays, sleep: clock.sleep)
+        var dismissCount = 0
+
+        // Nothing on screen: nothing to adopt.
+        scheduler.adoptExistingBanner(nil) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil)
+        #expect(clock.requestedDelays.isEmpty)
+
+        // Already counting down: a second onAppear (any re-render can deliver one) must not restart
+        // the window — that would silently extend every banner the user re-renders past.
+        scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
+        await waitUntil("the real timer starts") { clock.pendingCount == 1 }
+        scheduler.adoptExistingBanner(.success("Copied 2 files")) { dismissCount += 1 }
+        #expect(clock.requestedDelays == [Self.successDelay], "adopting must not start a second window")
+    }
 }

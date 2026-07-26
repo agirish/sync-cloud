@@ -1,4 +1,5 @@
 import AppKit
+import Events
 import Settings
 import Sync
 import UserNotifications
@@ -37,6 +38,16 @@ enum OperationNotifier {
         // every request a distinct identifier, so the system never coalesces two genuinely
         // different outcomes into one.
         let request = UNNotificationRequest(identifier: banner.id.uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        // The completion handler is the only signal this feature has. `add` fails silently when the
+        // user has revoked notification permission in System Settings — and this feature exists
+        // precisely for when the app is in the BACKGROUND, so a dropped notification is a dropped
+        // outcome the user never sees: the in-window banner is gone by the time they come back.
+        // Resolved on the main actor before the call (`Logger.shared` is MainActor-isolated) so the
+        // handler, which arrives on an arbitrary queue, only touches the logger's nonisolated API.
+        let logger = Logger.shared
+        UNUserNotificationCenter.current().add(request) { error in
+            guard let error else { return }
+            logger.error("Could not post the background-completion notification: \(error.localizedDescription)")
+        }
     }
 }
