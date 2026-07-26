@@ -89,9 +89,14 @@ import Sync
         #expect(!DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections([])))
     }
 
-    @Test func testTwoSectionsIsWorthGrouping() {
+    /// Two sections of one row each is NOT enough — it was under the first cut of this gate,
+    /// which only asked "more than one section?", and a real 22-difference scan showed why that
+    /// was wrong: nine headers over eleven rows. The gate now asks whether the headers pay for
+    /// their own height.
+    @Test func testTwoSingleRowSectionsIsNotWorthGrouping() {
         let sections = DifferenceGrouping.sections([diff("Work/a.pdf"), diff("Scans/b.pdf")])
-        #expect(DifferenceGrouping.isWorthGrouping(sections))
+        #expect(sections.count == 2)
+        #expect(!DifferenceGrouping.isWorthGrouping(sections))
     }
 
     /// Root-level rows and foldered rows coexisting: the case where a wrong `folder(for:)` would
@@ -100,5 +105,75 @@ import Sync
         let sections = DifferenceGrouping.sections([diff("loose.pdf"), diff("Work/a.pdf"), diff("other.txt")])
         #expect(sections.map(\.folder) == [DifferenceGrouping.rootLabel, "Work"])
         #expect(sections.first?.count == 2)
+    }
+
+    // MARK: Path shown inside a section
+
+    @Test func testPathWithinSectionDropsTheFolderTheHeaderAlreadyNames() {
+        // The defect this exists to stop: a header reading "Claude" over a row reading
+        // "Claude/Projects/Investing/…", i.e. the folder said twice, in the one column that was
+        // already truncating.
+        #expect(DifferenceGrouping.pathWithinSection(diff("Claude/Projects/Investing/notes.md"))
+                == "Projects/Investing")
+        #expect(DifferenceGrouping.pathWithinSection(diff("Immigration/Authorization/H-1B/form.pdf"))
+                == "Authorization/H-1B")
+    }
+
+    @Test func testPathWithinSectionIsEmptyWhenTheParentIsTheSectionFolder() {
+        // A row sitting directly in the section folder has nothing left to say — it must render
+        // no prefix at all, not a bare "/".
+        #expect(DifferenceGrouping.pathWithinSection(diff("Work/report.docx")) == "")
+    }
+
+    @Test func testPathWithinSectionIsEmptyAtTheRoot() {
+        #expect(DifferenceGrouping.pathWithinSection(diff("loose.pdf")) == "")
+    }
+
+    /// The prefix and the header must partition the parent path between them with nothing lost
+    /// and nothing repeated — reassembling them has to give the original parent back.
+    @Test func testFolderAndPathWithinSectionReassembleTheParent() {
+        for path in ["Claude/Projects/Investing/notes.md", "Work/report.docx", "loose.pdf",
+                     "Immigration/Authorization/H-1B/form.pdf"] {
+            let d = diff(path)
+            let rejoined = [DifferenceGrouping.folder(for: d), DifferenceGrouping.pathWithinSection(d)]
+                .filter { !$0.isEmpty && $0 != DifferenceGrouping.rootLabel }
+                .joined(separator: "/")
+            #expect(rejoined == d.parentPath, "path \(path)")
+        }
+    }
+
+    // MARK: The worth-grouping gate
+
+    @Test func testManyTinySectionsFallBackToFlat() {
+        // The shape a real 22-difference scan produced: eight folders, one or two rows each.
+        // Eight headers heading eleven rows nearly doubled the list's height to restate what the
+        // path prefix already said, so this must NOT group.
+        let rows = ["Family/a.pdf", "Family/b.pdf", "Legal/c.pdf", "Finance/d.pdf",
+                    "Claude/e.pdf", "Claude/f.pdf", "Health/g.pdf", "Scans/h.pdf",
+                    "Travel/i.pdf", "Work/j.pdf", "Home/k.pdf"].map(diff)
+        let sections = DifferenceGrouping.sections(rows)
+        #expect(sections.count == 9)
+        #expect(!DifferenceGrouping.isWorthGrouping(sections))
+    }
+
+    @Test func testFewLargeSectionsDoGroup() {
+        // Three folders averaging four rows each — the case grouping exists for.
+        var rows: [FileDifference] = []
+        for folder in ["Immigration", "Work", "Scans"] {
+            rows += (0..<4).map { diff("\(folder)/file-\($0).pdf") }
+        }
+        let sections = DifferenceGrouping.sections(rows)
+        #expect(sections.count == 3)
+        #expect(DifferenceGrouping.isWorthGrouping(sections))
+    }
+
+    @Test func testTheGateIsExactlyTheAverageThreshold() {
+        // Two sections at exactly the threshold group; one row fewer does not. Pins the boundary
+        // so a future tweak to `minimumAverageRowsPerSection` is a deliberate, visible change.
+        let atThreshold = (0..<DifferenceGrouping.minimumAverageRowsPerSection).flatMap {
+            [diff("A/file-\($0).pdf"), diff("B/file-\($0).pdf")]
+        }
+        #expect(DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections(atThreshold)))
+        #expect(!DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections(atThreshold.dropLast())))
     }
 }

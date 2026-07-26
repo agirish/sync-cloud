@@ -961,7 +961,7 @@ public struct DifferencesView: View {
                 // cannot be shared either — a @TableColumnBuilder result is generic over its row
                 // type and does not survive being hoisted into a computed property here.
                 Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
+                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: true) }
                     TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
                     TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                         .width(min: 70, ideal: 90)
@@ -1550,6 +1550,15 @@ struct DifferenceSectionHeader: View {
 private struct DifferenceNameCell: View {
     let difference: FileDifference
     var compact: Bool = false
+    /// True when a folder section header is already naming this row's top-level folder, in which
+    /// case the prefix drops that component instead of repeating it (`DifferenceGrouping
+    /// .pathWithinSection`). The full path is still on the row's hover help either way.
+    var grouped: Bool = false
+
+    /// The dimmed prefix ahead of the filename, or "" for none.
+    private var prefix: String {
+        grouped ? DifferenceGrouping.pathWithinSection(difference) : difference.parentPath
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -1558,8 +1567,8 @@ private struct DifferenceNameCell: View {
                 .symbolRenderingMode(.hierarchical)
             // Affix whitespace made visible (NameDisplay): a row can exist precisely because
             // its name differs invisibly from the other side's ("Swimming␣" vs "Swimming").
-            if !difference.parentPath.isEmpty {
-                Text(NameDisplay.visiblePath(difference.parentPath) + "/")
+            if !prefix.isEmpty {
+                Text(NameDisplay.visiblePath(prefix) + "/")
                     .foregroundStyle(.secondary)
             }
             Text(NameDisplay.visibleName(difference.fileName))

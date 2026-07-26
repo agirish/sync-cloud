@@ -42,6 +42,27 @@ enum DifferenceGrouping {
         return first.isEmpty ? parent : first
     }
 
+    /// The parent path with the section's own folder taken off the front — what the Name cell
+    /// shows once a header is already naming that folder.
+    ///
+    /// Without this the grouped table says the folder twice: a header reading "Claude" over a row
+    /// reading `Claude/Projects/Investing/US/Trump Accounts/ Trump_Accounts_Research.md`. The
+    /// repetition lands in the one column that was already truncating, which is the opposite of
+    /// what grouping is for.
+    ///
+    /// Returns "" for a row sitting directly in the section folder (its whole parent WAS the
+    /// folder) and for root-level rows, so the Name cell drops the prefix entirely rather than
+    /// printing a bare "/".
+    static func pathWithinSection(_ difference: FileDifference) -> String {
+        let parent = difference.parentPath
+        guard !parent.isEmpty else { return "" }
+        guard let slash = parent.firstIndex(of: "/") else {
+            // The parent IS the top-level folder — the header already says it.
+            return ""
+        }
+        return String(parent[parent.index(after: slash)...])
+    }
+
     /// Groups `sorted` into sections **without reordering anything**.
     ///
     /// Sections appear in the order their first row appears in `sorted`, and rows keep their
@@ -65,13 +86,26 @@ enum DifferenceGrouping {
         return order.map { Section(folder: $0, rows: buckets[$0] ?? []) }
     }
 
+    /// How many rows a section must average before headers pay for themselves.
+    ///
+    /// Set from a real comparison rather than taste. A 22-difference scan spread over eight
+    /// folders rendered as header/row/gap/header/row/gap — eight headers heading eleven rows
+    /// between them, which very nearly doubled the list's height to say what the Name column's
+    /// path prefix already said. A header that heads one or two rows is not a landmark; it is a
+    /// row you cannot act on. The same comparison at 576 differences averages dozens per folder
+    /// and is exactly what grouping is for.
+    static let minimumAverageRowsPerSection = 3
+
     /// Whether grouping is worth drawing at all for this row set.
     ///
-    /// One section means every header would say the same thing about every row — pure chrome, and
-    /// worse than the flat table it replaced. An empty list has nothing to head. Both fall back to
-    /// flat rather than rendering a lone header, so the feature can be left on permanently without
-    /// making small comparisons noisier.
+    /// Two ways to fail. One section means every header says the same thing about every row —
+    /// pure chrome, and worse than the flat table it replaced. Many tiny sections mean the headers
+    /// cost more vertical space than the landmarks save. Both fall back to flat, which is what
+    /// lets the preference default ON without punishing small comparisons: grouping appears when
+    /// there is something to group.
     static func isWorthGrouping(_ sections: [Section]) -> Bool {
-        sections.count > 1
+        guard sections.count > 1 else { return false }
+        let rows = sections.reduce(0) { $0 + $1.count }
+        return rows >= sections.count * minimumAverageRowsPerSection
     }
 }
