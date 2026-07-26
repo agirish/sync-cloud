@@ -15,33 +15,70 @@ extension FileSyncManager {
 
     // MARK: Rule store
 
-    /// Decodes a persisted store, telling "nothing saved yet" apart from "saved, but unreadable".
+    /// What reading a persisted store actually found. Three outcomes, because collapsing the last
+    /// two is what made a decode failure destructive: the getters treat both as "no rules", but a
+    /// caller that is about to make an IRREVERSIBLE decision (the legacy migration, which sets a
+    /// one-way "already migrated" flag) must be able to tell them apart and stand down.
+    enum PersistedStoreRead<Value> {
+        /// Read and decoded.
+        case decoded(Value)
+        /// Nothing saved under this key — the ordinary first-run case.
+        case absent
+        /// Data is present but could not be decoded. Already reported and set aside.
+        case unreadable
+    }
+
+    /// Reads a persisted store, telling "nothing saved yet" apart from "saved, but unreadable".
     ///
     /// Both used to read as `[]`, and that silence was expensive: the very next edit re-encodes the
     /// now-empty array over the stored value, so a decode failure (a schema change after running an
     /// older build, a truncated plist) permanently destroyed every rule the user had taught — with
-    /// nothing in the log to explain why their files had stopped filing themselves. Absent data is
-    /// the ordinary first-run case and stays quiet; undecodable data is reported once per key per
-    /// session (these getters are hot — a scan reads them per file) and the raw payload is set aside
-    /// under a sibling key so the overwrite is no longer the end of it.
+    /// nothing in the log to explain why their files had stopped filing themselves. Absent data
+    /// stays quiet; undecodable data is reported once per store per session and the raw payload is
+    /// set aside under a sibling key so the overwrite is no longer the end of it.
+    static func readPersistedStore<T: Decodable>(
+        _ type: T.Type,
+        from defaults: UserDefaults,
+        key: String,
+        describing what: String
+    ) -> PersistedStoreRead<T> {
+        guard let data = defaults.data(forKey: key) else { return .absent }
+        if let decoded = try? JSONDecoder().decode(type, from: data) { return .decoded(decoded) }
+        // Preserving is UNGATED: writing the same bytes to the same key again costs nothing, and
+        // anything clever here risks the one outcome that matters — the payload not being kept.
+        // (An earlier attempt gated this on a per-store claim keyed by `ObjectIdentifier`, which
+        // silently drops backups: a released `UserDefaults` can be reallocated at the same address,
+        // so a later store inherits an earlier one's claim. It surfaced only under the full suite.)
+        let backupKey = key + ".unreadable"
+        defaults.set(data, forKey: backupKey)
+        // Only the REPORT is rate-limited, since these getters are read repeatedly. Keyed by the key
+        // name plus the payload, so two stores holding the same key can each still be reported, and
+        // a store whose corruption CHANGES is reported again.
+        if corruptStoreKeysWarned.claim("\(key)\u{0}\(data.hashValue)") {
+            Logger.shared.error(
+                "Saved \(what) could not be read (\(data.count) bytes) and will be treated as empty — "
+                + "the unreadable copy was kept under \"\(backupKey)\"")
+        }
+        return .unreadable
+    }
+
+    /// The decoded value, or nil for both "nothing saved" and "unreadable" — the shape the getters
+    /// want, since neither can do anything but show an empty list.
     static func decodePersistedStore<T: Decodable>(
         _ type: T.Type,
         from defaults: UserDefaults,
         key: String,
         describing what: String
     ) -> T? {
-        guard let data = defaults.data(forKey: key) else { return nil }
-        if let decoded = try? JSONDecoder().decode(type, from: data) { return decoded }
-        if !corruptStoreKeysWarned.claim(key) { return nil }
-        let backupKey = key + ".unreadable"
-        defaults.set(data, forKey: backupKey)
-        Logger.shared.error(
-            "Saved \(what) could not be read (\(data.count) bytes) and will be treated as empty — "
-            + "the unreadable copy was kept under \"\(backupKey)\"")
+        if case .decoded(let value) = readPersistedStore(type, from: defaults, key: key, describing: what) {
+            return value
+        }
         return nil
     }
 
-    /// One-shot-per-key gate for the warning above. Nonisolated (the getters are), lock-guarded.
+    /// One-shot-per-store gate for the report above, so a hot getter cannot log per read.
+    /// Lock-guarded rather than actor-isolated: cheap, and it keeps the gate independent of where
+    /// a future caller reads from.
     private static let corruptStoreKeysWarned = OneShotKeySet()
 
     /// The persisted rules, decoded from defaults. A corrupt/absent value decodes to `[]`.

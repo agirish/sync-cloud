@@ -311,6 +311,21 @@ struct DuplicateReviewCoordinator {
                 let size = (attrs?[.size] as? NSNumber)?.intValue ?? (attrs?[.size] as? Int)
                 return (exists: fm.fileExists(atPath: keepPath), statSucceeded: attrs != nil, size: size)
             }.value
+            // That stat is the ONLY suspension between the user's click and the trash, and it
+            // exists precisely for the case where it is slow: an unmounted cloud or SMB keeper can
+            // take seconds to answer. Seconds in which the window is live — "Done" sits right
+            // beside the destructive button, and Tidy's list is one tab away, so the user can end
+            // this review or open a DIFFERENT pair through `compareCopies` before the answer lands.
+            // Either way the review this task was started for is no longer the one on screen:
+            // trashing would delete a copy the user has stopped looking at, and the
+            // `.rightCopyTrashed` dispatch below would tear down the review that replaced it and
+            // replay THIS review's saved compare state over it. Re-read the live binding (the
+            // coordinator's closures always read current state) and abandon the trash if it moved.
+            guard duplicateReview == review else {
+                Logger.shared.info(
+                    "The duplicate review changed while the left copy was being checked — skipping the trash of \(review.deletePath)")
+                return
+            }
             guard PaneLogic.duplicateKeeperMatchesScan(
                 exists: keeper.exists,
                 isDirectory: review.keepIsDirectory,

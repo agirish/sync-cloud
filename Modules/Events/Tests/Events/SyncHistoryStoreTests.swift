@@ -171,6 +171,35 @@ import Foundation
         #expect(reloaded.records.map(\.sourcePath) == ["/src/good.txt"])
     }
 
+    /// Characterization, pinning what "once per batch" actually means so the doc can be checked
+    /// against it: per CALL. `append(_:)` funnels into `appendBatch([record])`, so a caller that
+    /// records a run one record at a time gets exactly the log-line-per-file the batch rule reads
+    /// as forbidding — the same three records handed over in one call report once.
+    ///
+    /// This is not currently reachable: the only production caller batches. It is pinned rather
+    /// than "fixed" because the alternative is coalescing reports across calls, i.e. holding a
+    /// diagnostic on a timer inside a store whose contract is that recording never delays the
+    /// operation that produced it. The rule is therefore stated on `append(_:)` instead.
+    @Test func testTheDropReportIsPerCallSoPerRecordCallersGetAReportPerRecord() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let runId = UUID()
+        let perRecordReports = ReportSpy()
+        let perRecord = SyncHistoryStore(fileURL: url, reportDroppedRecords: { perRecordReports.messages.append($0) })
+        for i in 0..<3 {
+            perRecord.append(unencodableRecord(runId: runId, source: "/src/lost\(i).txt"))
+        }
+        #expect(perRecordReports.messages.count == 3)
+
+        let batchUrl = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: batchUrl) }
+        let batchReports = ReportSpy()
+        let batched = SyncHistoryStore(fileURL: batchUrl, reportDroppedRecords: { batchReports.messages.append($0) })
+        batched.appendBatch((0..<3).map { unencodableRecord(runId: runId, source: "/src/lost\($0).txt") })
+        #expect(batchReports.messages.count == 1)
+    }
+
     @Test func testNothingIsReportedWhenEveryRecordEncodes() throws {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }

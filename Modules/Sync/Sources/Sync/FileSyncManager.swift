@@ -36,6 +36,17 @@ public class FileSyncManager: ObservableObject {
         return true
     }
 
+    /// Whether the volume a not-yet-created destination will land on distinguishes names by case.
+    ///
+    /// A seam purely so the multi-volume batch is reachable from a test: a single machine's disk is
+    /// one answer, and the bug this guards against needs two. `syncAll` asks per destination, and a
+    /// wrong answer is a data-loss bug rather than a cosmetic one — a batch told "case-sensitive"
+    /// about a case-INSENSITIVE destination lets two case-variant targets both pass its in-memory
+    /// uniqueness check, after which the parallel workers write to one file.
+    public var destinationCaseSensitivity: (URL) -> Bool = { url in
+        FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: url)
+    }
+
     /// Resolves a destination name the destination provider forbids (Dropbox/OneDrive reject
     /// trailing spaces or dots; OneDrive also certain characters and reserved names), BEFORE
     /// any I/O: writing such a name into a provider's folder creates an item the provider

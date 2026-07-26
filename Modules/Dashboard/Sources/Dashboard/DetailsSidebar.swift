@@ -134,8 +134,13 @@ public struct DetailsSidebar: View {
     ///
     /// `fileManager` and `logError` are injected (defaulting to the real ones) so that failure path
     /// is testable, following `FolderJump.siblings`. Warning rather than debug: unlike the sibling
-    /// listing, this fires on a selection the user actively made, and the memoizing cache means it
-    /// fires once per path rather than once per render.
+    /// listing, this fires on a selection the user actively made.
+    ///
+    /// This function itself reports EVERY failed stat — the once-per-path limit belongs to the
+    /// caller that knows a re-stat is a re-stat, `DetailsMetadataCache` (see its `warnedPaths`).
+    /// The claim used to be made here and rest on that cache's memo, which is wrong: the memo is
+    /// dropped after every file operation, so a bulk run of N operations over an unreadable
+    /// selection wrote N identical warnings.
     static func loadMetadata(
         for activePath: String,
         fileManager: FileManager = .default,

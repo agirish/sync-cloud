@@ -425,7 +425,25 @@ extension FileSyncManager {
     /// via ``filingRulesMigratedKey``; the legacy store is left in place (unconsulted) as a backup.
     public func migrateFilingRulesToAutomations() {
         guard !filingRuleDefaults.bool(forKey: Self.filingRulesMigratedKey) else { return }
-        let legacy = filingRules
+        // Read through the three-way result, not the `?? []` getter. This is the one caller whose
+        // decision is IRREVERSIBLE: marking the migration done is a one-way flag, and line ~113
+        // never consults the legacy store again. An unreadable store read as "no rules" would
+        // therefore orphan every remembered rule the user ever taught, permanently, on the strength
+        // of a decode that failed once — and the backup this leaves behind is only bytes in
+        // defaults, with nothing that can put them back. So: stand down and try again next launch.
+        let legacyRead = FileSyncManager.readPersistedStore([FilingRule].self, from: filingRuleDefaults,
+                                                            key: Self.rulesDefaultsKey,
+                                                            describing: "remembered filing rules")
+        guard case .decoded(let legacy) = legacyRead else {
+            if case .unreadable = legacyRead {
+                Logger.shared.error(
+                    "Not migrating remembered filing rules: the saved rules could not be read. "
+                    + "Leaving them in place and will retry on the next launch.")
+            } else {
+                filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
+            }
+            return
+        }
         guard !legacy.isEmpty else {
             filingRuleDefaults.set(true, forKey: Self.filingRulesMigratedKey)
             return

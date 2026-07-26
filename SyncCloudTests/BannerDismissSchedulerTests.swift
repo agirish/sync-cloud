@@ -301,7 +301,26 @@ private final class ManualSleeper: @unchecked Sendable {
         // the window — that would silently extend every banner the user re-renders past.
         scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
         await waitUntil("the real timer starts") { clock.pendingCount == 1 }
+        let running = scheduler.currentTimerTask
         scheduler.adoptExistingBanner(.success("Copied 2 files")) { dismissCount += 1 }
+
+        // Asserted on the handle, which `startTimer` assigns SYNCHRONOUSLY — the same vacuity this
+        // file removed from the clock-based assertions, one layer in. `requestedDelays` only grows
+        // when a spawned task actually RUNS, so a one-element array a line after the call is
+        // equally consistent with "no second window was started" and "a second window was started
+        // and hasn't been scheduled yet": deleting the idempotence half of the guard
+        // (`dismissTask == nil, currentDelay == nil`) left this test green. The handle can't be
+        // fooled that way — re-entering `bannerChanged` cancels the live timer and replaces the
+        // handle, both of which are true the instant `adoptExistingBanner` returns.
+        #expect(scheduler.currentTimerTask == running, "adopting must not replace the running timer")
+        #expect(running?.isCancelled == false, "adopting must not cancel the window already counting down")
         #expect(clock.requestedDelays == [Self.successDelay], "adopting must not start a second window")
+
+        // And the ORIGINAL window still runs to exactly one dismissal — the adopt neither stole
+        // its dismissal nor added one of its own.
+        clock.releaseAll()
+        await running?.value
+        #expect(dismissCount == 1)
+        #expect(clock.requestedDelays == [Self.successDelay])
     }
 }

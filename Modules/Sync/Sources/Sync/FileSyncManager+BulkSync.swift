@@ -303,8 +303,29 @@ extension FileSyncManager {
         // on a case-sensitive volume uniquified `README.md` to `README 2.md` merely because
         // `Readme.md` was in the same batch, and the next scan then reported the invented name
         // forever.
-        let destCaseSensitive = candidates.first.map { FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: $0.toURL) } ?? true
-        func reservedKey(_ path: String) -> String { destCaseSensitive ? path : path.lowercased() }
+        //
+        // Asked PER DESTINATION, not once for the batch. One batch can span volumes — a nested
+        // mount inside the destination root, or a pane rooted at /Volumes — and a single answer
+        // taken from the first candidate applies that volume's rule to items landing on a different
+        // one. Getting it wrong in the "case-sensitive" direction is the dangerous half: two
+        // case-variant targets on a case-INSENSITIVE volume both pass the reservation check, the
+        // parallel workers then write to the SAME file, and with `isMove` both sources are consumed
+        // — one file's content is gone, with a success banner and no Trash entry. (Before the probe
+        // could answer at all this was unreachable, because the failed probe folded case for
+        // everything; making it answer is what opened it.) Memoized per parent directory, so this
+        // costs one stat per distinct destination folder rather than one per item.
+        var caseSensitivityByParent: [String: Bool] = [:]
+        let probeCaseSensitivity = destinationCaseSensitivity
+        func destinationIsCaseSensitive(_ url: URL) -> Bool {
+            let parent = url.deletingLastPathComponent().path
+            if let known = caseSensitivityByParent[parent] { return known }
+            let sensitive = probeCaseSensitivity(url)
+            caseSensitivityByParent[parent] = sensitive
+            return sensitive
+        }
+        func reservedKey(_ path: String) -> String {
+            destinationIsCaseSensitive(URL(fileURLWithPath: path)) ? path : path.lowercased()
+        }
         // The batch stat above ran before the first prompt. A prompt holds this loop for an
         // unbounded time, during which a destination the batch saw as missing can be created
         // externally — and would then be replaced without its overwrite prompt. Once a prompt
@@ -365,7 +386,7 @@ extension FileSyncManager {
                 case .keepBoth:
                     let collidingURL = toURL
                     let claimed = reservedTargets
-                    let caseSensitive = destCaseSensitive
+                    let caseSensitive = destinationIsCaseSensitive(collidingURL)
                     toURL = await Task.detached(priority: .userInitiated) {
                         Self.generateUniqueURL(for: collidingURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
                     }.value
@@ -379,7 +400,7 @@ extension FileSyncManager {
             if reservedTargets.contains(reservedKey(toURL.path)) {
                 let claimedURL = toURL
                 let claimed = reservedTargets
-                let caseSensitive = destCaseSensitive
+                let caseSensitive = destinationIsCaseSensitive(claimedURL)
                 toURL = await Task.detached(priority: .userInitiated) {
                     Self.generateUniqueURL(for: claimedURL, fileManager: activeFM, reserved: claimed, caseSensitiveVolume: caseSensitive)
                 }.value

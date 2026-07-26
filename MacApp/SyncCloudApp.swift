@@ -122,6 +122,9 @@ struct SyncCloudApp: App {
         manager.filingClassifier = { taxonomy, files in
             // The router also LOGS the one silent case — cloud Filing on, no usable key — which
             // otherwise left the user believing Claude filed documents the on-device model filed.
+            // `hasCloudKey` is an @autoclosure, so the Keychain below is only queried once the
+            // toggle says yes — as the plain `if` this replaced did. Evaluating it on every scan
+            // regardless would warn (and can prompt) on a locked item for a disabled feature.
             let route = FilingBackendRouter.route(
                 cloudEnabled: UserDefaults.standard.bool(forKey: FileSyncManager.usesCloudDefaultsKey),
                 hasCloudKey: AnthropicKeychain.hasKey)

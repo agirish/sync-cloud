@@ -129,7 +129,9 @@ enum LogHistoryLoader {
 /// Which empty state the log list shows — pure so the distinctions stay unit-testable. Each dead end
 /// needs different words: "No matching entries" names the filters as the cause and offers to clear
 /// them; "No activity yet" explains the surface and points at the loadable history; "No earlier
-/// activity" is the honest end state once history is loaded and the log holds nothing older.
+/// activity" is the honest end state once history is loaded and the log holds nothing older; and
+/// the same quiet session over an UNREADABLE log says so instead of offering a load that just
+/// failed.
 enum LogEmptyState: Equatable {
     /// Rows are visible; no empty state.
     case none
@@ -137,6 +139,14 @@ enum LogEmptyState: Equatable {
     case noActivity
     /// History was loaded and the log holds nothing before this session.
     case noEarlierActivity
+    /// Nothing logged this session AND the history read failed, so there is nothing to offer.
+    ///
+    /// Split out of `.noActivity` because the two say opposite things about the same file. A quiet
+    /// session over a failed read classified as `.noActivity`, whose message ends "use 'Show older
+    /// history' below to load what earlier sessions recorded" — directly above the footer's
+    /// "Couldn't read the log file — earlier activity is unavailable". The window promised the
+    /// history and denied it in the same breath, in two adjacent paragraphs.
+    case historyUnavailable
     /// Entries exist (this session and/or loaded history), but the level filter and/or search hide
     /// them all.
     case noMatches
@@ -145,10 +155,18 @@ enum LogEmptyState: Equatable {
     ///   - hasVisibleRows: any session or history rows are currently shown.
     ///   - hasRawEntries: any session entries, or already-loaded history entries, exist before filtering.
     ///   - historyLoaded: the user has loaded history at least once this session.
-    static func classify(hasVisibleRows: Bool, hasRawEntries: Bool, historyLoaded: Bool) -> LogEmptyState {
+    ///   - historyReadFailed: the last history read failed (`LogHistoryState.failed`). Deliberately
+    ///     has NO default: it is the difference between "there is history to load" and "the file
+    ///     couldn't be read", and a caller that omitted it would silently re-print the contradiction
+    ///     `.historyUnavailable` exists to end.
+    static func classify(hasVisibleRows: Bool,
+                         hasRawEntries: Bool,
+                         historyLoaded: Bool,
+                         historyReadFailed: Bool) -> LogEmptyState {
         if hasVisibleRows { return .none }
         if hasRawEntries { return .noMatches }
-        return historyLoaded ? .noEarlierActivity : .noActivity
+        if historyLoaded { return .noEarlierActivity }
+        return historyReadFailed ? .historyUnavailable : .noActivity
     }
 
     /// Whether the history FOOTER should add its own "No earlier activity in the log" note.
@@ -165,6 +183,21 @@ enum LogEmptyState: Equatable {
     static func footerNotesNoEarlierActivity(historyIsEmpty: Bool, emptyState: LogEmptyState) -> Bool {
         historyIsEmpty && emptyState != .noEarlierActivity
     }
+
+    /// Whether the history FOOTER should add its own "Couldn't read the log file" note.
+    ///
+    /// The same yield rule as ``footerNotesNoEarlierActivity(historyIsEmpty:emptyState:)`` and for
+    /// the same reason: once `.historyUnavailable` renders, the failed read is already stated —
+    /// more fully, and in the place the eye lands first — so repeating it in the footer is the
+    /// double-render again. The retry BUTTON is unaffected; it is an action, not a second telling,
+    /// and the empty state's message points at it by name.
+    ///
+    /// It still speaks whenever the empty state is saying something else — most importantly when
+    /// the session DID log something, where no empty state renders at all and this note is the only
+    /// word on why the earlier history isn't there.
+    static func footerNotesUnreadableHistory(emptyState: LogEmptyState) -> Bool {
+        emptyState != .historyUnavailable
+    }
 }
 
 /// Everything the Activity Log's list and chip row derive from the session entries plus the history
@@ -180,6 +213,15 @@ enum LogEmptyState: Equatable {
 /// counts now means handing this a different history than the rows are drawn from, which no longer
 /// fits through the API: there is one `history` parameter, and emptying it empties the visible rows
 /// too — a change that is loud on screen instead of silent.
+///
+/// It really is a pure value — nonisolated, constructible from anywhere. That is not free: every
+/// helper it reaches has to be nonisolated too, and `LogViewer.thresholdCounts` is a static on a
+/// SwiftUI `View`, which SwiftUI isolates to the main actor along with the rest of the type.
+/// Calling one of those from off-actor SIGTRAPs at runtime while compiling with only a warning, so
+/// constructing this inside a `Task.detached` crashed. The counting is `nonisolated` for that
+/// reason; keep any future helper this init reaches the same way, or move the work behind the
+/// actor and mark the whole type `@MainActor` — what must not happen again is a nonisolated init
+/// over main-actor-isolated work.
 struct LogViewerContents {
     /// Session entries after the level/search filter, newest-first — the main list.
     let sessionRows: [LogEntry]
@@ -222,7 +264,8 @@ struct LogViewerContents {
         emptyState = LogEmptyState.classify(
             hasVisibleRows: !(sessionRows.isEmpty && visibleHistory.isEmpty),
             hasRawEntries: !session.isEmpty || !(loadedHistory?.isEmpty ?? true),
-            historyLoaded: history.isLoaded
+            historyLoaded: history.isLoaded,
+            historyReadFailed: history.readFailed
         )
     }
 }
@@ -291,7 +334,11 @@ public struct LogViewer: View {
 
     /// Menu options for the severity threshold. Debug is omitted as its own row because
     /// "Debug & above" is identical to "All Levels".
-    private static let levelOptions: [(label: String, level: LogLevel?)] = [
+    ///
+    /// `nonisolated` for the same reason `thresholdCounts` is: the tally walks this list, and a
+    /// main-actor-isolated static read from a nonisolated context is exactly the trap that function
+    /// exists to stay out of. The value is an immutable `Sendable` table, so nothing is given up.
+    private nonisolated static let levelOptions: [(label: String, level: LogLevel?)] = [
         ("All Levels", nil),
         ("Info & above", .info),
         ("Warnings & above", .warning),
@@ -320,7 +367,15 @@ public struct LogViewer: View {
     // Internal, not private: `LogLevelChipCountTests` pins the session+history tally directly. It is
     // reached from `body` only through `LogViewerContents`, which is what decides — from the history
     // STATE — which entries are counted; this function just adds up whatever it is handed.
-    static func thresholdCounts(session: [LogEntry], history: [LogEntry]) -> [LogLevel?: Int] {
+    //
+    // `nonisolated` is load-bearing, not tidiness. `LogViewer` is a `View`, so SwiftUI isolates the
+    // whole type — including its statics — to the main actor, and a static on a `View` called from
+    // off-actor SIGTRAPs at runtime with nothing but a warning at compile time. `LogViewerContents`
+    // is documented as (and used as) a pure value with a nonisolated `init`, so it reaches this from
+    // exactly such a context: constructing one inside `Task.detached` trapped. Nothing here needs
+    // the actor — it is arithmetic over two arrays — so the counting is declared for what it is
+    // rather than the value being pinned to the main actor to match the arithmetic's accident.
+    nonisolated static func thresholdCounts(session: [LogEntry], history: [LogEntry]) -> [LogLevel?: Int] {
         var perLevel: [LogLevel: Int] = [:]
         for e in session { perLevel[e.level, default: 0] += 1 }
         for e in history { perLevel[e.level, default: 0] += 1 }
@@ -727,7 +782,13 @@ public struct LogViewer: View {
             // A failed read is NOT "nothing older" (see `LogHistoryState.failed`): say what
             // happened, and keep the same button so the user can simply try again — an unreadable
             // log is usually a torn write that the next read gets past.
-            historyEndNote("Couldn't read the log file — earlier activity is unavailable")
+            //
+            // The note yields to `.historyUnavailable` when the empty state above is already
+            // carrying the same fact (a quiet session); the button is not a telling and always
+            // stays. See `footerNotesUnreadableHistory`.
+            if LogEmptyState.footerNotesUnreadableHistory(emptyState: emptyState) {
+                historyEndNote("Couldn't read the log file — earlier activity is unavailable")
+            }
             historyActionButton("Show older history", icon: "clock.arrow.circlepath") { loadHistory() }
         } else {
             historyActionButton("Show older history", icon: "clock.arrow.circlepath",
@@ -817,6 +878,15 @@ public struct LogViewer: View {
                 icon: "list.bullet.rectangle",
                 title: "No activity yet",
                 message: "Every scan, copy, move and delete is recorded here as it happens. This session is quiet so far — use “Show older history” below to load what earlier sessions recorded."
+            )
+        case .historyUnavailable:
+            // Quiet session AND the read failed. Says the failure once, in the fuller of the two
+            // places (the footer's note yields), and names the button as a RETRY rather than as an
+            // offer to load history the app has just failed to read.
+            EmptyStateView(
+                icon: "exclamationmark.triangle",
+                title: "No activity recorded",
+                message: "This session is quiet so far, and the log file couldn’t be read — earlier activity is unavailable. Scans, copies, moves and deletes appear here as they happen; “Show older history” below tries the file again."
             )
         }
     }

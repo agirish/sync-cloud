@@ -94,6 +94,14 @@ public final class SyncHistoryStore: ObservableObject {
 
     /// Appends one record to memory and disk. Never throws — a failed encode is dropped (and
     /// reported to the Activity Log) so the caller's file operation is never affected.
+    ///
+    /// This is a batch of one, and ``appendBatch(_:)``'s "announced once per batch, never once per
+    /// record" is therefore a per-CALL guarantee: recording a run of N files through N calls to
+    /// this method gets N drop reports, which is exactly the log-line-per-file the batch rule was
+    /// written to prevent. A bulk caller must hand the run to `appendBatch` in one call — which is
+    /// what the only production caller does, and why this is a documentation rule rather than a
+    /// live defect. Coalescing across calls is the alternative, and it would mean holding a report
+    /// back on a timer for a store whose whole contract is that recording never delays anything.
     public func append(_ record: SyncHistoryRecord) {
         appendBatch([record])
     }
@@ -109,7 +117,8 @@ public final class SyncHistoryStore: ObservableObject {
         // A record that cannot be encoded is still dropped from the file rather than failing the
         // caller's operation — but it is COUNTED and announced once per batch afterwards, never
         // once per record: a batch is one user gesture, and a systematic encode failure would
-        // otherwise emit a log line per file in a bulk run.
+        // otherwise emit a log line per file in a bulk run. "Per batch" means per CALL — see
+        // `append(_:)`, which is a batch of one and reports like one.
         var dropped: [SyncHistoryRecord] = []
         for record in newRecords {
             guard let line = Self.encode(record) else {

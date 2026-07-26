@@ -70,7 +70,11 @@ public final class IgnoredItemsStore: ObservableObject {
             // looked durable and silently vanished on relaunch. Nothing else reports this: the
             // caller gets no return value and no error, and the visible state is indistinguishable
             // from a successful save. Say so in the log so the disappearance is explainable.
-            Logger.shared.warning("Ignored items: \(rootRelativePaths.count) ignore(s) were not persisted — no provider pair is active yet, so this edit is session-only")
+            // Deliberately does NOT quote a count: `rootRelativePaths` is the post-mutation set, so
+            // it describes the whole session rather than this edit — and after a `remove`/`removeAll`
+            // it would read "0 ignore(s) were not persisted", which says the opposite of what
+            // happened.
+            Logger.shared.warning("Ignored items: this change was not persisted — no provider pair is active yet, so it is session-only and will be gone on relaunch")
             return
         }
         if rootRelativePaths.isEmpty {

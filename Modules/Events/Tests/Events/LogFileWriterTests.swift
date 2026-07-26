@@ -222,6 +222,36 @@ import Foundation
         #expect(contents.contains("after clear"))
     }
 
+    /// Characterization of an accepted side effect, so nobody "fixes" it silently and nobody
+    /// re-discovers it as a bug.
+    ///
+    /// `clear()` now runs `reopenHandleIfStale()` first (see the test below for why), and that
+    /// helper recreates a missing file. So clearing a log that was DELETED out from under the
+    /// writer leaves an empty file where the old code left the path absent. Benign, and where it
+    /// shows at all it is an improvement — see `LogFileWriter.clear()`'s own comment for the
+    /// case-by-case. `SyncHistoryStore.clear()` inherits the same behaviour through the same writer.
+    @Test func testClearRecreatesADeletedLogAsAnEmptyFile() throws {
+        let url = makeTempURL()
+        defer { cleanup(url) }
+
+        let writer = LogFileWriter(url: url)
+        writer.append("first line\n")
+        writer.flush()
+
+        try FileManager.default.removeItem(at: url)
+        writer.clear()
+        writer.flush()
+
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(try String(contentsOf: url, encoding: .utf8).isEmpty)
+
+        // The point of reopening: the handle is the live file's, so later lines land where a reader
+        // will find them rather than in the orphaned inode.
+        writer.append("after clear\n")
+        writer.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "after clear\n")
+    }
+
     /// The `clear()` counterpart of `testAppendsLandInCurrentFileAfterExternalAtomicReplacement`.
     ///
     /// `clear()` used to truncate through the open handle with no staleness check, unlike

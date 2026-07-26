@@ -5,12 +5,6 @@ import Events
 import FoundationModels
 #endif
 
-/// On-device intelligent Filing backend (the on-device half of the hybrid). Uses Apple's
-/// Foundation Models — the ~3B on-device Apple Intelligence model — to *reason* about the user's
-/// folder taxonomy and each file's name/contents and pick a home, instead of keyword overlap.
-///
-/// Everything stays on the Mac; nothing is sent anywhere. On macOS < 26 or a Mac without Apple
-/// Intelligence, `classify` returns no verdicts and Filing falls back to the keyword engine.
 /// Which backend the hybrid Filing classifier runs a scan on, and — for the one case where the
 /// user's expectation and the reality diverge — whether that divergence has to be reported.
 enum FilingBackendRoute: Equatable {
@@ -39,13 +33,20 @@ enum FilingBackendRouter {
     /// Resolves the backend, reporting the silent downgrade through `logDowngrade` (which defaults
     /// to a real `Logger.shared` warning; tests inject a recorder so the pin doesn't depend on the
     /// process-wide log gate).
+    ///
+    /// `hasCloudKey` is an `@autoclosure` so that answering it stays as lazy as the `if` this
+    /// routing replaced. The real argument is `AnthropicKeychain.hasKey`, a live Keychain query:
+    /// evaluated eagerly it ran on EVERY Filing scan, including the common case where the user has
+    /// cloud Filing switched off — and against a locked or denied item that query logs a warning
+    /// and can raise an access prompt for a feature they deliberately disabled. The cloud toggle
+    /// is the gate; nothing may ask about the key before it says yes.
     static func route(
         cloudEnabled: Bool,
-        hasCloudKey: Bool,
+        hasCloudKey: @autoclosure () -> Bool,
         logDowngrade: (String) -> Void = { _ = Logger.shared.warning($0) }
     ) -> FilingBackendRoute {
         guard cloudEnabled else { return .onDevice }
-        guard hasCloudKey else {
+        guard hasCloudKey() else {
             logDowngrade(missingKeyDowngradeMessage)
             return .onDeviceCloudKeyUnavailable
         }
@@ -53,6 +54,12 @@ enum FilingBackendRouter {
     }
 }
 
+/// On-device intelligent Filing backend (the on-device half of the hybrid). Uses Apple's
+/// Foundation Models — the ~3B on-device Apple Intelligence model — to *reason* about the user's
+/// folder taxonomy and each file's name/contents and pick a home, instead of keyword overlap.
+///
+/// Everything stays on the Mac; nothing is sent anywhere. On macOS < 26 or a Mac without Apple
+/// Intelligence, `classify` returns no verdicts and Filing falls back to the keyword engine.
 enum OnDeviceFilingClassifier {
 
     /// Cap on files classified per scan, so a huge loose folder can't spin the model for minutes.

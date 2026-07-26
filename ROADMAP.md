@@ -1,6 +1,6 @@
 # SyncCloud — Feature Roadmap
 
-A prioritized list of high-impact features to add to SyncCloud, based on the current codebase (two-pane file sync, provider sidebar, diff-by-date/size, copy/move/delete, undo, bulk sync).
+A prioritized list of high-impact features to add to SyncCloud, based on the current codebase (two-pane file sync, per-pane provider menus, diff-by-date/size, copy/move/delete, undo, bulk sync).
 
 Items 1–10 are the original list. **Status was re-checked against the code on 2026-07-25** — four
 of them have shipped in whole or in part since, and the per-item notes below say what actually
@@ -44,7 +44,7 @@ on-disk index.
 
 **Why:** Users repeatedly pick the same left/right provider and paths. No way to name or quick-switch pairs.
 
-**What:** In Settings (or a dedicated "Presets" section), allow saving current left + right provider and relative paths as a named preset. In the provider sidebar or toolbar, add a dropdown or list to load a preset (sets `leftProviderId`, `rightProviderId`, and focal paths). Persist presets in `UserDefaults` or a small JSON file.
+**What:** In Settings (or a dedicated "Presets" section), allow saving current left + right provider and relative paths as a named preset. In a pane header's provider menu or the toolbar, add a dropdown or list to load a preset (sets `leftProviderId`, `rightProviderId`, and focal paths). Persist presets in `UserDefaults` or a small JSON file.
 
 **Impact:** Faster workflow for recurring sync tasks (e.g. "Documents: iCloud ↔ OneDrive").
 

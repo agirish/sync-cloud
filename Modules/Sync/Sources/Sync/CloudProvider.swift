@@ -62,10 +62,26 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
     /// to somewhere outside CloudStorage contributes only its own root, which is the whole of what
     /// is known about it.
     private static func claimRoots(of provider: CloudProvider) -> [String] {
-        var roots = [provider.path]
         let components = URL(fileURLWithPath: provider.path).standardizedFileURL.pathComponents
-        if let index = components.firstIndex(of: "CloudStorage"), index + 1 < components.count {
-            roots.append(NSString.path(withComponents: Array(components[0...(index + 1)])))
+        // A provider's Location is user-settable to ANY folder, and a claim is not a harmless label:
+        // it decides whether a path-addressed CLI root inherits that provider's name rules, which
+        // decides whether files are silently skipped. Someone who points a provider at their home
+        // folder must not thereby give every local folder OneDrive's reserved-name rules — so a root
+        // that is too shallow to be a real provider folder claims nothing beyond itself. Three
+        // components is `/Users/<me>`; a genuine provider root is always deeper.
+        guard components.count > 3 else { return [] }
+        var roots = [provider.path]
+        // Widen to the CloudStorage ACCOUNT folder, so a sibling of the discovered root
+        // (`.../OneDrive-X/Photos` next to `.../OneDrive-X/Documents`) resolves to the same account.
+        // Anchored on `Library/CloudStorage` specifically, and on the LAST such pair: matching a
+        // bare "CloudStorage" component anywhere claimed unrelated trees for anyone who happens to
+        // keep a folder by that name.
+        for index in components.indices.dropLast().reversed()
+        where components[index] == "Library" && components[index + 1] == "CloudStorage" {
+            let accountIndex = index + 2
+            guard accountIndex < components.count else { break }
+            roots.append(NSString.path(withComponents: Array(components[0...accountIndex])))
+            break
         }
         return roots
     }

@@ -911,4 +911,108 @@ import Testing
                                reclaimableBytes: 100)
         #expect(g.removingRedundantCopy(atPath: "/nope")! == g)
     }
+
+
+    // MARK: Folder-keeper protection must not distort the groups it protects
+
+    @Test func versionsStillKeepTheNewestWhenAProtectedFileIsInTheCluster() {
+        // Protection originally chose the keeper from the PROTECTED subset using the pass's own
+        // rule. For versions that rule is "newest", and the card says so out loud ("Keep newest,
+        // Trash older") — so picking the newest of a subset silently inverted the promise: the
+        // keeper became an older file inside the kept folder and the genuinely newest copy was
+        // recommended for the Trash. The keeper is now the real newest; protection only removes
+        // protected files from the removable side.
+        //
+        // Three marker bearers in three folders, which is what pools them into ONE cluster.
+        let oldest = Date(timeIntervalSince1970: 100_000_000)
+        let middle = Date(timeIntervalSince1970: 500_000_000)
+        let newest = Date(timeIntervalSince1970: 1_700_000_000)
+        let f1 = dir("/root/Docs/F1", [
+            file("/root/Docs/F1/report copy 2.pdf", size: 8192, modified: middle),
+            file("/root/Docs/F1/keep.txt", size: 9000),
+        ])
+        let f2 = dir("/root/Archive/F1", [
+            file("/root/Archive/F1/report copy 2.pdf", size: 8192, modified: middle),
+            file("/root/Archive/F1/keep.txt", size: 9000),
+        ])
+        let work = dir("/root/Work", [file("/root/Work/report copy.pdf", size: 8192, modified: newest)])
+        let beta = dir("/root/Beta", [file("/root/Beta/report copy 3.pdf", size: 8192, modified: oldest)])
+        let hashes = [
+            "/root/Docs/F1/report copy 2.pdf": "HV1", "/root/Docs/F1/keep.txt": "HK",
+            "/root/Archive/F1/report copy 2.pdf": "HV1", "/root/Archive/F1/keep.txt": "HK",
+            "/root/Work/report copy.pdf": "HV2",
+            "/root/Beta/report copy 3.pdf": "HV3",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: [f1, f2, work, beta], fileHashes: hashes)
+
+        let versions = groups.first { $0.matchType == .versions }
+        #expect(versions?.keeper.path == "/root/Work/report copy.pdf", "the keeper must be the real newest")
+        let removals = groups.flatMap { $0.recommendedRemovalPaths }
+        #expect(!removals.contains("/root/Work/report copy.pdf"),
+                "the newest file must never be recommended for removal")
+        #expect(!removals.contains { $0.hasPrefix("/root/Docs/F1/") })
+    }
+
+    @Test func aFileDroppedByProtectionDoesNotReappearAsAVersion() {
+        // The identical pass marks what it has accounted for so the versions pass skips it. It was
+        // marking only the copies that SURVIVED protection, so a protected file dropped from an
+        // identical group became eligible again and resurfaced in a versions group the identical
+        // pass had always suppressed.
+        //
+        // Dates make the NON-marker file the identical group's keeper, so the marker bearer is the
+        // one protection drops — the member that can go on to form a version cluster.
+        let newer = Date(timeIntervalSince1970: 1_700_000_000)
+        let older = Date(timeIntervalSince1970: 100_000_000)
+        let f1 = dir("/root/Docs/F1", [
+            file("/root/Docs/F1/report.pdf", size: 8192, modified: newer),
+            file("/root/Docs/F1/report copy.pdf", size: 8192, modified: older),
+        ])
+        let f2 = dir("/root/Archive/F1", [
+            file("/root/Archive/F1/report.pdf", size: 8192, modified: newer),
+            file("/root/Archive/F1/report copy.pdf", size: 8192, modified: older),
+        ])
+        let alpha = dir("/root/Alpha", [file("/root/Alpha/report.pdf", size: 8192, modified: older)])
+        let other = dir("/root/Other", [file("/root/Other/report copy 2.pdf", size: 8192, modified: older)])
+        let hashes = [
+            "/root/Docs/F1/report.pdf": "HA", "/root/Docs/F1/report copy.pdf": "HA",
+            "/root/Archive/F1/report.pdf": "HA", "/root/Archive/F1/report copy.pdf": "HA",
+            "/root/Alpha/report.pdf": "HA",
+            "/root/Other/report copy 2.pdf": "HB",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: [f1, f2, alpha, other], fileHashes: hashes)
+
+        #expect(!groups.contains { $0.matchType == .versions },
+                "a file the identical pass accounted for must not resurface as a version")
+        #expect(!groups.flatMap { $0.recommendedRemovalPaths }.contains { $0.hasPrefix("/root/Docs/F1/") })
+    }
+
+    @Test func reAimingTheKeeperCannotPutAProtectedFileBackOnTheRemovalList() {
+        // The invariant used to last exactly as long as the DEFAULT keeper: `choosingKeeper`
+        // relabels copies by id alone, so one click on the other copy put the kept folder's own
+        // file straight back onto the removal list.
+        let f1 = dir("/root/Docs/Sub/F1", [
+            file("/root/Docs/Sub/F1/a.txt", size: 8192),
+            file("/root/Docs/Sub/F1/b.txt", size: 9000),
+        ])
+        let f2 = dir("/root/Archive/Sub/F1", [
+            file("/root/Archive/Sub/F1/a.txt", size: 8192),
+            file("/root/Archive/Sub/F1/b.txt", size: 9000),
+        ])
+        let alpha = dir("/root/Alpha", [file("/root/Alpha/a.txt", size: 8192), file("/root/Alpha/x.txt", size: 8192)])
+        let hashes = [
+            "/root/Docs/Sub/F1/a.txt": "HA", "/root/Docs/Sub/F1/b.txt": "HB",
+            "/root/Archive/Sub/F1/a.txt": "HA", "/root/Archive/Sub/F1/b.txt": "HB",
+            "/root/Alpha/a.txt": "HA", "/root/Alpha/x.txt": "HX",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: [f1, f2, alpha], fileHashes: hashes)
+        let fileGroup = groups.first { !$0.isDirectory && $0.name == "a.txt" }
+        let reAimed = fileGroup?.choosingKeeper("/root/Alpha/a.txt")
+
+        #expect(reAimed?.keeper.path == "/root/Alpha/a.txt", "the user's choice is still honoured")
+        #expect(reAimed?.recommendedRemovalPaths == [],
+                "but the kept folder's file is still not offered for removal")
+    }
 }

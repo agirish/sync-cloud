@@ -74,24 +74,55 @@ import Events
 
     @Test func testEmptyStateVisibleRowsWinRegardlessOfSource() {
         // Any visible rows (session or history) → no empty state.
-        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false) == .none)
-        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: false, historyLoaded: true) == .none)
+        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false,
+                                       historyReadFailed: false) == .none)
+        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: false, historyLoaded: true,
+                                       historyReadFailed: false) == .none)
     }
 
     @Test func testEmptyStateFilteredOutIsNoMatches() {
         // Raw entries exist (this session and/or loaded history) but the filters hide them all.
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false) == .noMatches)
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: true) == .noMatches)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false,
+                                       historyReadFailed: false) == .noMatches)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: true,
+                                       historyReadFailed: false) == .noMatches)
     }
 
     @Test func testEmptyStateQuietSessionOffersHistory() {
         // Nothing this session and history not loaded yet → the explain-and-offer-history state.
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false) == .noActivity)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
+                                       historyReadFailed: false) == .noActivity)
     }
 
     @Test func testEmptyStateHistoryLoadedButEmptyIsNoEarlierActivity() {
         // History was loaded and the log holds nothing older → the honest end state, not "load it".
-        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true) == .noEarlierActivity)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
+                                       historyReadFailed: false) == .noEarlierActivity)
+    }
+
+    @Test func testEmptyStateSaysTheHistoryIsUnavailableRatherThanOfferingIt() {
+        // The contradiction this case ends: a failed read classified as `.noActivity`, whose
+        // message finishes "use ‘Show older history’ below to load what earlier sessions recorded"
+        // — rendered directly above the footer's "Couldn't read the log file — earlier activity is
+        // unavailable". One quiet session, two opposite claims about the same file.
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: false,
+                                       historyReadFailed: true) == .historyUnavailable)
+    }
+
+    @Test func testALoadedHistoryOutranksAStaleFailureFlag() {
+        // A retry that succeeded leaves the state loaded; the earlier failure must not still be
+        // deciding the wording. (`LogHistoryState` cannot be both, but classify takes two Bools.)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: false, historyLoaded: true,
+                                       historyReadFailed: true) == .noEarlierActivity)
+    }
+
+    @Test func testAFailedReadWithRowsOnScreenIsStillNoEmptyStateAtAll() {
+        // The failure only reaches the empty state when there is nothing else to show: a session
+        // that logged something renders rows, and the footer's note is then the only word on it.
+        #expect(LogEmptyState.classify(hasVisibleRows: true, hasRawEntries: true, historyLoaded: false,
+                                       historyReadFailed: true) == .none)
+        #expect(LogEmptyState.classify(hasVisibleRows: false, hasRawEntries: true, historyLoaded: false,
+                                       historyReadFailed: true) == .noMatches)
     }
 
     // MARK: The footer's "No earlier activity" note vs. the empty state
@@ -109,6 +140,21 @@ import Events
         // (.noMatches), whose empty state talks about filters, not about earlier sessions.
         #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .none))
         #expect(LogEmptyState.footerNotesNoEarlierActivity(historyIsEmpty: true, emptyState: .noMatches))
+    }
+
+    @Test func testFooterDropsItsUnreadableNoteWhenTheEmptyStateCarriesIt() {
+        // Same yield rule as the "No earlier activity" pair above, for the failed read: the empty
+        // state states it more fully and higher up, so the footer keeps only its retry button.
+        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .historyUnavailable) == false)
+    }
+
+    @Test func testFooterStillReportsAnUnreadableLogWhenTheEmptyStateIsSayingSomethingElse() {
+        // A session that DID log something renders no empty state, so this note is the only word
+        // on why the earlier history is missing — and a filtered-out session's empty state talks
+        // about filters, not about the file.
+        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .none))
+        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noMatches))
+        #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: .noActivity))
     }
 
     @Test func testFooterNeverNotesAnythingWhenHistoryIsNotEmpty() {
@@ -283,8 +329,50 @@ import Events
         @Test func aFailedReadIsNotAnEmptyHistory() {
             // `.failed` must not read as "loaded, and there is nothing older" — the footer says
             // different things, and the empty state is one of them.
-            #expect(contents(history: .failed).emptyState == .noActivity)
+            //
+            // It used to land on `.noActivity`, which is the OTHER thing it is not: that state's
+            // message offers "Show older history" as the way to load what earlier sessions
+            // recorded, immediately above the footer saying the file couldn't be read. The state
+            // now names the failure, and the footer's duplicate note yields to it.
+            #expect(contents(history: .failed).emptyState == .historyUnavailable)
             #expect(contents(history: .failed).visibleHistory.isEmpty)
+            #expect(LogEmptyState.footerNotesUnreadableHistory(
+                emptyState: contents(history: .failed).emptyState) == false)
         }
+
+        @Test func aFailedReadUnderAChattySessionLeavesTheFooterToSpeak() {
+            // With rows on screen there is no empty state to carry the failure, so the footer's
+            // note must survive — the yield above must not have silenced it everywhere.
+            let shown = contents(session: [entry(.info, "did something")], history: .failed)
+            #expect(shown.emptyState == .none)
+            #expect(LogEmptyState.footerNotesUnreadableHistory(emptyState: shown.emptyState))
+        }
+    }
+
+    // MARK: Isolation
+
+    /// `LogViewerContents` is documented as a pure value with a nonisolated `init`, and this pins
+    /// that the documentation is TRUE — the type is constructible from off the main actor.
+    ///
+    /// It was not. The init reached `LogViewer.thresholdCounts`, a static on a SwiftUI `View`,
+    /// which SwiftUI isolates to the main actor along with the rest of the type; calling one of
+    /// those off-actor SIGTRAPs at runtime while the compiler emits only a warning. So this test
+    /// does not fail when the guarantee breaks — it CRASHES the test host, which is the same signal
+    /// the app would give, and the reason the constraint now lives in the declaration.
+    ///
+    /// Deliberately NOT `@MainActor` (the suite it sits in is not either): a main-actor test would
+    /// hop the detached work straight back to where the bug hides.
+    @Test func theDerivedContentsCanBeBuiltOffTheMainActor() async {
+        let session = [LogEntry(level: .error, message: "boom")]
+        let history = LogHistoryState.loaded(
+            entries: [LogEntry(level: .warning, message: "earlier")], revealed: 25)
+
+        let total = await Task.detached {
+            LogViewerContents(session: session, history: history, minimumLevel: nil,
+                              search: "", pageSize: 25).levelCounts[nil] ?? -1
+        }.value
+
+        // The value is real, not just non-crashing: one session error plus one history warning.
+        #expect(total == 2)
     }
 }

@@ -17,8 +17,15 @@ import FileExplorer
 /// - teardown-with-restore vs drop-without-restore reach the right execution effects.
 @MainActor
 private final class Harness {
-    let syncManager = FileSyncManager()
+    let syncManager: FileSyncManager
     let reviewStore = ReviewSessionStore()
+
+    /// The injected `FileManaging` reaches only the manager's own stats — `deleteItems` takes its
+    /// own (defaulted) file manager — so a test can hold the keeper stat open without stubbing out
+    /// the trash itself.
+    init(fileManager: FileManaging = FileManager.default) {
+        syncManager = FileSyncManager(fileManager: fileManager)
+    }
 
     var duplicateReview: DuplicateCompareContext?
     var leftId = "icloud"
@@ -101,6 +108,52 @@ private final class Harness {
         rightId = leftId
         return review
     }
+}
+
+/// A `FileManager` that parks `attributesOfItem` for one chosen path until the test releases it.
+///
+/// `trashRightCopy` stats the keeper OFF the main actor precisely because that call can block for
+/// seconds against an unmounted cloud or SMB volume. That is also the whole hazard: seconds of
+/// window in which the user can act. Holding the stat open here reproduces the slow volume
+/// deterministically, so the window can be DRIVEN rather than raced — a `Task.sleep` long enough
+/// to hit it reliably would also be long enough to be a flake on a loaded runner.
+private final class GatedKeeperStat: FileManager, @unchecked Sendable {
+    private let heldPath: String
+    private let lock = NSLock()
+    private let released = DispatchSemaphore(value: 0)
+    private var _isStatting = false
+
+    init(holding path: String) {
+        self.heldPath = path
+        super.init()
+    }
+
+    /// True once the stat for the held path has actually begun — the proof that the trash task is
+    /// parked at its one suspension, so whatever the test does next lands inside that window.
+    var isStatting: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _isStatting
+    }
+
+    /// Lets the parked stat finish, as the volume finally answering would.
+    func release() { released.signal() }
+
+    override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
+        guard path == heldPath else { return try super.attributesOfItem(atPath: path) }
+        lock.lock(); _isStatting = true; lock.unlock()
+        released.wait()
+        return try super.attributesOfItem(atPath: path)
+    }
+}
+
+/// Lets an in-flight trash task run as far as it is ever going to, for the assertions that must
+/// hold when the RIGHT answer is "nothing happened". `waitUntil` can't state that — it waits for
+/// an outcome, and the outcome here must never arrive — so this yields the main actor long enough
+/// for the alternative to have landed instead. The budget is deliberately generous: measured with
+/// the fix mutated out, the whole wrong outcome (trash, teardown, restore, tab switch) lands
+/// inside 100ms — a twentieth of the 2s waited here.
+private func settleTheTrashTask() async {
+    for _ in 0..<100 { try? await Task.sleep(nanoseconds: 20_000_000) }
 }
 
 @MainActor
@@ -408,6 +461,87 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")
+    }
+
+    // MARK: trashRightCopy — the user-interaction window the keeper stat opens
+
+    /// Moving the keeper stat off the main actor (so an unmounted cloud volume can't beachball the
+    /// window on a button click) put a suspension where the code had none — and that suspension is
+    /// seconds long on exactly the volumes it was added for. The Duplicates list is one tab away
+    /// the whole time, so the user can compare a DIFFERENT pair while the stat is out. Resuming
+    /// blind then trashes a copy they are no longer looking at, and worse, `.rightCopyTrashed`
+    /// tears down the review that replaced this one and replays THIS review's saved compare state
+    /// over the new pair's panes. The trash must be abandoned instead.
+    @Test func aReviewReplacedWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-race-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["Docs", "Backup/Docs", "Photos", "Old/Photos"] {
+            let dir = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: dir.appendingPathComponent("a.txt"))
+        }
+
+        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
+        let harness = Harness(fileManager: stat)
+        harness.tidyProviderRoot = root.path
+        harness.tab = .differences
+        harness.trashConfirmAnswer = true
+        let first = harness.installReview()   // Docs (keep) ↔ Backup/Docs (delete candidate)
+
+        harness.coordinator.trashRightCopy(first)
+        await waitUntil("the keeper stat is in flight") { stat.isStatting }
+
+        // Inside that window: back to Tidy, compare another pair. The review the trash was
+        // authorized for is no longer the one on screen.
+        let second = harness.installReview(keepRel: "Photos", deleteRel: "Old/Photos")
+        stat.release()
+        await settleTheTrashTask()
+
+        // The copy the confirmation named is still on disk — nothing was trashed…
+        #expect(FileManager.default.fileExists(atPath: first.deletePath))
+        // …the review the user IS looking at survived intact…
+        #expect(harness.duplicateReview == second)
+        // …and the superseded review's compare state was never replayed over it.
+        #expect(harness.appliedPlans.isEmpty)
+        #expect(harness.tab == .differences)
+    }
+
+    /// The same window, entered through the other control that sits in it: "Done" is rendered
+    /// directly beside the destructive button, so it is one stray click away during the whole stat.
+    /// A trash that resumes afterwards deletes a copy for a review that no longer exists, and drags
+    /// the user back to Tidy from wherever they went.
+    @Test func endingTheReviewWhileTheKeeperStatIsInFlightCancelsTheTrash() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dup-review-done-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["Docs", "Backup/Docs"] {
+            let dir = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Data("x".utf8).write(to: dir.appendingPathComponent("a.txt"))
+        }
+
+        let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
+        let harness = Harness(fileManager: stat)
+        harness.tidyProviderRoot = root.path
+        harness.tab = .differences
+        harness.trashConfirmAnswer = true
+        let review = harness.installReview()
+
+        harness.coordinator.trashRightCopy(review)
+        await waitUntil("the keeper stat is in flight") { stat.isStatting }
+
+        // "Done" while the stat is out: the review is torn down and the pre-review Compare setup
+        // restored — one pin plan, and it must stay one.
+        harness.coordinator.endDuplicateReview()
+        #expect(harness.duplicateReview == nil)
+        stat.release()
+        await settleTheTrashTask()
+
+        #expect(FileManager.default.fileExists(atPath: review.deletePath))
+        #expect(harness.duplicateReview == nil)
+        #expect(harness.appliedPlans.count == 1, "only Done's own restore ran")
+        #expect(harness.tab == .differences, "an abandoned trash must not yank the user back to Tidy")
     }
 
     // MARK: dispatchReview — returning to Compare mid-review

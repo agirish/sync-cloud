@@ -104,6 +104,108 @@ import Foundation
         #expect(collector.reasons.count == 1)
     }
 
+    // MARK: The latch re-arms
+
+    /// A directory that a test creates and removes to switch the writer's disk on and off. Removing
+    /// the directory orphans the open handle AND denies the fallback's atomic write, so every write
+    /// path fails; recreating it lets the writer self-heal on its next append.
+    private func makeSwitchableLogURL() -> (directory: URL, log: URL) {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("LogRearm-\(UUID().uuidString)")
+        return (directory, directory.appendingPathComponent("app.log"))
+    }
+
+    @Test func testTheFailureReportRearmsOnceWritingRecovers() throws {
+        let (directory, url) = makeSwitchableLogURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let failures = FailureCollector()
+        let recoveries = FailureCollector()
+        let writer = LogFileWriter(url: url,
+                                   onWriteFailure: { failures.record($0) },
+                                   onWriteRecovered: { recoveries.record("recovered") })
+
+        // Broken: no directory, so neither the handle nor the fallback can write.
+        writer.append("lost\n")
+        writer.flush()
+        #expect(failures.reasons.count == 1)
+        #expect(recoveries.reasons.isEmpty)
+
+        // Healed.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        writer.append("kept\n")
+        writer.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("kept"))
+        #expect(recoveries.reasons.count == 1)
+
+        // Broken again. THE regression: under a never-resetting one-shot this second failure was
+        // silent — and the first notice is in memory only, so by then the 1000-entry cap or a Clear
+        // Logs may well have taken it, leaving nothing anywhere saying the log stopped growing.
+        try FileManager.default.removeItem(at: directory)
+        writer.append("lost again\n")
+        writer.flush()
+        #expect(failures.reasons.count == 2)
+
+        // Still rate-limited WITHIN a failure run: the whole point of the latch survives.
+        writer.append("lost too\n")
+        writer.append("and again\n")
+        writer.flush()
+        #expect(failures.reasons.count == 2)
+        #expect(recoveries.reasons.count == 1)
+    }
+
+    @Test func testClearRearmsTheFailureReportWithoutClaimingARecovery() throws {
+        let (directory, url) = makeSwitchableLogURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let failures = FailureCollector()
+        let recoveries = FailureCollector()
+        let writer = LogFileWriter(url: url,
+                                   onWriteFailure: { failures.record($0) },
+                                   onWriteRecovered: { recoveries.record("recovered") })
+        writer.append("healthy\n")
+        writer.flush()
+
+        // Break it, take the one report, then heal it and CLEAR — the app's Clear Logs, which
+        // deletes the in-memory notice along with everything else in the window.
+        try FileManager.default.removeItem(at: directory)
+        writer.append("lost\n")
+        writer.flush()
+        #expect(failures.reasons.count == 1)
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        writer.clear()
+        writer.flush()
+        // A successful truncate is not evidence the lines will land, and the notice a recovery
+        // would pair with has just been deleted — so the clear re-arms silently.
+        #expect(recoveries.reasons.isEmpty)
+
+        // Break it again: the report the clear re-armed must fire, or the window can never say
+        // again that the log it is showing is no longer being written.
+        try FileManager.default.removeItem(at: directory)
+        writer.append("lost after clear\n")
+        writer.flush()
+        #expect(failures.reasons.count == 2)
+    }
+
+    @Test func testAFailedClearIsReportedThroughTheSameSignal() {
+        // `clear()`'s fallback was the one write in the writer still swallowed by a bare `try?` —
+        // on the path taken precisely when the handle cannot be opened, i.e. when something is
+        // already wrong with the file. A Clear Logs that silently didn't clear leaves the user's
+        // history on disk while the window says it is gone.
+        let url = makeUnwritableURL()
+        let failures = FailureCollector()
+        let writer = LogFileWriter(url: url, onWriteFailure: { failures.record($0) })
+
+        writer.clear()
+        writer.flush()
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))   // the clear really did fail
+        #expect(failures.reasons.count == 1)
+        #expect(failures.reasons.first?.isEmpty == false)
+    }
+
     /// The product-level half: a `Logger` whose file cannot be written must say so in the entries
     /// the Activity Log renders — once — and must not have tried to write that notice to the same
     /// broken file.
@@ -138,5 +240,54 @@ import Foundation
         #expect(notices().count == 1)
         // The info lines themselves still reached memory — the log is degraded, not disabled.
         #expect(logger.entries.contains { $0.message == "four" })
+    }
+
+    /// The product-level half of the re-arm: a log that breaks, recovers and breaks again must say
+    /// so all three times, because the notices live in memory ONLY and the first one may well be
+    /// gone by then — evicted by the 1000-entry cap, or deleted by Clear Logs.
+    @MainActor
+    @Test func testTheLoggerNoticesTheLogBreakingAgainAfterItRecovers() async throws {
+        let (directory, url) = makeSwitchableLogURL()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logger = Logger(logFileURL: url)
+
+        func notices() -> [LogEntry] {
+            logger.entries.filter { $0.level == .warning && $0.message.contains("could not be written") }
+        }
+        func recoveries() -> [LogEntry] {
+            logger.entries.filter { $0.level == .info && $0.message.contains("is being written again") }
+        }
+        /// The notices arrive from the writer's background queue, a main-actor hop behind the
+        /// awaited log lines, so every assertion waits for its expected count rather than reading
+        /// once and racing.
+        func wait(for condition: @MainActor () -> Bool) async throws -> Bool {
+            var waits = 0
+            while !condition() && waits < 200 {
+                try await Task.sleep(nanoseconds: 10_000_000)
+                waits += 1
+            }
+            return condition()
+        }
+
+        await logger.info("while broken").value
+        logger.flushToDisk()
+        #expect(try await wait { notices().count == 1 })
+
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        await logger.info("after the volume came back").value
+        logger.flushToDisk()
+        #expect(try await wait { recoveries().count == 1 })
+
+        try FileManager.default.removeItem(at: directory)
+        await logger.info("broken again").value
+        logger.flushToDisk()
+        #expect(try await wait { notices().count == 2 })
+
+        // And the rate limit still holds inside the second run.
+        await logger.info("still broken").value
+        logger.flushToDisk()
+        await logger.info("and still").value
+        #expect(notices().count == 2)
+        #expect(recoveries().count == 1)
     }
 }

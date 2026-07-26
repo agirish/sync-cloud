@@ -138,4 +138,91 @@ import Events
         #expect(decoded?.count == 1)
         #expect(decoded?.first?.name == "Acme")
     }
+
+
+    // MARK: Regressions found reviewing the fixes above
+
+    @Test func aBroadProviderOverrideDoesNotRetypeEveryLocalFolder() {
+        // A provider's Location is user-settable to any folder. Pointed at the home directory, the
+        // claim used to swallow every path under it, so `synccloud sync -L ~/scratch -R ~/scratch2`
+        // — two purely local folders — silently started skipping every name OneDrive forbids.
+        let overridden = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
+                                        path: "/Users/u", type: .oneDrive)]
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: overridden) == nil)
+    }
+
+    @Test func aFolderNamedCloudStorageElsewhereIsNotAProviderAccount() {
+        // The widening matched a bare "CloudStorage" component ANYWHERE, so a project folder that
+        // happens to be called that handed its siblings Dropbox's rules.
+        let providers = [CloudProvider(id: "Dropbox", displayName: "Dropbox", imageName: "dropbox",
+                                       path: "/Users/u/Projects/CloudStorage/notes/deep/root", type: .dropBox)]
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/other",
+                                           among: providers) == nil)
+        // Its own root still claims, as before.
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/Projects/CloudStorage/notes/deep/root/x",
+                                           among: providers) == .dropBox)
+    }
+
+    @Test func theRealAccountFolderStillClaimsItsSiblings() {
+        // The control: the case the widening exists for must keep working.
+        let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
+                                       path: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents",
+                                       type: .oneDrive)]
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos",
+                                           among: providers) == .oneDrive)
+    }
+
+    @MainActor @Test func anUnreadableLegacyStoreDoesNotBurnTheOneWayMigrationFlag() throws {
+        // The migration sets a permanent "already migrated" flag and nothing consults the legacy
+        // store afterwards. Reading an unreadable store as "no rules" therefore orphaned every
+        // remembered rule the user had taught, forever, on one failed decode.
+        let suiteName = "review-fixes-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Data("not json".utf8), forKey: FileSyncManager.rulesDefaultsKey)
+
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.filingRuleDefaults = defaults
+        manager.migrateFilingRulesToAutomations()
+
+        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey) == false,
+                "an unreadable store must leave the migration to retry, not mark itself done")
+    }
+
+    @MainActor @Test func anAbsentLegacyStoreStillCompletesTheMigrationOnce() throws {
+        // The control: a genuinely empty legacy store is the ordinary case and must still settle,
+        // or every launch would re-run the migration forever.
+        let suiteName = "review-fixes-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let manager = FileSyncManager(fileManager: MockFileManager())
+        manager.filingRuleDefaults = defaults
+        manager.migrateFilingRulesToAutomations()
+
+        #expect(defaults.bool(forKey: FileSyncManager.filingRulesMigratedKey) == true)
+    }
+
+    @MainActor @Test func twoStoresSharingAKeyNameEachKeepTheirOwnBackup() throws {
+        // The one-shot report gate was keyed on the key NAME alone, so whichever store was read
+        // first silenced — and skipped the backup for — every other store holding that key.
+        let nameA = "review-fixes-\(UUID().uuidString)"
+        let nameB = "review-fixes-\(UUID().uuidString)"
+        let a = try #require(UserDefaults(suiteName: nameA))
+        let b = try #require(UserDefaults(suiteName: nameB))
+        defer {
+            a.removePersistentDomain(forName: nameA)
+            b.removePersistentDomain(forName: nameB)
+        }
+        let key = "automationRules"
+        a.set(Data("corrupt-A".utf8), forKey: key)
+        b.set(Data("corrupt-B".utf8), forKey: key)
+
+        _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: a, key: key, describing: "rules")
+        _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: b, key: key, describing: "rules")
+
+        #expect(a.data(forKey: key + ".unreadable") == Data("corrupt-A".utf8))
+        #expect(b.data(forKey: key + ".unreadable") == Data("corrupt-B".utf8),
+                "the second store's corruption must be preserved too")
+    }
 }

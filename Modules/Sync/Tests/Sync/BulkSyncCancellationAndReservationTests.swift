@@ -236,4 +236,114 @@ import Events
         #expect(size(disk, "/dst/note 3.txt") == 222, "keep-both skipped the reserved \" 2\" name")
         #expect(manager.currentError == nil)
     }
+
+    // MARK: 3. Case sensitivity is a property of each DESTINATION, not of the batch
+
+    /// A `diff` whose destination sits in a named subfolder of /dst.
+    private func diff(_ name: String, inSubfolder folder: String, size: Int) -> FileDifference {
+        FileDifference(
+            relativePath: "\(folder)/\(name)",
+            leftItemPath: "/src/\(folder)/\(name)",
+            rightItemPath: "/dst/\(folder)/\(name)",
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right",
+            leftFileSize: size
+        )
+    }
+
+    @MainActor
+    @Test func aCaseSensitiveDestinationDoesNotSpeakForACaseInsensitiveOne() async throws {
+        // One batch can span volumes — a nested mount inside the destination root, or a pane rooted
+        // at /Volumes. The case-sensitivity answer used to be taken ONCE, from `candidates.first`,
+        // and then applied to every candidate's reservation key. So a first item landing on a
+        // case-SENSITIVE mount switched off case folding for items landing on the case-INSENSITIVE
+        // boot volume: two targets differing only by case both passed the in-memory uniqueness
+        // check, and the parallel workers wrote to the same file. With `isMove` both sources are
+        // consumed and one file's contents are gone — a success banner, no Trash entry, nothing to
+        // undo.
+        //
+        // The probe is injected because the bug needs two volumes and a test machine has one; the
+        // production probe answers per destination the same way this stub does.
+        let disk = MockFileManager()
+        try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
+        try disk.createDirectory(at: URL(fileURLWithPath: "/src/plain"), withIntermediateDirectories: true)
+        try disk.createDirectory(at: URL(fileURLWithPath: "/dst/mounted"), withIntermediateDirectories: true)
+        try disk.createDirectory(at: URL(fileURLWithPath: "/dst/plain"), withIntermediateDirectories: true)
+        seed(disk, "/src/mounted/first.txt", size: 111)
+        seed(disk, "/src/plain/README.txt", size: 222)
+        seed(disk, "/src/plain/Readme.txt", size: 333)
+
+        let manager = FileSyncManager(fileManager: disk)
+        // /dst/mounted is a case-sensitive mount; /dst/plain is on the case-insensitive volume.
+        let probedParents = LockedBox<[String]>([])
+        manager.destinationCaseSensitivity = { url in
+            let parent = url.deletingLastPathComponent().path
+            probedParents.withLock { $0.append(parent) }
+            return parent == "/dst/mounted"
+        }
+        // Ordered so the case-SENSITIVE destination is the one `candidates.first` would have
+        // answered for — the exact arrangement that used to disable folding for the other two.
+        let diffs = [
+            diff("first.txt", inSubfolder: "mounted", size: 111),
+            diff("README.txt", inSubfolder: "plain", size: 222),
+            diff("Readme.txt", inSubfolder: "plain", size: 333),
+        ]
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        await manager.syncAll(direction: .copyToRight)
+
+        // The observable protection is the NAME the batch reserves, which is what this asserts:
+        // the virtual disk keys by exact string and so is inherently case-sensitive, meaning it
+        // cannot itself reproduce the collapse a real case-insensitive volume performs. On such a
+        // volume "README.txt" and "Readme.txt" ARE one file, so a batch that reserves both verbatim
+        // hands two workers the same destination. Folding the /dst/plain keys is what pushes the
+        // second one to a distinct name — and that name is visible here.
+        #expect(files(disk, under: "/dst/plain") == ["README.txt", "Readme 2.txt"],
+                "the case-insensitive destination must fold, so the second variant gets its own name")
+        #expect(size(disk, "/dst/mounted/first.txt") == 111)
+        #expect(size(disk, "/dst/plain/README.txt") == 222)
+        #expect(size(disk, "/dst/plain/Readme 2.txt") == 333)
+        #expect(manager.currentError == nil)
+        // Structural half of the same claim, and the one no downstream interplay can mask: BOTH
+        // destinations were asked about. A batch that takes one answer from `candidates.first`
+        // probes a single parent, whatever it then does with it. (Memoized per parent, so the
+        // three items yield exactly these two.)
+        #expect(Set(probedParents.withLock { $0 }) == ["/dst/mounted", "/dst/plain"])
+    }
+
+    @MainActor
+    @Test func aCaseSensitiveDestinationStillKeepsBothSpellingsVerbatim() async throws {
+        // The control, and the reason the probe was taught to answer at all: when the destination
+        // really IS case-sensitive, two case variants are two different names and neither should be
+        // uniquified to "… 2".
+        //
+        // Worth knowing what this does NOT catch: a build that folds unconditionally still passes,
+        // because the reserved set would then hold folded keys while `generateUniqueURL` is handed
+        // this destination's own (case-sensitive) rule, so its lookup misses and the uniquify
+        // no-ops. The two only ever disagree under such a mutation — production derives both from
+        // one per-destination answer. The dangerous direction (failing to fold where the volume
+        // collapses case) is pinned by the test above.
+        let disk = MockFileManager()
+        try disk.createDirectory(at: URL(fileURLWithPath: "/src/mounted"), withIntermediateDirectories: true)
+        try disk.createDirectory(at: URL(fileURLWithPath: "/dst/mounted"), withIntermediateDirectories: true)
+        seed(disk, "/src/mounted/README.txt", size: 222)
+        seed(disk, "/src/mounted/Readme.txt", size: 333)
+
+        let manager = FileSyncManager(fileManager: disk)
+        manager.destinationCaseSensitivity = { _ in true }
+        let diffs = [
+            diff("README.txt", inSubfolder: "mounted", size: 222),
+            diff("Readme.txt", inSubfolder: "mounted", size: 333),
+        ]
+        manager.rawDifferences = diffs
+        manager.differences = diffs
+
+        await manager.syncAll(direction: .copyToRight)
+
+        #expect(files(disk, under: "/dst/mounted") == ["README.txt", "Readme.txt"])
+        #expect(size(disk, "/dst/mounted/README.txt") == 222)
+        #expect(size(disk, "/dst/mounted/Readme.txt") == 333)
+    }
 }

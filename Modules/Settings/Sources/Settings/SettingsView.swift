@@ -979,7 +979,10 @@ struct ProviderSettingsSection: View {
         // Repopulate rather than blank. Rediscovery is async, so `provider.path` is still the old
         // effective value here: with no override that value already IS the default and no
         // `onChange(of: provider.path)` is coming to fill the field in, and with an override it is
-        // corrected by that onChange as soon as discovery lands. See `ProviderPathDraft.reset`.
+        // corrected by that onChange as soon as discovery lands — including while this field still
+        // holds focus, which clicking this button does not take away. The draft remembers the reset
+        // so that correction is adopted instead of being declined as mid-edit; without that, the
+        // blur after Reset commits the stale override straight back. See `ProviderPathDraft.reset`.
         pathDraft.reset(toEffective: provider.path)
     }
 
@@ -1044,16 +1047,35 @@ struct ProviderPathDraft: Equatable {
     /// The text currently in the field. A plain `var` because the `TextField` binds straight to it.
     var value: String = ""
 
+    /// What "Reset" put in the field, held until the rediscovery it kicked off lands — or `nil`
+    /// when no reset is outstanding. Stored as the TEXT rather than a bool so it self-clears: the
+    /// `TextField` binds straight to `value`, so typing is invisible to this type, and the only
+    /// way to tell "still showing what Reset left" from "the user has since typed over it" is to
+    /// compare. See `reset(toEffective:)` for why the distinction decides who wins.
+    private var textAwaitingReset: String?
+
     /// The row appeared: start on the provider's effective (default or overridden) path.
     mutating func adopt(_ path: String) {
         value = path
+        textAwaitingReset = nil
     }
 
     /// An external change to the published path landed (a discovery/refresh pass). Adopt it only
     /// when the user isn't actively editing this field — otherwise a concurrent
     /// `discoverProviders()` would silently discard their uncommitted draft.
+    ///
+    /// The one exception is the rediscovery the user's own "Reset" started. That refresh is not a
+    /// background pass racing their typing, it is the ANSWER to the button they just pressed —
+    /// and clicking a macOS button does not blur the text field, so it arrives with
+    /// `isEditing: true` and the ordinary guard would decline it. Declining it is what re-committed
+    /// the cleared override on the next blur (see `reset(toEffective:)`). The exception is narrow:
+    /// it applies only while the field still shows exactly what Reset left there, so a user who
+    /// started typing a replacement path keeps their draft, as always.
     mutating func adoptExternalChange(to updated: String, isEditing: Bool) {
-        guard !isEditing, value != updated else { return }
+        let isResetLanding = textAwaitingReset == value
+        guard !isEditing || isResetLanding else { return }
+        textAwaitingReset = nil
+        guard value != updated else { return }
         value = updated
     }
 
@@ -1061,8 +1083,17 @@ struct ProviderPathDraft: Equatable {
     /// with no override in play that value already IS the default and no refresh is coming, and
     /// with one in play it is replaced by `adoptExternalChange` the moment the async rediscovery
     /// lands. Either way the field never shows an empty path the user didn't type.
+    ///
+    /// Remembering that echoed text is what makes Reset actually stick when an override WAS in
+    /// play. `SettingsManager.resetPath` rediscovers asynchronously, so the effective path echoed
+    /// here is still the old override; if the correction that follows is declined for being
+    /// mid-edit, the field keeps showing the override and the blur commits it straight back —
+    /// `shouldCommit(draft: oldOverride, committed: default)` is true, so `setPath` restores the
+    /// very override the user just cleared. (The pre-refactor code escaped that only because its
+    /// draft was `""`, i.e. by way of the blank-field bug this type exists to fix.)
     mutating func reset(toEffective path: String) {
         value = path
+        textAwaitingReset = path
     }
 }
 

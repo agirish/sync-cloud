@@ -200,32 +200,62 @@ public class Logger: ObservableObject {
         self.logFileURL = logFileURL
         // The writer needs its failure callback at construction (so a failure during its own
         // startup trim is covered), which is before `self` can be captured — hence the relay,
-        // whose real handler is installed on the next line.
-        let relay = WriteFailureRelay()
-        logWriter = LogFileWriter(url: logFileURL, onWriteFailure: { reason in relay.report(reason) })
-        relay.install { [weak self] reason in self?.noteDiskWriteFailure(reason) }
+        // whose real handlers are installed on the next line.
+        let relay = WriteReportRelay()
+        logWriter = LogFileWriter(
+            url: logFileURL,
+            onWriteFailure: { reason in relay.reportFailure(reason) },
+            onWriteRecovered: { relay.reportRecovery() })
+        relay.install(
+            onFailure: { [weak self] reason in self?.noteDiskWriteFailure(reason) },
+            onRecovery: { [weak self] in self?.noteDiskWriteRecovery() })
     }
 
-    /// The one-shot, IN-MEMORY-ONLY notice that the disk log stopped accepting writes.
+    /// The rate-limited, IN-MEMORY-ONLY notice that the disk log stopped accepting writes.
     ///
     /// A write failure is the one failure this class cannot report the usual way: `log()` would
     /// hand the report straight back to the writer that just failed, and on a full volume that
     /// second write fails too — a per-line failure would then cost a per-line futile write. So the
-    /// signal is deliberately asymmetric: `LogFileWriter` reports the FIRST failure only (see
+    /// signal is deliberately asymmetric: `LogFileWriter` reports one failure per FAILURE RUN (see
     /// `reportWriteFailure`), and this appends the notice directly to the in-memory buffer,
     /// bypassing the disk path entirely. Without it the volume filling looks exactly like a quiet
     /// session — the Activity Log keeps scrolling from memory while `~/sync-cloud.log` silently
     /// stops growing, and the loss is only discovered when someone goes looking for the history.
     ///
+    /// "Per run", not "per session": this notice lives in memory alone, so it is evicted by the
+    /// 1000-entry cap and deleted outright by `clearLogs()`. Under a never-resetting latch those
+    /// were silent amnesia — the notice gone and no later failure able to replace it. The writer's
+    /// latch now re-arms on a successful write and on `clear()`, so the window can always say
+    /// whether the log it is showing is also being written.
+    ///
     /// The `minimumLevel` gate is deliberately NOT applied: that setting throttles *event* noise,
-    /// and this is one line per session about the logging machinery itself, which a raised
-    /// threshold must not be able to hide.
+    /// and this is one line about the logging machinery itself, which a raised threshold must not
+    /// be able to hide.
     private nonisolated func noteDiskWriteFailure(_ reason: String) {
         let entry = LogEntry(
             level: .warning,
             message: "The log file \(logFileURL.lastPathComponent) could not be written: \(reason). "
                 + "Activity Log entries continue in memory for this session, but the on-disk log has stopped growing.")
         // Same handoff every other entry uses (so it lands in order), minus the `logWriter.append`.
+        _ = pendingEntries.enqueue(entry) { [weak self] in self?.flushPendingEntries() }
+    }
+
+    /// The other half of the pair: one line saying the disk log started accepting writes again.
+    ///
+    /// It exists because the failure notice re-arms. Without it the second failure of a session
+    /// reads as a duplicate of the first — same wording, no account of what happened in between —
+    /// and the entries written while the log was broken are indistinguishable from the ones that
+    /// reached disk. This names that gap, once per recovery.
+    ///
+    /// In memory only, exactly like its counterpart: it is emitted from the writer's own queue, and
+    /// routing it back through `logWriter.append` would make the writer's recovery depend on the
+    /// very write path it is reporting on. (The line is therefore absent from the on-disk log by
+    /// design — the file's own gap is the record there.)
+    private nonisolated func noteDiskWriteRecovery() {
+        let entry = LogEntry(
+            level: .info,
+            message: "The log file \(logFileURL.lastPathComponent) is being written again. "
+                + "Entries recorded while it was unwritable are in this window only, not in the file.")
         _ = pendingEntries.enqueue(entry) { [weak self] in self?.flushPendingEntries() }
     }
 
@@ -391,29 +421,44 @@ private final class MinimumLevelBox: @unchecked Sendable {
     }
 }
 
-/// Lock-guarded, late-bound handler cell for the disk writer's one-shot failure report.
+/// Lock-guarded, late-bound handler cell for the disk writer's out-of-band write reports — the
+/// failure notice and its matching recovery.
 ///
-/// `Logger` must hand `LogFileWriter` its failure callback at the writer's construction — the
-/// writer's startup tail-trim runs immediately and can itself fail — but at that point `self` is
-/// not yet fully initialized and cannot be captured. The writer is therefore given this relay, and
-/// the real handler is installed the moment init finishes. A report arriving in the gap (the
-/// writer's queue would have to outrun the next statement) is dropped rather than crashing, which
-/// is the right trade for a diagnostic.
-private final class WriteFailureRelay: @unchecked Sendable {
+/// `Logger` must hand `LogFileWriter` its callbacks at the writer's construction — the writer's
+/// startup tail-trim runs immediately and can itself fail — but at that point `self` is not yet
+/// fully initialized and cannot be captured. The writer is therefore given this relay, and the real
+/// handlers are installed the moment init finishes. A report arriving in the gap (the writer's
+/// queue would have to outrun the next statement) is dropped rather than crashing, which is the
+/// right trade for a diagnostic.
+///
+/// Both handlers live in one cell because they are one signal read from two ends, and installing
+/// them together is what keeps a recovery from arriving at a relay that has a failure handler but
+/// not yet its counterpart.
+private final class WriteReportRelay: @unchecked Sendable {
     private let lock = NSLock()
-    private var handler: (@Sendable (String) -> Void)?
+    private var onFailure: (@Sendable (String) -> Void)?
+    private var onRecovery: (@Sendable () -> Void)?
 
-    func install(_ handler: @escaping @Sendable (String) -> Void) {
+    func install(onFailure: @escaping @Sendable (String) -> Void,
+                 onRecovery: @escaping @Sendable () -> Void) {
         lock.lock()
-        self.handler = handler
+        self.onFailure = onFailure
+        self.onRecovery = onRecovery
         lock.unlock()
     }
 
-    func report(_ reason: String) {
+    func reportFailure(_ reason: String) {
         lock.lock()
-        let handler = self.handler
+        let handler = onFailure
         lock.unlock()
         handler?(reason)
+    }
+
+    func reportRecovery() {
+        lock.lock()
+        let handler = onRecovery
+        lock.unlock()
+        handler?()
     }
 }
 
@@ -495,25 +540,42 @@ final class LogFileWriter: @unchecked Sendable {
     private var bytesSinceTrimCheck = 0
     private let trimCheckInterval: Int
 
-    /// Called with the description of the FIRST disk-write failure this writer sees, on `queue`.
+    /// Called with the description of a disk-write failure this writer sees, on `queue`.
     ///
-    /// One shot, by design. The thing that fails here is the log itself, so the failure cannot be
-    /// logged the normal way (that would enqueue another write into the writer that just failed);
-    /// and the realistic cause — a full or unmounted volume — fails every subsequent line too, so a
-    /// per-failure callback would put a futile report on every log line for the rest of the session.
-    /// One signal is enough to answer the question that matters: "did this session's on-disk log
-    /// stop growing?" See `Logger.noteDiskWriteFailure`, which turns it into a single in-memory
-    /// warning entry.
+    /// Rate-limited to one report per FAILURE RUN, not one per session. The thing that fails here is
+    /// the log itself, so the failure cannot be logged the normal way (that would enqueue another
+    /// write into the writer that just failed); and the realistic cause — a full or unmounted
+    /// volume — fails every subsequent line too, so a per-failure callback would put a futile
+    /// report on every log line for the rest of the session. One signal per run answers the
+    /// question that matters: "did this session's on-disk log stop growing?" See
+    /// `Logger.noteDiskWriteFailure`, which turns it into a single in-memory warning entry.
+    ///
+    /// The latch that enforces the rate limit is `didReportWriteFailure`, and it RE-ARMS (see
+    /// `noteWriteSucceeded` and `clear`). It used to be a plain one-shot, which quietly turned the
+    /// rate limit into "at most one report, ever": the notice lives only in memory, so it is lost
+    /// to the 1000-entry cap and to Clear Logs — after either, a still-broken (or newly broken)
+    /// log had nothing left saying so and could never say it again.
     private let onWriteFailure: (@Sendable (String) -> Void)?
-    /// Whether `onWriteFailure` has already fired (confined to `queue`, like the handle itself).
+
+    /// Called on `queue` the first time a write SUCCEEDS after a reported failure.
+    ///
+    /// It falls out of re-arming the latch: the writer has to notice the recovery anyway to know
+    /// the next failure is news, and announcing it is what makes the pair legible — a bare second
+    /// "the log stopped growing" with no "it started again" in between reads like a duplicate.
+    private let onWriteRecovered: (@Sendable () -> Void)?
+
+    /// Whether a failure has been reported and not yet superseded by a success or a `clear()`
+    /// (confined to `queue`, like the handle itself).
     private var didReportWriteFailure = false
 
     init(url: URL,
          maxFileSize: Int = LogFileWriter.defaultMaxFileSize,
-         onWriteFailure: (@Sendable (String) -> Void)? = nil) {
+         onWriteFailure: (@Sendable (String) -> Void)? = nil,
+         onWriteRecovered: (@Sendable () -> Void)? = nil) {
         self.url = url
         self.maxFileSize = maxFileSize
         self.onWriteFailure = onWriteFailure
+        self.onWriteRecovered = onWriteRecovered
         trimCheckInterval = min(1024 * 1024, max(1, maxFileSize / 2))
         queue.async { [self] in
             withTrimLock { trimTailIfOversized(maxFileSize: maxFileSize) }
@@ -598,11 +660,32 @@ final class LogFileWriter: @unchecked Sendable {
         }
     }
 
-    /// Fires `onWriteFailure` for the first failure only. Runs on `queue`.
+    /// Fires `onWriteFailure` for the first failure of a run only. Runs on `queue`.
     private func reportWriteFailure(_ error: Error) {
         guard !didReportWriteFailure else { return }
         didReportWriteFailure = true
         onWriteFailure?(error.localizedDescription)
+    }
+
+    /// Ends the current failure run: re-arms the report and announces the recovery, once. Runs on
+    /// `queue`, from the append path only.
+    ///
+    /// Deliberately not called from the trim's successful write: a trim can succeed for reasons an
+    /// append cannot (it creates a new file rather than extending the open handle's), and "the log
+    /// is being written again" must mean the LINES are landing — which only the append path knows.
+    private func noteWriteSucceeded() {
+        guard didReportWriteFailure else { return }
+        didReportWriteFailure = false
+        onWriteRecovered?()
+    }
+
+    /// Re-arms the failure report WITHOUT announcing a recovery. Runs on `queue`.
+    ///
+    /// `clear()`'s own truncate succeeding is not evidence the appends will land, and the notice a
+    /// recovery line would pair with has just been deleted from the in-memory buffer along with
+    /// everything else — so the clear re-arms silently and lets the next real failure speak.
+    private func rearmWriteFailureReport() {
+        didReportWriteFailure = false
     }
 
     /// Reopens the write handle when the path's current inode no longer matches the handle's —
@@ -646,6 +729,9 @@ final class LogFileWriter: @unchecked Sendable {
                     let existing = (try? Data(contentsOf: self.url)) ?? Data()
                     try (existing + data).write(to: self.url, options: .atomic)
                 }
+                // The line reached disk. If a failure was outstanding, the run is over — re-arm the
+                // report so a LATER failure is announced too, and say the writing recovered.
+                self.noteWriteSucceeded()
             } catch {
                 self.reportWriteFailure(error)
             }
@@ -691,15 +777,39 @@ final class LogFileWriter: @unchecked Sendable {
     /// the stale handle after such a replacement empties an inode nothing points at: the file on
     /// disk keeps every line, so "Clear Log" appeared to do nothing and the Settings size readout
     /// still reported a full log. See `reopenHandleIfStale`.
+    ///
+    /// Accepted side effect of that reopen, documented rather than fixed: when the log file has
+    /// been DELETED (not replaced), `reopenHandleIfStale` recreates it, so a clear now leaves an
+    /// empty file where it used to leave the path absent. Benign, and where it is visible at all it
+    /// is an improvement: the very next append would have created the file anyway; the Activity
+    /// Log's history loader already reads "no file" and "empty file" as the same `.loaded([])`;
+    /// Settings' size readout goes from blank (its stat returns nil for a missing file) to "Zero
+    /// bytes", which is the truth; and its Reveal in Finder, a no-op on a missing file, now works.
+    /// Avoiding it would mean either skipping the staleness check (the bug above) or teaching it a
+    /// clear-only "don't create" mode, i.e. re-splitting the one helper whose two copies drifted in
+    /// the first place.
+    ///
+    /// Clearing also re-arms the write-failure report: everything the old notice was written into
+    /// has just been deleted, so a failure after this point is news again rather than a repeat.
     func clear() {
         queue.async { [weak self] in
             guard let self else { return }
             self.reopenHandleIfStale()
-            if let handle = self.handle {
-                try? handle.truncate(atOffset: 0)
-                try? handle.seek(toOffset: 0)
-            } else {
-                try? "".write(to: self.url, atomically: true, encoding: .utf8)
+            // Re-armed BEFORE the writes below, so a clear that cannot write reports itself as the
+            // first failure of the new run instead of being swallowed by the old one's latch.
+            self.rearmWriteFailureReport()
+            // Both branches funnel their failure into the same report `append` uses. The fallback
+            // was the one write in this type that didn't: a `try?` on the path taken precisely when
+            // the handle is unopenable — i.e. when something is already wrong with the file.
+            do {
+                if let handle = self.handle {
+                    try handle.truncate(atOffset: 0)
+                    try? handle.seek(toOffset: 0)
+                } else {
+                    try "".write(to: self.url, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                self.reportWriteFailure(error)
             }
         }
     }

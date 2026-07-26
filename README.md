@@ -154,7 +154,7 @@ SyncCloud/
 ├── Modules/                    # SPM packages:
 │   ├── Sync/                   #   diff engine, file ops, duplicates, filing/automations, storage lens
 │   ├── FileExplorer/           #   panes, differences, Tidy lenses, review
-│   ├── Dashboard/              #   provider sidebar, details, breadcrumbs, sync history
+│   ├── Dashboard/              #   activity log, details, breadcrumbs, sync history
 │   ├── Settings/               #   settings UI + persistence
 │   ├── Design/                 #   Liquid Glass design system
 │   └── Events/                 #   logging, sync-history store

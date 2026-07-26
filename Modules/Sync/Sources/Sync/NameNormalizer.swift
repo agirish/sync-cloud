@@ -133,11 +133,15 @@ public enum NameNormalizer {
         // exactly what Dropbox and OneDrive refuse. A name made only of exotic spaces became " ",
         // dodging the `untitled` fallback below because it is not empty.
         //
-        // Trimmed only when the fold actually changed something: a name that merely ends in a plain
-        // space on a provider that permits it has no hazard to fix, and trimming unconditionally
-        // would start flagging all of those as risky — a different (and much wider) claim than this
-        // detector makes. `RiskyName.sanitizedName` promises a name EVERY provider can store, and
-        // that promise is what this line keeps.
+        // Gated on `cleanInvisible` having changed ANYTHING — a folded space, a dropped zero-width,
+        // a normalization — not on the affix specifically. So a name carrying any invisible hazard
+        // also gets its plain affix whitespace trimmed: "a\u{200B}b " sanitizes to "ab", not "ab ".
+        // That is deliberate (the promise is a name EVERY provider can store, and a trailing space
+        // is not), but it is wider than "the fold touched the ends".
+        //
+        // What the gate protects is the other direction: a name with NO invisible hazard is left
+        // exactly as it is, so a plain trailing space on a provider that permits one is not newly
+        // reported as risky — `evaluate`'s `sanitized != name` check never fires for it.
         if result != name {
             result = result.trimmingCharacters(in: .whitespacesAndNewlines)
         }

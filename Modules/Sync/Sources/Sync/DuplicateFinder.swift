@@ -58,6 +58,13 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
     /// sites are unaffected.
     public let contentUnverified: Bool
 
+    /// True when this copy lives inside a folder another group is KEEPING, so no recommendation may
+    /// offer to remove it — not the current one, and not one the user re-aims by picking a
+    /// different keeper. Without this the invariant lasted exactly as long as the default keeper:
+    /// `choosingKeeper` relabels copies purely by id, so moving the keeper elsewhere put the kept
+    /// folder's own file straight back on the removal list.
+    public let isProtectedFromRemoval: Bool
+
     /// A non-keeper copy that holds nothing the keeper lacks — safe to remove outright.
     public var isFullyRedundant: Bool { !isRecommendedKeeper && uniqueItemCount == 0 }
 
@@ -71,7 +78,8 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         uniqueItemCount: Int,
         depth: Int,
         isRecommendedKeeper: Bool,
-        contentUnverified: Bool = false
+        contentUnverified: Bool = false,
+        isProtectedFromRemoval: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -83,6 +91,7 @@ public struct DuplicateCopy: Identifiable, Sendable, Equatable, Hashable {
         self.depth = depth
         self.isRecommendedKeeper = isRecommendedKeeper
         self.contentUnverified = contentUnverified
+        self.isProtectedFromRemoval = isProtectedFromRemoval
     }
 }
 
@@ -151,7 +160,9 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
     public var recommendedRemovalPaths: [String] {
         switch matchType {
         case .identical, .versions:
-            return redundantCopies.map { $0.path }
+            // Protected copies are filtered here, at the ONE place a recommendation becomes a list
+            // of paths to trash, so re-aiming the keeper cannot smuggle one back in.
+            return redundantCopies.filter { !$0.isProtectedFromRemoval }.map { $0.path }
         case .overlapping, .nameOnly:
             return []
         }
@@ -209,7 +220,8 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         DuplicateCopy(id: c.id, name: c.name, isDirectory: c.isDirectory, size: c.size,
                       itemCount: c.itemCount, modificationDate: c.modificationDate,
                       uniqueItemCount: c.uniqueItemCount, depth: c.depth,
-                      isRecommendedKeeper: isKeeper, contentUnverified: c.contentUnverified)
+                      isRecommendedKeeper: isKeeper, contentUnverified: c.contentUnverified,
+                      isProtectedFromRemoval: c.isProtectedFromRemoval)
     }
 
     /// Recomputes reclaimable bytes after one copy is removed, per the finder's own rules: identical
@@ -615,10 +627,11 @@ public enum DuplicateFinder {
 
         var groups: [DuplicateGroup] = []
         for members in buckets.values where members.count >= 2 {
-            guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: chooseKeeper) else { continue }
+            guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: chooseKeeper,
+                                                        keeperMayBePickedFromProtected: true) else { continue }
             let keeper = ordered[0]
             let copies = ordered.enumerated().map { idx, info in
-                makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                makeCopy(info, keeper: keeper, isKeeper: idx == 0, protectedRoots: keeperRoots)
             }
             let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
             groups.append(DuplicateGroup(
@@ -628,7 +641,11 @@ public enum DuplicateFinder {
                 copies: copies,
                 reclaimableBytes: reclaimable
             ))
-            for c in copies { groupedFilePaths.insert(c.path) }
+            // EVERY member of the bucket is marked grouped, not just the copies that survived
+            // protection: a protected file dropped from this group is still accounted for by it,
+            // and leaving it unmarked let it reappear in a versions group the identical pass had
+            // always suppressed.
+            for m in members { groupedFilePaths.insert(m.path) }
         }
         return groups
     }
@@ -725,13 +742,14 @@ public enum DuplicateFinder {
                 // Files inside a kept folder can anchor a version group but are never offered for
                 // removal by it (see `protectingFolderKeepers`) — applied before the drift check
                 // below so the evidence is read off the members that actually remain.
-                guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: newestIndex) else { continue }
+                guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: newestIndex,
+                                                            keeperMayBePickedFromProtected: false) else { continue }
                 let realHashes = Set(ordered.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
                 guard realHashes.count >= 2 else { continue }
 
                 let keeper = ordered[0]
                 let copies = ordered.enumerated().map { idx, info in
-                    makeCopy(info, keeper: keeper, isKeeper: idx == 0)
+                    makeCopy(info, keeper: keeper, isKeeper: idx == 0, protectedRoots: keeperRoots)
                 }
                 let reclaimable = copies.dropFirst().reduce(0) { $0 + $1.size }
                 let (stem, ext) = versionStem(keeper.name) ?? (keeper.name, "")
@@ -768,25 +786,38 @@ public enum DuplicateFinder {
     private static func protectingFolderKeepers(
         _ members: [NodeInfo],
         keeperRoots: Set<String>,
-        chooseKeeperIn: ([NodeInfo]) -> Int
+        chooseKeeperIn: ([NodeInfo]) -> Int,
+        keeperMayBePickedFromProtected: Bool
     ) -> [NodeInfo]? {
+        guard members.count >= 2 else { return nil }
         guard !keeperRoots.isEmpty else {
             // The overwhelmingly common case (no identical-folder groups at all): the group is
             // exactly what it always was.
-            guard members.count >= 2 else { return nil }
             return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
         }
         let protected = members.filter { isCovered($0.path, by: keeperRoots) }
         guard !protected.isEmpty else {
-            guard members.count >= 2 else { return nil }
             return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
         }
-        // The keeper is chosen from the protected files by the pass's own rule, so the usual
-        // heuristics still decide WHICH protected file anchors the group.
-        let keeper = protected[chooseKeeperIn(protected)]
-        let removable = members.filter { !isCovered($0.path, by: keeperRoots) }
+        // WHICH file anchors the group depends on what the pass's keeper choice MEANS.
+        //
+        // For identical copies it is a location heuristic ("least archive-like"), with no promise
+        // attached and a user-facing control to change it — so preferring a protected file is free,
+        // and it is what keeps a third copy elsewhere both visible and removable.
+        //
+        // For versions the keeper is the NEWEST, and the card says so in as many words ("Keep
+        // newest, Trash older"). Choosing the newest of the protected SUBSET quietly makes that
+        // false — it can be years older than the newest member — so the keeper stays whatever the
+        // pass picked over all members, and protection only removes the protected files from the
+        // removable side.
+        let keeper = keeperMayBePickedFromProtected
+            ? protected[chooseKeeperIn(protected)]
+            : members[chooseKeeperIn(members)]
+        let removable = members.filter { $0.path != keeper.path && !isCovered($0.path, by: keeperRoots) }
         guard !removable.isEmpty else { return nil }
-        return [keeper] + removable
+        // Keeper first, then the pass's usual (depth, path) ordering for the rest — the ordering
+        // `DuplicateGroup.copies` documents.
+        return [keeper] + removable.sorted { ($0.depth, $0.path) < ($1.depth, $1.path) }
     }
 
     // MARK: Recommendation
@@ -861,7 +892,8 @@ public enum DuplicateFinder {
 
     // MARK: Helpers
 
-    private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool) -> DuplicateCopy {
+    private static func makeCopy(_ info: NodeInfo, keeper: NodeInfo, isKeeper: Bool,
+                                 protectedRoots: Set<String> = []) -> DuplicateCopy {
         let unique = isKeeper ? 0 : info.contentHashes.subtracting(keeper.contentHashes).count
         // Unverified content: a file whose hash is missing or an unknown-content placeholder, or
         // a folder without a full structural signature (some descendant wasn't walked) or with an
@@ -883,7 +915,8 @@ public enum DuplicateFinder {
             uniqueItemCount: unique,
             depth: info.depth,
             isRecommendedKeeper: isKeeper,
-            contentUnverified: unverified
+            contentUnverified: unverified,
+            isProtectedFromRemoval: isCovered(info.path, by: protectedRoots)
         )
     }
 

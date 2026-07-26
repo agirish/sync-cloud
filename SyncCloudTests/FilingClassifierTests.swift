@@ -151,6 +151,28 @@ import Sync
         return (route, reported)
     }
 
+    /// The key question must not be ASKED unless the cloud toggle is on. In production the answer
+    /// is `AnthropicKeychain.hasKey` — a live Keychain query — so an eagerly-evaluated argument
+    /// meant every Filing scan touched the Keychain even with cloud Filing switched off, which on
+    /// a locked or denied item logs a warning and can raise an access prompt for a feature the
+    /// user disabled. Counted rather than inferred: the route alone is identical either way.
+    @Test func theKeychainIsNotQueriedWhileCloudFilingIsOff() {
+        var keyQueries = 0
+        func hasKey() -> Bool {
+            keyQueries += 1
+            return true
+        }
+
+        #expect(FilingBackendRouter.route(cloudEnabled: false, hasCloudKey: hasKey(),
+                                          logDowngrade: { _ in }) == .onDevice)
+        #expect(keyQueries == 0, "cloud Filing is off — nothing may ask the Keychain about a key")
+
+        // …and with the toggle ON it is asked, exactly once (the gate must be lazy, not dead).
+        #expect(FilingBackendRouter.route(cloudEnabled: true, hasCloudKey: hasKey(),
+                                          logDowngrade: { _ in }) == .cloud)
+        #expect(keyQueries == 1)
+    }
+
     @Test func cloudFilingOffRunsOnDeviceWithNothingToReport() {
         // Cloud off is not a downgrade — it's what the user asked for, key or no key.
         let noKey = routed(cloudEnabled: false, hasCloudKey: false)

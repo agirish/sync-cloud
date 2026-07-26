@@ -33,7 +33,10 @@ import AppKit
     }
 
     private func makeCache(loader: CountingLoader) -> DetailsMetadataCache {
-        DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
+        // The loader closure now also receives the sink an unreadable item is reported through
+        // (the cache rate-limits it per path — see `warningsAreRateLimitedPerPath` below). These
+        // memoization tests load successfully, so they ignore it.
+        DetailsMetadataCache(loadMetadata: { path, _ in loader.load(path) }, loadIcon: { _ in NSImage() })
     }
 
     @Test func repeatedLookupsForSamePathStatOnce() {
@@ -147,10 +150,101 @@ import AppKit
         #expect(cache.generation == 0)
     }
 
+    // MARK: The unreadable-item warning
+
+    /// A loader whose stat always fails, reporting through the sink exactly as
+    /// `DetailsSidebar.loadMetadata` does for an item it is not allowed to read — with a switch so
+    /// a test can let the item become readable again.
+    @MainActor
+    final class FailingLoader {
+        private(set) var statCount = 0
+        var succeeds = false
+
+        func load(_ path: String, _ report: @MainActor (String) -> Void) -> DetailsSidebar.FileMetadata? {
+            statCount += 1
+            guard !succeeds else {
+                return DetailsSidebar.FileMetadata(
+                    name: (path as NSString).lastPathComponent, path: path, kind: "Document",
+                    size: "1 KB", creationDate: "", modificationDate: "", permissions: "644",
+                    isDirectory: false)
+            }
+            report("Details: couldn't read attributes of \(path): You do not have permission to view it.")
+            return nil
+        }
+    }
+
+    /// Collects the warnings that survive the rate limit.
+    @MainActor
+    final class WarningSpy {
+        var messages: [String] = []
+    }
+
+    private func makeCache(loader: FailingLoader, spy: WarningSpy) -> DetailsMetadataCache {
+        DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() },
+                             logWarning: { spy.messages.append($0) })
+    }
+
+    @Test func anUnreadableItemIsWarnedAboutOncePerPathNotOncePerRefresh() {
+        let loader = FailingLoader()
+        let spy = WarningSpy()
+        let cache = makeCache(loader: loader, spy: spy)
+
+        // A bulk run: N file operations, each posting a refresh, with an unreadable item selected.
+        // The memo cannot carry the "once per path" claim its doc used to make — `refreshOccurred`
+        // drops it every time — so this wrote N identical warnings, each a real disk write in the
+        // log writer.
+        for _ in 0..<8 {
+            _ = cache.data(for: "/Volumes/Cloud/locked.pdf")
+            cache.refreshOccurred()
+        }
+
+        #expect(spy.messages.count == 1)
+        // The premise: the stat really did re-run every time, so the single warning comes from the
+        // rate limit and not from a memo that quietly survived the invalidations.
+        #expect(loader.statCount == 8)
+        #expect(spy.messages.first?.contains("/Volumes/Cloud/locked.pdf") == true)
+    }
+
+    @Test func eachUnreadablePathGetsItsOwnWarning() {
+        // Per PATH, not per session: the limit must not swallow a different item's failure.
+        let loader = FailingLoader()
+        let spy = WarningSpy()
+        let cache = makeCache(loader: loader, spy: spy)
+
+        _ = cache.data(for: "/Volumes/Cloud/a.pdf")
+        _ = cache.data(for: "/Volumes/Cloud/b.pdf")
+        _ = cache.data(for: "/Volumes/Cloud/a.pdf")   // back to the first: already said
+
+        #expect(spy.messages.count == 2)
+        #expect(spy.messages.contains { $0.contains("a.pdf") })
+        #expect(spy.messages.contains { $0.contains("b.pdf") })
+    }
+
+    @Test func anItemThatBecomesReadableAgainCanBeWarnedAboutAgain() {
+        // The limit remembers a failure, not a path: a volume that came back and went away again
+        // is a new fact, and suppressing it would trade one noisy bug for a silent one.
+        let loader = FailingLoader()
+        let spy = WarningSpy()
+        let cache = makeCache(loader: loader, spy: spy)
+
+        _ = cache.data(for: "/Volumes/Cloud/flaky.pdf")
+        #expect(spy.messages.count == 1)
+
+        loader.succeeds = true
+        cache.refreshOccurred()
+        _ = cache.data(for: "/Volumes/Cloud/flaky.pdf")
+        #expect(spy.messages.count == 1)   // a success says nothing
+
+        loader.succeeds = false
+        cache.refreshOccurred()
+        _ = cache.data(for: "/Volumes/Cloud/flaky.pdf")
+        #expect(spy.messages.count == 2)
+    }
+
     @Test func missingPathMemoizesNilResult() {
         let loader = CountingLoader()
         let cache = DetailsMetadataCache(
-            loadMetadata: { path in _ = loader.load(path); return nil },
+            loadMetadata: { path, _ in _ = loader.load(path); return nil },
             loadIcon: { _ in NSImage() }
         )
 
