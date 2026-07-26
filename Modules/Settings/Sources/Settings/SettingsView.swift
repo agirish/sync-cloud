@@ -71,7 +71,7 @@ public struct SettingsView: View {
         case tidy
         case advanced
 
-        /// The human-readable tab name shown in the picker and as the dim subtitle on a search
+        /// The human-readable tab name shown in the rail and as the dim subtitle on a search
         /// result. Kept here so the labels have a single source of truth.
         public var displayName: String {
             switch self {
@@ -81,6 +81,19 @@ public struct SettingsView: View {
             case .sync: return "Sync"
             case .tidy: return "Tidy"
             case .advanced: return "Advanced"
+            }
+        }
+
+        /// The rail row's SF Symbol. Monochrome and outline-weight throughout: a rail of mixed
+        /// filled and outline glyphs reads as though the filled ones meant something.
+        public var symbolName: String {
+            switch self {
+            case .general: return "gearshape"
+            case .appearance: return "paintbrush"
+            case .providers: return "cloud"
+            case .sync: return "arrow.left.arrow.right"
+            case .tidy: return "sparkles"
+            case .advanced: return "wrench.and.screwdriver"
             }
         }
     }
@@ -122,16 +135,39 @@ public struct SettingsView: View {
         filterSettings(SettingsSearchIndex.all, query: searchQuery)
     }
 
+    /// The window's accent hue, for the rail's selected row. Read here rather than passed in so
+    /// the sheet keeps tracking the hue while the user changes it on the Appearance tab.
+    @AppStorage(LiquidGlass.hueKey) private var selectedHueRaw: String = LiquidGlassHue.blue.rawValue
+    private var selectedHue: LiquidGlassHue { LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue }
+
+    /// The app's text-size setting. The sheet is sized in points but its contents are sized in
+    /// scaled type, so the sheet has to grow with the type or the taller tabs start scrolling
+    /// again at Large — the exact failure this layout exists to fix.
+    @AppStorage(FontSize.defaultsKey) private var fontSizeRaw: String = FontSize.medium.rawValue
+    private var fontSize: FontSize { FontSize(rawValue: fontSizeRaw) ?? .medium }
+
+    /// The space the host has to place the sheet in, or `nil` when the host doesn't say. The
+    /// window's own minimum is 600pt wide, narrower than the sheet wants at any text size, so
+    /// without this the sheet would hang off the edge of a small window.
+    private let availableSize: CGSize?
+
     public init(
         selection: Binding<SettingsTab>,
         onClose: @escaping () -> Void,
         syncManager: FileSyncManager? = nil,
-        onResetAllSettings: (() -> Void)? = nil
+        onResetAllSettings: (() -> Void)? = nil,
+        availableSize: CGSize? = nil
     ) {
         _selectedTab = selection
         self.onClose = onClose
         self.syncManager = syncManager
         self.onResetAllSettings = onResetAllSettings
+        self.availableSize = availableSize
+    }
+
+    /// The sheet's size: see `SettingsSheetMetrics`, which owns the arithmetic.
+    private var sheetSize: CGSize {
+        SettingsSheetMetrics.resolvedSize(textScale: fontSize.scale, available: availableSize)
     }
 
     public var body: some View {
@@ -146,87 +182,54 @@ public struct SettingsView: View {
                     .help("Close settings")
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-
-            // Search across every tab by name — the System Settings pattern. Typing here
-            // replaces the tab content with matching settings; picking one jumps to its tab.
-            searchField
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-
-            // A segmented picker rather than a TabView: a plain TabView (outside the native
-            // Settings scene) hoists its tab bar into the window toolbar. This keeps the tabs
-            // inside the overlay card.
-            Picker("Settings section", selection: $selectedTab) {
-                ForEach(SettingsTab.allCases, id: \.self) { tab in
-                    Text(tab.displayName).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(.horizontal, 16)
-            .padding(.bottom, 12)
-            // While searching, the results are the content; leave the picker visible so the
-            // current tab stays in view, but it isn't the thing being browsed.
-            .disabled(isSearching)
+            // Fixed rather than padding-derived: the content opening below is computed as
+            // `height − headerHeight − 1`, and a header that sized itself would make that
+            // arithmetic — and every layout assertion resting on it — a guess.
+            .frame(height: SettingsSheetMetrics.headerHeight * fontSize.scale)
 
             Divider()
 
-            Group {
-                if isSearching {
-                    SettingsSearchResults(results: searchResults) { tab in
-                        // The jump: land on the matching tab and drop back to normal content.
-                        selectedTab = tab
-                        searchQuery = ""
-                    }
-                } else {
-                    switch selectedTab {
-                    case .general:
-                        GeneralSettingsTab()
-                    case .appearance:
-                        AppearanceSettingsTab()
-                    case .providers:
-                        ProvidersSettingsTab()
-                    case .sync:
-                        SyncSettingsTab(syncManager: syncManager)
-                    case .tidy:
-                        TidySettingsTab(syncManager: syncManager)
-                    case .advanced:
-                        AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
-                    }
-                }
+            HStack(spacing: 0) {
+                // Search and the six tabs stand down the left — the macOS Settings convention,
+                // and the reason the content column gets its height back. Both used to be rows
+                // stacked above the content, costing 124pt before the first control.
+                SettingsRail(selection: $selectedTab, query: $searchQuery, hue: selectedHue)
+                    .background(Color.primary.opacity(0.035))
+
+                Divider()
+
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 620, height: 560)
+        .frame(width: sheetSize.width, height: sheetSize.height)
     }
 
-    /// The header search box: a magnifier, a plain text field, and a clear button that shows
-    /// once there's text. Styled as a rounded field so it reads as "search" without the native
-    /// `.searchable` machinery, which is meant for navigation stacks rather than an overlay card.
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .scaledFont(.callout)
-            TextField("Search settings", text: $searchQuery)
-                .textFieldStyle(.plain)
-                .accessibilityLabel("Search settings")
-            if !searchQuery.isEmpty {
-                Button {
-                    searchQuery = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .hoverInk()
-                }
-                .buttonStyle(.hoverAffordance(.inline))
-                .accessibilityLabel("Clear search")
-                .help("Clear search")
+    /// The right-hand column: the selected tab, or the search results standing in for it.
+    @ViewBuilder
+    private var content: some View {
+        if isSearching {
+            SettingsSearchResults(results: searchResults) { tab in
+                // The jump: land on the matching tab and drop back to normal content.
+                selectedTab = tab
+                searchQuery = ""
+            }
+        } else {
+            switch selectedTab {
+            case .general:
+                GeneralSettingsTab()
+            case .appearance:
+                AppearanceSettingsTab()
+            case .providers:
+                ProvidersSettingsTab()
+            case .sync:
+                SyncSettingsTab(syncManager: syncManager)
+            case .tidy:
+                TidySettingsTab(syncManager: syncManager)
+            case .advanced:
+                AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
             }
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .searchFieldSurface()
     }
 }
 
@@ -289,6 +292,9 @@ enum SettingsSearchIndex {
         // "solid" belongs to Glass effect now, not here: this control is shape only.
         .init(tab: .appearance, title: "Content surface style",
               keywords: ["surface", "unified", "cards", "pane background", "content surface"]),
+        .init(tab: .appearance, title: "Text size",
+              keywords: ["text size", "font", "font size", "type size", "bigger text", "larger text",
+                         "smaller text", "readability", "zoom", "scale"]),
         .init(tab: .appearance, title: "List density",
               keywords: ["density", "compact", "comfortable", "row height", "spacing", "tighter rows", "row size"]),
 
@@ -442,14 +448,14 @@ struct GeneralSettingsTab: View {
     @State private var notificationsDenied = false
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            SettingsSection {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
                         guard enabled != lastAppliedLaunchAtLogin else { return }
                         updateLoginItem(enabled)
                     }
-            } footer: {
+            } caption: {
                 if loginItemNeedsApproval {
                     HStack(spacing: 4) {
                         Text("Approval needed — allow SyncCloud in Login Items settings.")
@@ -464,21 +470,24 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            Section {
+            SettingsSection(
+                "Startup",
+                caption: "Panes reopen at the folders they showed when you last quit (falling back to the root if a folder is gone). Sort changes made from the pane menus are remembered here too."
+            ) {
                 Toggle("Show hidden files by default", isOn: $showHiddenByDefault)
                 Toggle("Reopen panes where I left off", isOn: $restoreLastFocus)
-                Picker("Sort panes by", selection: $settings.defaultSortOption) {
-                    ForEach(SortOption.allCases, id: \.self) { option in
-                        Text(option.rawValue).tag(option)
+                SettingsRow("Sort panes by") {
+                    Picker("Sort panes by", selection: $settings.defaultSortOption) {
+                        ForEach(SortOption.allCases, id: \.self) { option in
+                            Text(option.rawValue).tag(option)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-            } header: {
-                Text("Startup")
-            } footer: {
-                Text("Panes reopen at the folders they showed when you last quit (falling back to the root if a folder is gone). Sort changes made from the pane menus are remembered here too.")
             }
 
-            Section {
+            SettingsSection {
                 Toggle("Notify when operations finish in the background", isOn: $notifyInBackground)
                     .onChange(of: notifyInBackground) { _, enabled in
                         if enabled {
@@ -492,7 +501,7 @@ struct GeneralSettingsTab: View {
                             notificationsDenied = false
                         }
                     }
-            } footer: {
+            } caption: {
                 if notifyInBackground && notificationsDenied {
                     Text("Notifications are disabled in System Settings — allow SyncCloud under Notifications to see these alerts.")
                         .foregroundStyle(.orange)
@@ -501,13 +510,10 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            Section {
+            SettingsSection(caption: "Shows a confirmation if you try to quit while a copy, move, or delete is still running.") {
                 Toggle("Warn before quitting during file operations", isOn: $warnBeforeQuit)
-            } footer: {
-                Text("Shows a confirmation if you try to quit while a copy, move, or delete is still running.")
             }
         }
-        .formStyle(.grouped)
         .task {
             readLoginItemState()
             readNotificationAuthorization()
@@ -637,8 +643,8 @@ struct AppearanceSettingsTab: View {
     }
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            SettingsSection("Theme", caption: appearanceMode.detail) {
                 Picker("Theme", selection: $appearanceModeRaw) {
                     ForEach(AppearanceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
@@ -646,13 +652,9 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } header: {
-                Text("Theme")
-            } footer: {
-                Text(appearanceMode.detail)
             }
 
-            Section("Accent color") {
+            SettingsSection("Accent color") {
                 // Twelve hues share this row; the tighter spacing gives each swatch more room.
                 HStack(spacing: 5) {
                     ForEach(LiquidGlassHue.allCases) { hue in
@@ -666,7 +668,7 @@ struct AppearanceSettingsTab: View {
                 .frame(maxWidth: .infinity)
             }
 
-            Section {
+            SettingsSection("Glass effect", caption: glassLevel.detail) {
                 Picker("Glass effect", selection: $glassLevelRaw) {
                     ForEach(GlassLevel.allCases) { level in
                         Text(level.displayName).tag(level.rawValue)
@@ -674,14 +676,18 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } header: {
-                Text("Glass effect")
-            } footer: {
-                Text(glassLevel.detail)
             }
 
-            Section {
+            SettingsSection(
+                "Tint",
+                caption: selectedHue == .none
+                    ? "Choose an accent color above to tint the panes and Differences area."
+                    : "Washes the panes and Differences area with the accent color chosen above."
+            ) {
                 HStack(spacing: 12) {
+                    // The slider's own label is hidden, not dropped: the section title above
+                    // already says "Tint", and two of them would read as two controls. It stays
+                    // in the accessibility tree.
                     Slider(value: $surfaceTint, in: 0.0...1.0) {
                         Text("Tint")
                     } minimumValueLabel: {
@@ -697,6 +703,7 @@ struct AppearanceSettingsTab: View {
                             .lineLimit(1)
                             .fixedSize()
                     }
+                    .labelsHidden()
                     .accessibilityValue("\(Int(surfaceTint * 100)) percent")
                     .disabled(selectedHue == .none)
                     Text("\(Int(surfaceTint * 100))%")
@@ -704,13 +711,9 @@ struct AppearanceSettingsTab: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 36, alignment: .trailing)
                 }
-            } footer: {
-                Text(selectedHue == .none
-                     ? "Choose an accent color above to tint the panes and Differences area."
-                     : "Washes the panes and Differences area with the accent color chosen above.")
             }
 
-            Section {
+            SettingsSection("Content surface", caption: selectedSurfaceStyle.detail) {
                 Picker("Content surface", selection: $surfaceStyleRaw) {
                     ForEach(SurfaceStyle.allCases) { style in
                         Text(style.displayName).tag(style.rawValue)
@@ -718,15 +721,11 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } header: {
-                Text("Content surface")
-            } footer: {
-                Text(selectedSurfaceStyle.detail)
             }
 
             // Text size leads List density: the two are the pair that decides how much fits on
             // screen, and how big the type is has to be settled before how tightly it packs.
-            Section {
+            SettingsSection("Text size", caption: fontSize.detail) {
                 Picker("Text size", selection: $fontSizeRaw) {
                     ForEach(FontSize.allCases) { size in
                         Text(size.displayName).tag(size.rawValue)
@@ -734,13 +733,12 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } header: {
-                Text("Text size")
-            } footer: {
-                Text(fontSize.detail)
             }
 
-            Section {
+            SettingsSection(
+                "List density",
+                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, the Compare table, every Tidy lens, and the Activity Log and Sync History windows — so more fits on screen."
+            ) {
                 Picker("List density", selection: $listDensityRaw) {
                     ForEach(ListDensity.allCases) { density in
                         Text(density.displayName).tag(density.rawValue)
@@ -748,13 +746,8 @@ struct AppearanceSettingsTab: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-            } header: {
-                Text("List density")
-            } footer: {
-                Text("Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, the Compare table, every Tidy lens, and the Activity Log and Sync History windows — so more fits on screen.")
             }
         }
-        .formStyle(.grouped)
     }
 }
 
@@ -832,8 +825,10 @@ struct ProvidersSettingsTab: View {
     @State private var isRefreshingProviders = false
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            SettingsSection(
+                caption: "Providers are discovered from ~/Library/CloudStorage. Disabled providers stay configured but are hidden from the pane sidebar. At least one provider must remain enabled."
+            ) {
                 HStack {
                     Text("Discovered providers")
                         .scaledFont(.body.weight(.medium))
@@ -847,15 +842,15 @@ struct ProvidersSettingsTab: View {
                     .disabled(isRefreshingProviders)
                     .controlSize(.small)
                 }
-            } footer: {
-                Text("Providers are discovered from ~/Library/CloudStorage. Disabled providers stay configured but are hidden from the pane sidebar. At least one provider must remain enabled.")
             }
 
+            // This tab is the one that legitimately keeps scrolling: it grows with every
+            // provider the Mac has, so no sheet height can promise to hold it.
             ForEach(settings.availableProviders) { provider in
+                Divider()
                 ProviderSettingsSection(provider: provider)
             }
         }
-        .formStyle(.grouped)
     }
 
     private func refreshProviders() {
@@ -887,7 +882,7 @@ struct ProviderSettingsSection: View {
     }
 
     var body: some View {
-        Section {
+        SettingsSection {
             HStack(spacing: 12) {
                 Image(provider.imageName)
                     .resizable()
@@ -945,7 +940,7 @@ struct ProviderSettingsSection: View {
                 }
             }
 
-            LabeledContent("Location") {
+            SettingsRow("Location") {
                 // Mirrors the name field above: Enter or clicking away commits.
                 // No Save button — focus-loss covers the same ground, so the two
                 // fields commit through one identical set of triggers.
@@ -953,6 +948,7 @@ struct ProviderSettingsSection: View {
                     .textFieldStyle(.plain)
                     .scaledFont(.system(.callout, design: .monospaced))
                     .labelsHidden()
+                    .multilineTextAlignment(.trailing)
                     .focused($pathFieldFocused)
                     .onSubmit { commitPath() }
                     .onChange(of: pathFieldFocused) { _, focused in
@@ -1241,29 +1237,39 @@ struct SyncSettingsTab: View {
     @State private var patternDraft = ""
 
     var body: some View {
-        Form {
-            Section {
-                Picker("When a file already exists", selection: $settings.conflictPolicy) {
-                    ForEach(ConflictPolicy.allCases) { policy in
-                        Text(policy.displayName).tag(policy)
+        SettingsPage {
+            SettingsSection(
+                "Conflicts",
+                caption: "Applies to copies, moves, and syncs. Keep both renames the incoming file; Replace moves the existing file to the Trash first. Folder conflicts always ask."
+            ) {
+                SettingsRow("When a file already exists") {
+                    Picker("When a file already exists", selection: $settings.conflictPolicy) {
+                        ForEach(ConflictPolicy.allCases) { policy in
+                            Text(policy.displayName).tag(policy)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-            } header: {
-                Text("Conflicts")
-            } footer: {
-                Text("Applies to copies, moves, and syncs. Keep both renames the incoming file; Replace moves the existing file to the Trash first. Folder conflicts always ask.")
             }
 
-            Section {
+            SettingsSection(
+                "Comparison",
+                caption: "Cloud providers round file dates on upload; a small tolerance hides those false differences. Verification checksums same-size pairs that only differ by date and hides identical ones — thorough, but slower on large folders."
+            ) {
                 // Rows come from `SettingsPickerOptions`, which widens the list with the stored
                 // value when it isn't one of them — a tolerance left by an older build or a
                 // `defaults write` shows itself rather than leaving the picker blank while
                 // silently governing every scan. Same treatment as the four other numeric
                 // pickers; see that type for why showing beats coercing.
-                Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
-                    ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
-                        Text(option.label).tag(option.value)
+                SettingsRow("Treat dates as equal within") {
+                    Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
+                        ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
                     Text("Verify same-size files during scans")
@@ -1271,22 +1277,20 @@ struct SyncSettingsTab: View {
                 Toggle(isOn: $settings.ignoreGoogleDriveNewerDateOnly) {
                     Text("Ignore \"newer on Google Drive\" when same size")
                 }
-            } header: {
-                Text("Comparison")
-            } footer: {
-                Text("Cloud providers round file dates on upload; a small tolerance hides those false differences. Verification checksums same-size pairs that only differ by date and hides identical ones — thorough, but slower on large folders.")
             }
 
-            Section {
+            SettingsSection(
+                "Confirmations",
+                caption: "Copies and moves first show what will be transferred and where; turning this off starts them immediately, including moves, with no confirmation. Deleted items go to the Trash either way and can be restored with Undo."
+            ) {
                 Toggle("Confirm before copying or moving", isOn: $confirmBeforeTransfer)
                 Toggle("Confirm before deleting", isOn: $confirmBeforeDelete)
-            } header: {
-                Text("Confirmations")
-            } footer: {
-                Text("Copies and moves first show what will be transferred and where; turning this off starts them immediately, including moves, with no confirmation. Deleted items go to the Trash either way and can be restored with Undo.")
             }
 
-            Section {
+            SettingsSection(
+                "Ignored items",
+                caption: "Items you ignore from the Differences list are kept here per provider pair. Remove one to see its differences again."
+            ) {
                 Toggle(isOn: $settings.rememberIgnoredItems) {
                     Text("Remember ignored items across rescans")
                 }
@@ -1297,13 +1301,12 @@ struct SyncSettingsTab: View {
                         onClear: { syncManager.clearAllIgnoredItems() }
                     )
                 }
-            } header: {
-                Text("Ignored items")
-            } footer: {
-                Text("Items you ignore from the Differences list are kept here per provider pair. Remove one to see its differences again.")
             }
 
-            Section {
+            SettingsSection(
+                "Ignored name patterns",
+                caption: "Hides any item whose name matches a pattern, at any depth, in every comparison. * matches any run of characters and ? matches one."
+            ) {
                 ForEach(settings.ignorePatterns, id: \.self) { pattern in
                     HStack {
                         Text(pattern)
@@ -1327,13 +1330,8 @@ struct SyncSettingsTab: View {
                     Button("Add", action: addPattern)
                         .disabled(IgnoreRules.normalized(patternDraft) == nil)
                 }
-            } header: {
-                Text("Ignored name patterns")
-            } footer: {
-                Text("Hides any item whose name matches a pattern, at any depth, in every comparison. * matches any run of characters and ? matches one.")
             }
         }
-        .formStyle(.grouped)
     }
 
     private func addPattern() {
@@ -1415,28 +1413,35 @@ struct TidySettingsTab: View {
     @State private var showSpendHistory = false
 
     var body: some View {
-        Form {
-            Section {
+        SettingsPage {
+            SettingsSection(
+                "Duplicates",
+                caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan."
+            ) {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
                 // offered set still displays (and survives) instead of rendering as no selection.
-                Picker("Ignore files smaller than", selection: $tidyMinFileSize) {
-                    ForEach(SettingsPickerOptions.minFileSize(including: tidyMinFileSize)) { option in
-                        Text(option.label).tag(option.value)
+                SettingsRow("Ignore files smaller than") {
+                    Picker("Ignore files smaller than", selection: $tidyMinFileSize) {
+                        ForEach(SettingsPickerOptions.minFileSize(including: tidyMinFileSize)) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                Picker("Folders overlap at", selection: $tidyOverlapThreshold) {
-                    ForEach(SettingsPickerOptions.overlapThreshold(including: tidyOverlapThreshold)) { option in
-                        Text(option.label).tag(option.value)
+                SettingsRow("Folders overlap at") {
+                    Picker("Folders overlap at", selection: $tidyOverlapThreshold) {
+                        ForEach(SettingsPickerOptions.overlapThreshold(including: tidyOverlapThreshold)) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
-            } header: {
-                Text("Duplicates")
-            } footer: {
-                Text("How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan.")
             }
 
-            Section {
+            SettingsSection("Filing", content: {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
@@ -1452,52 +1457,66 @@ struct TidySettingsTab: View {
                     // documents that its titles mirror the on-screen labels, and "Model" alone did
                     // not. Rows come from `selectableModelOptions` rather than being spelled here,
                     // so ids and labels cannot drift out of step across a model refresh.
-                    Picker("Cloud model", selection: Binding(
-                        get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
-                        set: { filingCloudModel = $0 })) {
-                        ForEach(CloudFilingProtocol.selectableModelOptions, id: \.id) { option in
-                            Text(option.label).tag(option.id)
+                    SettingsRow("Cloud model") {
+                        Picker("Cloud model", selection: Binding(
+                            get: { CloudFilingProtocol.currentModel(for: filingCloudModel) },
+                            set: { filingCloudModel = $0 })) {
+                            ForEach(CloudFilingProtocol.selectableModelOptions, id: \.id) { option in
+                                Text(option.label).tag(option.id)
+                            }
                         }
+                        .labelsHidden()
+                        .fixedSize()
                     }
                 }
                 Toggle("Read file contents on-device for better signals", isOn: $filingReadContents)
-                LabeledContent("Loose-files inbox") {
+                SettingsRow("Loose-files inbox") {
                     TextField("TODO", text: $filingInbox)
                         .frame(maxWidth: 180)
                         .multilineTextAlignment(.trailing)
                 }
                 .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
-                LabeledContent("Remembered rules") {
+                SettingsRow("Remembered rules") {
                     Text("Now live in Tidy ▸ Automations")
                         .foregroundStyle(.secondary)
                 }
                 .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Tidy tab's Automations lens.")
-            } header: {
-                Text("Filing")
-            } footer: {
+            }, caption: {
                 Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Filing to remember are saved as automations (Tidy ▸ Automations). Changes apply on the next scan.")
-            }
+            })
 
-            Section {
+            SettingsSection(
+                "Cloud spend",
+                caption: "Before each cloud (Claude) scan you’ll see a cost estimate to confirm. Two caps pause cloud classification when a scan would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached falls back to the free on-device suggestions until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); on-device and keyword suggestions are free."
+            ) {
                 // A cap is the one setting where a blank picker is actively dangerous: the stored
                 // value keeps pausing (or not pausing) cloud scans regardless of what the control
                 // shows, so an unrecognized cap has to be visible. Rows via `SettingsPickerOptions`.
-                Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
-                    ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
-                        Text(option.label).tag(option.value)
+                SettingsRow("Monthly budget cap") {
+                    Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
+                        ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                Picker("Total budget cap", selection: $totalBudgetUSD) {
-                    ForEach(SettingsPickerOptions.totalBudget(including: totalBudgetUSD)) { option in
-                        Text(option.label).tag(option.value)
+                SettingsRow("Total budget cap") {
+                    Picker("Total budget cap", selection: $totalBudgetUSD) {
+                        ForEach(SettingsPickerOptions.totalBudget(including: totalBudgetUSD)) { option in
+                            Text(option.label).tag(option.value)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                LabeledContent("Total spent", value: FilingSpendFormat.cost(spendTotals.costUSD))
-                LabeledContent("Tokens", value: FilingSpendFormat.tokens(spendTotals.tokens))
-                LabeledContent("Cloud scans", value: "\(spendTotals.scans)")
+                SettingsRow("Total spent") { Text(FilingSpendFormat.cost(spendTotals.costUSD)) }
+                SettingsRow("Tokens") { Text(FilingSpendFormat.tokens(spendTotals.tokens)) }
+                SettingsRow("Cloud scans") { Text("\(spendTotals.scans)") }
                 if let last = spendLast {
-                    LabeledContent("Last scan",
-                                   value: "\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                    SettingsRow("Last scan") {
+                        Text("\(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
+                    }
                 }
                 HStack {
                     Button("View history…") { showSpendHistory = true }
@@ -1506,13 +1525,8 @@ struct TidySettingsTab: View {
                         .disabled(spendTotals.scans == 0)
                 }
                 .controlSize(.small)
-            } header: {
-                Text("Cloud spend")
-            } footer: {
-                Text("Before each cloud (Claude) scan you’ll see a cost estimate to confirm. Two caps pause cloud classification when a scan would push you past them: a monthly cap (Off by default) and a total lifetime cap (defaults to $5 as a safety backstop). Either one being reached falls back to the free on-device suggestions until you raise or turn it off. Costs are estimated from list prices for the cloud suggestions only (the Anthropic Console is authoritative); on-device and keyword suggestions are free.")
             }
         }
-        .formStyle(.grouped)
         .onAppear {
             hasStoredKey = AnthropicKeychain.hasKey
             refreshSpend()
@@ -1677,19 +1691,26 @@ struct AdvancedSettingsTab: View {
     @State private var logFileSizeText: String?
 
     var body: some View {
-        Form {
-            Section {
-                Picker("Log level", selection: $minimumLevelRaw) {
-                    Text("Debug (everything)").tag(LogLevel.debug.rawValue)
-                    Text("Info").tag(LogLevel.info.rawValue)
-                    Text("Warnings").tag(LogLevel.warning.rawValue)
-                    Text("Errors only").tag(LogLevel.error.rawValue)
-                }
-                .onChange(of: minimumLevelRaw) { _, raw in
-                    Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
+        SettingsPage {
+            SettingsSection(
+                "Logging",
+                caption: "The log rotates at 5 MB. Levels below the chosen one are skipped entirely."
+            ) {
+                SettingsRow("Log level") {
+                    Picker("Log level", selection: $minimumLevelRaw) {
+                        Text("Debug (everything)").tag(LogLevel.debug.rawValue)
+                        Text("Info").tag(LogLevel.info.rawValue)
+                        Text("Warnings").tag(LogLevel.warning.rawValue)
+                        Text("Errors only").tag(LogLevel.error.rawValue)
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .onChange(of: minimumLevelRaw) { _, raw in
+                        Logger.shared.minimumLevel = LogLevel(rawValue: raw) ?? .debug
+                    }
                 }
 
-                LabeledContent("Log file") {
+                SettingsRow("Log file") {
                     HStack(spacing: 8) {
                         if let logFileSizeText {
                             Text(logFileSizeText)
@@ -1705,49 +1726,31 @@ struct AdvancedSettingsTab: View {
                     }
                     .controlSize(.small)
                 }
-            } header: {
-                Text("Logging")
-            } footer: {
-                Text("The log rotates at 5 MB. Levels below the chosen one are skipped entirely.")
             }
 
-            Section {
-                LabeledContent("Orphaned temporary files") {
+            SettingsSection(
+                "Maintenance",
+                caption: "Interrupted copies can leave .tmp_ working files behind; they're moved to the Trash automatically once they're an hour old. Recovery backups (.rollback_) are never touched."
+            ) {
+                SettingsRow("Orphaned temporary files") {
                     Button("Sweep Now") {
                         syncManager?.sweepOrphanedTempArtifactsNow()
                     }
                     .controlSize(.small)
                     .disabled(syncManager == nil)
                 }
-            } header: {
-                Text("Maintenance")
-            } footer: {
-                Text("Interrupted copies can leave .tmp_ working files behind; they're moved to the Trash automatically once they're an hour old. Recovery backups (.rollback_) are never touched.")
             }
 
             if let onResetAllSettings {
-                Section {
+                SettingsSection(
+                    caption: "Restores defaults for appearance, sync behavior, and provider names and paths. Your files aren't affected."
+                ) {
                     Button("Reset All Settings…", role: .destructive) {
                         confirmReset(onResetAllSettings)
                     }
-                } footer: {
-                    Text("Restores defaults for appearance, sync behavior, and provider names and paths. Your files aren't affected.")
-                }
-            }
-
-            // The bottom version line. Rendered as a background-less row rather than an empty
-            // Section's footer, which drew a stray empty grouped card above it.
-            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                Section {
-                    Text("SyncCloud \(version)")
-                        .scaledFont(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .listRowBackground(Color.clear)
                 }
             }
         }
-        .formStyle(.grouped)
         .task { await refreshLogFileSize() }
     }
 

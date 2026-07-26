@@ -1,0 +1,299 @@
+import Design
+import SwiftUI
+
+// MARK: - The settings page layout
+//
+// Settings used to be a stack: a title row, a search field and a six-up segmented picker over a
+// `Form { Section { … } }.formStyle(.grouped)` body. That cost 124pt of chrome before the first
+// control, and grouped Form spends ~115pt per section — a header, a boxed control, a footer
+// paragraph and a gap — so the Appearance tab laid out at 884pt inside a 436pt opening. The last
+// visible control was cut in half by the sheet's bottom edge, which is the one thing a scrolling
+// surface must never do: a clipped control reads as "you've reached the end".
+//
+// The pieces here replace both halves of that. `SettingsRail` takes the search field and the six
+// tabs out of the content column and stands them down the left, the macOS Settings convention.
+// `SettingsSection` keeps a grouped Form's *information* architecture — a titled group of related
+// controls with one explanation underneath — while dropping the box it drew around every group:
+// ~77pt per section instead of ~115.
+//
+// `.formStyle(.columns)` was measured as the cheaper alternative (61pt per section) and rejected
+// on sight: it renders section headers in the value column at body weight, so "Startup" reads as
+// another line of the preceding caption rather than as a heading, and the whole form hangs off a
+// wide empty gutter. It is shorter because it deletes the structure, not because it packs it.
+
+/// How big the sheet is and how much of it the selected tab gets.
+///
+/// A free-standing enum rather than statics on `SettingsView`: a static on a SwiftUI `View` is
+/// `@MainActor`, so arithmetic that has nothing to do with the main actor would drag every test
+/// asserting it onto that actor — and calling one from a nonisolated context traps at runtime
+/// with no compile error. This is plain math; it belongs somewhere plain.
+enum SettingsSheetMetrics {
+    /// The sheet at the default text size. The height is chosen against a measurement, not a
+    /// round number: Appearance is the tallest tab that can be made to fit (seven sections,
+    /// 576pt laid out), and the opening has to clear it with room to spare so a copy edit doesn't
+    /// silently push it back into scrolling. See `SettingsLayoutTests`.
+    static let baseSize = CGSize(width: 760, height: 660)
+
+    /// Below this, a rail plus a usable content column stops being possible. The sheet stops
+    /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
+    /// sheet too small to use.
+    static let floorSize = CGSize(width: 520, height: 380)
+
+    /// Breathing room kept between the sheet and the window edge.
+    static let hostMargin: CGFloat = 48
+
+    /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
+    /// 44pt clears `.headline` at the largest text scale (13 × 1.3 = 16.9pt) with padding.
+    static let headerHeight: CGFloat = 44
+
+    /// The sheet's size: the base size scaled by the text setting, then clamped to what the host
+    /// actually has room for (never below `floorSize`).
+    ///
+    /// Scaling up is the point — Larger type needs a larger sheet, or the taller tabs go straight
+    /// back to scrolling — but a sheet must never exceed the space it is centered in. The window's
+    /// own minimum is 600pt wide, narrower than the sheet wants at any text size.
+    static func resolvedSize(textScale: CGFloat, available: CGSize?) -> CGSize {
+        let wanted = CGSize(width: baseSize.width * textScale, height: baseSize.height * textScale)
+        guard let available else { return wanted }
+        return CGSize(
+            width: min(wanted.width, max(floorSize.width, available.width - hostMargin)),
+            height: min(wanted.height, max(floorSize.height, available.height - hostMargin))
+        )
+    }
+
+    /// The height the selected tab's page actually gets: the sheet, less the title row and the
+    /// divider under it. The number the layout tests assert each tab against.
+    static func contentOpening(textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
+        resolvedSize(textScale: textScale, available: available).height
+            - headerHeight * textScale
+            - 1
+    }
+
+    /// The content column's width: the sheet, less the rail and the divider beside it.
+    static func contentWidth(textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
+        resolvedSize(textScale: textScale, available: available).width - SettingsRail.width - 1
+    }
+}
+
+/// One tab's worth of settings: a scrolling column of `SettingsSection`s.
+///
+/// Scrolls only when it has to (`.basedOnSize`), so a tab that fits sits still instead of
+/// rubber-banding under the pointer.
+struct SettingsPage<Content: View>: View {
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+}
+
+/// A titled group of related controls with one explanation underneath — the grouped-Form
+/// `Section { } header: { } footer: { }` shape, minus the box.
+///
+/// The caption is styled here (caption size, secondary) rather than at each call site, but a
+/// caption that sets its own `foregroundStyle` still wins: the inner modifier is applied closer
+/// to the text. That is what keeps the "Notifications are disabled…" hint orange.
+struct SettingsSection<Content: View, Caption: View>: View {
+    private let title: String?
+    private let content: Content
+    private let caption: Caption
+
+    init(
+        _ title: String? = nil,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder caption: () -> Caption
+    ) {
+        self.title = title
+        self.content = content()
+        self.caption = caption()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if let title {
+                Text(title)
+                    .scaledFont(.subheadline.weight(.semibold))
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                content
+            }
+            caption
+                .scaledFont(.caption)
+                .foregroundStyle(.secondary)
+                // Captions are full sentences that must wrap rather than truncate; without this
+                // a `Text` inside a horizontally-flexible stack reports a one-line ideal height
+                // and gets clipped at the second line.
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension SettingsSection where Caption == Text {
+    /// The common case: a plain sentence of explanation.
+    init(_ title: String? = nil, caption: String, @ViewBuilder content: () -> Content) {
+        self.init(title, content: content, caption: { Text(caption) })
+    }
+}
+
+extension SettingsSection where Caption == EmptyView {
+    /// A group that explains itself.
+    init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.init(title, content: content, caption: { EmptyView() })
+    }
+}
+
+/// A label-left / control-right row, the alignment grouped Form gave these for free.
+///
+/// Used for the controls that read as "setting: value" (a popup, a text field, a pair of
+/// buttons). Controls that own their own label — `Toggle`, a segmented picker under a section
+/// title — are placed directly in a `SettingsSection` instead.
+struct SettingsRow<Control: View>: View {
+    private let title: String
+    private let control: Control
+
+    init(_ title: String, @ViewBuilder control: () -> Control) {
+        self.title = title
+        self.control = control()
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+            Spacer(minLength: 12)
+            control
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+// MARK: - The rail
+
+/// The left rail: the search field, the six tabs, and the version line.
+///
+/// Everything here used to sit above the content column. Moving it aside is what buys the
+/// content its height back — and it gives the six tabs room to be a list rather than a
+/// six-segment picker squeezed into 588pt.
+struct SettingsRail: View {
+    @Binding var selection: SettingsView.SettingsTab
+    @Binding var query: String
+    /// The window's accent hue: fills the selected row, tints the hover wash on the others.
+    let hue: LiquidGlassHue
+
+    /// Rail width. Wide enough for the longest tab name ("Appearance") plus its symbol at the
+    /// largest text size without the label truncating.
+    static let width: CGFloat = 176
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            SettingsSearchField(query: $query)
+                .padding(.bottom, 9)
+
+            ForEach(SettingsView.SettingsTab.allCases, id: \.self) { tab in
+                railRow(tab)
+            }
+
+            Spacer(minLength: 8)
+
+            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+                Text("SyncCloud \(version)")
+                    .scaledFont(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 9)
+                    .padding(.bottom, 2)
+                    .accessibilityLabel("SyncCloud version \(version)")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(width: Self.width, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func railRow(_ tab: SettingsView.SettingsTab) -> some View {
+        let isSelected = selection == tab && !isSearching
+        Button {
+            // Picking a tab is also the way out of a search: the results were standing in for
+            // the content column, and the user has just said which content they want.
+            selection = tab
+            query = ""
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: tab.symbolName)
+                    .frame(width: 16)
+                    .scaledFont(.callout)
+                Text(tab.displayName)
+                    .scaledFont(.callout)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(isSelected ? AnyShapeStyle(hue.onAccentLabelColor) : AnyShapeStyle(.primary))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(hue.accentFillColor)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        // A selected row already carries a solid fill, so it takes `.filled` (a ring and a lift,
+        // no wash — there is nothing to wash over) with the tint flipped to the on-fill color.
+        // See the accent-fill model in Design: washing the accent over its own fill paints nothing.
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment,
+                                      tint: isSelected ? hue.onAccentLabelColor : hue.accentColor,
+                                      shape: .roundedRect(6)))
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private var isSearching: Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+/// The rail's search box: a magnifier, a plain text field, and a clear button that shows once
+/// there's text. Styled as a rounded field so it reads as "search" without the native
+/// `.searchable` machinery, which is meant for navigation stacks rather than an overlay card.
+struct SettingsSearchField: View {
+    @Binding var query: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .scaledFont(.caption)
+            TextField("Search", text: $query)
+                .textFieldStyle(.plain)
+                .scaledFont(.callout)
+                .accessibilityLabel("Search settings")
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .scaledFont(.caption)
+                        .hoverInk()
+                }
+                .buttonStyle(.hoverAffordance(.inline))
+                .accessibilityLabel("Clear search")
+                .help("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .searchFieldSurface()
+    }
+}

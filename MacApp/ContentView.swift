@@ -845,17 +845,23 @@ struct ContentView: View {
     /// screen, and never kicks the user out to another Space the way a separate window would.
     @ViewBuilder
     private var settingsOverlay: some View {
-        ZStack {
-            Rectangle()
-                // Deepens for `.clear` (`overlayScrimOpacity`): the card below is floored to
-                // frosted, and pushing the app further back is what lets it read cleanly.
-                .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
-                .ignoresSafeArea()
-                .onTapGesture { showSettings = false }
+        // The card is sized in points and grows with the Text size setting, but the window's own
+        // minimum is 600pt wide — narrower than the card wants. Hand it the space it actually
+        // has so it can clamp itself rather than hang off the edge.
+        GeometryReader { proxy in
+            ZStack {
+                Rectangle()
+                    // Deepens for `.clear` (`overlayScrimOpacity`): the card below is floored to
+                    // frosted, and pushing the app further back is what lets it read cleanly.
+                    .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                    .ignoresSafeArea()
+                    .onTapGesture { showSettings = false }
 
-            settingsCard
-                // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
-                .contentShape(Rectangle())
+                settingsCard(available: proxy.size)
+                    // Absorb clicks on the card so they don't fall through to the dismiss backdrop.
+                    .contentShape(Rectangle())
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .transition(.opacity)
     }
@@ -866,12 +872,13 @@ struct ContentView: View {
     /// layers of text competing (it rendered at ~9% opacity before the floor existed). Radius,
     /// clip and shadow come from the shared LiquidGlass system rather than hardcoded values.
     @ViewBuilder
-    private var settingsCard: some View {
+    private func settingsCard(available: CGSize) -> some View {
         SettingsView(
             selection: $settingsTab,
             onClose: { showSettings = false },
             syncManager: syncManager,
-            onResetAllSettings: { resetAllSettingsAction() }
+            onResetAllSettings: { resetAllSettingsAction() },
+            availableSize: available
         )
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
