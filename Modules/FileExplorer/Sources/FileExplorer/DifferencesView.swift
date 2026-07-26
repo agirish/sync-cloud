@@ -1017,66 +1017,67 @@ public struct DifferencesView: View {
         // majority is read over the whole visible list, not the selection.
         let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         let compact = listDensity == .compact
-        // Read by BOTH Name columns below, from the same expression the branch itself tests, so the
-        // two cannot drift apart. Spelling `grouped: true` into the sectioned branch and leaving the
-        // flat one on the default said the same thing twice and let either say it wrong — a
-        // `grouped: true` pasted into the flat branch would repeat every row's whole parent path
-        // under no header at all, and every test would still pass.
+        // `sections` is empty when grouping is off OR when it would not be worth it — both gates
+        // live in `groupedSections`, so this asks one question. Read here, once, by both the Name
+        // column and the rows builder, so the column cannot disagree with the shape it is drawing.
         let grouped = !sections.isEmpty
-        Group {
-            // `sections` is empty when grouping is off OR when it would not be worth it — both
-            // gates live in `groupedSections`, so this branch asks one question.
+        // ONE Table, whichever shape the rows take.
+        //
+        // This used to be two Tables behind an `if` — `Table(of:selection:sortOrder:columns:rows:)`
+        // for the sectioned form and `Table(_:selection:sortOrder:)` for the flat one. Two
+        // initializers are two view identities, so every toggle of "Group by folder" tore one down
+        // and built the other, discarding dragged column widths and scroll position. That was not
+        // a rare event: `isWorthGrouping` requires sections to average >= 3 rows, and a bulk sync
+        // consumes rows as it runs, so a long copy can cross the threshold and reshuffle the table
+        // mid-operation.
+        //
+        // The fix is to never use the collection initializer: `Table(of:)` takes an explicit rows
+        // builder, and @TableRowBuilder supports if/else, so ONE Table can emit either sectioned or
+        // unsectioned rows. Nothing is lost by dropping `Table(sorted, ...)` — its implicit sorting
+        // was already unused, because `sorted` arrives pre-sorted from the `.task(id:)` in `body`
+        // and `sortOrder` is bound here only to drive the header chevrons.
+        //
+        // The columns being defined once is the point, not a bonus: they were duplicated verbatim
+        // across both branches with nothing pinning them identical, and they had ALREADY drifted —
+        // the Name column passed `grouped: true` in the sectioned branch and defaulted in the flat
+        // one. Sharing them makes that class of drift unrepresentable.
+        Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
+            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
+            TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
+            TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
+                .width(min: 70, ideal: 90)
+            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
+                .width(min: 96, ideal: 140)
+        } rows: {
             if grouped {
-                // The sectioned form. Deliberately a SEPARATE Table rather than one Table whose
-                // rows builder branches: `Table(_:selection:sortOrder:)` (collection) and
-                // `Table(of:selection:sortOrder:columns:rows:)` (row builder) are different
-                // initializers, and the columns have to be spelled out for each. `tableColumns`
-                // cannot be shared either — a @TableColumnBuilder result is generic over its row
-                // type and does not survive being hoisted into a computed property here.
-                Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
-                    TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
-                    TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
-                        .width(min: 70, ideal: 90)
-                    TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
-                        .width(min: 96, ideal: 140)
-                } rows: {
-                    ForEach(sections) { section in
-                        let isCollapsed = collapsedSections.contains(section.folder)
-                        SwiftUI.Section {
-                            // Collapsing is "emit no rows". The header is a separate slot, so it
-                            // survives an empty section — verified by `collapsedSectionKeepsItsHeader`
-                            // rather than assumed, because a collapsed folder VANISHING instead of
-                            // collapsing would be the obvious way for this to fail.
-                            ForEach(isCollapsed ? [] : section.rows) { TableRow($0) }
-                        } header: {
-                            DifferenceSectionHeader(
-                                folder: section.folder,
-                                count: section.count,
-                                accent: glassHue.accentColor,
-                                isFullySelected: DifferenceGrouping.isFullySelected(section, in: selection),
-                                isCollapsed: isCollapsed,
-                                // Only the collapsed form shows this, and it is an O(rows) tally —
-                                // computing it for expanded sections would walk the entire diff on
-                                // every render, which during a bulk sync means per copied file.
-                                directionSummary: isCollapsed
-                                    ? section.directionSummary(leftName: paneNames.left,
-                                                               rightName: paneNames.right)
-                                    : "",
-                                onToggleCollapse: { toggleCollapse(section, allSections: sections) },
-                                onSelect: { selectSection(section) })
-                        }
+                ForEach(sections) { section in
+                    let isCollapsed = collapsedSections.contains(section.folder)
+                    SwiftUI.Section {
+                        // Collapsing is "emit no rows". The header is a separate slot, so it
+                        // survives an empty section — verified by `collapsedSectionKeepsItsHeader`
+                        // rather than assumed, because a collapsed folder VANISHING instead of
+                        // collapsing would be the obvious way for this to fail.
+                        ForEach(isCollapsed ? [] : section.rows) { TableRow($0) }
+                    } header: {
+                        DifferenceSectionHeader(
+                            folder: section.folder,
+                            count: section.count,
+                            accent: glassHue.accentColor,
+                            isFullySelected: DifferenceGrouping.isFullySelected(section, in: selection),
+                            isCollapsed: isCollapsed,
+                            // Only the collapsed form shows this, and it is an O(rows) tally —
+                            // computing it for expanded sections would walk the entire diff on
+                            // every render, which during a bulk sync means per copied file.
+                            directionSummary: isCollapsed
+                                ? section.directionSummary(leftName: paneNames.left,
+                                                           rightName: paneNames.right)
+                                : "",
+                            onToggleCollapse: { toggleCollapse(section, allSections: sections) },
+                            onSelect: { selectSection(section) })
                     }
                 }
             } else {
-                Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
-                    TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
-                    TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
-                        .width(min: 70, ideal: 90)
-                    TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
-                        .width(min: 96, ideal: 140)
-                }
+                ForEach(sorted) { TableRow($0) }
             }
         }
         // Let the surface fill below show through: hide the scroll background AND the
