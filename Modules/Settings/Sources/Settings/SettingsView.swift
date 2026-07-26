@@ -1403,10 +1403,6 @@ struct TidySettingsTab: View {
     @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
     @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
 
-    @State private var apiKeyField: String = ""
-    @State private var hasStoredKey = false
-    @State private var testingKey = false
-    @State private var keyTestResult: AnthropicKeyCheck.Result?
     // Cloud spend, refreshed on appear and when the history sheet closes.
     @State private var spendTotals = FilingSpendTotals()
     @State private var spendLast: FilingSpendEntry?
@@ -1449,7 +1445,7 @@ struct TidySettingsTab: View {
                 // off). Gate the key/model sub-panel on both flags so turning AI off doesn't
                 // strand a live-looking cloud panel whose own toggle can no longer dismiss it.
                 if filingUseCloud && filingUseAI {
-                    cloudKeyControls
+                    CloudKeyRow()
                     // Read through `currentModel(for:)` so a value stored before a model refresh
                     // (e.g. "claude-opus-4-8") still lights up its family's row instead of leaving
                     // the picker blank — the scan resolves it the same way.
@@ -1527,14 +1523,7 @@ struct TidySettingsTab: View {
                 .controlSize(.small)
             }
         }
-        .onAppear {
-            // `isConfigured`, not `hasKey`: the status line only needs to know whether a key is
-            // stored, and `hasKey` reads the secret — which made simply opening this tab raise
-            // the Keychain password prompt for a key the user hadn't asked to use. The prompt
-            // now belongs to the actions that genuinely need the key: Test, and a cloud scan.
-            hasStoredKey = AnthropicKeychain.isConfigured
-            refreshSpend()
-        }
+        .onAppear(perform: refreshSpend)
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
             TidySpendHistorySheet()
         }
@@ -1545,81 +1534,6 @@ struct TidySettingsTab: View {
         spendLast = FilingSpendStore.last()
     }
 
-    /// The Anthropic key field, Save/Test/Clear, a status line, and a link to the Console.
-    @ViewBuilder private var cloudKeyControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                SecureField(hasStoredKey ? "•••• key saved" : "Paste sk-ant-… key", text: $apiKeyField)
-                    .textFieldStyle(.roundedBorder)
-                Button("Save") {
-                    let status = AnthropicKeychain.store(apiKeyField)
-                    apiKeyField = ""
-                    // Confirming the write landed only needs the item to exist — reading it back
-                    // would prompt for the password immediately after the user typed the key in.
-                    hasStoredKey = AnthropicKeychain.isConfigured
-                    // A keychain write can fail (locked or denied keychain, an MDM policy). The
-                    // status line otherwise fell back to "No key yet", which reads as though
-                    // nothing had been typed rather than as a refused write.
-                    // `.invalid` renders its message verbatim; `.failed` prefixes "Couldn't reach
-                    // Anthropic", which would misattribute a local Keychain refusal to the network.
-                    keyTestResult = (status == errSecSuccess && hasStoredKey)
-                        ? nil
-                        : .invalid("The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
-                }
-                .disabled(apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty)
-                Button { Task { await testKey() } } label: {
-                    if testingKey { ProgressView().controlSize(.small) } else { Text("Test") }
-                }
-                .disabled(testingKey || (!hasStoredKey && apiKeyField.trimmingCharacters(in: .whitespaces).isEmpty))
-                if hasStoredKey {
-                    Button("Clear") {
-                        AnthropicKeychain.delete()
-                        apiKeyField = ""
-                        hasStoredKey = false
-                        keyTestResult = nil
-                    }
-                }
-            }
-            .controlSize(.small)
-
-            keyStatusLine
-
-            Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                Text("Get a key from the Anthropic Console ↗").scaledFont(.caption)
-            }
-        }
-    }
-
-    @ViewBuilder private var keyStatusLine: some View {
-        if testingKey {
-            Label("Testing…", systemImage: "ellipsis.circle").scaledFont(.caption).foregroundStyle(.secondary)
-        } else if let keyTestResult {
-            switch keyTestResult {
-            case .valid:
-                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").scaledFont(.caption).foregroundStyle(.green)
-            case .invalid(let message):
-                Label(message, systemImage: "xmark.octagon.fill").scaledFont(.caption).foregroundStyle(.red)
-            case .failed(let message):
-                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.caption).foregroundStyle(.orange)
-            }
-        } else if hasStoredKey {
-            Label("Key saved to Keychain.", systemImage: "checkmark.circle").scaledFont(.caption).foregroundStyle(.secondary)
-        } else {
-            Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
-                .scaledFont(.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    /// Validates the key in the field (or, if empty, the stored key) with a free Console call.
-    private func testKey() async {
-        let typed = apiKeyField.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = typed.isEmpty ? (AnthropicKeychain.read() ?? "") : typed
-        testingKey = true
-        keyTestResult = nil
-        let result = await AnthropicKeyCheck.validate(key)
-        testingKey = false
-        keyTestResult = result
-    }
 }
 
 /// The full cloud-Filing spend history as a sheet (Settings' copy — FileExplorer has its own for
