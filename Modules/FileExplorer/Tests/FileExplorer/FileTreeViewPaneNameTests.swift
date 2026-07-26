@@ -31,7 +31,9 @@ import Sync
 
     private func treeView(isLeft: Bool, otherPaneName: String?) -> FileTreeView {
         FileTreeView(
-            tree: [], otherTree: [], isLoading: false, currentPath: "/x",
+            tree: PaneTree(side: isLeft ? .left : .right, version: 0, nodes: []),
+            otherTree: PaneTree(side: isLeft ? .right : .left, version: 0, nodes: []),
+            isLoading: false, currentPath: "/x",
             selection: .constant([]), otherSelection: [],
             isLeft: isLeft, delegate: StubDelegate(),
             otherPaneName: otherPaneName

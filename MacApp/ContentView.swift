@@ -1114,8 +1114,8 @@ struct ContentView: View {
         let relativePath: String
         let canGoBack: Bool
         let canGoForward: Bool
-        let tree: [FileNode]
-        let otherTree: [FileNode]
+        let tree: PaneTree
+        let otherTree: PaneTree
         let isLoading: Bool
         let currentPath: String
         let otherSelection: Set<String>
@@ -1132,8 +1132,8 @@ struct ContentView: View {
             relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
             canGoBack: isLeft ? syncManager.leftHistory.canGoBack : syncManager.rightHistory.canGoBack,
             canGoForward: isLeft ? syncManager.leftHistory.canGoForward : syncManager.rightHistory.canGoForward,
-            tree: isLeft ? syncManager.leftTree : syncManager.rightTree,
-            otherTree: isLeft ? syncManager.rightTree : syncManager.leftTree,
+            tree: isLeft ? syncManager.leftPaneTree : syncManager.rightPaneTree,
+            otherTree: isLeft ? syncManager.rightPaneTree : syncManager.leftPaneTree,
             isLoading: isLeft ? syncManager.isLoadingLeftTree : syncManager.isLoadingRightTree,
             currentPath: isLeft ? currentLeftPath : currentRightPath,
             otherSelection: isLeft ? syncManager.selectedRightPaths : syncManager.selectedLeftPaths,

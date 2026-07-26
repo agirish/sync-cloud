@@ -727,6 +727,18 @@ public class FileSyncManager: ObservableObject {
         didSet { publishedRightTreeVersion += 1 }
     }
 
+    /// The left pane's tree stamped with the publish that produced it. Views must take this
+    /// rather than `leftTree`: storing a bare `[FileNode]` in a view makes SwiftUI deep-compare
+    /// ~40,000 nodes on the main thread on every body-output comparison. See `PaneTree`.
+    public var leftPaneTree: PaneTree {
+        PaneTree(side: .left, version: publishedLeftTreeVersion, nodes: leftTree)
+    }
+
+    /// Right-pane counterpart of `leftPaneTree`.
+    public var rightPaneTree: PaneTree {
+        PaneTree(side: .right, version: publishedRightTreeVersion, nodes: rightTree)
+    }
+
     /// True when the left pane's folder has entries but filtering (hidden files) removed all
     /// of them — lets the empty-pane placeholder point at the Hidden toggle. Not `@Published`:
     /// read during renders that `leftTree` (always published after the raw tree is set)

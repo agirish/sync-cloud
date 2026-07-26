@@ -90,7 +90,9 @@ import Sync
         rootPath: String? = nil
     ) -> FileTreeView {
         FileTreeView(
-            tree: tree, otherTree: [], isLoading: isLoading, currentPath: "/root/focused",
+            tree: PaneTree(side: .left, version: 0, nodes: tree),
+            otherTree: PaneTree(side: .right, version: 0, nodes: []),
+            isLoading: isLoading, currentPath: "/root/focused",
             selection: .constant([]), otherSelection: [],
             isLeft: true, delegate: StubDelegate(),
             rootPathIsValid: rootPathIsValid, providerIsEnabled: providerIsEnabled,

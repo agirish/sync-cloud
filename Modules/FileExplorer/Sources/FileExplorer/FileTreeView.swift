@@ -16,10 +16,13 @@ extension Notification.Name {
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
 public struct FileTreeView: View {
-    /// File tree for this pane.
-    public let tree: [FileNode]
-    /// File tree for the opposite pane (e.g. for “copy to other pane”).
-    public let otherTree: [FileNode]
+    /// File tree for this pane. Boxed rather than a bare `[FileNode]` so SwiftUI compares one
+    /// `Int` instead of recursing through ~40,000 nodes on the main thread — see `PaneTree`.
+    public let tree: PaneTree
+    /// File tree for the opposite pane (e.g. for “copy to other pane”). Boxed for the same
+    /// reason as `tree`, and it matters at least as much: the opposite pane's tree is never
+    /// rendered here, so every node of it was being compared purely to reach a menu lookup.
+    public let otherTree: PaneTree
     /// Whether this pane’s tree is currently loading.
     public let isLoading: Bool
     /// Absolute path of the current folder shown in this pane.
@@ -85,7 +88,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: [FileNode], otherTree: [FileNode], isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -142,7 +145,7 @@ public struct FileTreeView: View {
     /// The placeholder to show when the tree has no rows (see `PaneEmptyState.classify`).
     var emptyState: PaneEmptyState {
         PaneEmptyState.classify(
-            treeIsEmpty: tree.isEmpty,
+            treeIsEmpty: tree.nodes.isEmpty,
             isLoading: isLoading,
             providerIsEnabled: providerIsEnabled,
             rootIsValid: rootPathIsValid,
@@ -210,7 +213,7 @@ public struct FileTreeView: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            if !tree.isEmpty && isLoading {
+            if !tree.nodes.isEmpty && isLoading {
                 // Subtle corner overlay when refreshing non-empty tree; display-only, so it
                 // must never intercept clicks meant for the rows underneath it.
                 VStack {
@@ -254,7 +257,7 @@ public struct FileTreeView: View {
     @ViewBuilder
     private var paneList: some View {
         List(selection: $selection) {
-            OutlineGroup(tree, children: \.children) { node in
+            OutlineGroup(tree.nodes, children: \.children) { node in
                 treeRow(for: node)
             }
         }
@@ -301,7 +304,7 @@ public struct FileTreeView: View {
             // and counted children that the single trash of their parent already covers. The disk
             // outcome was always right — `deleteItems` prunes before trashing — but the dialog the
             // user answers should describe what will actually happen.
-            let selectedNodes = tree.findNodes(at: selection).pruneNestedNodes()
+            let selectedNodes = tree.nodes.findNodes(at: selection).pruneNestedNodes()
             if !selectedNodes.isEmpty {
                 delegate.handleDelete(selectedNodes)
             }
@@ -412,7 +415,7 @@ public struct FileTreeView: View {
     private func makeDragPayload(for node: FileNode) -> PaneDragPayload {
         let payload = PaneDragPayload(
             sourceIsLeft: isLeft,
-            nodes: PaneDropLogic.dragNodes(for: node, selection: selection, tree: tree)
+            nodes: PaneDropLogic.dragNodes(for: node, selection: selection, tree: tree.nodes)
         )
         PaneDragSession.shared.active = payload
         return payload
@@ -548,8 +551,10 @@ private struct PaneDropTarget: ViewModifier {
 struct FileContextMenu: View {
     let node: FileNode
     let selection: Set<String>
-    let tree: [FileNode]
-    let otherTree: [FileNode]
+    /// Boxed for the same reason as `FileTreeView.tree`: a menu is built per row, so a bare
+    /// `[FileNode]` here put a full ~40,000-node deep compare into every row's body output.
+    let tree: PaneTree
+    let otherTree: PaneTree
     let otherSelection: Set<String>
     let isLeft: Bool
     let currentPath: String
@@ -580,7 +585,7 @@ struct FileContextMenu: View {
     }
 
     var body: some View {
-        let selectedNodes = Self.resolvedSelection(node: node, selection: selection, tree: tree)
+        let selectedNodes = Self.resolvedSelection(node: node, selection: selection, tree: tree.nodes)
         let count = selectedNodes.count
         
         Group {
@@ -686,7 +691,7 @@ struct FileContextMenu: View {
                 // Pruned like every other entry point: the transfer prunes downstream anyway,
                 // so an unpruned list here only mislabeled the count ("Copy 3 items" for a
                 // folder plus two of its own children, which transfer as 1).
-                let otherSelectedNodes = otherTree.findNodes(at: otherSelection).pruneNestedNodes()
+                let otherSelectedNodes = otherTree.nodes.findNodes(at: otherSelection).pruneNestedNodes()
                 if !otherSelectedNodes.isEmpty {
                     Button(action: { delegate.handlePasteExplicit(node, nodes: otherSelectedNodes) }) {
                         if otherSelectedNodes.count > 1 {
