@@ -123,6 +123,69 @@ private let providers = [
         }
     }
 
+    // MARK: Provider type of a path-addressed root
+    // `-R <path>` used to produce a provider hard-typed `.iCloud`, which silently switched OFF the
+    // two guards that key off the type: the destination name check (`ProviderNameRules.violation`,
+    // applied in CommandRunner before every write) and the Google Drive date-noise filter. The same
+    // OneDrive folder therefore skipped `CON.txt` when named by id and copied it when named by
+    // path. The type now comes from whichever discovered provider contains the path.
+
+    private static let cloudProviders = [
+        CloudProvider(id: "iCloud", displayName: "iCloud", imageName: "icloud",
+                      path: "/Users/u/Library/Mobile Documents/com~apple~CloudDocs", type: .iCloud),
+        CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive (Personal)", imageName: "onedrive",
+                      path: "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents", type: .oneDrive),
+        CloudProvider(id: "GoogleDrive-me", displayName: "Google Drive (me)", imageName: "googledrive",
+                      path: "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive/Documents", type: .googleDrive),
+    ]
+
+    @Test func testPathAddressedProviderRootKeepsItsProviderType() throws {
+        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal/Documents"
+        let resolved = try resolveProviderOrPath(
+            value: path, label: "Right", providers: Self.cloudProviders,
+            fileManager: StubFileManager(directories: [path]))
+        #expect(resolved.type == .oneDrive)
+        // The guard the type gates is now live for this root.
+        #expect(ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) != nil)
+    }
+
+    @Test func testPathInsideTheAccountFolderButOutsideTheProviderRootStillResolves() throws {
+        // A sibling of the discovered root (which is .../Documents) belongs to the same account.
+        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal/Photos"
+        let resolved = try resolveProviderOrPath(
+            value: path, label: "Right", providers: Self.cloudProviders,
+            fileManager: StubFileManager(directories: [path]))
+        #expect(resolved.type == .oneDrive)
+    }
+
+    @Test func testPathAddressedGoogleDriveRootIsTypedForTheDateNoiseFilter() throws {
+        let path = "/Users/u/Library/CloudStorage/GoogleDrive-me/My Drive"
+        let resolved = try resolveProviderOrPath(
+            value: path, label: "Right", providers: Self.cloudProviders,
+            fileManager: StubFileManager(directories: [path]))
+        // DifferenceProcessing drops Drive's date-only noise only when this is `.googleDrive`.
+        #expect(resolved.type == .googleDrive)
+    }
+
+    @Test func testOrdinaryLocalPathKeepsThePermissiveFallbackType() throws {
+        // No provider claims it, so the rule-free type stands — an ordinary folder must not
+        // inherit some other provider's name restrictions.
+        let resolved = try resolveProviderOrPath(
+            value: "/Users/u/inbox", label: "Left", providers: Self.cloudProviders,
+            fileManager: StubFileManager(directories: ["/Users/u/inbox"]))
+        #expect(resolved.type == .iCloud)
+        #expect(ProviderNameRules.violation(inRelativePath: "CON.txt", for: resolved.type) == nil)
+    }
+
+    @Test func testSiblingSharingOnlyAStringPrefixIsNotClaimed() throws {
+        // "/Users/u/Library/CloudStorage/OneDrive-Personal-old" is NOT inside "…/OneDrive-Personal".
+        let path = "/Users/u/Library/CloudStorage/OneDrive-Personal-old"
+        let resolved = try resolveProviderOrPath(
+            value: path, label: "Left", providers: Self.cloudProviders,
+            fileManager: StubFileManager(directories: [path]))
+        #expect(resolved.type == .iCloud)
+    }
+
     @Test func testProviderRootWithTildeIsExpandedBeforeValidation() throws {
         let home = NSHomeDirectory()
         let tilded = [CloudProvider(

@@ -57,6 +57,27 @@ enum LogHistoryLoader {
         return parseOlderThan(sessionStart, text: text)
     }
 
+    /// ``loadOlderThan(_:fileURL:)`` ordered behind the log writer's pending disk work.
+    ///
+    /// The ordering is the whole point of this function, which is why it exists instead of two
+    /// statements at the call site. Clear Logs truncates the file on the writer's own
+    /// **background-qos** queue, so a history load that starts right after a clear can still read
+    /// the pre-clear bytes — and it does so holding a perfectly valid token, because the token
+    /// guard only defends loads that were already in flight AT the clear. The just-deleted rows
+    /// then come back as loaded history and stay for the window's lifetime. Draining the writer
+    /// first puts this read behind any enqueued truncate.
+    ///
+    /// `drainWriter` is injected rather than reached for so a test can supply the pending write
+    /// itself and prove the read happens after it, not before.
+    static func loadOlderThanDrainingWriter(
+        _ sessionStart: Date,
+        fileURL: URL,
+        drainWriter: () -> Void
+    ) -> [LogEntry] {
+        drainWriter()
+        return loadOlderThan(sessionStart, fileURL: fileURL)
+    }
+
     /// The pure core of ``loadOlderThan(_:fileURL:)``, split out so the parse/boundary/order logic is
     /// testable without touching disk.
     static func parseOlderThan(_ sessionStart: Date, text: String) -> [LogEntry] {
@@ -228,13 +249,20 @@ public struct LogViewer: View {
         let raw = logger.sessionStart.timeIntervalSinceReferenceDate
         let boundary = Date(timeIntervalSinceReferenceDate: (raw * 1000).rounded(.down) / 1000)
         let fileURL = logger.logFileURL
+        // Taken here (main actor) but RUN inside the detached read below: the barrier blocks until
+        // the writer's queue drains, which is exactly what must not happen on the main actor.
+        let drainWriter = logger.diskWriteBarrier()
         // Token guard: Clear Logs mid-flight resets the state, and a completion parsed from the
         // PRE-clear file must not overwrite that reset — it would resurrect deleted rows AND (by
         // making the history non-nil again) hide the reload button for the window's lifetime.
         // `finishLoading` applies the parse only while this token is still the one being awaited.
         Task {
             let parsed = await Task.detached(priority: .userInitiated) {
-                LogHistoryLoader.loadOlderThan(boundary, fileURL: fileURL)
+                LogHistoryLoader.loadOlderThanDrainingWriter(
+                    boundary,
+                    fileURL: fileURL,
+                    drainWriter: drainWriter
+                )
             }.value
             history.finishLoading(parsed, token: token, pageSize: Self.historyPageSize)
         }

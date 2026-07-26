@@ -326,6 +326,19 @@ public class Logger: ObservableObject {
         logWriter.flush()
     }
 
+    /// The disk-writer barrier as a standalone `@Sendable` value, for callers that must run it
+    /// somewhere other than where they obtained it.
+    ///
+    /// `flushToDisk()` blocks until the writer's queue drains, so a reader that needs to be
+    /// ordered behind an enqueued write cannot simply call it on the main actor — that would
+    /// block the UI for the length of the queue. Handing out the barrier alone lets a detached
+    /// read wait for it instead, off the main actor. (The `Logger` itself is `@MainActor` and not
+    /// `Sendable`, so a detached closure cannot just capture the logger and call the method.)
+    public nonisolated func diskWriteBarrier() -> @Sendable () -> Void {
+        let writer = logWriter
+        return { writer.flush() }
+    }
+
     /// Asks the macOS system workspace to launch the disk log file using the default text editor (usually Console or TextEdit).
     public func openLogFile() {
         NSWorkspace.shared.open(logFileURL)

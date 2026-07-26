@@ -39,6 +39,13 @@ final class BannerDismissScheduler {
     /// "has fired" — are exact. Defaults to a real sleep, so production behaviour is unchanged.
     private let sleep: @Sendable (UInt64) async -> Void
     private var dismissTask: Task<Void, Never>?
+    /// The timer currently counting down, or nil when none is running. Exposed for tests, which
+    /// otherwise have no sound way to state either half of this scheduler's contract: "no timer was
+    /// started at all" and "the cancelled timer ran to completion without dismissing" are both
+    /// claims about this task, and a test that infers them from `dismissCount` instead is really
+    /// asserting that a task it never waited for has not run yet — which is true of a correct
+    /// scheduler and a broken one alike.
+    var currentTimerTask: Task<Void, Never>? { dismissTask }
     /// The full delay window for the currently shown banner; `nil` when there is no banner or it is sticky.
     private var currentDelay: UInt64?
     private var dismiss: (@MainActor () -> Void)?

@@ -77,17 +77,23 @@ private final class ManualSleeper: @unchecked Sendable {
 
         scheduler.bannerChanged(to: .success("Deleted 3 items")) { dismissCount += 1 }
         await waitUntil("the first timer starts") { clock.pendingCount == 1 }
+        // Captured before the replacement drops the handle: the superseded timer still has to be
+        // waited on below, or "it did not also dismiss" is a claim about a task that never ran.
+        let superseded = scheduler.currentTimerTask
         // A second operation posts the exact same message before the first window elapses.
         scheduler.bannerChanged(to: .success("Deleted 3 items")) { dismissCount += 1 }
         await waitUntil("the replacement starts its own timer") { clock.pendingCount == 2 }
+        let replacement = scheduler.currentTimerTask
 
         // Two FULL windows were requested — the replacement did not inherit a remainder.
         #expect(clock.requestedDelays == [Self.successDelay, Self.successDelay])
 
-        // Releasing both: the superseded first timer is cancelled and must not dismiss, so exactly
-        // one dismissal fires. (Under the original bug the leftover timer fired too.)
+        // Releasing both and awaiting BOTH: the superseded first timer is cancelled and must not
+        // dismiss, so exactly one dismissal fires. (Under the original bug the leftover timer fired
+        // too — which only shows up once its task has actually been run to completion.)
         clock.releaseAll()
-        await waitUntil("exactly one dismissal fires") { dismissCount == 1 }
+        await superseded?.value
+        await replacement?.value
         #expect(dismissCount == 1)
     }
 
@@ -99,10 +105,20 @@ private final class ManualSleeper: @unchecked Sendable {
 
         scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
         await waitUntil("the timer starts") { clock.pendingCount == 1 }
+        // Captured before the clear drops the handle. Awaiting THIS task (rather than polling
+        // `pendingCount`, which `releaseAll` empties synchronously and so never suspends) is what
+        // makes the assertion below a real one: the timer has provably finished, so "it did not
+        // dismiss" cannot be satisfied by a task that simply hasn't been scheduled yet.
+        let cancelled = scheduler.currentTimerTask
         scheduler.bannerChanged(to: nil) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil, "clearing must drop the timer, not just ignore it")
+        // Asserted on the task's own cancellation, not only on `dismissCount`: clearing also nils
+        // the stored `dismiss`, so a scheduler that merely DROPPED the handle without cancelling
+        // would still show zero dismissals here while leaving a live task parked on the sleeper.
+        #expect(cancelled?.isCancelled == true, "clearing must cancel the timer, not just forget it")
 
         clock.releaseAll()
-        await waitUntil("the cancelled timer runs to completion") { clock.pendingCount == 0 }
+        await cancelled?.value
         #expect(dismissCount == 0)
     }
 
@@ -133,13 +149,18 @@ private final class ManualSleeper: @unchecked Sendable {
 
         scheduler.bannerChanged(to: .error("Copy failed")) { dismissCount += 1 }
 
-        // Sticky means no timer is started AT ALL — a stronger statement than "nothing had fired
-        // by the time we looked", which is all an elapsed-time version could ever show.
+        // Sticky means no timer is started AT ALL. Asserted on the task handle, which `startTimer`
+        // assigns synchronously — so a scheduler that DID start one fails here immediately. The
+        // `requestedDelays` half alone could not say this: the delay is only recorded once the
+        // spawned task runs, so an empty array is equally consistent with "no timer" and "a timer
+        // that has not been scheduled yet".
+        #expect(scheduler.currentTimerTask == nil, "an error banner must not start a timer")
         #expect(clock.requestedDelays.isEmpty)
         #expect(dismissCount == 0)
 
         // Manual close clears it (the view sets the banner to nil); still no timer, no dismissal.
         scheduler.bannerChanged(to: nil) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil)
         #expect(clock.requestedDelays.isEmpty)
         #expect(dismissCount == 0)
     }
@@ -153,10 +174,17 @@ private final class ManualSleeper: @unchecked Sendable {
         scheduler.bannerChanged(to: .success("Copied 2 files")) { dismissCount += 1 }
         await waitUntil("the timer starts") { clock.pendingCount == 1 }
 
+        let paused = scheduler.currentTimerTask
         scheduler.hoverChanged(isHovering: true)
-        // Hover cancels the running timer; releasing it proves the cancelled one cannot dismiss.
+        // Hover cancels the running timer; releasing it and awaiting it to completion proves the
+        // cancelled one cannot dismiss (rather than merely has not yet).
+        #expect(scheduler.currentTimerTask == nil, "hover must cancel the running timer")
+        // As in the clear case: the paused timer's `dismiss` is still installed (hover exit reuses
+        // it), so cancellation is the only thing standing between the released wait and a dismissal
+        // the user never saw a window for.
+        #expect(paused?.isCancelled == true, "hover must cancel the timer, not just forget it")
         clock.releaseAll()
-        await waitUntil("the cancelled timer finishes") { clock.pendingCount == 0 }
+        await paused?.value
         #expect(dismissCount == 0)
 
         // Exit restarts the FULL window rather than the remainder.
@@ -180,8 +208,11 @@ private final class ManualSleeper: @unchecked Sendable {
         clock.releaseAll()
         await waitUntil("the cancelled first timer finishes") { clock.pendingCount == 0 }
 
-        // A replacement arriving while hovered must not start a timer at all.
+        // A replacement arriving while hovered must not start a timer at all — asserted on the
+        // synchronously-assigned handle, so dropping the hover guard fails here rather than
+        // slipping past a `pendingCount` the new task has not reached yet.
         scheduler.bannerChanged(to: .success("Second")) { dismissCount += 1 }
+        #expect(scheduler.currentTimerTask == nil, "a banner posted while hovered must not start a timer")
         #expect(clock.pendingCount == 0)
         #expect(dismissCount == 0)
 

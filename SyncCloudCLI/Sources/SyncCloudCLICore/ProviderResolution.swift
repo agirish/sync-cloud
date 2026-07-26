@@ -45,12 +45,20 @@ public func resolveProviderOrPath(
         missingMessage: "Path or provider '\(value)' for \(label) could not be found.",
         notDirectoryMessage: "Path '\(expanded)' for \(label) is not a directory."
     )
+    // A path has no provider identity of its own, so take the type from whichever discovered
+    // provider contains it (see `CloudProvider.inferredType`). Both the destination name guard
+    // and the Google Drive date-noise filter are type-gated, and a fixed type silently disabled
+    // them for the very roots that need them: the OneDrive folder that skips `CON.txt` when
+    // addressed by id would copy it when addressed by path. Falls back to `.iCloud`, whose rule
+    // set is empty — the right answer for an ordinary local folder, and what every path-addressed
+    // root got before inference existed.
+    let inferredType = CloudProvider.inferredType(forPath: expanded, among: providers) ?? .iCloud
     return CloudProvider(
         id: expanded,
         displayName: label,
         imageName: "folder",
         path: expanded,
-        type: .iCloud
+        type: inferredType
     )
 }
 
