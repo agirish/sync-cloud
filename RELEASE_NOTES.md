@@ -115,8 +115,84 @@ to a focused, tab-driven workspace.
 
 ---
 
-## v1.x
+## v1.4
 
-The v1 line established SyncCloud's foundation: comparing and reconciling folders
-across iCloud Drive, OneDrive, Dropbox, and Google Drive, with duplicate finding,
-AI-assisted filing, a storage treemap, and undo-everything safety.
+The last of the v1 line, and the widest: three new Tidy lenses plus a durable
+history you can undo from.
+
+- **Storage Lens** — a treemap of what's actually eating your disk, with
+  reclaim-candidate lists.
+- **Sync History** — durable and exportable, with **run-level undo**; "Undo Last
+  Run" is scoped to the actual run and spells out what it will reverse.
+- **Name normalizer** as a batch Tidy lens, with per-row Quick Look and Show in
+  Finder on its cards.
+- **Automations** arrive as a preview-only lens — rich rule cards, grouped results,
+  per-rule preview, and a Browse button for picking a destination folder.
+- **Activity Log** gained on-demand "Show older history" paging.
+- A per-tab toggle to **hide the top file panes**, and a lifetime cloud-spend cap
+  (default $5).
+- Re-verification is instant now: SHA-256 is cached by path + mtime + size.
+
+---
+
+## v1.3
+
+Onboarding and visual identity — the release that made SyncCloud explain itself.
+
+- **First-run welcome** — a one-time front door offering scan / choose-providers,
+  which grew into an informative **feature tour** with a vector illustration per
+  page, brand glyphs, and motion.
+- **In-app Help** — a SyncCloud Help overlay plus an enriched Help menu, and
+  Help ▸ Welcome to re-summon the first-run card.
+- **Provider brand hues** tint provider identity throughout, and are
+  appearance-adaptive after a dark-mode contrast audit.
+- **Unified empty states** via one shared EmptyStateView, reaching the Differences
+  pre-scan / in-sync / scanning states.
+- **Comfortable / compact list density.**
+- Tidy and Filing cards animate their exits, with a reclaimed-space payoff.
+
+---
+
+## v1.2
+
+AI-assisted filing — SyncCloud learns where your loose files belong.
+
+- **The Filing lens** suggests a destination for every loose file, backed by
+  on-device content signals.
+- **Two engines** — a hybrid design: on-device Apple LLM first, with an **opt-in
+  cloud (Claude) classifier** for the hard cases.
+- **Remembered rules** — corrections stick, and learned rules get a legible,
+  editable home in plain words with edit / disable / delete.
+- **"Try another"** re-suggests with rejection learning.
+- **Cost is visible and capped** — per-scan cost was cut ~10–50×, spend is
+  surfaced in the UI (last scan, total, history), and pre-flight estimates plus a
+  monthly cap guard against surprises. Defaults to Haiku.
+- **Confidence meter and legend**, legible content evidence, and a destination peek.
+- **Settings ▸ Tidy** — a dedicated tab for Duplicates, Filing, and cloud spend —
+  plus a header search that filters across all tabs and jumps.
+
+---
+
+## v1.1
+
+The Tidy tab arrives, alongside a broad UX polish wave.
+
+- **Duplicates lens** — find and resolve duplicate folders and files within one
+  provider, including **overlapping-folder merges**.
+- **Keeper picker** and a persistent **"Keep separate"** decision.
+- **Cancellable scans** with determinate progress through the hashing phase, and
+  settings for scan options.
+- **Differences polish** — an actionable "No Scan Performed" state, per-side item
+  totals beside the pill, per-filter counts on the filter menu, directional
+  keyboard copy/move, and a visible toggle for "navigate both panes."
+- **One icon vocabulary** — copy/move actions unified behind a single TransferGlyph
+  set, so three features stop sharing the same ⇄ arrows.
+- Clearer sync error alerts, and VoiceOver values on the Appearance sliders.
+
+---
+
+## v1.0
+
+The foundation: comparing and reconciling the folders you keep across iCloud Drive,
+OneDrive, Dropbox, and Google Drive — with a native macOS app, a CLI, and
+undo-everything safety.
