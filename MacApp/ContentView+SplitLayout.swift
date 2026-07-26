@@ -1,4 +1,5 @@
 import SwiftUI
+import Dashboard
 import Design
 
 /// The custom pane split layout, extracted from ContentView.swift for size: the horizontal
@@ -42,15 +43,11 @@ extension ContentView {
                 paneResizeHandle(totalWidth: totalWidth, minFraction: minFraction)
                     .offset(x: leftWidth - 6)
             }
-            // ⇄ swap now lives on the seam between the two panes (it moved off the removed sidebar).
-            // Small and pinned to the top so it doesn't eat the seam's drag-to-resize area below it.
+            // The seam's own controls — ⇄ swap and 🔗 link-both — in one capsule straddling the
+            // boundary. Pinned to the top so they don't eat the drag-to-resize area below.
             .overlay(alignment: .topLeading) {
-                Button(action: swapPanesAction) {
-                    SwapPanesGlyph(accent: glassHue.accentColor)
-                }
-                .buttonStyle(.hoverAffordance(.circular, tint: glassHue.accentColor))
-                .help("Swap the left and right panes")
-                .offset(x: leftWidth - 13, y: 8)
+                SeamPaneControls(hue: glassHue, onSwap: swapPanesAction)
+                    .offset(x: leftWidth - 13, y: 8)
             }
             .coordinateSpace(.named(Self.paneRowSpace))
         }
@@ -271,10 +268,89 @@ extension ContentView {
     }
 }
 
-/// The ⇄ chip on the seam between the panes.
+/// The controls that belong to the seam itself: ⇄ swap on top, 🔗 link-both underneath, in one
+/// capsule straddling the boundary between the panes.
 ///
-/// Split out of the split-layout extension because it reads the enclosing hover-affordance
-/// button's phase, which needs an `@Environment` and therefore a real `View` type.
+/// Link used to be a chain at the trailing end of *each* pane's breadcrumb — two buttons writing
+/// one `@AppStorage` key, which is one button more than a single setting needs. Folding it in
+/// beside swap also puts it where its meaning already lives: what it joins is the gap it sits in.
+///
+/// Both halves are square, so the capsule's ends are true semicircles — which is what lets the
+/// linked fill below be an exact bottom half, and lets each half wear the same circular hover
+/// wash the lone swap chip used to have.
+struct SeamPaneControls: View {
+    let hue: LiquidGlassHue
+    let onSwap: () -> Void
+
+    /// The one link preference in the app; `PaneLinkPreference` names its other readers.
+    @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
+
+    /// Shared with `SwapPanesGlyph`, which sizes itself to one half.
+    fileprivate static let half: CGFloat = 26
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button(action: onSwap) {
+                SwapPanesGlyph(accent: hue.accentColor)
+            }
+            // `.glyph`, not `.circular`: the capsule is what floats now, and a half that lifted
+            // on hover would peel out of chrome that stayed put. Same wash and ring numbers,
+            // minus the lift — and the shape override keeps the wash round inside the pill.
+            .buttonStyle(.hoverAffordance(.glyph, tint: hue.accentColor, shape: .circle))
+            .help("Swap the left and right panes")
+
+            Rectangle()
+                .fill(hue.accentColor.opacity(0.28))
+                .frame(width: Self.half, height: 0.5)
+
+            Button {
+                linkBothPanes.toggle()
+            } label: {
+                // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2). There is no
+                // `link.slash` in SF Symbols, so off/on is carried by the fill, not a second glyph.
+                Image(systemName: PaneGlyph.linkBothPanes)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(linkBothPanes ? hue.onAccentLabelColor : hue.accentColor)
+                    .frame(width: Self.half, height: Self.half)
+            }
+            // The hover wash has to show against whatever is under it, and that changes with the
+            // state: the accent over material when unlinked, white over the deepened accent fill
+            // when linked — an accent wash on an accent fill carries no colour at all.
+            .buttonStyle(.hoverAffordance(
+                .glyph,
+                tint: linkBothPanes ? hue.onAccentLabelColor : hue.accentColor,
+                shape: .circle
+            ))
+            .help(linkBothPanes
+                ? "Linked: clicking a folder moves both panes. Click to unlink."
+                : "Link panes: clicking a folder will move both. Tip: hold ⌥ to do it once.")
+            .accessibilityLabel("Link both panes")
+            .accessibilityValue(linkBothPanes ? "On" : "Off")
+            .accessibilityAddTraits(linkBothPanes ? .isSelected : [])
+        }
+        // The linked fill goes in the BACKGROUND rather than inside the button's label so the
+        // style's own hover wash still lands on top of it instead of underneath.
+        .background(alignment: .bottom) {
+            if linkBothPanes {
+                UnevenRoundedRectangle(bottomLeadingRadius: Self.half / 2,
+                                       bottomTrailingRadius: Self.half / 2,
+                                       style: .continuous)
+                    .fill(hue.accentFillColor)
+                    .frame(height: Self.half)
+            }
+        }
+        // Material base plus a subtle accent wash over it, so the seam controls read in the app
+        // hue instead of a neutral gray chip. Behind the linked fill, which is the later layer.
+        .background(Capsule().fill(.regularMaterial)
+            .overlay(Capsule().fill(hue.accentColor.opacity(0.14))))
+        .overlay(Capsule().strokeBorder(hue.accentColor.opacity(0.35), lineWidth: 0.75))
+    }
+}
+
+/// The ⇄ half of `SeamPaneControls`.
+///
+/// Its own `View` type because it reads the enclosing hover-affordance button's phase, which
+/// needs an `@Environment`. The chrome it used to draw for itself now belongs to the capsule.
 struct SwapPanesGlyph: View {
     let accent: Color
 
@@ -292,10 +368,6 @@ struct SwapPanesGlyph: View {
             .foregroundStyle(accent)
             .rotationEffect(.degrees(flipped ? 180 : 0))
             .animation(.easeInOut(duration: 0.16), value: flipped)
-            .frame(width: 26, height: 26)
-            // Material base plus a subtle accent wash over it, so the swap control reads
-            // in the app hue instead of a neutral gray chip.
-            .background(Circle().fill(.regularMaterial).overlay(Circle().fill(accent.opacity(0.14))))
-            .overlay(Circle().strokeBorder(accent.opacity(0.35), lineWidth: 0.75))
+            .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }
 }

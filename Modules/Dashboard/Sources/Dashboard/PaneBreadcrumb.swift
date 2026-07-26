@@ -2,25 +2,27 @@ import SwiftUI
 import AppKit
 import Design
 
-/// The "Link both panes" preference behind the breadcrumb chain toggle. The toggle itself is a
-/// `@AppStorage` inside `PaneBreadcrumb`, but the same lock-step intent has to be honored from
-/// code paths that never touch the breadcrumb view — chiefly drilling into a folder from the file
-/// list (`FileActionHandler.focusFolder`). Centralizing the key here keeps those readers in sync
-/// with the toggle instead of duplicating the string literal.
-enum PaneLinkPreference {
-    static let defaultsKey = "breadcrumbLinkBothPanes"
+/// The "Link both panes" preference. The toggle that writes it is the seam capsule's lower half
+/// (`SeamPaneControls`, in the app target); the readers are spread wider — every breadcrumb crumb
+/// click, and drilling into a folder from the file list (`FileActionHandler.focusFolder`), which
+/// never touches a view at all. Centralizing the key here keeps all of them in sync instead of
+/// duplicating the string literal.
+///
+/// `public` is load-bearing: the toggle now lives in the app target, across a module boundary.
+public enum PaneLinkPreference {
+    public static let defaultsKey = "breadcrumbLinkBothPanes"
     /// Whether the user has the panes linked. Reads the same UserDefaults key `@AppStorage` writes,
     /// so it stays true to the toggle without threading the state through every call site.
-    static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
+    public static var isLinked: Bool { UserDefaults.standard.bool(forKey: defaultsKey) }
 }
 
 /// Clickable breadcrumb inside each `PaneHeader`: the provider root (named after the root
 /// folder, full path in the tooltip) followed by the pane's relative-path segments. Clicking
 /// a crumb re-focuses that pane on the ancestor; ⌥-clicking any crumb (including the current
-/// folder) focuses *both* panes on the same relative path. A trailing "Link both" toggle makes
+/// folder) focuses *both* panes on the same relative path. The seam capsule's link half makes
 /// that both-panes behavior sticky, so a plain click keeps the two panes in lock-step while
-/// drilling down. Deep trails collapse their middle into an ellipsis menu, same as the old
-/// toolbar bar did.
+/// drilling down — this view only *reads* that preference now. Deep trails collapse their middle
+/// into an ellipsis menu, same as the old toolbar bar did.
 struct PaneBreadcrumb: View {
     let rootPath: String
     /// The pane's provider display name, used only to tint the root crumb with the provider's
@@ -31,18 +33,13 @@ struct PaneBreadcrumb: View {
     /// The pane's live show-hidden-files state, forwarded to the quick-jump menu so its sibling
     /// list matches what the pane shows.
     let showHidden: Bool
-    /// Whether to show the trailing "Link both panes" chain toggle. Only meaningful when there
-    /// are two panes to keep in lock-step (Compare); the single-source Tidy rail has no sibling,
-    /// so the toggle is hidden there.
-    var showsLinkToggle: Bool = true
     let onNavigate: (String) -> Void
     let onNavigateBoth: (String) -> Void
 
-    /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Shared
-    /// across both panes' breadcrumbs by design: one setting, mirrored in each toggle.
+    /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Read-only
+    /// here: the seam capsule owns the writing, and both breadcrumbs observe the same key.
     @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
-    // The link toggle's "on" tint reads the user-selected glass hue, like the rest of the
-    // main window (C7).
+    // Crumb hover washes in the user-selected glass hue, like the rest of the main window (C7).
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
@@ -96,33 +93,8 @@ struct PaneBreadcrumb: View {
                 onNavigate: { navigate(to: $0, isCurrent: false) }
             )
             Spacer(minLength: 0)
-            if showsLinkToggle {
-                linkBothToggle
-            }
         }
         .font(.caption)
-    }
-
-    /// A subtle, caption-scaled toggle that makes the ⌥-click "navigate both panes" trick a
-    /// visible, first-class mode. Tinted with the accent color when on, muted when off.
-    private var linkBothToggle: some View {
-        Button {
-            linkBothPanes.toggle()
-        } label: {
-            // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2).
-            Image(systemName: PaneGlyph.linkBothPanes)
-                .foregroundStyle(linkBothPanes ? hueAccent : .secondary)
-                .padding(4)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.hoverAffordance(.glyph, tint: hueAccent))
-        .padding(-4)
-        .help(linkBothPanes
-            ? "Linked: clicking a folder moves both panes. Click to unlink."
-            : "Link panes: clicking a folder will move both. Tip: hold ⌥ to do it once.")
-        .accessibilityLabel("Link both panes")
-        .accessibilityValue(linkBothPanes ? "On" : "Off")
-        .accessibilityAddTraits(linkBothPanes ? .isSelected : [])
     }
 
     /// `tint` carries the provider hue for the root crumb only (UX H2); path crumbs pass nil

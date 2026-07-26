@@ -1176,9 +1176,6 @@ struct ContentView: View {
                 onNavigateBoth: layoutMode == .singleSource
                     ? { syncManager.focusOn(relativePath: $0, isLeft: isLeft) }
                     : { syncManager.focusBoth(relativePath: $0) },
-                // The link-both chain toggle only makes sense with two panes to keep in
-                // lock-step. The single-source Tidy rail has no sibling, so hide it there.
-                showsLinkToggle: layoutMode == .compare,
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in
                     if isLeft { leftProviderId = id } else { rightProviderId = id }

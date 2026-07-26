@@ -20,9 +20,6 @@ public struct PaneHeader: View {
     public let onForward: () -> Void
     public let onNavigate: (String) -> Void
     public let onNavigateBoth: (String) -> Void
-    /// Whether the breadcrumb shows its "Link both panes" chain toggle. Compare shows it (two
-    /// panes to lock-step); the single-source Tidy rail has no sibling pane, so it's hidden there.
-    public let showsLinkToggle: Bool
     /// The enabled providers this pane can switch between — the provider name is now a dropdown
     /// (replacing the old Left/Right sidebar). Empty hides the dropdown affordance.
     public let providers: [CloudProvider]
@@ -65,7 +62,6 @@ public struct PaneHeader: View {
         onForward: @escaping () -> Void,
         onNavigate: @escaping (String) -> Void,
         onNavigateBoth: @escaping (String) -> Void,
-        showsLinkToggle: Bool = true,
         providers: [CloudProvider] = [],
         onSelectProvider: @escaping (String) -> Void = { _ in },
         onManageProviders: @escaping () -> Void = {},
@@ -85,7 +81,6 @@ public struct PaneHeader: View {
         self.onForward = onForward
         self.onNavigate = onNavigate
         self.onNavigateBoth = onNavigateBoth
-        self.showsLinkToggle = showsLinkToggle
         self.providers = providers
         self.onSelectProvider = onSelectProvider
         self.onManageProviders = onManageProviders
@@ -126,7 +121,6 @@ public struct PaneHeader: View {
                 providerName: provider?.displayName,
                 relativePath: relativePath,
                 showHidden: showHiddenFiles,
-                showsLinkToggle: showsLinkToggle,
                 onNavigate: onNavigate,
                 onNavigateBoth: onNavigateBoth
             )
