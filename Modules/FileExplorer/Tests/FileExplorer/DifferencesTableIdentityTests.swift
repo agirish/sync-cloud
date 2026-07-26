@@ -29,8 +29,13 @@ import Testing
 /// `.serialized`, and it drives `UserDefaults.standard` (what `@AppStorage` reads): the grouping
 /// preference is process-global, so two of these in flight would fight over it. That is the test
 /// process's own defaults domain, never the shipping app's.
+///
+/// `.serialized` alone was not enough once a second suite arrived — it orders cases within a suite
+/// while swift-testing runs suites in parallel, so `FoldAllToggleBindingTests` and this one read
+/// each other's preference and both failed. `.exclusiveGroupingPreference` is the gate that fixes
+/// it; see that trait for the full account.
 @MainActor
-@Suite(.serialized) struct DifferencesTableIdentityTests {
+@Suite(.serialized, .exclusiveGroupingPreference) struct DifferencesTableIdentityTests {
 
     /// The Size column's declared ideal, from `standardTableSection`. The dragged width asserted
     /// below must not be this, or "the width survived" and "the column was rebuilt and re-derived

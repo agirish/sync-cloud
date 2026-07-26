@@ -565,7 +565,8 @@ public struct DifferencesView: View {
             countPillToggle                                     // STATE
             itemCountsReadout
             ActionBarDivider()
-            filterMenu(compaction, sections: sections)          // SCOPE
+            foldAllToggle(compaction, sections: sections)       // SCOPE
+            filterMenu(compaction, sections: sections)
             selectionChip(targets)
             Spacer(minLength: 16)
             overflowMenu(compaction, targets: targets, sorted: sorted)   // ACTIONS
@@ -678,6 +679,57 @@ public struct DifferencesView: View {
 
     // MARK: Header — scope zone
 
+    /// The master disclosure for the table's folder sections: one click collapses every folder,
+    /// one more brings them all back. `FoldAllAction` owns every rule it follows.
+    ///
+    /// It opens the SCOPE zone, immediately before the filter, because the sections it folds are
+    /// created by "Group by folder" — which lives one click inside that filter button. The two read
+    /// as one cluster: what am I looking at, and how much of it at a time.
+    ///
+    /// That is also why it is NOT at the trailing edge beside `collapseToggle`, which was the first
+    /// placement tried. That chevron already means "collapse" in this row and it hides the entire
+    /// pane; sitting next to it, the only thing distinguishing two collapse controls would be their
+    /// glyphs. Here the whole bar separates them.
+    ///
+    /// Nothing here is a new capability — the filter menu's Expand All / Collapse All and ⌥-click
+    /// on a section triangle both predate it and both still work. This is the visible door to them,
+    /// and it calls the same two paths they do rather than owning a third copy of the behavior.
+    @ViewBuilder
+    private func foldAllToggle(_ compaction: HeaderCompaction,
+                               sections: [DifferenceGrouping.Section]) -> some View {
+        if FoldAllAction.isOffered(sectionCount: sections.count, compaction: compaction) {
+            let action = FoldAllAction.next(collapsedOnScreen: collapsedOnScreen(sections),
+                                            sectionCount: sections.count)
+            Button {
+                switch action {
+                case .collapse: collapseAll(sections)
+                case .expand: collapsedSections.removeAll()
+                }
+            } label: {
+                Image(systemName: action.systemImage)
+                    .scaledFont(.system(size: 12, weight: .semibold))
+                    .hoverInk()
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.hoverAffordance(.glyph, tint: glassHue.accentColor))
+            // Both from `action`, so the tooltip and the announced name can never describe
+            // different clicks.
+            .help(action.title)
+            .accessibilityLabel(action.title)
+        }
+    }
+
+    /// How many of the sections the table is drawing are collapsed.
+    ///
+    /// The ONE count, read by the master toggle and by the filter menu's two items. Judged against
+    /// the visible sections rather than `collapsedSections`, which can hold names for folders the
+    /// active filter has since hidden — that is how "Expand All" ends up lit with nothing to expand,
+    /// and how the toggle would end up offering Expand over a table of expanded rows.
+    private func collapsedOnScreen(_ sections: [DifferenceGrouping.Section]) -> Int {
+        sections.filter { collapsedSections.contains($0.folder) }.count
+    }
+
     /// The filter. Drops to its glyph at `.glyphFilter`: the active filter stays checked in the
     /// menu's own column, so the name is one click away rather than gone.
     private func filterMenu(_ compaction: HeaderCompaction,
@@ -709,14 +761,14 @@ public struct DifferencesView: View {
             // scope decision like the filter above it, and the header has no width to spare.
             Toggle("Group by folder", isOn: $groupByFolder)
             if !sections.isEmpty {
-                // Enabled states are judged against the sections actually on screen, not against
-                // `collapsedSections` — that set can hold names for folders the active filter has
-                // since hidden, which would leave "Expand All" lit with nothing to expand.
-                let collapsedOnScreen = sections.filter { collapsedSections.contains($0.folder) }.count
+                // Enabled states are judged against the sections actually on screen (see
+                // `collapsedOnScreen`, which the header's master toggle reads too — one count, so
+                // the menu and the button cannot disagree about what is folded).
+                let collapsedCount = collapsedOnScreen(sections)
                 Button("Expand All") { collapsedSections.removeAll() }
-                    .disabled(collapsedOnScreen == 0)
+                    .disabled(collapsedCount == 0)
                 Button("Collapse All") { collapseAll(sections) }
-                    .disabled(collapsedOnScreen == sections.count)
+                    .disabled(collapsedCount == sections.count)
             }
         } label: {
             if compaction < .glyphFilter {
