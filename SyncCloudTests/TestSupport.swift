@@ -49,6 +49,12 @@ struct TestDefaults {
 /// Mirrored verbatim in every test target, since they are separate SPM packages with no shared
 /// test-support module; keep the copies in step.
 func wipeDefaultsSuite(_ name: String) {
+    // Recorded here rather than at the call sites because this is the one funnel every cleanup
+    // path — `defer`, `TestDefaults.wipe()`, `ScratchDefaults.deinit` — already goes through.
+    // Recording only in `ScratchDefaults` missed the 46 `defer` sites, which build their suite
+    // with a plain `UserDefaults(suiteName:)`, and Sync's leftovers grew 58 -> 89 -> 135 over
+    // three runs because nothing was there to re-delete what cfprefsd had resurrected.
+    scratchDefaultsLedger.record(name)
     UserDefaults.standard.removePersistentDomain(forName: name)
     UserDefaults.standard.removeSuite(named: name)
     CFPreferencesAppSynchronize(name as CFString)
@@ -63,9 +69,10 @@ func wipeDefaultsSuite(_ name: String) {
 /// separate daemon and may write a suite's plist back out *after* the test process has exited.
 /// That race is not winnable from inside the process: an `atexit` sweep that unlinked all 34 of a
 /// Dashboard run's suites still lost it for the two whose defaults object was held past the test
-/// by an undo registration. So each run records the suites it creates, and the next run deletes
-/// whatever the last one left behind. The directory stays bounded at about one run's stragglers
-/// instead of growing without limit.
+/// by an undo registration. So every suite handed to `wipeDefaultsSuite` is recorded, and the next
+/// run deletes whatever the last one left behind, which keeps the directory bounded at about one
+/// run's stragglers instead of growing without limit. The gap this cannot close is a run that dies
+/// before its cleanup runs at all: those suites are never recorded, so they are never swept.
 let scratchDefaultsLedger = ScratchDefaultsLedger()
 
 final class ScratchDefaultsLedger: @unchecked Sendable {
