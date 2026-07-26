@@ -176,10 +176,19 @@ public struct LogViewer: View {
     /// One O(N) pass tallying how many entries sit at or above each menu threshold (plus the total
     /// under the `nil`/"All Levels" key). Computed once per body render and read by the picker
     /// labels, instead of a full `entries` reduce per option on every render.
-    private static func thresholdCounts(_ entries: [LogEntry]) -> [LogLevel?: Int] {
+    ///
+    /// Counts the session AND any revealed history, because the threshold these chips set filters
+    /// both. Tallying the session alone put an "Errors 0" chip directly above a screenful of
+    /// history error rows — which happens whenever a quiet session sits under a raised threshold,
+    /// the exact situation someone opens the history for. The two arrays are walked in place rather
+    /// than concatenated: this runs on every body render, and the session list alone reaches
+    /// thousands of entries.
+    // Internal, not private: `LogLevelChipCountTests` pins the session+history tally directly.
+    static func thresholdCounts(session: [LogEntry], history: [LogEntry]) -> [LogLevel?: Int] {
         var perLevel: [LogLevel: Int] = [:]
-        for e in entries { perLevel[e.level, default: 0] += 1 }
-        var out: [LogLevel?: Int] = [nil: entries.count]
+        for e in session { perLevel[e.level, default: 0] += 1 }
+        for e in history { perLevel[e.level, default: 0] += 1 }
+        var out: [LogLevel?: Int] = [nil: session.count + history.count]
         for option in levelOptions {
             guard let lvl = option.level else { continue }
             out[lvl] = perLevel.reduce(0) { $0 + ($1.key.severity >= lvl.severity ? $1.value : 0) }
@@ -235,7 +244,10 @@ public struct LogViewer: View {
         // Computed once per body evaluation; the isEmpty check and the ForEach below would
         // otherwise each run the full filter pass.
         let filtered = LogEntryFilter.apply(logger.entries, minimumLevel: selectedLevel, search: searchText)
-        let levelCounts = Self.thresholdCounts(logger.entries)
+        // Loaded history counts toward the chips, NOT just the revealed page: "Show more" reveals
+        // further into this same set, so a count that grew as you paged would be describing the
+        // scroll position rather than how much the window holds at that level.
+        let levelCounts = Self.thresholdCounts(session: logger.entries, history: history.entries ?? [])
         // History respects the same Level/Search filters as the session; it's already newest-first, so
         // no reordering. `visibleHistory` is the revealed page; `moreHistory` gates the "Show more".
         let historyMatches = history.entries.map { LogEntryFilter.matches($0, minimumLevel: selectedLevel, search: searchText) } ?? []

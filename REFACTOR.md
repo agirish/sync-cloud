@@ -185,9 +185,9 @@ step. 13 characterization tests were written from the OLD call sites before the 
 document's own prerequisite; the token guard is mutation-tested and reproduces the original shipped
 bug (deleted rows resurrected, reload button gone) when removed.
 
-Still open in that file, deliberately separate from the refactor: the severity chips count session
-entries only while their filter also applies to revealed history — a behaviour question, not a
-structural one.
+The one behaviour question that file also carried — the severity chips counting session entries only
+while their threshold filters revealed history too — was fixed separately afterwards, deliberately
+not folded into the behaviour-preserving refactor.
 
 ---
 
