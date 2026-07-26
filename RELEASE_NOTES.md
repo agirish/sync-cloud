@@ -258,7 +258,34 @@ iCloud Drive, OneDrive, Dropbox, and Google Drive — a native macOS app plus a 
 
 ---
 
-## v0.11
+## v0.20
+
+The Differences table and a theming pass — the last stop before 1.0.
+
+- **Differences rebuilt as a dense, searchable, sortable table**, with header stat
+  pills, a right-click menu, directional arrows, and an aggregate multi-select
+  summary.
+- **Settings becomes an in-window overlay** with a General tab; failures surface as
+  structured errors carrying their own actions.
+- Per-pane back/forward history, real file icons and metadata, and a ⇄ pane swap.
+- Appearance gains a content surface-style picker, a tint slider, and accent-aware
+  toolbars.
+
+---
+
+## v0.19
+
+Sync-aware panes, and drag & drop.
+
+- **Per-row sync status badges**, and provider names replacing "Left/Right" in
+  action labels.
+- **Drag & drop between panes**, double-click drill-down, and breadcrumb navigation.
+- Streaming checksums, plus symlink and case-variant fixes — including a false
+  all-missing diff.
+
+---
+
+## v0.18
 
 End of the first development era (March 2026). Folder comparison and the CLI.
 
@@ -270,11 +297,25 @@ End of the first development era (March 2026). Folder comparison and the CLI.
 
 ---
 
-## v0.5
+## v0.17
 
-The dual-pane file manager core.
+Multi-selection and bulk move.
 
-- Finder-style cut / copy / paste with native paste-conflict handling, context
-  menus, and right-click.
-- **Undo / redo** across all file operations.
-- Hidden-file toggle, Quick Look, multi-selection, and bulk move.
+- Select many files at once and move them as a batch.
+- Details tab, Move-to-source / Move-to-destination, and the first app icon.
+
+---
+
+## v0.1 – v0.16
+
+The original March 2026 prototype, versioned by hand in the commit log itself —
+`v0.1` through `v0.16.6`, all inside four days. These tags preserve that
+self-versioning, one per minor.
+
+- **v0.1 – v0.5** — the dual-pane file manager core: Finder-style cut / copy /
+  paste with native paste-conflict handling, context menus, and right-click.
+- **v0.6 – v0.8** — Get Info, and **undo / redo** across all file operations.
+- **v0.9 – v0.11** — consistent logging and error handling, security fixes, and a
+  pass over comments.
+- **v0.12 – v0.16** — hidden-file toggle, Quick Look, the app icon, and the first
+  real test suite.
