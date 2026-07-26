@@ -15,19 +15,13 @@ struct StatPill: View {
     /// to the shared `Pill`, whose 5pt spacing is 1pt tighter than this pill's original 6pt
     /// (an accepted tightening when the look was unified on Design's variant).
     var trailingSystemImage: String? = nil
-    /// When set, the pill drops the `color` tint wash entirely and wears a flat capsule instead:
-    /// one solid fill, a dot, and text drawn to pair with that fill.
+    /// When set, the pill drops the `color` tint wash entirely and wears a solid capsule instead:
+    /// one fill, and text drawn to pair with that fill.
     ///
-    /// Two flavors, and the difference is which of them owns the "wants your attention" signal.
-    /// `SemanticCapsuleStyle.of(.attention, _)` puts it in the whole capsule — hue-independent and
-    /// therefore safe under the `.amber`/`.green` accents that would otherwise collide with it.
-    /// `.onAccent(fill:label:)` gives the capsule to the accent hue and leaves the signal to the
-    /// ringed dot; a pill that is also a *button* takes that path, because reading as a control
-    /// matters more there than carrying severity in the fill.
-    ///
-    /// The differences count pill now chooses between the two per scan-freshness state (see
-    /// `DifferencesView.countPillStyle`): accent while the scan is fresh, the flat `.attention`
-    /// capsule once it is stale, flat `.neutral` while a scan runs.
+    /// The differences count pill passes `.onAccent(fill:label:)` here in EVERY state. It used to
+    /// swap the whole capsule per scan-freshness — accent when fresh, flat `.attention` when stale,
+    /// flat `.neutral` while scanning — and that is what `detailStyle` now replaces. See
+    /// `DifferencesView.countPillDressing`, which owns the rule and the reasoning.
     var semantic: SemanticCapsuleStyle? = nil
     /// A short secondary run after the label, behind a hairline divider — "29m ago" on the
     /// differences count pill. Set in `labelFont` at full `content` strength, NOT at
@@ -44,6 +38,27 @@ struct StatPill: View {
     /// scanned scanning…". A pill cannot infer the grammar of a string it was handed, so it stops
     /// trying. Left nil, the detail is spoken verbatim — flat, but never a sentence that isn't true.
     var spokenDetail: String? = nil
+    /// When set, the `detail` run wears its OWN capsule inside the pill, in this family.
+    ///
+    /// This is where the differences pill's status went. Flipping the whole capsule to a flat
+    /// semantic family made the stale state stop reading as a control — on a pill whose entire job
+    /// is being clickable, a pale terracotta wash beside a saturated accent reads as *disabled*
+    /// rather than as *warning*. Scoping the family to the age run keeps the capsule saying "this
+    /// is a toggle" while the run says "and it is old".
+    ///
+    /// The run is RINGED in the outer capsule's own content colour, and that ring is load-bearing,
+    /// not decoration: measured across all twelve hues, a `.neutral` fill on the Indigo accent is
+    /// 2.68:1 and `.attention` on it 3.08:1, so the inset fill cannot be relied on to separate
+    /// itself from the accent behind it. The ring can — it is `onAccentLabelColor`, which
+    /// `AccentFill.deepened` guarantees ≥4.55:1 against every accent fill by construction. Same
+    /// trick, and the same reason, as the ring on the dot that used to lead this pill.
+    ///
+    /// Measured in two places, because the palette arithmetic alone is not enough:
+    /// `SemanticCapsuleTests` computes the fill/accent pairs, and `StatPillDetailRingTests` renders
+    /// the run and measures the PAINTED edge — which comes out lower than the arithmetic, since the
+    /// boundary pixel is an anti-aliased blend. The snapshot references do not cover it; a 1pt
+    /// stroke is inside their tolerance.
+    var detailStyle: SemanticCapsuleStyle? = nil
 
     /// What VoiceOver reads for the whole capsule. Pure and static so the composition can be
     /// asserted directly; the view below is the only production caller.
@@ -64,23 +79,12 @@ struct StatPill: View {
             // just because it lost its chevron.
             if trailingSystemImage != nil || semantic != nil {
                 HStack(spacing: 5) {
-                    if let semantic {
-                        // The ring is present exactly when the fill is the accent hue, where a
-                        // coloured dot cannot reach 3:1 against a mid-luminance backdrop no matter
-                        // which colour it is picked to be (see `SemanticCapsuleStyle.dotRing`). On
-                        // a flat semantic fill the dot clears the floor on its own and stays bare.
-                        // 9pt outer with a 1pt inset border leaves the same 7pt of colour the
-                        // unringed dot has, so the two rungs read as one size.
-                        Circle()
-                            .fill(semantic.dot)
-                            .frame(width: semantic.dotRing == nil ? 7 : 9,
-                                   height: semantic.dotRing == nil ? 7 : 9)
-                            .overlay {
-                                if let ring = semantic.dotRing {
-                                    Circle().strokeBorder(ring, lineWidth: 1)
-                                }
-                            }
-                    } else {
+                    // No leading dot on the semantic path. It was there to carry "wants your
+                    // attention" on the accent capsule, but `onAccent` hard-codes it terracotta in
+                    // every state — so it was a warning that was always on, the same defect
+                    // `detailStyle` exists to fix, in miniature. The status now lives entirely in
+                    // the age run, and the pill leads with the number it is actually about.
+                    if semantic == nil {
                         Image(systemName: systemImage)
                             .scaledFont(PillVariant.standard.iconFont)
                             .symbolRenderingMode(.hierarchical)
@@ -104,6 +108,7 @@ struct StatPill: View {
                             // One line always: this rides in a header row whose height is pinned,
                             // and a wrapping capsule would push the pill past it.
                             .lineLimit(1)
+                            .modifier(DetailRunCapsule(style: detailStyle, ring: semantic?.content ?? color))
                     }
                     if let trailingSystemImage {
                         Image(systemName: trailingSystemImage)
@@ -131,6 +136,36 @@ struct StatPill: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Self.accessibilityLabel(count: count, label: label,
                                                     spokenDetail: spokenDetail ?? detail))
+    }
+}
+
+/// The `detail` run's own capsule, or the bare run when there is no status to show. Split out for
+/// the same reason as `StatPillSurface`: the two branches produce different view types.
+///
+/// The vertical padding is 1pt and the horizontal 6pt — deliberately smaller than the outer pill's
+/// 4/10, so the run nests inside the capsule instead of straining against it and pushing the header
+/// row taller. `.fixedSize()` on the outer HStack means the pill grows by exactly this padding when
+/// a status appears.
+/// Internal rather than file-private so `StatPillDetailRingTests` can render it in isolation and
+/// COUNT the ring's pixels. The snapshot references cannot carry that job: measured, removing the
+/// ring entirely still passes `countPillFreshnessStates` at its 0.99/0.98 tolerance, because a 1pt
+/// stroke around two small capsules is a smaller share of the frame than the tolerance absorbs.
+struct DetailRunCapsule: ViewModifier {
+    let style: SemanticCapsuleStyle?
+    /// The outer capsule's content colour — see `StatPill.detailStyle` for why the ring exists.
+    let ring: Color
+
+    func body(content: Content) -> some View {
+        if let style {
+            content
+                .foregroundStyle(style.content)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(style.fill, in: Capsule(style: .continuous))
+                .overlay { Capsule(style: .continuous).strokeBorder(ring, lineWidth: 1) }
+        } else {
+            content
+        }
     }
 }
 

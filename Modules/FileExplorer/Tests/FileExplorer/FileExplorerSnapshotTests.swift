@@ -38,10 +38,14 @@ import Sync
             named: "variants")
     }
 
-    /// The differences count pill on the flat-capsule path, all three flavors stacked so the point
-    /// of the change is visible as a comparison: the accent capsule the pill actually ships (solid
-    /// accent fill, paired label, ringed terracotta dot), the `.attention` family a stale scan
-    /// flips it to, and `.neutral`. Last row is the tint wash they replaced.
+    /// `StatPill`'s four surfaces stacked for comparison: the accent capsule the differences pill
+    /// actually ships (solid accent fill, paired label, and — since the freshness rework — NO
+    /// leading dot), the `.attention` and `.neutral` families as whole capsules, and the tint wash.
+    ///
+    /// The two flat families are no longer what a stale or in-flight scan flips the pill to; that
+    /// treatment moved into the age run (`StatPill.detailStyle`, referenced by
+    /// `countPillFreshnessStates`). They stay here because they remain supported surfaces and this
+    /// is the reference for what they look like at full capsule size.
     @Test func statPillSemanticCapsule() {
         assertViewSnapshot(
             of: SemanticStatPillSpecimen().padding(12),
@@ -83,20 +87,25 @@ import Sync
         }
     }
 
-    /// The three dressings the differences count pill actually ships, in order: fresh (the accent
-    /// capsule it always wore, now with an age run), stale (flat terracotta), scanning (flat
-    /// slate). Freshness used to be a separate badge in each pane header; this is the reference
-    /// for it living on the count instead.
+    /// The four dressings the differences count pill ships, in order: pre-scan (no age run, no
+    /// chevron), fresh (bare age run), stale (the run wears terracotta), scanning (the run wears
+    /// slate). Freshness used to be a separate badge in each pane header; this is the reference for
+    /// it living on the count instead.
     ///
-    /// What the eye must find here is that **the fill changes**, and that the dot does not. On a
-    /// saturated accent capsule nothing coloured clears 3:1 (`SemanticCapsuleStyle.dotRing`), so a
-    /// fresh→stale flip carried by the dot would be a signal nobody is guaranteed to see — and an
-    /// earlier cut that recoloured it green rendered green-on-green under the green accent, a
-    /// hollow ring that read as an empty checkbox.
+    /// What the eye must find here is that **the capsule never changes** — all four are the accent
+    /// — and that only the age run does. That is the whole freshness rework: flipping the capsule
+    /// made a stale pill read as *disabled* next to a saturated accent, on a control whose job is
+    /// being clickable, and at the old ten-minute threshold it was in that state nearly always.
+    ///
+    /// The age run's RING is visible in the dark frame, and these references do NOT protect it —
+    /// stated here because the opposite is the natural assumption. Deleting the ring and re-running
+    /// this test passes: a 1pt stroke around two small capsules is a smaller share of the frame
+    /// than the 0.99/0.98 tolerance absorbs. `StatPillDetailRingTests` measures the boundary in
+    /// painted pixels precisely because these frames cannot.
     @Test func countPillFreshnessStates() {
         assertViewSnapshot(
             of: FreshnessCountPillSpecimen().padding(12),
-            size: CGSize(width: 260, height: 130),
+            size: CGSize(width: 280, height: 170),
             named: "count-pill-freshness")
     }
 
@@ -109,7 +118,14 @@ import Sync
             let hue = LiquidGlassHue.green
             let accent = SemanticCapsuleStyle.onAccent(fill: hue.accentFillColor,
                                                        label: hue.onAccentLabelColor)
+            // Four states, ONE capsule. The reference must show the accent surviving all of them —
+            // if a future change puts a semantic family back on the outer capsule, these frames
+            // are where it shows up.
             VStack(alignment: .leading, spacing: 10) {
+                // Pre-scan: no age run at all, and no chevron (the toggle is a no-op here).
+                StatPill(count: 0, label: "Differences", color: hue.accentColor,
+                         systemImage: "exclamationmark.triangle",
+                         semantic: accent)
                 StatPill(count: 576, label: "Differences", color: hue.accentColor,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",
@@ -118,13 +134,15 @@ import Sync
                 StatPill(count: 576, label: "Differences", color: hue.accentColor,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",
-                         semantic: .of(.attention, scheme),
-                         detail: "29m ago")
+                         semantic: accent,
+                         detail: "2h ago",
+                         detailStyle: .of(.attention, scheme))
                 StatPill(count: 576, label: "Differences", color: hue.accentColor,
                          systemImage: "exclamationmark.triangle",
                          trailingSystemImage: "chevron.right",
-                         semantic: .of(.neutral, scheme),
-                         detail: "scanning…")
+                         semantic: accent,
+                         detail: "scanning…",
+                         detailStyle: .of(.neutral, scheme))
             }
         }
     }

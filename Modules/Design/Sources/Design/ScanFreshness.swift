@@ -8,8 +8,19 @@ import Foundation
 /// cannot see Dashboard. Design is what both can see, and it is where the `.attention` family
 /// that colours a stale scan already lives.
 public enum ScanFreshness {
-    /// Past this age the pill turns terracotta — the diff you're looking at may no longer match disk.
-    public static let staleAfter: TimeInterval = 10 * 60 // 10 minutes
+    /// Past this age the pill's AGE RUN turns terracotta — the diff you're looking at may no longer
+    /// match disk. The capsule around it does not change; see `DifferencesView.countPillDressing`.
+    ///
+    /// One hour, up from ten minutes. Ten was tuned when freshness was a small badge in a pane
+    /// header, and it did not survive the move onto the differences bar's most prominent control:
+    /// this app gets left open for hours, so "older than ten minutes" was the state the pill was in
+    /// almost all the time. A warning that is on almost always is furniture, not a warning. An hour
+    /// is long enough that an ordinary working session never trips it and short enough that coming
+    /// back to a diff from before lunch still says so.
+    ///
+    /// Independent of `relative()`'s display buckets: `describe` derives the age from the buckets
+    /// and the flag from this constant separately, so moving this line never requires touching them.
+    public static let staleAfter: TimeInterval = 60 * 60 // 1 hour
 
     public struct Result: Equatable, Sendable {
         /// The full sentence — "Scanned 29m ago". What the tooltip and the all-in-sync empty

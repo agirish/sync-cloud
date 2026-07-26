@@ -348,6 +348,9 @@ public struct DifferencesView: View {
     /// minutes ago"), and staleness lands on the very number it undermines.
     private struct CountPillDressing {
         let semantic: SemanticCapsuleStyle
+        /// The family the AGE RUN wears, or nil when there is nothing to report. The capsule around
+        /// it is the accent in every state — this is the only thing freshness changes.
+        let detailStyle: SemanticCapsuleStyle?
         /// The secondary run inside the pill — "29m ago", or nil before the first scan.
         let detail: String?
         /// What VoiceOver says in `detail`'s place. Carried separately because the two states that
@@ -360,35 +363,52 @@ public struct DifferencesView: View {
         let help: String?
     }
 
-    /// The dressing for `now`. Three states, each on a treatment that already existed:
+    /// The dressing for `now`. The CAPSULE is the accent in all four states; only the age run
+    /// changes:
     ///
-    /// - **fresh** changes nothing but the age run — the pill keeps the accent capsule it wears as
-    ///   a *toggle*, because reading as a control matters more than restating a status everything
-    ///   is already fine about. Reassurance does not deserve a colour.
-    /// - **stale** takes the whole capsule to the flat `.attention` family, which is the treatment
-    ///   the pane badge wore. Hue-independent, so it survives the `.green`/`.amber` accents that
-    ///   would otherwise collide with the colour carrying the status.
-    /// - **scanning** takes flat `.neutral`, and deliberately not green: a scan in flight has not
-    ///   yet earned "fresh", and colouring it as success flashes a verdict before the result exists.
+    /// - **fresh** — bare age run. Reassurance does not deserve a colour.
+    /// - **stale** — the run wears `.attention`. Hue-independent, so it survives the `.green` and
+    ///   `.amber` accents that would otherwise collide with the colour carrying the status.
+    /// - **scanning** — the run wears `.neutral`, and deliberately not green: a scan in flight has
+    ///   not yet earned "fresh", and colouring it as success flashes a verdict before the result
+    ///   exists.
+    /// - **pre-scan** — no run at all. "0 Differences" with no age is honest; an age run would have
+    ///   nothing to report and the pill is already a no-op toggle here.
     ///
-    /// The FILL is the signal here, never the dot. On a saturated accent capsule nothing coloured
-    /// clears 3:1 (see `SemanticCapsuleStyle.dotRing`) — an earlier cut of this recoloured the dot
-    /// green while fresh and, under the green accent, painted a green dot on a green fill inside a
-    /// white ring: a hollow circle that read as an empty checkbox. The dot stays the one terracotta
-    /// `onAccent` gives it.
+    /// Why the capsule stopped moving: stale used to take the WHOLE capsule to flat `.attention`
+    /// and scanning to flat `.neutral`. Two things were wrong with that. The threshold was ten
+    /// minutes, tuned when freshness was a small badge in a pane header, so on a machine that keeps
+    /// this app open for hours the warning was on almost all the time — and a warning that is
+    /// always on is furniture. Worse, beside a saturated accent the pale terracotta read as
+    /// *disabled* rather than as *warning*, on a control whose whole job is being clickable. The
+    /// status is worth keeping; the volume was not. Scoping it to the run keeps the capsule saying
+    /// "this is a toggle" while the run says "and it is old". `staleAfter` moved to an hour in the
+    /// same change.
+    ///
+    /// Nothing coloured can carry this on the accent fill, which is why the run is a filled capsule
+    /// with a ring rather than a tinted word: on a saturated accent nothing coloured clears 3:1
+    /// (see `SemanticCapsuleStyle.dotRing`). An earlier cut recoloured the leading dot green while
+    /// fresh and, under the green accent, painted a green dot on a green fill inside a white ring —
+    /// a hollow circle that read as an empty checkbox. That dot is gone now; see `StatPill`.
+    ///
+    /// The `at:` seam is deliberately time-only, and that is the one thing here worth revisiting:
+    /// staleness is inferred from the CLOCK, not from the trees having actually changed. A future
+    /// change-detector would feed this same `detailStyle` decision rather than replace it — and
+    /// should be additive, since a detector that MISSES a change under-warns, which is a worse
+    /// failure than the over-warning this change fixes.
     private func countPillDressing(at now: Date) -> CountPillDressing {
         let accent = SemanticCapsuleStyle.onAccent(fill: glassHue.accentFillColor,
                                                    label: glassHue.onAccentLabelColor)
         guard let scanDate = syncManager.lastScanDate else {
-            // Pre-scan: "0 Differences" with no age is honest; an age run would have nothing to
-            // report and the pill is already a no-op toggle here.
-            return CountPillDressing(semantic: accent, detail: nil, spokenDetail: nil, help: nil)
+            return CountPillDressing(semantic: accent, detailStyle: nil, detail: nil,
+                                     spokenDetail: nil, help: nil)
         }
         let stamp = Calendar.current.isDateInToday(scanDate)
             ? scanDate.formatted(date: .omitted, time: .standard)
             : scanDate.formatted(date: .abbreviated, time: .standard)
         if syncManager.isScanning {
-            return CountPillDressing(semantic: .of(.neutral, colorScheme),
+            return CountPillDressing(semantic: accent,
+                                     detailStyle: .of(.neutral, colorScheme),
                                      detail: "scanning…",
                                      // Present tense, and no "scanned": the count beside it is the
                                      // PREVIOUS scan's, and announcing it as freshly scanned would
@@ -398,11 +418,12 @@ public struct DifferencesView: View {
         }
         let freshness = ScanFreshness.describe(scanDate: scanDate, now: now)
         guard freshness.isStale else {
-            return CountPillDressing(semantic: accent, detail: freshness.age,
+            return CountPillDressing(semantic: accent, detailStyle: nil, detail: freshness.age,
                                      spokenDetail: "scanned \(freshness.age)",
                                      help: "Last scanned \(stamp)")
         }
-        return CountPillDressing(semantic: .of(.attention, colorScheme),
+        return CountPillDressing(semantic: accent,
+                                 detailStyle: .of(.attention, colorScheme),
                                  detail: freshness.age,
                                  spokenDetail: "scanned \(freshness.age)",
                                  help: "This comparison may be out of date — last scanned \(stamp)")
@@ -450,7 +471,8 @@ public struct DifferencesView: View {
                 // conventions depending on a state the user toggles freely.
                 semantic: dressing.semantic,
                 detail: dressing.detail,
-                spokenDetail: dressing.spokenDetail
+                spokenDetail: dressing.spokenDetail,
+                detailStyle: dressing.detailStyle
             )
             // Branch rather than `?? ""`: pre-scan there is no timestamp to report, and the honest
             // expression of "nothing to say" is no `.help` at all, not a `.help` carrying an empty
@@ -585,13 +607,13 @@ public struct DifferencesView: View {
                 // points the way the next click will send them, and is withheld pre-scan
                 // (CountPillChevron owns both rules).
                 trailingSystemImage: CountPillChevron.symbol(hasScanned: syncManager.hasScanned, expanded: showItemCounts),
-                // Accent while the scan is fresh — this pill is a toggle, and a solid accent
-                // capsule reads as a control the way a pale semantic wash does not — flipping to
-                // the flat `.attention` or `.neutral` capsule once freshness has something to say.
-                // See `countPillDressing`, which owns the whole rule.
+                // The accent capsule in every state — this pill is a toggle, and a solid accent
+                // capsule reads as a control the way a pale semantic wash does not. Freshness lands
+                // on the age run instead. See `countPillDressing`, which owns the whole rule.
                 semantic: dressing.semantic,
                 detail: dressing.detail,
-                spokenDetail: dressing.spokenDetail
+                spokenDetail: dressing.spokenDetail,
+                detailStyle: dressing.detailStyle
             )
             // Reduce Motion suppresses the grow, matching `HoverAffordanceMetrics.resolve` — the
             // choke point this control is deliberately exempt from still sets the house rule, and

@@ -48,6 +48,42 @@ import Testing
         }
     }
 
+    /// The differences count pill nests a semantic capsule INSIDE its accent capsule — the age run,
+    /// which turns `.attention` when the scan is stale and `.neutral` while one is running. That
+    /// gives a semantic fill a backdrop it was never designed for: every family above is measured
+    /// against its OWN fill precisely because a flat capsule has no other backdrop, and this one
+    /// does.
+    ///
+    /// Measured, the inset fill cannot carry that boundary itself. This is the test that says so,
+    /// and it is why `StatPill.detailStyle` rings the run instead of trusting the fill.
+    @Test func testAnInsetRunCannotRelyOnItsOwnFillAgainstAnAccent() {
+        var worst = Double.infinity
+        for family in SemanticCapsuleFamily.allCases {
+            for scheme in [ColorScheme.light, .dark] {
+                let inset = SemanticCapsuleStyle.of(family, scheme)
+                for hue in LiquidGlassHue.allCases {
+                    worst = min(worst, contrast(inset.fill, hue.accentFillColor))
+                }
+            }
+        }
+        // Dark `.neutral` on the Indigo accent is the floor at 2.68:1 — under the 3:1 a non-text
+        // boundary needs. Asserted as a documented FACT about the palette, not an aspiration: if a
+        // palette change ever lifts every pair clear of 3:1 this fails, and the ring becomes
+        // optional rather than load-bearing. That is worth being told about.
+        #expect(worst < 3.0, "every inset/accent pair now clears 3:1 (worst \(worst):1) — the ring in StatPill.detailStyle may no longer be load-bearing")
+    }
+
+    /// …and this is the guarantee it falls back on. The ring is `onAccentLabelColor`, whose whole
+    /// contract with `AccentFill.deepened` is to clear 4.55:1 on the fill it is paired with — so it
+    /// separates the inset run from the accent on EVERY hue, in both appearances, no matter what
+    /// the run's own fill is doing.
+    @Test func testTheInsetRunsRingIsSeparatedFromEveryAccent() {
+        for hue in LiquidGlassHue.allCases {
+            let ratio = contrast(hue.onAccentLabelColor, hue.accentFillColor)
+            #expect(ratio >= 3.0, "\(hue) ring is \(ratio):1 on its own accent fill")
+        }
+    }
+
     @Test func testTheDotIsTheMostColorfulMemberOfItsFamily() {
         // The stated rule for the role: the smallest element gets the strongest hue, because it
         // has the least area in which to communicate it.

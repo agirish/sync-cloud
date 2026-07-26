@@ -93,6 +93,19 @@ import Foundation
         #expect(ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1)).isStale == false)
     }
 
+    /// Pins the threshold's VALUE, which the test above deliberately cannot: it spells `staleAfter`
+    /// symbolically, so it passes for any threshold at all. Both of these straddle one hour, and
+    /// the 45-minute case is the one that matters — it was stale under the old ten-minute threshold
+    /// and is fresh now, so a revert to ten minutes fails here instead of passing quietly.
+    ///
+    /// Why an hour: this app gets left open for hours, so ten minutes meant the pill spent almost
+    /// all its time in the stale treatment, which is what made the warning read as furniture.
+    @Test func theThresholdIsAnHourAndNotTheOldTenMinutes() {
+        #expect(ScanFreshness.staleAfter == 3600)
+        #expect(ScanFreshness.describe(scanDate: base, now: at(45 * 60)).isStale == false)
+        #expect(ScanFreshness.describe(scanDate: base, now: at(90 * 60)).isStale == true)
+    }
+
     @Test func aClockSkewIntoTheFutureClampsToZeroSeconds() {
         // now < scanDate (clock adjustment) must not produce a negative age.
         let r = ScanFreshness.describe(scanDate: at(100), now: base)
