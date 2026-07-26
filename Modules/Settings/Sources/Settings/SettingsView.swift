@@ -852,7 +852,10 @@ struct ProvidersSettingsTab: View {
 struct ProviderSettingsSection: View {
     let provider: CloudProvider
     @EnvironmentObject var settings: SettingsManager
-    @State private var draftPath: String = ""
+    // The path draft is a value type rather than a bare String: Reset, focus-blur commit, and the
+    // discovery refresh all move it, and getting Reset wrong left the field blank. See
+    // `ProviderPathDraft`.
+    @State private var pathDraft = ProviderPathDraft()
     @State private var draftName: String = ""
     // Both editable fields share one commit model: Return or focus-loss commits,
     // so each needs its own focus state to observe its own blur.
@@ -910,16 +913,11 @@ struct ProviderSettingsSection: View {
             }
             .padding(.vertical, 2)
             .onAppear {
-                draftPath = provider.path
+                pathDraft.adopt(provider.path)
                 draftName = provider.displayName
             }
             .onChange(of: provider.path) { _, updated in
-                // Adopt an external (discovery) change to the published value only when the user
-                // isn't actively editing this field — otherwise a concurrent discoverProviders()
-                // pass would silently discard their uncommitted draft.
-                if !pathFieldFocused && draftPath != updated {
-                    draftPath = updated
-                }
+                pathDraft.adoptExternalChange(to: updated, isEditing: pathFieldFocused)
             }
             .onChange(of: provider.displayName) { _, updated in
                 if !nameFieldFocused && draftName != updated {
@@ -931,7 +929,7 @@ struct ProviderSettingsSection: View {
                 // Mirrors the name field above: Enter or clicking away commits.
                 // No Save button — focus-loss covers the same ground, so the two
                 // fields commit through one identical set of triggers.
-                TextField("Synchronized path", text: $draftPath)
+                TextField("Synchronized path", text: $pathDraft.value)
                     .textFieldStyle(.plain)
                     .font(.system(.callout, design: .monospaced))
                     .labelsHidden()
@@ -970,15 +968,19 @@ struct ProviderSettingsSection: View {
 
         if panel.runModal() == .OK {
             if let url = panel.url {
-                draftPath = url.path
+                pathDraft.value = url.path
                 commitPath()
             }
         }
     }
 
     private func resetToDefault() {
-        draftPath = ""
         settings.resetPath(for: provider.id)
+        // Repopulate rather than blank. Rediscovery is async, so `provider.path` is still the old
+        // effective value here: with no override that value already IS the default and no
+        // `onChange(of: provider.path)` is coming to fill the field in, and with an override it is
+        // corrected by that onChange as soon as discovery lands. See `ProviderPathDraft.reset`.
+        pathDraft.reset(toEffective: provider.path)
     }
 
     private func openInFinder() {
@@ -990,8 +992,8 @@ struct ProviderSettingsSection: View {
     // lands on an unchanged value must be a harmless no-op — hence both guard on
     // ProviderFieldEdit.shouldCommit before writing.
     private func commitPath() {
-        let normalized = ProviderFieldEdit.normalized(draftPath)
-        draftPath = normalized
+        let normalized = ProviderFieldEdit.normalized(pathDraft.value)
+        pathDraft.value = normalized
         guard ProviderFieldEdit.shouldCommit(draft: normalized, committed: provider.path) else { return }
         settings.setPath(normalized, for: provider.id)
     }
@@ -1027,6 +1029,155 @@ enum ProviderFieldEdit {
     }
 }
 
+/// The Location field's draft text, modeled as a value so its lifecycle — adopting an external
+/// discovery change, and repopulating after "Reset" — is decided in one testable place instead of
+/// inline in three SwiftUI closures.
+///
+/// It exists because "Reset" got that lifecycle wrong in a way no view-level reasoning caught. It
+/// used to blank the draft and lean on `onChange(of: provider.path)` to refill it. That refresh
+/// only fires when the published path actually CHANGES — and resetting a provider that has NO
+/// override removes a defaults key that was never there, so nothing changed, nothing refreshed,
+/// and the Location field simply sat empty. A later focus-blur then committed that empty string,
+/// which `SettingsManager.setPath` records as "User cleared custom path mapping" for a provider
+/// that never had one: a misleading log line and a pointless rediscovery pass.
+struct ProviderPathDraft: Equatable {
+    /// The text currently in the field. A plain `var` because the `TextField` binds straight to it.
+    var value: String = ""
+
+    /// The row appeared: start on the provider's effective (default or overridden) path.
+    mutating func adopt(_ path: String) {
+        value = path
+    }
+
+    /// An external change to the published path landed (a discovery/refresh pass). Adopt it only
+    /// when the user isn't actively editing this field — otherwise a concurrent
+    /// `discoverProviders()` would silently discard their uncommitted draft.
+    mutating func adoptExternalChange(to updated: String, isEditing: Bool) {
+        guard !isEditing, value != updated else { return }
+        value = updated
+    }
+
+    /// "Reset" was pressed. Echo the provider's effective path rather than blanking the field:
+    /// with no override in play that value already IS the default and no refresh is coming, and
+    /// with one in play it is replaced by `adoptExternalChange` the moment the async rediscovery
+    /// lands. Either way the field never shows an empty path the user didn't type.
+    mutating func reset(toEffective path: String) {
+        value = path
+    }
+}
+
+/// One row of a fixed-choice settings picker: the value it stores and the label it shows.
+struct SettingsPickerOption<Value: Hashable>: Identifiable {
+    let value: Value
+    let label: String
+    var id: Value { value }
+}
+
+/// Row lists for the numeric Settings pickers, and the rule that keeps them honest when the
+/// persisted value isn't one of the offered rows.
+///
+/// A `Picker` whose selection matches none of its `.tag` values renders with NOTHING selected while
+/// that value stays fully in effect behind it: the scan really is using a 3-second tolerance, the
+/// picker just refuses to say so. Worse, the control is then one click from destroying it — the
+/// user's first interaction with a blank-looking picker replaces a setting they never knowingly
+/// chose. Off-list values are not hypothetical: an older build's option set, a `defaults write`, or
+/// a hand-edited plist all produce them.
+///
+/// The answer is to SHOW the stored value, not to coerce it. Snapping to the nearest offered option
+/// is the same destruction one click earlier, just silent. The adjacent Cloud-model picker can map
+/// a superseded model id onto its family's current one because that equivalence genuinely exists;
+/// no such equivalence exists between two numbers, so these pickers take the other honest route —
+/// one extra row carrying the stored value, labeled by the same formatter as its neighbours and
+/// sorted into place so the list still reads as a scale.
+///
+/// Labels are *derived* from those formatters rather than spelled per row, for the same reason
+/// `CloudFilingProtocol.selectableModelOptions` is one list and not two: the extra row and the
+/// fixed rows cannot then drift into two different vocabularies for the same quantity.
+enum SettingsPickerOptions {
+
+    // MARK: - The widening rule
+
+    /// `options`, plus one extra row carrying `stored` when no option already holds that value.
+    /// The extra row is inserted in value order so the list still reads as an ascending scale.
+    static func including<Value: Hashable & Comparable>(
+        stored: Value,
+        in options: [SettingsPickerOption<Value>],
+        label: (Value) -> String
+    ) -> [SettingsPickerOption<Value>] {
+        guard !options.contains(where: { $0.value == stored }) else { return options }
+        let extra = SettingsPickerOption(value: stored, label: label(stored))
+        guard let insertion = options.firstIndex(where: { $0.value > stored }) else {
+            return options + [extra]
+        }
+        var widened = options
+        widened.insert(extra, at: insertion)
+        return widened
+    }
+
+    // MARK: - Labels
+
+    /// A number without a pointless ".0" tail. Guarded on finiteness and Int range because the
+    /// value can arrive from `defaults write`, which will happily store 1e300 or a NaN.
+    static func trimmed(_ value: Double) -> String {
+        guard value.isFinite else { return "\(value)" }
+        guard value == value.rounded(), abs(value) < 1e15 else { return "\(value)" }
+        return String(Int(value))
+    }
+
+    static func dateToleranceLabel(_ seconds: Double) -> String {
+        guard seconds > 0 else { return "Exact match" }
+        if seconds < 60 { return seconds == 1 ? "1 second" : "\(trimmed(seconds)) seconds" }
+        let minutes = seconds / 60
+        return minutes == 1 ? "1 minute" : "\(trimmed(minutes)) minutes"
+    }
+
+    static func fileSizeLabel(_ bytes: Int) -> String {
+        guard bytes > 0 else { return "No minimum" }
+        if bytes >= 1_048_576 { return "\(trimmed(Double(bytes) / 1_048_576)) MB" }
+        if bytes >= 1024 { return "\(trimmed(Double(bytes) / 1024)) KB" }
+        return bytes == 1 ? "1 byte" : "\(bytes) bytes"
+    }
+
+    /// Rounded to two decimal places before trimming: 0.6 is not exactly representable, so a bare
+    /// `fraction * 100` renders as "60.00000000000001%".
+    static func percentLabel(_ fraction: Double) -> String {
+        guard fraction.isFinite else { return "\(fraction)" }
+        return "\(trimmed(((fraction * 100) * 100).rounded() / 100))%"
+    }
+
+    static func budgetLabel(_ usd: Double) -> String {
+        usd > 0 ? "$\(trimmed(usd))" : "Off (no limit)"
+    }
+
+    // MARK: - The five numeric pickers
+
+    static func dateTolerance(including stored: Double) -> [SettingsPickerOption<Double>] {
+        including(stored: stored, in: rows([0, 1, 2, 5, 60], dateToleranceLabel), label: dateToleranceLabel)
+    }
+
+    static func minFileSize(including stored: Int) -> [SettingsPickerOption<Int>] {
+        including(stored: stored, in: rows([0, 4096, 102_400, 1_048_576], fileSizeLabel), label: fileSizeLabel)
+    }
+
+    static func overlapThreshold(including stored: Double) -> [SettingsPickerOption<Double>] {
+        including(stored: stored, in: rows([0.5, 0.6, 0.7, 0.8, 0.9], percentLabel), label: percentLabel)
+    }
+
+    static func monthlyBudget(including stored: Double) -> [SettingsPickerOption<Double>] {
+        including(stored: stored, in: rows([0, 1, 5, 10, 25, 50], budgetLabel), label: budgetLabel)
+    }
+
+    static func totalBudget(including stored: Double) -> [SettingsPickerOption<Double>] {
+        including(stored: stored, in: rows([0, 5, 10, 25, 50, 100], budgetLabel), label: budgetLabel)
+    }
+
+    private static func rows<Value: Hashable>(
+        _ values: [Value], _ label: (Value) -> String
+    ) -> [SettingsPickerOption<Value>] {
+        values.map { SettingsPickerOption(value: $0, label: label($0)) }
+    }
+}
+
 // MARK: - Sync
 
 /// Behavior of difference scanning and comparison: date tolerance, checksum verification,
@@ -1053,12 +1204,15 @@ struct SyncSettingsTab: View {
             }
 
             Section {
+                // Rows come from `SettingsPickerOptions`, which widens the list with the stored
+                // value when it isn't one of them — a tolerance left by an older build or a
+                // `defaults write` shows itself rather than leaving the picker blank while
+                // silently governing every scan. Same treatment as the four other numeric
+                // pickers; see that type for why showing beats coercing.
                 Picker("Treat dates as equal within", selection: $settings.dateToleranceSeconds) {
-                    Text("Exact match").tag(0.0)
-                    Text("1 second").tag(1.0)
-                    Text("2 seconds").tag(2.0)
-                    Text("5 seconds").tag(5.0)
-                    Text("1 minute").tag(60.0)
+                    ForEach(SettingsPickerOptions.dateTolerance(including: settings.dateToleranceSeconds)) { option in
+                        Text(option.label).tag(option.value)
+                    }
                 }
                 Toggle(isOn: $settings.autoVerifySameSizeDuringScan) {
                     Text("Verify same-size files during scans")
@@ -1212,18 +1366,17 @@ struct TidySettingsTab: View {
     var body: some View {
         Form {
             Section {
+                // Both row lists come from `SettingsPickerOptions` so a stored value outside the
+                // offered set still displays (and survives) instead of rendering as no selection.
                 Picker("Ignore files smaller than", selection: $tidyMinFileSize) {
-                    Text("No minimum").tag(0)
-                    Text("4 KB").tag(4096)
-                    Text("100 KB").tag(102_400)
-                    Text("1 MB").tag(1_048_576)
+                    ForEach(SettingsPickerOptions.minFileSize(including: tidyMinFileSize)) { option in
+                        Text(option.label).tag(option.value)
+                    }
                 }
                 Picker("Folders overlap at", selection: $tidyOverlapThreshold) {
-                    Text("50%").tag(0.5)
-                    Text("60%").tag(0.6)
-                    Text("70%").tag(0.7)
-                    Text("80%").tag(0.8)
-                    Text("90%").tag(0.9)
+                    ForEach(SettingsPickerOptions.overlapThreshold(including: tidyOverlapThreshold)) { option in
+                        Text(option.label).tag(option.value)
+                    }
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
             } header: {
@@ -1275,21 +1428,18 @@ struct TidySettingsTab: View {
             }
 
             Section {
+                // A cap is the one setting where a blank picker is actively dangerous: the stored
+                // value keeps pausing (or not pausing) cloud scans regardless of what the control
+                // shows, so an unrecognized cap has to be visible. Rows via `SettingsPickerOptions`.
                 Picker("Monthly budget cap", selection: $monthlyBudgetUSD) {
-                    Text("Off (no limit)").tag(0.0)
-                    Text("$1").tag(1.0)
-                    Text("$5").tag(5.0)
-                    Text("$10").tag(10.0)
-                    Text("$25").tag(25.0)
-                    Text("$50").tag(50.0)
+                    ForEach(SettingsPickerOptions.monthlyBudget(including: monthlyBudgetUSD)) { option in
+                        Text(option.label).tag(option.value)
+                    }
                 }
                 Picker("Total budget cap", selection: $totalBudgetUSD) {
-                    Text("Off (no limit)").tag(0.0)
-                    Text("$5").tag(5.0)
-                    Text("$10").tag(10.0)
-                    Text("$25").tag(25.0)
-                    Text("$50").tag(50.0)
-                    Text("$100").tag(100.0)
+                    ForEach(SettingsPickerOptions.totalBudget(including: totalBudgetUSD)) { option in
+                        Text(option.label).tag(option.value)
+                    }
                 }
                 LabeledContent("Total spent", value: FilingSpendFormat.cost(spendTotals.costUSD))
                 LabeledContent("Tokens", value: FilingSpendFormat.tokens(spendTotals.tokens))

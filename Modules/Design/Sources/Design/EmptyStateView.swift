@@ -126,6 +126,12 @@ public struct EmptyStateView: View {
                         Button(action: secondary.handler) {
                             label(for: secondary)
                         }
+                        // Same choke point as the primary, deliberately not a quieter variant of
+                        // it. These two sit side by side in one HStack, and a pair where only one
+                        // answers the pointer doesn't read as "loud and quiet" — it reads as one
+                        // live control and one dead label, which is exactly wrong for a button
+                        // whose whole job is to offer the alternative next step.
+                        .chromeHover()
                         .controlSize(isCompact ? .small : .regular)
                     }
                 }

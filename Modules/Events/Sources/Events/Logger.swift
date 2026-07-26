@@ -25,15 +25,14 @@ public enum LogLevel: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    public var color: Color {
-        switch self {
-        case .info: return .blue
-        case .debug: return .gray
-        case .warning: return .orange
-        case .error: return .red
-        }
-    }
-    
+    // There is deliberately no `color` here. It used to restate the severity palette as literals
+    // (.blue/.orange/.red), a second source of truth that a retune of `SemanticColor` would leave
+    // behind — and by the time it was removed nothing in the app or the CLI still read it, because
+    // the only renderer of log severity (the Activity Log) had already grown its own
+    // `LogLevel.semanticColor` over the shared table. Events is a leaf module that must not depend
+    // on Design, so a level's *color* belongs to whichever module is drawing it; Events owns only
+    // the level's identity, ordering, and glyph.
+
     public var icon: String {
         switch self {
         case .info: return "info.circle.fill"
@@ -522,20 +521,31 @@ final class LogFileWriter: @unchecked Sendable {
         try? tail.write(to: url, options: .atomic)
     }
 
+    /// Reopens the write handle when the path's current inode no longer matches the handle's —
+    /// never opened, removed, or replaced externally. Removal makes the identity nil; REPLACEMENT
+    /// (atomic rewrite, e.g. the CLI's tail-trim of the shared log while the app runs) keeps the
+    /// path present but swaps the inode, so a plain fileExists check would let the handle keep
+    /// operating on the orphaned old inode. Same cost profile as the old existence check: one
+    /// stat per call. Runs on `queue`.
+    ///
+    /// One helper rather than a copy per caller, because the two copies drifted: `clear()`
+    /// truncated without this check, so after the CLI replaced `~/sync-cloud.log` the app's
+    /// "Clear Log" emptied an orphaned inode while the file on disk kept every line — and the
+    /// Settings size readout then showed a non-empty log the user had just cleared. Any future
+    /// handle operation belongs behind this same call.
+    private func reopenHandleIfStale() {
+        guard handle == nil || currentFileIdentity() != handleFileIdentity else { return }
+        try? handle?.close()
+        handle = nil
+        openHandle()
+    }
+
     func append(_ text: String) {
         queue.async { [weak self] in
             guard let self, let data = text.data(using: .utf8) else { return }
-            // Reopen if the path's current inode no longer matches the handle's - never opened,
-            // removed, or replaced externally. Removal makes the identity nil; REPLACEMENT
-            // (atomic rewrite, e.g. the CLI's tail-trim of the shared log while the app runs)
-            // keeps the path present but swaps the inode, so a plain fileExists check would let
-            // the handle keep writing into the orphaned old inode and silently lose every line.
-            // Same cost profile as the old existence check: one stat per append.
-            if self.handle == nil || self.currentFileIdentity() != self.handleFileIdentity {
-                try? self.handle?.close()
-                self.handle = nil
-                self.openHandle()
-            }
+            // Without this an externally replaced log would silently swallow every line: the
+            // handle keeps writing into the inode nobody reads any more. See `reopenHandleIfStale`.
+            self.reopenHandleIfStale()
             if let handle = self.handle {
                 _ = try? handle.seekToEnd()
                 try? handle.write(contentsOf: data)
@@ -583,9 +593,16 @@ final class LogFileWriter: @unchecked Sendable {
     }
 
     /// Truncates the log file to empty, keeping the open handle valid.
+    ///
+    /// Reopens first for exactly the reason `append` does. The app and the `synccloud` CLI share
+    /// `~/sync-cloud.log`, and the CLI's tail-trim rewrites it atomically (new inode). Truncating
+    /// the stale handle after such a replacement empties an inode nothing points at: the file on
+    /// disk keeps every line, so "Clear Log" appeared to do nothing and the Settings size readout
+    /// still reported a full log. See `reopenHandleIfStale`.
     func clear() {
         queue.async { [weak self] in
             guard let self else { return }
+            self.reopenHandleIfStale()
             if let handle = self.handle {
                 try? handle.truncate(atOffset: 0)
                 try? handle.seek(toOffset: 0)

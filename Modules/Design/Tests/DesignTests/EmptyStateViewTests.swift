@@ -58,4 +58,26 @@ import SwiftUI
             primary: .init("Choose Folder…") {}
         )
     }
+
+    /// BOTH action buttons must carry `chromeHover` — the one hover choke point in this codebase.
+    ///
+    /// The secondary used to have none, so an empty state offering two side-by-side actions had a
+    /// primary that lit up under the pointer and a companion that stayed completely inert: not
+    /// "loud and quiet" but "live and dead". `HoverAffordanceMetrics` is by design `.none` at rest
+    /// for every variant, and `chromeHover` drives itself from its own `onHover` state, so there
+    /// is nothing to render or drive from a test — what IS checkable is that the modifier is on
+    /// both buttons, which the body's static type spells out once per application site.
+    @MainActor
+    @Test func bothActionButtonsCarryTheHoverChokePoint() {
+        let view = EmptyStateView(
+            icon: "wand.and.stars",
+            title: "Find duplicates in iCloud",
+            primary: .init("Find Duplicates") {},
+            secondary: .init("Scan again") {}
+        )
+        let bodyType = String(describing: type(of: view.body))
+        let applications = bodyType.components(separatedBy: "ChromeHoverModifier").count - 1
+        #expect(applications == 2,
+                "expected chromeHover on both the primary and secondary buttons, found \(applications)")
+    }
 }

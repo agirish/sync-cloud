@@ -221,4 +221,35 @@ import Foundation
         let contents = try String(contentsOf: url, encoding: .utf8)
         #expect(contents.contains("after clear"))
     }
+
+    /// The `clear()` counterpart of `testAppendsLandInCurrentFileAfterExternalAtomicReplacement`.
+    ///
+    /// `clear()` used to truncate through the open handle with no staleness check, unlike
+    /// `append()`. After the CLI atomically rewrites the shared `~/sync-cloud.log` (tail-trim =
+    /// write-temp-then-rename, so the path stays put and the inode changes), that truncate emptied
+    /// an orphaned inode nothing points at: "Clear Log" looked like a no-op and the Settings size
+    /// readout kept reporting a full file the user had just cleared.
+    @Test func testClearEmptiesTheCurrentFileAfterExternalAtomicReplacement() throws {
+        let url = makeTempURL()
+        defer { cleanup(url) }
+
+        let writer = LogFileWriter(url: url)
+        writer.append("first line\n")
+        writer.flush()
+
+        try Data("externally trimmed\n".utf8).write(to: url, options: .atomic)
+
+        writer.clear()
+        writer.flush()
+
+        // What matters is the file actually on disk — that is what the Settings readout stats and
+        // what the next reader of the log sees.
+        #expect(try String(contentsOf: url, encoding: .utf8).isEmpty)
+
+        // And the reopened handle must still be the live one: appends after the clear land in the
+        // same file rather than resurrecting the orphan.
+        writer.append("after clear\n")
+        writer.flush()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "after clear\n")
+    }
 }
