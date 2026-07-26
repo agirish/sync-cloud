@@ -98,9 +98,38 @@ public enum AnthropicKeychain {
         store.delete(baseQuery())
     }
 
-    /// True when a non-empty key is stored.
+    /// True when a non-empty, *readable* key is stored.
+    ///
+    /// This reads the secret, so on a locked or ACL-guarded item it can raise the Keychain
+    /// access prompt. That is the right answer for callers about to use the key — a scan that
+    /// cannot read it has no key as far as it is concerned — but it is the wrong question for
+    /// anything that only wants to say "a key is saved". Those callers want ``isConfigured``.
     public static var hasKey: Bool { hasKey(in: SecItemKeychainStore()) }
 
     /// `hasKey` against an injected store (the testable spelling of the property above).
     public static func hasKey(in store: KeychainStore) -> Bool { read(from: store) != nil }
+
+    /// Whether a key item exists at all — **without decrypting it**, so it never raises the
+    /// Keychain password prompt.
+    ///
+    /// `kSecReturnData` is what makes the Keychain evaluate the item's ACL and, if it isn't
+    /// satisfied, ask the user. An attributes-only match answers "is something stored here?"
+    /// from the item's metadata and never touches the secret. Settings opened the Tidy tab
+    /// straight into ``hasKey`` to decide whether to print "Key saved to Keychain.", so merely
+    /// *looking at* the tab demanded the password for a key nobody had asked to use.
+    ///
+    /// The trade is that this cannot tell a usable key from one the Keychain would refuse, or
+    /// from a corrupt item. Never route a cloud call on it — `hasKey` is the question there,
+    /// and it is already gated behind the cloud toggle so it only asks when the key is wanted.
+    public static var isConfigured: Bool { isConfigured(in: SecItemKeychainStore()) }
+
+    /// ``isConfigured`` against an injected store.
+    public static func isConfigured(in store: KeychainStore) -> Bool {
+        var query = baseQuery()
+        // Attributes, deliberately NOT data. See above: adding `kSecReturnData` here would
+        // reintroduce the prompt this exists to avoid.
+        query[kSecReturnAttributes as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return store.copyMatching(query).status == errSecSuccess
+    }
 }

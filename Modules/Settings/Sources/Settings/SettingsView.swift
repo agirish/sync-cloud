@@ -1528,7 +1528,11 @@ struct TidySettingsTab: View {
             }
         }
         .onAppear {
-            hasStoredKey = AnthropicKeychain.hasKey
+            // `isConfigured`, not `hasKey`: the status line only needs to know whether a key is
+            // stored, and `hasKey` reads the secret — which made simply opening this tab raise
+            // the Keychain password prompt for a key the user hadn't asked to use. The prompt
+            // now belongs to the actions that genuinely need the key: Test, and a cloud scan.
+            hasStoredKey = AnthropicKeychain.isConfigured
             refreshSpend()
         }
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
@@ -1550,7 +1554,9 @@ struct TidySettingsTab: View {
                 Button("Save") {
                     let status = AnthropicKeychain.store(apiKeyField)
                     apiKeyField = ""
-                    hasStoredKey = AnthropicKeychain.hasKey
+                    // Confirming the write landed only needs the item to exist — reading it back
+                    // would prompt for the password immediately after the user typed the key in.
+                    hasStoredKey = AnthropicKeychain.isConfigured
                     // A keychain write can fail (locked or denied keychain, an MDM policy). The
                     // status line otherwise fell back to "No key yet", which reads as though
                     // nothing had been typed rather than as a refused write.

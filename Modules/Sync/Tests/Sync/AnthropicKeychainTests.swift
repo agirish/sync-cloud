@@ -12,6 +12,9 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
     private(set) var ops: [Op] = []
     /// The attribute dictionary of the last `add`, so tests can pin the item's identity.
     private(set) var lastAddedAttributes: [String: Any]?
+    /// The query of the last `copyMatching`. What a lookup ASKS FOR is the whole difference
+    /// between a silent existence check and one that raises the Keychain password prompt.
+    private(set) var lastCopyQuery: [String: Any]?
     /// The one item slot. Settable directly to pre-populate.
     var itemData: Data?
     /// When set, `copyMatching` returns this status regardless of the slot.
@@ -33,6 +36,7 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
 
     func copyMatching(_ query: [String: Any]) -> (status: OSStatus, result: AnyObject?) {
         ops.append(.copy)
+        lastCopyQuery = query
         if let forced = forcedCopyStatus { return (forced, nil) }
         guard let data = itemData else { return (errSecItemNotFound, nil) }
         guard query[kSecReturnData as String] as? Bool == true else { return (errSecSuccess, nil) }
@@ -153,6 +157,57 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
                 $0.level == .warning && $0.message.contains("a stored key may exist but cannot be read right now")
             }
         }
+    }
+
+    // MARK: - Existence without the prompt
+
+    /// The property the Settings tab depends on: asking whether a key is stored must never ask
+    /// the Keychain for the secret, because `kSecReturnData` is exactly what makes it evaluate
+    /// the item's ACL and put a password prompt on screen. Opening the Tidy tab used to run
+    /// `hasKey`, so merely *looking at* Settings demanded the password.
+    ///
+    /// Pinned on the QUERY rather than on a return value: a fake cannot show a prompt, so the
+    /// only honest way to assert "this can't prompt" is to assert what it asked for.
+    @Test func isConfiguredNeverAsksForTheSecret() {
+        let store = FakeKeychainStore()
+        store.itemData = Data("sk-ant-test".utf8)
+
+        #expect(AnthropicKeychain.isConfigured(in: store))
+
+        let query = store.lastCopyQuery
+        #expect(query?[kSecReturnData as String] == nil,
+                "an existence check that requests the data can raise the Keychain prompt")
+        #expect(query?[kSecReturnAttributes as String] as? Bool == true)
+        #expect(query?[kSecAttrService as String] as? String == "com.synccloud.anthropic-api-key")
+    }
+
+    /// The counterpart, and the reason `isConfigured` had to be a second question rather than a
+    /// rewrite of `hasKey`: callers about to USE the key still read it, and the scan path's
+    /// "cloud is on but the key is unusable" downgrade rests on that read failing.
+    @Test func hasKeyStillReadsTheSecret() {
+        let store = FakeKeychainStore()
+        store.itemData = Data("sk-ant-test".utf8)
+
+        #expect(AnthropicKeychain.hasKey(in: store))
+        #expect(store.lastCopyQuery?[kSecReturnData as String] as? Bool == true)
+    }
+
+    @Test func isConfiguredIsFalseWithNothingStored() {
+        let store = FakeKeychainStore()
+        #expect(AnthropicKeychain.isConfigured(in: store) == false)
+    }
+
+    /// A key the Keychain refuses to hand over is still *configured* — the item is there. That
+    /// is the honest answer for a status line, and it is why this must not route a cloud call:
+    /// `hasKey` reports the same item as unusable, which is what the downgrade warning needs.
+    @Test func isConfiguredAndHasKeyDisagreeOnAnUnreadableItem() {
+        let locked = FakeKeychainStore()
+        locked.itemData = Data("sk-ant-test".utf8)
+        // The realistic locked case: attributes come back, the secret does not.
+        #expect(AnthropicKeychain.isConfigured(in: locked))
+
+        locked.forcedCopyStatus = errSecInteractionNotAllowed
+        #expect(AnthropicKeychain.hasKey(in: locked) == false)
     }
 
     @Test func deleteRemovesTheStoredKey() {

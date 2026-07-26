@@ -12,11 +12,11 @@ import Testing
 /// what SwiftUI actually lays out. The shipped grouped-Form version measured 884pt into a 436pt
 /// opening, which is how a control ended up cut in half by the sheet's bottom edge.
 ///
-/// Only Appearance is pinned. It is the tab that motivated the change and the tallest one that
-/// can be made to fit, and it reads nothing but `@AppStorage` — so its height is a property of
-/// the layout rather than of the machine's data. Providers grows with the Mac's provider list and
-/// is *expected* to scroll; General and Tidy reach for SMAppService and the Keychain on appear,
-/// which a `swift test` host can block on.
+/// Only Appearance's *fit* is pinned. It is the tab that motivated the change and the tallest
+/// one that can be made to fit, and it reads nothing but `@AppStorage` — so its height is a
+/// property of the layout rather than of the machine's data. Providers grows with the Mac's
+/// provider list and is expected to scroll; General reaches for SMAppService on appear, which a
+/// `swift test` host can block on. Tidy is here for a different reason — see below.
 @Suite struct SettingsLayoutTests {
 
     /// The content column: the sheet minus the rail and the divider between them.
@@ -52,6 +52,18 @@ import Testing
         let margin = SettingsSheetMetrics.contentOpening(textScale: 1) - height
 
         #expect(margin >= 15, "Only \(margin)pt of slack left below the last control.")
+    }
+
+    /// Tidy is long by nature (Duplicates, Filing, Cloud spend) and is expected to scroll, so
+    /// there is no fit to assert. What this pins is that it can be laid out AT ALL: it used to
+    /// read the Anthropic key out of the Keychain in `onAppear`, which blocked this host — and,
+    /// in the app, put a password prompt on screen for anyone who merely opened the tab. If that
+    /// read comes back, this test stops finishing.
+    @MainActor
+    @Test func tidyLaysOutWithoutReachingForTheKeychain() async throws {
+        let height = laidOutHeight(TidySettingsTab(syncManager: nil), width: Self.contentWidth)
+
+        #expect(height > 0)
     }
 
     // MARK: - Sizing
