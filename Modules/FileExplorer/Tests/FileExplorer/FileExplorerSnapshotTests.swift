@@ -156,6 +156,55 @@ import Sync
             named: "section-headers")
     }
 
+    /// The Name cell's two modes, which differ ONLY in how much of the path they print.
+    ///
+    /// `pathWithinSection` is well covered as a pure function, but nothing pinned that the cell
+    /// actually SHOWS its result: `grouped` could stop being read, or be read backwards, and every
+    /// existing test would still pass. The reference must show the grouped rows printing only the
+    /// path BELOW their folder and the flat rows printing the whole parent — the top pair being the
+    /// same file, so the difference between the two lines is the entire subject of the snapshot.
+    ///
+    /// Both modes in one image on purpose: the defect 507d641 fixed is a *comparison* (the folder
+    /// appearing twice, once in a header and once in the row), so a reference that showed one mode
+    /// alone would leave a reviewer nothing to compare against.
+    @Test func differenceNameCellGroupedVersusFlat() {
+        let paths = ["Claude/Projects/Investing/notes.md",
+                     "Immigration/Authorization/H-1B/form.pdf",
+                     "Work/report.docx",
+                     "loose.pdf"]
+        func cells(grouped: Bool) -> some View {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(grouped ? "grouped: true — header already names the folder" : "grouped: false — whole parent")
+                    .font(.caption2).foregroundStyle(.secondary)
+                ForEach(paths, id: \.self) { path in
+                    DifferenceNameCell(difference: Self.difference(path), grouped: grouped)
+                }
+            }
+        }
+        assertViewSnapshot(
+            of: VStack(alignment: .leading, spacing: 10) {
+                cells(grouped: true)
+                Divider()
+                cells(grouped: false)
+            }
+            .frame(width: 400, alignment: .leading)
+            .padding(10),
+            // Tall enough for all eight rows: the last flat row is the ROOT-level one, where both
+            // modes must agree on printing no prefix at all, so a canvas that clipped it would hide
+            // the one comparison in the image that is supposed to come out equal.
+            size: CGSize(width: 420, height: 230),
+            named: "name-cell-grouped-vs-flat")
+    }
+
+    private static func difference(_ relativePath: String) -> FileDifference {
+        FileDifference(relativePath: relativePath,
+                       leftItemPath: "/l/\(relativePath)",
+                       rightItemPath: "/r/\(relativePath)",
+                       type: .missingOnRight,
+                       action: .copyToRight,
+                       description: "Missing on right")
+    }
+
     /// **The load-bearing question for collapsing.** Collapsing is implemented by emitting no rows
     /// for a section, which only works if a `Section` with zero rows still renders its header — if
     /// SwiftUI drops empty sections, a collapsed folder VANISHES instead of collapsing.

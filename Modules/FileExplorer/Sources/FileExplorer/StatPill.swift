@@ -35,6 +35,23 @@ struct StatPill: View {
     /// chevron) against a 3:1 floor, and text answers to 4.5:1. The size difference against the
     /// semibold `numberFont` beside it is what makes it read as secondary.
     var detail: String? = nil
+    /// What VoiceOver says in the visual `detail` run's place — supplied by the caller, because
+    /// only the caller knows what the run MEANS.
+    ///
+    /// This label used to build the spoken form itself as "scanned \(detail)", which reads
+    /// correctly for an age and is nonsense for anything else: the differences pill puts
+    /// "scanning…" in that slot while a scan runs, and VoiceOver announced "576 Differences,
+    /// scanned scanning…". A pill cannot infer the grammar of a string it was handed, so it stops
+    /// trying. Left nil, the detail is spoken verbatim — flat, but never a sentence that isn't true.
+    var spokenDetail: String? = nil
+
+    /// What VoiceOver reads for the whole capsule. Pure and static so the composition can be
+    /// asserted directly; the view below is the only production caller.
+    static func accessibilityLabel(count: Int, label: String, spokenDetail: String?) -> String {
+        let subject = "\(count.formatted()) \(label)"
+        guard let spokenDetail, !spokenDetail.isEmpty else { return subject }
+        return "\(subject), \(spokenDetail)"
+    }
 
     var body: some View {
         Group {
@@ -112,8 +129,8 @@ struct StatPill: View {
         // One element, not icon + two texts: VoiceOver reads "7 Differences" — or "7 Differences,
         // scanned 29m ago" once a detail run is present, since a divider is not something to speak.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(detail.map { "\(count.formatted()) \(label), scanned \($0)" }
-                            ?? "\(count.formatted()) \(label)")
+        .accessibilityLabel(Self.accessibilityLabel(count: count, label: label,
+                                                    spokenDetail: spokenDetail ?? detail))
     }
 }
 

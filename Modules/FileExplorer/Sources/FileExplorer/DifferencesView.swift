@@ -350,6 +350,11 @@ public struct DifferencesView: View {
         let semantic: SemanticCapsuleStyle
         /// The secondary run inside the pill — "29m ago", or nil before the first scan.
         let detail: String?
+        /// What VoiceOver says in `detail`'s place. Carried separately because the two states that
+        /// fill `detail` mean different things: an age is something the scan already did, and
+        /// "scanning…" is something it is still doing. `StatPill` used to glue "scanned " onto
+        /// whatever it was handed, which turned the in-flight state into "scanned scanning…".
+        let spokenDetail: String?
         /// The exact timestamp sentence, appended to the pill's tooltip. The age buckets are
         /// deliberately coarse and cannot answer "when precisely?", so hover does.
         let help: String?
@@ -377,7 +382,7 @@ public struct DifferencesView: View {
         guard let scanDate = syncManager.lastScanDate else {
             // Pre-scan: "0 Differences" with no age is honest; an age run would have nothing to
             // report and the pill is already a no-op toggle here.
-            return CountPillDressing(semantic: accent, detail: nil, help: nil)
+            return CountPillDressing(semantic: accent, detail: nil, spokenDetail: nil, help: nil)
         }
         let stamp = Calendar.current.isDateInToday(scanDate)
             ? scanDate.formatted(date: .omitted, time: .standard)
@@ -385,15 +390,21 @@ public struct DifferencesView: View {
         if syncManager.isScanning {
             return CountPillDressing(semantic: .of(.neutral, colorScheme),
                                      detail: "scanning…",
+                                     // Present tense, and no "scanned": the count beside it is the
+                                     // PREVIOUS scan's, and announcing it as freshly scanned would
+                                     // vouch for a number the running scan is about to replace.
+                                     spokenDetail: "scanning for changes",
                                      help: "Scanning for changes…")
         }
         let freshness = ScanFreshness.describe(scanDate: scanDate, now: now)
         guard freshness.isStale else {
             return CountPillDressing(semantic: accent, detail: freshness.age,
+                                     spokenDetail: "scanned \(freshness.age)",
                                      help: "Last scanned \(stamp)")
         }
         return CountPillDressing(semantic: .of(.attention, colorScheme),
                                  detail: freshness.age,
+                                 spokenDetail: "scanned \(freshness.age)",
                                  help: "This comparison may be out of date — last scanned \(stamp)")
     }
 
@@ -427,7 +438,7 @@ public struct DifferencesView: View {
         // Freshness matters MORE here than in the expanded header, not less: collapsed, this pill
         // is the only thing left on screen that says anything about the scan at all.
         withScanFreshness { dressing in
-            StatPill(
+            let pill = StatPill(
                 count: syncManager.differences.count,
                 label: "Differences",
                 // Unused on the capsule path — see `countPillToggle`, whose note this mirrors.
@@ -438,9 +449,19 @@ public struct DifferencesView: View {
                 // means: wearing the old `.warning` wash here made one count read as two
                 // conventions depending on a state the user toggles freely.
                 semantic: dressing.semantic,
-                detail: dressing.detail
+                detail: dressing.detail,
+                spokenDetail: dressing.spokenDetail
             )
-            .help(dressing.help ?? "")
+            // Branch rather than `?? ""`: pre-scan there is no timestamp to report, and the honest
+            // expression of "nothing to say" is no `.help` at all, not a `.help` carrying an empty
+            // string. (Exactly what AppKit does with an empty tooltip was not pinned down — the
+            // point is that this pill should not be asking the question.) The expanded header's
+            // pill builds its own non-optional first line, so only this one can end up empty.
+            if let help = dressing.help {
+                pill.help(help)
+            } else {
+                pill
+            }
         }
         Spacer()
     }
@@ -569,7 +590,8 @@ public struct DifferencesView: View {
                 // the flat `.attention` or `.neutral` capsule once freshness has something to say.
                 // See `countPillDressing`, which owns the whole rule.
                 semantic: dressing.semantic,
-                detail: dressing.detail
+                detail: dressing.detail,
+                spokenDetail: dressing.spokenDetail
             )
             // Reduce Motion suppresses the grow, matching `HoverAffordanceMetrics.resolve` — the
             // choke point this control is deliberately exempt from still sets the house rule, and
@@ -584,18 +606,6 @@ public struct DifferencesView: View {
                 isCountPillHovered = hovering && syncManager.hasScanned
             }
         }
-        // Belt-and-braces: in practice hasScanned only flips false inside
-        // invalidateComparisonState(), which also empties `differences` and unmounts this view —
-        // the remount already resets this @State. Kept so the collapse survives any future
-        // change that keeps the view mounted across a reset. Deliberately NOT wired to plain
-        // re-Compares on the same roots (hasScanned stays true): expansion persisting there is
-        // a remembered preference, not a leak.
-        .onChange(of: syncManager.hasScanned) { _, hasScanned in
-            if !hasScanned {
-                showItemCounts = false
-                isCountPillHovered = false
-            }
-        }
         // Two facts, two lines: what a click does, then when this was last scanned. The exact
         // timestamp only exists here — the pill's age run is bucketed and cannot answer "when?".
         .help([syncManager.hasScanned
@@ -606,6 +616,25 @@ public struct DifferencesView: View {
         // ride on the button so VoiceOver conveys the toggle state and what a click does.
         .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
         .accessibilityHint(syncManager.hasScanned ? "Shows or hides the per-side item totals" : "")
+        }
+        // OUTSIDE `withScanFreshness`, and that placement is the whole point.
+        //
+        // Belt-and-braces against a `hasScanned` reset that keeps this view mounted: in practice
+        // invalidateComparisonState() also empties `differences` and unmounts us, and the remount
+        // resets this @State. Deliberately NOT wired to plain re-Compares on the same roots
+        // (hasScanned stays true): expansion persisting there is a remembered preference, not a leak.
+        //
+        // It lived inside the closure until now, which quietly disarmed it for the one caller it
+        // was written for. `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and
+        // `hasScanned` in a single transaction, so `withScanFreshness` swaps its TimelineView branch
+        // for the else branch on the very change this watches — a handler torn down by its own
+        // trigger cannot be relied on to fire. Out here it hangs off the branch SWITCH rather than
+        // off either branch, and observes unconditionally.
+        .onChange(of: syncManager.hasScanned) { _, hasScanned in
+            if !hasScanned {
+                showItemCounts = false
+                isCountPillHovered = false
+            }
         }
     }
 
@@ -988,10 +1017,16 @@ public struct DifferencesView: View {
         // majority is read over the whole visible list, not the selection.
         let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         let compact = listDensity == .compact
+        // Read by BOTH Name columns below, from the same expression the branch itself tests, so the
+        // two cannot drift apart. Spelling `grouped: true` into the sectioned branch and leaving the
+        // flat one on the default said the same thing twice and let either say it wrong — a
+        // `grouped: true` pasted into the flat branch would repeat every row's whole parent path
+        // under no header at all, and every test would still pass.
+        let grouped = !sections.isEmpty
         Group {
             // `sections` is empty when grouping is off OR when it would not be worth it — both
             // gates live in `groupedSections`, so this branch asks one question.
-            if !sections.isEmpty {
+            if grouped {
                 // The sectioned form. Deliberately a SEPARATE Table rather than one Table whose
                 // rows builder branches: `Table(_:selection:sortOrder:)` (collection) and
                 // `Table(of:selection:sortOrder:columns:rows:)` (row builder) are different
@@ -999,7 +1034,7 @@ public struct DifferencesView: View {
                 // cannot be shared either — a @TableColumnBuilder result is generic over its row
                 // type and does not survive being hoisted into a computed property here.
                 Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: true) }
+                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
                     TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
                     TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                         .width(min: 70, ideal: 90)
@@ -1035,7 +1070,7 @@ public struct DifferencesView: View {
                 }
             } else {
                 Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
+                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
                     TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
                     TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                         .width(min: 70, ideal: 90)
@@ -1727,7 +1762,12 @@ struct DifferenceSectionHeader: View {
 /// `compact` shrinks the cell text to subheadline so it fits the compact row height — the
 /// Table doesn't propagate an ambient `.font` into its cells (see `listDensity(_:)` in
 /// Design), so each default-font cell opts in itself (via `compactCellFont`).
-private struct DifferenceNameCell: View {
+///
+/// Internal rather than file-private so `FileExplorerSnapshotTests.differenceNameCellGroupedVersusFlat`
+/// can render both modes: the pure `pathWithinSection` helper is well covered, but nothing pinned
+/// that the cell actually SHOWS the shortened prefix — same reason `DifferenceSectionHeader` is
+/// internal.
+struct DifferenceNameCell: View {
     let difference: FileDifference
     var compact: Bool = false
     /// True when a folder section header is already naming this row's top-level folder, in which

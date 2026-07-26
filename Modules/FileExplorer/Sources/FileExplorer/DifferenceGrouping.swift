@@ -26,6 +26,27 @@ enum DifferenceGrouping {
     /// its own name, and this label is only ever chosen for rows whose `parentPath` is empty.
     static let rootLabel = "Top level"
 
+    /// The single split `folder(for:)` and `pathWithinSection(_:)` both read, so the header and the
+    /// row prefix under it cannot disagree about where the boundary falls.
+    ///
+    /// One function, not two, because these two must PARTITION the parent path: whatever the header
+    /// names, the prefix must not repeat, and between them they must account for the whole path.
+    /// Two independent implementations each owning their own edge cases is how that invariant
+    /// breaks — and it had. A parent of "/Immigration" made `folder(for:)` fall back to the whole
+    /// string while `pathWithinSection` dropped only the slash, yielding a header reading
+    /// "/Immigration" over rows reading "Immigration/…": the folder said twice, which is precisely
+    /// the defect the prefix drop exists to prevent. Engine-built `relativePath`s never start with
+    /// "/", so that was latent rather than live — the fix is for the disagreement, not the symptom.
+    ///
+    /// Empty components are dropped (`split` omits them by default), which is what makes a leading
+    /// slash, a trailing slash and a "//" all land on the same answer from both sides.
+    /// `folder` is nil only when nothing is left — an empty parent, or a parent of pure separators.
+    private static func split(_ parent: String) -> (folder: String?, rest: String) {
+        var components = parent.split(separator: "/").map(String.init)
+        guard !components.isEmpty else { return (nil, "") }
+        return (components.removeFirst(), components.joined(separator: "/"))
+    }
+
     /// The top-level folder a difference belongs to — the first path component of its parent, or
     /// `rootLabel` when it has no parent at all.
     ///
@@ -33,13 +54,7 @@ enum DifferenceGrouping {
     /// roughly 400 sections of one row each, which is the flat list with extra chrome. The
     /// top-level folder is the unit people actually decide about.
     static func folder(for difference: FileDifference) -> String {
-        let parent = difference.parentPath
-        guard !parent.isEmpty else { return rootLabel }
-        guard let slash = parent.firstIndex(of: "/") else { return parent }
-        let first = String(parent[..<slash])
-        // A leading slash (or any empty first component) would otherwise produce a nameless
-        // section. Fall back to the whole parent, which is at least identifying.
-        return first.isEmpty ? parent : first
+        split(difference.parentPath).folder ?? rootLabel
     }
 
     /// The parent path with the section's own folder taken off the front — what the Name cell
@@ -54,13 +69,7 @@ enum DifferenceGrouping {
     /// folder) and for root-level rows, so the Name cell drops the prefix entirely rather than
     /// printing a bare "/".
     static func pathWithinSection(_ difference: FileDifference) -> String {
-        let parent = difference.parentPath
-        guard !parent.isEmpty else { return "" }
-        guard let slash = parent.firstIndex(of: "/") else {
-            // The parent IS the top-level folder — the header already says it.
-            return ""
-        }
-        return String(parent[parent.index(after: slash)...])
+        split(difference.parentPath).rest
     }
 
     /// Groups `sorted` into sections **without reordering anything**.
