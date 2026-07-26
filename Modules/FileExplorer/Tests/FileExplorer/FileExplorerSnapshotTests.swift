@@ -129,26 +129,79 @@ import Sync
         }
     }
 
-    /// The grouped differences table's section header, at the two ends of the range: a short
-    /// folder name and a long one that must middle-truncate rather than push the count off the row.
-    /// Counts only by design — see `DifferenceSectionHeader`.
+    /// The grouped table's section header in its four states: expanded, collapsed (which earns a
+    /// direction summary the expanded form does not need), fully-selected, and a long folder name
+    /// that must middle-truncate rather than push its count off the row.
     @Test func differenceSectionHeaders() {
         assertViewSnapshot(
-            of: VStack(alignment: .leading, spacing: 10) {
-                DifferenceSectionHeader(folder: "Immigration", count: 6,
+            of: VStack(alignment: .leading, spacing: 8) {
+                DifferenceSectionHeader(folder: "Immigration", count: 13,
                                         accent: LiquidGlassHue.green.accentColor)
-                DifferenceSectionHeader(folder: "Top level", count: 1,
-                                        accent: LiquidGlassHue.green.accentColor)
+                DifferenceSectionHeader(folder: "Claude", count: 13,
+                                        accent: LiquidGlassHue.green.accentColor,
+                                        isCollapsed: true,
+                                        directionSummary: "11 → Dropbox · 2 → iCloud")
+                DifferenceSectionHeader(folder: "Work", count: 12,
+                                        accent: LiquidGlassHue.green.accentColor,
+                                        isFullySelected: true)
                 DifferenceSectionHeader(folder: "Quarterly Board Reporting And Archive",
                                         count: 1284, accent: LiquidGlassHue.green.accentColor)
-                    .frame(width: 220, alignment: .leading)
+                    // Narrower on purpose: the truncation only happens under constraint, and a
+                    // reference that lets the long name fit pins nothing about it.
+                    .frame(width: 250, alignment: .leading)
             }
-            .padding(12),
-            size: CGSize(width: 260, height: 96),
+            .padding(12)
+            .frame(width: 340, alignment: .leading),
+            size: CGSize(width: 364, height: 120),
             named: "section-headers")
     }
 
-    // MARK: Treemap
+    /// **The load-bearing question for collapsing.** Collapsing is implemented by emitting no rows
+    /// for a section, which only works if a `Section` with zero rows still renders its header — if
+    /// SwiftUI drops empty sections, a collapsed folder VANISHES instead of collapsing.
+    ///
+    /// Rendered rather than reasoned about: this is a framework behaviour, and the failure mode is
+    /// a folder silently disappearing from a table the user is about to act on. The reference must
+    /// show three headers with only the middle section's rows present.
+    @Test func collapsedSectionKeepsItsHeader() {
+        assertViewSnapshot(
+            of: CollapsedSectionSpecimen(),
+            size: CGSize(width: 460, height: 280),
+            named: "collapsed-section")
+    }
+
+    private struct CollapsedSectionSpecimen: View {
+        private struct Row: Identifiable, Hashable {
+            let id = UUID()
+            let name: String
+        }
+        private let groups: [(String, [Row])] = [
+            ("Claude", [Row(name: "a.md"), Row(name: "b.md")]),
+            ("Immigration", [Row(name: "form.pdf"), Row(name: "receipt.pdf")]),
+            ("Work", [Row(name: "report.docx")]),
+        ]
+        /// Claude and Work are collapsed; only Immigration emits rows.
+        private let collapsed: Set<String> = ["Claude", "Work"]
+
+        var body: some View {
+            Table(of: Row.self) {
+                TableColumn("Name") { Text($0.name) }
+            } rows: {
+                ForEach(groups, id: \.0) { folder, rows in
+                    SwiftUI.Section {
+                        ForEach(collapsed.contains(folder) ? [] : rows) { TableRow($0) }
+                    } header: {
+                        DifferenceSectionHeader(folder: folder, count: rows.count,
+                                                accent: LiquidGlassHue.green.accentColor,
+                                                isCollapsed: collapsed.contains(folder))
+                    }
+                }
+            }
+            .tableStyle(.inset(alternatesRowBackgrounds: false))
+        }
+    }
+
+    // MARK: Treemap    // MARK: Treemap
 
     /// Five tiles wide enough (≥ 68 pt) to show name + size labels. The palette assigns
     /// index 3 the AMBER hue — the light tile whose hardcoded-white label was ~2.4:1 and now

@@ -109,3 +109,64 @@ enum DifferenceGrouping {
         return rows >= sections.count * minimumAverageRowsPerSection
     }
 }
+
+/// What clicking a folder section header does to the table selection.
+///
+/// Pure, because the rule reads obvious and is easy to implement backwards: ⌘-clicking a section
+/// that is ALREADY fully selected has to remove it, not re-add it, or the gesture has no way back.
+enum SectionClickIntent: Equatable {
+    /// Plain click: this section becomes the whole selection.
+    case replace
+    /// ⌘-click on a section that is not (fully) selected: add its rows to what is already there.
+    case add
+    /// ⌘-click on a section whose rows are all selected: take them back out.
+    case remove
+
+    static func resolve(commandHeld: Bool, isFullySelected: Bool) -> SectionClickIntent {
+        guard commandHeld else { return .replace }
+        return isFullySelected ? .remove : .add
+    }
+}
+
+extension DifferenceGrouping {
+    /// The selection a click on `section` produces, given what is selected now.
+    static func selection(after intent: SectionClickIntent,
+                          section: Section,
+                          current: Set<FileDifference.ID>) -> Set<FileDifference.ID> {
+        let ids = Set(section.rows.map(\.id))
+        switch intent {
+        case .replace: return ids
+        case .add: return current.union(ids)
+        case .remove: return current.subtracting(ids)
+        }
+    }
+
+    /// Whether every row of `section` is in `selection` — what lights the header, and what decides
+    /// whether a ⌘-click adds or removes.
+    ///
+    /// An empty section is NOT "fully selected": vacuous truth would light a header holding
+    /// nothing and make ⌘-click a no-op that reads as broken. Sections are never empty in practice
+    /// (they are built from their rows), so this only guards a future caller.
+    static func isFullySelected(_ section: Section, in selection: Set<FileDifference.ID>) -> Bool {
+        guard !section.rows.isEmpty else { return false }
+        return section.rows.allSatisfy { selection.contains($0.id) }
+    }
+}
+
+extension DifferenceGrouping.Section {
+    /// Rows this section would copy rightward, and leftward. Only shown when the section is
+    /// COLLAPSED: expanded, every row states its own direction and the header would be repeating
+    /// them; collapsed, the rows are gone and this is the only thing left that can say which way
+    /// the folder's work points.
+    var copyToRightCount: Int { rows.count { $0.action == .copyToRight } }
+    var copyToLeftCount: Int { rows.count { $0.action == .copyToLeft } }
+
+    /// "11 → Dropbox · 2 → iCloud", either half omitted when it is zero. Empty when the section
+    /// somehow has neither, so the header renders nothing rather than a stray separator.
+    func directionSummary(leftName: String, rightName: String) -> String {
+        var parts: [String] = []
+        if copyToRightCount > 0 { parts.append("\(copyToRightCount) → \(rightName)") }
+        if copyToLeftCount > 0 { parts.append("\(copyToLeftCount) → \(leftName)") }
+        return parts.joined(separator: " · ")
+    }
+}

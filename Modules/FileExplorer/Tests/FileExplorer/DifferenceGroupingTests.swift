@@ -176,4 +176,80 @@ import Sync
         #expect(DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections(atThreshold)))
         #expect(!DifferenceGrouping.isWorthGrouping(DifferenceGrouping.sections(atThreshold.dropLast())))
     }
+
+    // MARK: Section header clicks
+
+    private func section(_ folder: String, _ paths: [String]) -> DifferenceGrouping.Section {
+        DifferenceGrouping.Section(folder: folder, rows: paths.map(diff))
+    }
+
+    @Test func testPlainClickReplacesTheWholeSelection() {
+        #expect(SectionClickIntent.resolve(commandHeld: false, isFullySelected: false) == .replace)
+        // Plain-clicking an already-selected section still replaces — that is what makes it a
+        // reliable "just this folder" gesture no matter what state you were in.
+        #expect(SectionClickIntent.resolve(commandHeld: false, isFullySelected: true) == .replace)
+    }
+
+    @Test func testCommandClickAddsThenRemoves() {
+        // The rule that is easy to implement backwards: ⌘-clicking a section whose rows are ALL
+        // selected must take them out again, or the gesture is one-way and there is no way back
+        // without clearing everything.
+        #expect(SectionClickIntent.resolve(commandHeld: true, isFullySelected: false) == .add)
+        #expect(SectionClickIntent.resolve(commandHeld: true, isFullySelected: true) == .remove)
+    }
+
+    @Test func testSelectionAfterEachIntent() {
+        let work = section("Work", ["Work/a.pdf", "Work/b.pdf"])
+        let workIds = Set(work.rows.map(\.id))
+        let stranger = UUID()
+
+        #expect(DifferenceGrouping.selection(after: .replace, section: work, current: [stranger])
+                == workIds)
+        #expect(DifferenceGrouping.selection(after: .add, section: work, current: [stranger])
+                == workIds.union([stranger]))
+        #expect(DifferenceGrouping.selection(after: .remove, section: work,
+                                             current: workIds.union([stranger]))
+                == [stranger])
+    }
+
+    @Test func testFullySelectedNeedsEveryRow() {
+        let work = section("Work", ["Work/a.pdf", "Work/b.pdf"])
+        let all = Set(work.rows.map(\.id))
+        #expect(DifferenceGrouping.isFullySelected(work, in: all))
+        // One row short is NOT fully selected — the header must unlight the moment a row is
+        // ⌘-clicked back out, which is the whole reason it tracks the selection rather than
+        // remembering that it was clicked.
+        #expect(!DifferenceGrouping.isFullySelected(work, in: [work.rows[0].id]))
+        #expect(!DifferenceGrouping.isFullySelected(work, in: []))
+    }
+
+    @Test func testAnEmptySectionIsNeverFullySelected() {
+        // Vacuous truth would light a header holding nothing and make ⌘-click a silent no-op.
+        #expect(!DifferenceGrouping.isFullySelected(section("Empty", []), in: []))
+    }
+
+    // MARK: Collapsed direction summary
+
+    @Test func testDirectionSummaryNamesBothWays() {
+        var rows = (0..<11).map { diff("Claude/right-\($0).pdf") }
+        rows += (0..<2).map { d -> FileDifference in
+            let path = "Claude/left-\(d).pdf"
+            return FileDifference(relativePath: path, leftItemPath: "/l/\(path)",
+                                  rightItemPath: "/r/\(path)", type: .missingOnLeft,
+                                  action: .copyToLeft, description: "test")
+        }
+        let claude = DifferenceGrouping.Section(folder: "Claude", rows: rows)
+        #expect(claude.directionSummary(leftName: "iCloud", rightName: "Dropbox")
+                == "11 → Dropbox · 2 → iCloud")
+    }
+
+    @Test func testDirectionSummaryOmitsAnEmptyHalf() {
+        let scans = section("Scans", ["Scans/a.pdf", "Scans/b.pdf"])
+        #expect(scans.directionSummary(leftName: "iCloud", rightName: "Dropbox") == "2 → Dropbox")
+    }
+
+    @Test func testDirectionSummaryIsEmptyWithNothingToSay() {
+        // No stray separator on a section that somehow has neither direction.
+        #expect(section("Empty", []).directionSummary(leftName: "iCloud", rightName: "Dropbox") == "")
+    }
 }

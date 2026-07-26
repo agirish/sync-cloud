@@ -27,6 +27,11 @@ public struct DifferencesView: View {
     /// you want when sorting by Size across the whole comparison, since grouping means the largest
     /// file is no longer the top row.
     @AppStorage("differencesGroupByFolder") private var groupByFolder: Bool = true
+    /// Folder names whose section is collapsed. Deliberately NOT persisted and cleared on every
+    /// rescan: the folders themselves change between scans, so a remembered "Claude was collapsed"
+    /// is a preference about a list that no longer exists — and restoring it would hide
+    /// differences the user has never seen.
+    @State private var collapsedSections: Set<String> = []
     /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
     /// clicking again collapses. Off by default so the header stays uncluttered until asked.
     @State private var showItemCounts = false
@@ -178,6 +183,12 @@ public struct DifferencesView: View {
         let filtered = displayRows.filtered
         let sorted = displayRows.sorted
         let targets = DifferenceActionTargets(filtered: filtered, selection: selection)
+        // Derived ONCE per render and threaded down, not recomputed by each consumer. Two callers
+        // need it — the table draws it, the filter menu reads it for the Expand/Collapse All
+        // enabled states — and a Menu's content builder is NOT lazy (see `filterMenu`), so a
+        // computed property read from both would run this O(n) grouping pass twice on every
+        // render, which during a bulk sync means twice per copied file.
+        let sections = groupedSections(sorted)
 
         // spacing 0: each bottomSectionCard insets itself by half a gutter, so the gap between
         // them is already `cardGutter`. A spacing here would add to it.
@@ -199,7 +210,7 @@ public struct DifferencesView: View {
                 } else {
                     // Owns its own row — it is a ViewThatFits over the whole zoned bar, so the
                     // trailing view controls have to be inside it to be shed against.
-                    standardHeader(targets: targets, sorted: sorted)
+                    standardHeader(targets: targets, sorted: sorted, sections: sections)
                 }
                 if reviewStore.session == nil, !collapsed, isSearchExpanded || !searchText.isEmpty {
                     searchField(filteredCount: filtered.count)
@@ -224,7 +235,7 @@ public struct DifferencesView: View {
                     if let session = reviewStore.session {
                         reviewSection(session)
                     } else {
-                        standardTableSection(sorted: sorted)
+                        standardTableSection(sorted: sorted, sections: sections)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -269,6 +280,14 @@ public struct DifferencesView: View {
             if let current = reviewStore.session?.current {
                 reviewSelection = [current.id]
             }
+        }
+        // A new scan is a new list: folders appear, disappear and change size, so a collapse
+        // carried across it would hide differences the user has never laid eyes on. Keyed on the
+        // scan date rather than on `differences`, which also republishes mid-bulk-sync per file —
+        // collapsing a folder and watching it spring open on every copied file would be worse
+        // than not collapsing at all.
+        .onChange(of: syncManager.lastScanDate) { _, _ in
+            collapsedSections.removeAll()
         }
         // Rebuild the visible rows off the main actor whenever an input changes (and once on
         // appear). task(id:) cancels a stale rebuild when the inputs change again mid-flight,
@@ -470,7 +489,8 @@ public struct DifferencesView: View {
     /// ideal width is its minLength, so a candidate row reports a finite width to compare against
     /// despite being infinitely flexible afterwards. `ActionBarLadderTests` pins that behaviour,
     /// since the intuition runs the other way and a regression there would clip instead of shed.
-    private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference]) -> some View {
+    private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference],
+                                sections: [DifferenceGrouping.Section]) -> some View {
         // One row per `HeaderCompaction` case, widest first. Spelled out rather than looped:
         // `ViewThatFits` counts a `ForEach` as a SINGLE child, so a loop here would collapse the
         // whole ladder into one candidate and defeat the mechanism.
@@ -479,12 +499,12 @@ public struct DifferencesView: View {
         // asserts the two have the same length — add a rung and this stops compiling green rather
         // than silently never rendering it.
         ViewThatFits(in: .horizontal) {
-            standardHeaderRow(.full, targets: targets, sorted: sorted)
-            standardHeaderRow(.foldVerify, targets: targets, sorted: sorted)
-            standardHeaderRow(.foldReview, targets: targets, sorted: sorted)
-            standardHeaderRow(.shortReverse, targets: targets, sorted: sorted)
-            standardHeaderRow(.glyphFilter, targets: targets, sorted: sorted)
-            standardHeaderRow(.shortPrimary, targets: targets, sorted: sorted)
+            standardHeaderRow(.full, targets: targets, sorted: sorted, sections: sections)
+            standardHeaderRow(.foldVerify, targets: targets, sorted: sorted, sections: sections)
+            standardHeaderRow(.foldReview, targets: targets, sorted: sorted, sections: sections)
+            standardHeaderRow(.shortReverse, targets: targets, sorted: sorted, sections: sections)
+            standardHeaderRow(.glyphFilter, targets: targets, sorted: sorted, sections: sections)
+            standardHeaderRow(.shortPrimary, targets: targets, sorted: sorted, sections: sections)
         }
     }
 
@@ -496,12 +516,13 @@ public struct DifferencesView: View {
 
     private func standardHeaderRow(_ compaction: HeaderCompaction,
                                    targets: DifferenceActionTargets,
-                                   sorted: [FileDifference]) -> some View {
+                                   sorted: [FileDifference],
+                                   sections: [DifferenceGrouping.Section]) -> some View {
         HStack(spacing: 10) {
             countPillToggle                                     // STATE
             itemCountsReadout
             ActionBarDivider()
-            filterMenu(compaction)                              // SCOPE
+            filterMenu(compaction, sections: sections)          // SCOPE
             selectionChip(targets)
             Spacer(minLength: 16)
             overflowMenu(compaction, targets: targets, sorted: sorted)   // ACTIONS
@@ -608,7 +629,8 @@ public struct DifferencesView: View {
 
     /// The filter. Drops to its glyph at `.glyphFilter`: the active filter stays checked in the
     /// menu's own column, so the name is one click away rather than gone.
-    private func filterMenu(_ compaction: HeaderCompaction) -> some View {
+    private func filterMenu(_ compaction: HeaderCompaction,
+                            sections: [DifferenceGrouping.Section]) -> some View {
         let name = selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right)
         return Menu {
             // Per-filter counts come from the DisplayRows cache: they're tallied in the same
@@ -635,6 +657,16 @@ public struct DifferencesView: View {
             // Grouping lives in the filter menu rather than earning chrome of its own: it is a
             // scope decision like the filter above it, and the header has no width to spare.
             Toggle("Group by folder", isOn: $groupByFolder)
+            if !sections.isEmpty {
+                // Enabled states are judged against the sections actually on screen, not against
+                // `collapsedSections` — that set can hold names for folders the active filter has
+                // since hidden, which would leave "Expand All" lit with nothing to expand.
+                let collapsedOnScreen = sections.filter { collapsedSections.contains($0.folder) }.count
+                Button("Expand All") { collapsedSections.removeAll() }
+                    .disabled(collapsedOnScreen == 0)
+                Button("Collapse All") { collapseAll(sections) }
+                    .disabled(collapsedOnScreen == sections.count)
+            }
         } label: {
             if compaction < .glyphFilter {
                 // Uncapped provider names can be long; truncate instead of forcing the
@@ -717,8 +749,15 @@ public struct DifferencesView: View {
         }
     }
 
+    /// Always carries the count, scoped or not.
+    ///
+    /// A bare "Review" said nothing about how much it was about to queue, and the count only
+    /// appeared once a selection scoped it — so the number showed up exactly when it was SMALL and
+    /// was absent when it was large. That is backwards: `Review started: 1 item(s) (selection)`
+    /// against a scan of 123 is the failure this fixes, and a user who has seen "Review 123" once
+    /// reads a later "Review 1" as a change rather than as a plain fact.
     private func reviewTitle(_ targets: DifferenceActionTargets) -> String {
-        targets.isSelectionScoped ? "Review \(targets.targets.count)" : "Review"
+        "Review \(targets.targets.count)"
     }
 
     @ViewBuilder
@@ -937,7 +976,8 @@ public struct DifferencesView: View {
 
     /// The normal table card content: bulk-op progress rows above the live differences table.
     @ViewBuilder
-    private func standardTableSection(sorted: [FileDifference]) -> some View {
+    private func standardTableSection(sorted: [FileDifference],
+                                      sections: [DifferenceGrouping.Section]) -> some View {
         if let progress = syncManager.verifyAllProgress {
             syncProgressRow(verb: "Verifying", completed: progress.completed, total: progress.total)
         }
@@ -948,12 +988,10 @@ public struct DifferencesView: View {
         // majority is read over the whole visible list, not the selection.
         let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         let compact = listDensity == .compact
-        // Grouping is computed here, not inside the Table builder, so the "is it worth it?" gate
-        // is answered once per render rather than per row — and so the flat branch below is
-        // reached with no sections built at all when grouping is off.
-        let sections = groupByFolder ? DifferenceGrouping.sections(sorted) : []
         Group {
-            if DifferenceGrouping.isWorthGrouping(sections) {
+            // `sections` is empty when grouping is off OR when it would not be worth it — both
+            // gates live in `groupedSections`, so this branch asks one question.
+            if !sections.isEmpty {
                 // The sectioned form. Deliberately a SEPARATE Table rather than one Table whose
                 // rows builder branches: `Table(_:selection:sortOrder:)` (collection) and
                 // `Table(of:selection:sortOrder:columns:rows:)` (row builder) are different
@@ -969,11 +1007,29 @@ public struct DifferencesView: View {
                         .width(min: 96, ideal: 140)
                 } rows: {
                     ForEach(sections) { section in
+                        let isCollapsed = collapsedSections.contains(section.folder)
                         SwiftUI.Section {
-                            ForEach(section.rows) { TableRow($0) }
+                            // Collapsing is "emit no rows". The header is a separate slot, so it
+                            // survives an empty section — verified by `collapsedSectionKeepsItsHeader`
+                            // rather than assumed, because a collapsed folder VANISHING instead of
+                            // collapsing would be the obvious way for this to fail.
+                            ForEach(isCollapsed ? [] : section.rows) { TableRow($0) }
                         } header: {
-                            DifferenceSectionHeader(folder: section.folder, count: section.count,
-                                                    accent: glassHue.accentColor)
+                            DifferenceSectionHeader(
+                                folder: section.folder,
+                                count: section.count,
+                                accent: glassHue.accentColor,
+                                isFullySelected: DifferenceGrouping.isFullySelected(section, in: selection),
+                                isCollapsed: isCollapsed,
+                                // Only the collapsed form shows this, and it is an O(rows) tally —
+                                // computing it for expanded sections would walk the entire diff on
+                                // every render, which during a bulk sync means per copied file.
+                                directionSummary: isCollapsed
+                                    ? section.directionSummary(leftName: paneNames.left,
+                                                               rightName: paneNames.right)
+                                    : "",
+                                onToggleCollapse: { toggleCollapse(section, allSections: sections) },
+                                onSelect: { selectSection(section) })
                         }
                     }
                 }
@@ -1023,6 +1079,58 @@ public struct DifferencesView: View {
             onQuickLook(URL(fileURLWithPath: primary.reviewSourcePath))
             return .handled
         }
+    }
+
+    // MARK: Section headers
+
+    /// Applies a header click to the selection. ⌘ is read at click time from `NSEvent` rather than
+    /// tracked, the same one-shot read the drop handler and the transfer buttons use — a published
+    /// modifier stream can be a frame stale, and this decides between "replace everything" and
+    /// "add to what you have".
+    private func selectSection(_ section: DifferenceGrouping.Section) {
+        let intent = SectionClickIntent.resolve(
+            commandHeld: NSEvent.modifierFlags.contains(.command),
+            isFullySelected: DifferenceGrouping.isFullySelected(section, in: selection))
+        selection = DifferenceGrouping.selection(after: intent, section: section, current: selection)
+    }
+
+    /// Toggles one section — or, with ⌥ held, every section at once. ⌥-click on a disclosure
+    /// triangle is the Finder gesture for "do this to all of them"; it costs nothing and the menu
+    /// items carry the same actions for anyone who doesn't know it.
+    private func toggleCollapse(_ section: DifferenceGrouping.Section,
+                                allSections: [DifferenceGrouping.Section]) {
+        guard !NSEvent.modifierFlags.contains(.option) else {
+            // Match the clicked section's NEW state, so ⌥-collapsing an expanded folder collapses
+            // everything and ⌥-expanding a collapsed one expands everything.
+            if collapsedSections.contains(section.folder) {
+                collapsedSections.removeAll()
+            } else {
+                collapsedSections = Set(allSections.map(\.folder))
+            }
+            return
+        }
+        if collapsedSections.contains(section.folder) {
+            collapsedSections.remove(section.folder)
+        } else {
+            collapsedSections.insert(section.folder)
+        }
+    }
+
+    /// The sections the table will draw for `sorted`, or empty when it will draw a flat list.
+    ///
+    /// The ONE derivation. The rows builder and the Expand/Collapse All menu items were computing
+    /// it separately, which is how a menu ends up collapsing a different set of folders than the
+    /// table is showing, the moment their inputs drift apart. Returning empty for "not worth
+    /// grouping" folds that gate in here too, so no caller can forget it.
+    private func groupedSections(_ sorted: [FileDifference]) -> [DifferenceGrouping.Section] {
+        guard groupByFolder else { return [] }
+        let sections = DifferenceGrouping.sections(sorted)
+        return DifferenceGrouping.isWorthGrouping(sections) ? sections : []
+    }
+
+    /// Collapses every section on screen.
+    private func collapseAll(_ sections: [DifferenceGrouping.Section]) {
+        collapsedSections = Set(sections.map(\.folder))
     }
 
     // MARK: Review lifecycle
@@ -1504,26 +1612,59 @@ private extension View {
     }
 }
 
-/// A folder section header in the grouped differences table: folder glyph, folder name, row count.
+/// A folder section header in the grouped differences table: disclosure triangle, folder glyph,
+/// folder name, row count — and, when collapsed, which way the folder's work points.
 ///
-/// Counts only, deliberately. A section can hold rows going BOTH ways — nine to iCloud and three
-/// to Dropbox is ordinary — and a header has room for roughly one action, so any scoped button
-/// would have to either name just the majority (silently hiding the rest) or grow the header into
-/// a second action bar. The landmarks are the value here; the scoped action can follow once the
-/// grouping has earned its place.
+/// Carries no action buttons, deliberately. The header instead SELECTS its rows, and the bar above
+/// already knows how to act on a selection — including a folder pointing both ways, which it splits
+/// across its two transfer buttons. A button here could only ever name one direction and hide the
+/// other, which is why C3 shipped counts-only; making the header a selection target removes the
+/// problem instead of working around it, and composes (⌘-click two folders) where buttons could not.
 ///
-/// Not a `TableRow`: a `Section` header in a SwiftUI `Table` is an ordinary `View`, which is what
-/// makes a glyph + count possible at all (and would make a button possible later).
-///
-/// Internal rather than private so `FileExplorerSnapshotTests` can pin it — the truncation
-/// behaviour of a long folder name is the kind of thing only a rendered reference catches.
+/// Not a `TableRow`: a `Section` header in a SwiftUI `Table` is an ordinary `View`. That is what
+/// makes any of this possible — and it is also why the selected highlight is drawn here by hand.
+/// The table's selection is a set of ROW ids and a header has no row value, so a header can never
+/// BE selected; it performs a selection and then reflects it.
 struct DifferenceSectionHeader: View {
+    /// Vertical padding inside the tap target, above and below the label row.
+    ///
+    /// Serves two ends that turned out to be the same one. It is the difference between a hit area
+    /// the height of a line of text and one you can hit without aiming, and — because a collapsed
+    /// table is nothing BUT headers — it is also the air between folders in the collapsed summary.
+    /// `sectionHeaderIsAComfortableClickTarget` pins the laid-out result rather than this constant,
+    /// since what matters is the height the header actually reaches.
+    static let verticalPadding: CGFloat = 7
+
     let folder: String
     let count: Int
     let accent: Color
+    /// True when every row of this section is in the table selection. Tracks the selection rather
+    /// than "was I clicked", so ⌘-clicking one row back out of the set unlights the header.
+    var isFullySelected: Bool = false
+    var isCollapsed: Bool = false
+    /// Shown only while collapsed — "11 → Dropbox · 2 → iCloud". Empty hides it.
+    var directionSummary: String = ""
+    /// Toggles this section's disclosure. ⌥-click is handled by the caller (collapse/expand all).
+    var onToggleCollapse: () -> Void = {}
+    /// Selects this section. The caller reads ⌘ at click time to decide add vs replace.
+    var onSelect: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 7) {
+            // Its own hit target, separate from the header's: the triangle collapses, the rest of
+            // the row selects. Two gestures share this row, so the triangle needs real hit area —
+            // the padding below is load-bearing, not spacing.
+            Button(action: onToggleCollapse) {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12, height: 12)
+                    .padding(2)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isCollapsed ? "Expand \(folder)" : "Collapse \(folder)")
+
             Image(systemName: "folder.fill")
                 .font(.system(size: 10))
                 .foregroundStyle(accent)
@@ -1535,10 +1676,49 @@ struct DifferenceSectionHeader: View {
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
+
+            if isCollapsed, !directionSummary.isEmpty {
+                Spacer(minLength: 12)
+                Text(directionSummary)
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
-        // One element: VoiceOver reads "Immigration, 6 differences" rather than three fragments.
+        // The whole row is the selection target — everything except the triangle above, which
+        // consumed its own click first.
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // Padding BEFORE contentShape, and that order is the entire point. Without it the header's
+        // hit area was only as tall as its text (~16pt) while the Table drew the section row
+        // taller, so the band above the words looked like header and did nothing — the click
+        // landed on table chrome outside this view. Owning the vertical space converts it into hit
+        // area, and it buys the extra air between collapsed headers at the same time.
+        .padding(.vertical, Self.verticalPadding)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .background(
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(accent.opacity(isFullySelected ? 0.18 : 0))
+                .padding(.vertical, 1)
+        )
+        .help(isFullySelected
+              ? "\(folder) — click to reselect, ⌘-click to deselect"
+              : "Select this folder's differences · ⌘-click to add to the selection")
+        // One element: VoiceOver reads "Immigration, 6 differences, selected" rather than four
+        // fragments, and the tap is announced as what it does.
+        //
+        // `children: .ignore` collapses the subtree, which SWALLOWS the disclosure Button above —
+        // it renders, it works with a mouse, and it is unreachable by VoiceOver. The named action
+        // below puts it back as a rotor action on this element, which is also a better fit than a
+        // 12pt hit target for anyone driving by keyboard.
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(folder), \(count.formatted()) difference\(count == 1 ? "" : "s")")
+        .accessibilityValue([isFullySelected ? "selected" : "",
+                             isCollapsed ? "collapsed" : ""].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityHint("Selects this folder's differences")
+        .accessibilityAddTraits(isFullySelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(named: isCollapsed ? "Expand" : "Collapse", onToggleCollapse)
     }
 }
 
