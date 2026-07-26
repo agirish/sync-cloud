@@ -363,12 +363,16 @@ public enum DuplicateFinder {
         var coveredRoots: Set<String> = []
         // File paths already placed in a group (identical wins over versions).
         var groupedFilePaths: Set<String> = []
+        // The KEEPER side of every identical-folder group. `coveredRoots` deliberately holds only
+        // the redundant copies, so without this the file passes below could recommend removing a
+        // file from inside a folder the very same batch is keeping — see `protectingFolderKeepers`.
+        var folderKeeperRoots: Set<String> = []
 
-        groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots)
+        groups += identicalFolderGroups(dirs, options: options, coveredRoots: &coveredRoots, keeperRoots: &folderKeeperRoots)
         groups += overlappingAndNameOnlyGroups(dirs, options: options, coveredRoots: &coveredRoots)
-        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
+        groups += identicalFileGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths)
         if options.detectVersions {
-            groups += versionGroups(files, options: options, coveredRoots: coveredRoots, groupedFilePaths: &groupedFilePaths)
+            groups += versionGroups(files, options: options, coveredRoots: coveredRoots, keeperRoots: folderKeeperRoots, groupedFilePaths: &groupedFilePaths)
         }
 
         return groups.sorted { lhs, rhs in
@@ -480,7 +484,8 @@ public enum DuplicateFinder {
     private static func identicalFolderGroups(
         _ dirs: [NodeInfo],
         options: DuplicateFinderOptions,
-        coveredRoots: inout Set<String>
+        coveredRoots: inout Set<String>,
+        keeperRoots: inout Set<String>
     ) -> [DuplicateGroup] {
         var buckets: [String: [NodeInfo]] = [:]
         for d in dirs {
@@ -518,6 +523,10 @@ public enum DuplicateFinder {
                 reclaimableBytes: reclaimable
             ))
             for c in copies.dropFirst() { coveredRoots.insert(c.path) }
+            // Recorded separately from `coveredRoots`: covering the keeper would also hide inner
+            // folder pairs from the passes below, which is a wider change than this invariant
+            // needs. The file passes consult it to keep their hands off the kept folder.
+            keeperRoots.insert(keeper.path)
         }
         return groups
     }
@@ -594,6 +603,7 @@ public enum DuplicateFinder {
         _ files: [NodeInfo],
         options: DuplicateFinderOptions,
         coveredRoots: Set<String>,
+        keeperRoots: Set<String>,
         groupedFilePaths: inout Set<String>
     ) -> [DuplicateGroup] {
         var buckets: [String: [NodeInfo]] = [:]
@@ -605,8 +615,7 @@ public enum DuplicateFinder {
 
         var groups: [DuplicateGroup] = []
         for members in buckets.values where members.count >= 2 {
-            let keeperIdx = chooseKeeper(members)
-            let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
+            guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: chooseKeeper) else { continue }
             let keeper = ordered[0]
             let copies = ordered.enumerated().map { idx, info in
                 makeCopy(info, keeper: keeper, isKeeper: idx == 0)
@@ -630,6 +639,7 @@ public enum DuplicateFinder {
         _ files: [NodeInfo],
         options: DuplicateFinderOptions,
         coveredRoots: Set<String>,
+        keeperRoots: Set<String>,
         groupedFilePaths: inout Set<String>
     ) -> [DuplicateGroup] {
         var buckets: [String: [NodeInfo]] = [:]
@@ -712,12 +722,13 @@ public enum DuplicateFinder {
                 // (or cloud-only) to hash must not be claimed as drifted versions. Unknown-hash
                 // members may ride along in a group that real hashes justify, but can never
                 // stand one up by themselves.
-                let realHashes = Set(members.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
+                // Files inside a kept folder can anchor a version group but are never offered for
+                // removal by it (see `protectingFolderKeepers`) — applied before the drift check
+                // below so the evidence is read off the members that actually remain.
+                guard let ordered = protectingFolderKeepers(members, keeperRoots: keeperRoots, chooseKeeperIn: newestIndex) else { continue }
+                let realHashes = Set(ordered.compactMap { $0.signature }.filter { !isUnknownSignature($0) })
                 guard realHashes.count >= 2 else { continue }
 
-                // Keeper = the newest version.
-                let keeperIdx = newestIndex(members)
-                let ordered = orderKeeperFirst(members, keeperIndex: keeperIdx)
                 let keeper = ordered[0]
                 let copies = ordered.enumerated().map { idx, info in
                     makeCopy(info, keeper: keeper, isKeeper: idx == 0)
@@ -735,6 +746,47 @@ public enum DuplicateFinder {
             }
         }
         return groups
+    }
+
+    // MARK: Folder-keeper protection
+
+    /// A file group's members reordered so that anything living inside an identical-folder group's
+    /// KEEPER is the group's own keeper — never one of the copies it recommends removing. Returns
+    /// nil when fewer than two members survive, i.e. there is no group left to report.
+    ///
+    /// A folder group tells the user "F1 is kept, F2 is redundant", and one "Apply recommended"
+    /// acts on every group at once. Nothing stopped a file group from independently recommending
+    /// `F1/a.txt` — content of the folder being kept — because `coveredRoots` only ever received
+    /// the REDUNDANT copies. A single batch would then trash F2 *and* hollow out F1, so the folder
+    /// the app had just called an intact copy no longer matched the one the user verified. The
+    /// mirror direction (a keeper inside a redundant copy) was already guarded; this is the same
+    /// invariant approached from the other side.
+    ///
+    /// Protected files still ANCHOR groups — that is how a third copy elsewhere stays discoverable
+    /// and removable — but only as the keeper. A second protected member has nowhere safe to sit,
+    /// so it leaves the group instead of becoming a removal recommendation.
+    private static func protectingFolderKeepers(
+        _ members: [NodeInfo],
+        keeperRoots: Set<String>,
+        chooseKeeperIn: ([NodeInfo]) -> Int
+    ) -> [NodeInfo]? {
+        guard !keeperRoots.isEmpty else {
+            // The overwhelmingly common case (no identical-folder groups at all): the group is
+            // exactly what it always was.
+            guard members.count >= 2 else { return nil }
+            return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
+        }
+        let protected = members.filter { isCovered($0.path, by: keeperRoots) }
+        guard !protected.isEmpty else {
+            guard members.count >= 2 else { return nil }
+            return orderKeeperFirst(members, keeperIndex: chooseKeeperIn(members))
+        }
+        // The keeper is chosen from the protected files by the pass's own rule, so the usual
+        // heuristics still decide WHICH protected file anchors the group.
+        let keeper = protected[chooseKeeperIn(protected)]
+        let removable = members.filter { !isCovered($0.path, by: keeperRoots) }
+        guard !removable.isEmpty else { return nil }
+        return [keeper] + removable
     }
 
     // MARK: Recommendation

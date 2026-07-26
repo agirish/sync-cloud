@@ -15,12 +15,41 @@ extension FileSyncManager {
 
     // MARK: Rule store
 
+    /// Decodes a persisted store, telling "nothing saved yet" apart from "saved, but unreadable".
+    ///
+    /// Both used to read as `[]`, and that silence was expensive: the very next edit re-encodes the
+    /// now-empty array over the stored value, so a decode failure (a schema change after running an
+    /// older build, a truncated plist) permanently destroyed every rule the user had taught — with
+    /// nothing in the log to explain why their files had stopped filing themselves. Absent data is
+    /// the ordinary first-run case and stays quiet; undecodable data is reported once per key per
+    /// session (these getters are hot — a scan reads them per file) and the raw payload is set aside
+    /// under a sibling key so the overwrite is no longer the end of it.
+    static func decodePersistedStore<T: Decodable>(
+        _ type: T.Type,
+        from defaults: UserDefaults,
+        key: String,
+        describing what: String
+    ) -> T? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        if let decoded = try? JSONDecoder().decode(type, from: data) { return decoded }
+        if !corruptStoreKeysWarned.claim(key) { return nil }
+        let backupKey = key + ".unreadable"
+        defaults.set(data, forKey: backupKey)
+        Logger.shared.error(
+            "Saved \(what) could not be read (\(data.count) bytes) and will be treated as empty — "
+            + "the unreadable copy was kept under \"\(backupKey)\"")
+        return nil
+    }
+
+    /// One-shot-per-key gate for the warning above. Nonisolated (the getters are), lock-guarded.
+    private static let corruptStoreKeysWarned = OneShotKeySet()
+
     /// The persisted rules, decoded from defaults. A corrupt/absent value decodes to `[]`.
     private var persistedAutomationRules: [AutomationRule] {
         get {
-            guard let data = filingRuleDefaults.data(forKey: Self.automationRulesDefaultsKey),
-                  let rules = try? JSONDecoder().decode([AutomationRule].self, from: data) else { return [] }
-            return rules
+            FileSyncManager.decodePersistedStore([AutomationRule].self, from: filingRuleDefaults,
+                                                 key: Self.automationRulesDefaultsKey,
+                                                 describing: "automation rules") ?? []
         }
         set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.automationRulesDefaultsKey) }
     }
@@ -348,5 +377,18 @@ extension FileSyncManager {
             ? .warning("Filed \(n) file\(n == 1 ? "" : "s"); \(failures) couldn't be filed. Press ⌘Z to undo", undoable: true)
             : .success("Filed \(n) file\(n == 1 ? "" : "s"). Press ⌘Z to undo", undoable: true)
         return (n, failures)
+    }
+}
+
+/// A set of keys that each admit exactly one claim, for "warn once per session" gates.
+/// Lock-guarded because the callers are nonisolated computed properties reached from any thread.
+final class OneShotKeySet: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed: Set<String> = []
+
+    /// True the FIRST time `key` is claimed, false every time after.
+    func claim(_ key: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return claimed.insert(key).inserted
     }
 }

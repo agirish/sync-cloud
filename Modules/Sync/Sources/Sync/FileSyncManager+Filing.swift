@@ -377,9 +377,9 @@ extension FileSyncManager {
     /// scan path; the old data stays in defaults untouched afterwards as a backup.
     public var filingRules: [FilingRule] {
         get {
-            guard let data = filingRuleDefaults.data(forKey: Self.rulesDefaultsKey),
-                  let rules = try? JSONDecoder().decode([FilingRule].self, from: data) else { return [] }
-            return rules
+            FileSyncManager.decodePersistedStore([FilingRule].self, from: filingRuleDefaults,
+                                                 key: Self.rulesDefaultsKey,
+                                                 describing: "remembered filing rules") ?? []
         }
         set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rulesDefaultsKey) }
     }
@@ -453,9 +453,9 @@ extension FileSyncManager {
     /// Folders the user has rejected for files, so suggestions never re-offer them.
     public var filingRejections: [FilingRejection] {
         get {
-            guard let data = filingRuleDefaults.data(forKey: Self.rejectionsDefaultsKey),
-                  let decoded = try? JSONDecoder().decode([FilingRejection].self, from: data) else { return [] }
-            return decoded
+            FileSyncManager.decodePersistedStore([FilingRejection].self, from: filingRuleDefaults,
+                                                 key: Self.rejectionsDefaultsKey,
+                                                 describing: "remembered filing rejections") ?? []
         }
         set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rejectionsDefaultsKey) }
     }
@@ -537,8 +537,22 @@ extension FileSyncManager {
             replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
             return
         }
-        filingScanStatus = FilingScanPhase.lookingForDifferent.status
-        defer { filingScanStatus = nil }
+        // "Try another" is a re-ask, not a scan, so it may only BORROW the status line while the
+        // Filing lens is idle. Writing it unconditionally overwrote a running rescan's own phase
+        // text, and the `defer` then blanked the line while that scan was still going — leaving the
+        // scanning view with no status until its next update. Epoch-scoped like every other status
+        // write (see `updateScan`): if a scan starts while the classifier is out, it owns the line
+        // and this re-ask neither sets nor clears it.
+        let statusEpoch = filingScanLifecycle.epoch
+        let ownsStatusLine = !filingScanLifecycle.isRunning
+        if ownsStatusLine {
+            filingScanStatus = FilingScanPhase.lookingForDifferent.status
+        }
+        defer {
+            if ownsStatusLine, filingScanLifecycle.epoch == statusEpoch {
+                filingScanStatus = nil
+            }
+        }
         let excluded = allRejected.compactMap { Self.relativePath($0, under: root) }
         let file = FilingCandidateFile(filePath: suggestion.filePath, fileName: suggestion.fileName,
                                        ext: (suggestion.fileName as NSString).pathExtension.lowercased(),

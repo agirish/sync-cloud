@@ -298,7 +298,12 @@ extension FileSyncManager {
         // differ only by case name the same file, so the reserved-target set must collapse case —
         // otherwise two case-variant items pass the in-memory uniqueness check and the parallel
         // workers write to the same file (the disk `fileExists` check already collapses case).
-        let destCaseSensitive = candidates.first.map { FileSyncManager.volumeSupportsCaseSensitiveNames(for: $0.toURL) } ?? true
+        // Probed for a NOT-YET-EXISTING item: every candidate here is missing on the destination
+        // side, so the plain probe could never answer and always fell back to "folds case" — which
+        // on a case-sensitive volume uniquified `README.md` to `README 2.md` merely because
+        // `Readme.md` was in the same batch, and the next scan then reported the invented name
+        // forever.
+        let destCaseSensitive = candidates.first.map { FileSyncManager.volumeSupportsCaseSensitiveNamesForNewItem(at: $0.toURL) } ?? true
         func reservedKey(_ path: String) -> String { destCaseSensitive ? path : path.lowercased() }
         // The batch stat above ran before the first prompt. A prompt holds this loop for an
         // unbounded time, during which a destination the batch saw as missing can be created

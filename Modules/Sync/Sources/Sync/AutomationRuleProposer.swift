@@ -37,6 +37,16 @@ public enum AutomationRuleProposer {
                                contentSnippet: String? = nil) -> Proposal? {
         let dest = destinationRelativePath.trimmingCharacters(in: CharacterSet(charactersIn: " /"))
         guard !dest.isEmpty else { return nil }
+        // A relative destination is stored as a TEMPLATE, and the evaluator surfaces any leftover
+        // `{…}` as an unresolvable token — deliberately, so a user's typo'd `{yaer}` is reported
+        // rather than guessed at. But this path is not a template the user typed: it is the literal
+        // name of a folder they just filed into, and a real folder may legitimately be called
+        // "Q3 {final}". Proposing it would mint a rule that can never run — every dry run reporting
+        // it "needs {final}, which this file doesn't have" — with no way to express the real folder
+        // short of renaming it. `resolveDestination`'s carve-out only exempts ABSOLUTE literals, so
+        // decline instead of offering a rule that is inert from birth. Same call as the
+        // extension-less fallback below: no offer beats a bad one.
+        guard !dest.contains("{"), !dest.contains("}") else { return nil }
 
         let nameTokens = tokens(in: (fileName as NSString).deletingPathExtension)
         // Folded: `tokens(in:)` preserves case, and the overlap test must be case-blind on BOTH

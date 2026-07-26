@@ -127,6 +127,20 @@ public enum NameNormalizer {
     ///    accept and flag them as risky when they aren't.
     static func sanitize(_ name: String, for provider: CloudProvider.ProviderType) -> String {
         var result = cleanInvisible(name)
+        // The fold turns every exotic space into a plain ASCII one, INCLUDING at the ends — so on a
+        // provider with no affix rule of its own (iCloud, Google Drive) the proposed "fix" for
+        // "report\u{00A0}" was "report ", which is still invisibly different from "report" and is
+        // exactly what Dropbox and OneDrive refuse. A name made only of exotic spaces became " ",
+        // dodging the `untitled` fallback below because it is not empty.
+        //
+        // Trimmed only when the fold actually changed something: a name that merely ends in a plain
+        // space on a provider that permits it has no hazard to fix, and trimming unconditionally
+        // would start flagging all of those as risky — a different (and much wider) claim than this
+        // detector makes. `RiskyName.sanitizedName` promises a name EVERY provider can store, and
+        // that promise is what this line keeps.
+        if result != name {
+            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         // Only let the provider ruleset rewrite the name when it (or its invisible-cleaned form)
         // genuinely violates that provider's rules — otherwise leave dots/spaces the provider allows.
         if ProviderNameRules.violation(name: name, provider: provider) != nil

@@ -155,6 +155,66 @@ import Testing
         #expect(g.recommendedRemovalPaths == ["/root/Folder 3/Folder 4/Folder 1"])
     }
 
+    @Test func aThirdCopyElsewhereNeverRecommendsGuttingTheKeptFolder() {
+        // Docs/F1 and Archive/F1 are byte-identical folders, so Docs/F1 is kept and Archive/F1 is
+        // recommended for removal. a.txt ALSO has a third copy at a SHALLOWER path, which is what
+        // makes this the failing shape: the file pass saw {Docs/F1/a.txt, X/a.txt} — Archive's copy
+        // is covered by the folder group, the keeper's copy was not — and the keeper heuristic
+        // prefers the shallower X/a.txt, putting Docs/F1/a.txt on the removal list. One "Apply
+        // recommended" then trashed Archive/F1 *and* removed a file from inside Docs/F1, the folder
+        // the same batch had just called an intact copy.
+        let f1 = dir("/root/Docs/Sub/F1", [
+            file("/root/Docs/Sub/F1/a.txt", size: 8192),
+            file("/root/Docs/Sub/F1/b.txt", size: 9000),
+        ])
+        let f2 = dir("/root/Archive/Sub/F1", [
+            file("/root/Archive/Sub/F1/a.txt", size: 8192),
+            file("/root/Archive/Sub/F1/b.txt", size: 9000),
+        ])
+        let x = dir("/root/Alpha", [file("/root/Alpha/a.txt", size: 8192), file("/root/Alpha/x-only.txt", size: 8192)])
+        let hashes = [
+            "/root/Docs/Sub/F1/a.txt": "HA", "/root/Docs/Sub/F1/b.txt": "HB",
+            "/root/Archive/Sub/F1/a.txt": "HA", "/root/Archive/Sub/F1/b.txt": "HB",
+            "/root/Alpha/a.txt": "HA", "/root/Alpha/x-only.txt": "HX",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: [f1, f2, x], fileHashes: hashes)
+
+        let folderGroup = groups.first { $0.isDirectory }
+        #expect(folderGroup?.keeper.path == "/root/Docs/Sub/F1")
+        // Nothing anywhere may recommend removing content of the kept folder.
+        let allRemovals = groups.flatMap { $0.recommendedRemovalPaths }
+        #expect(!allRemovals.contains { $0.hasPrefix("/root/Docs/Sub/F1/") })
+
+        // The third copy is still discoverable and still removable — protection pins which side of
+        // the group the kept folder's file sits on, it does not hide the duplicate.
+        let fileGroup = groups.first { !$0.isDirectory }
+        #expect(fileGroup?.keeper.path == "/root/Docs/Sub/F1/a.txt")
+        #expect(fileGroup?.recommendedRemovalPaths == ["/root/Alpha/a.txt"])
+    }
+
+    @Test func twoFilesInsideTheSameKeptFolderNeverRecommendRemovingEachOther() {
+        // Both members of the file group live inside kept folders, so neither can be offered for
+        // removal and the group has nothing left to recommend — it must not fall back to trashing
+        // one of them.
+        let f1 = dir("/root/F1", [file("/root/F1/a.txt", size: 8192), file("/root/F1/dup.txt", size: 8192)])
+        let f2 = dir("/root/Archive/F1", [
+            file("/root/Archive/F1/a.txt", size: 8192),
+            file("/root/Archive/F1/dup.txt", size: 8192),
+        ])
+        let hashes = [
+            "/root/F1/a.txt": "HA", "/root/F1/dup.txt": "HA",
+            "/root/Archive/F1/a.txt": "HA", "/root/Archive/F1/dup.txt": "HA",
+        ]
+
+        let groups = DuplicateFinder.findGroups(tree: [f1, f2], fileHashes: hashes)
+
+        let allRemovals = groups.flatMap { $0.recommendedRemovalPaths }
+        #expect(!allRemovals.contains { $0.hasPrefix("/root/F1/") })
+        // The redundant folder copy is still recommended, as before.
+        #expect(allRemovals.contains("/root/Archive/F1"))
+    }
+
     // MARK: Name-only folders
 
     @Test func sameNameDifferentContentsIsNameOnly() {

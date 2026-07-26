@@ -98,6 +98,41 @@ extension FileSyncManager {
     public nonisolated static func volumeSupportsCaseSensitiveNames(for url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames ?? false
     }
+
+    /// ``volumeSupportsCaseSensitiveNames(for:)`` for a destination that does not exist YET.
+    ///
+    /// `resourceValues` throws for a path with nothing on disk, so asking about a file about to be
+    /// created always produced the fallback — never the volume's real answer. That is the exact
+    /// shape a bulk sync asks about: every "missing on the other side" target is by definition
+    /// absent, so a genuinely case-sensitive destination was still told to fold case, and two items
+    /// differing only by case had one of them needlessly renamed to "name 2".
+    ///
+    /// Volume semantics do not change within a subtree, so walking up to the nearest EXISTING
+    /// ancestor answers for the volume the path will land on. This mirrors the same walk the undo
+    /// path already performs for vanished restore targets. When nothing up to "/" can answer, the
+    /// result stays `false` (fold), which is the safe direction here: folding at worst uniquifies a
+    /// name unnecessarily, while wrongly claiming case sensitivity lets two parallel writers target
+    /// one file.
+    public nonisolated static func volumeSupportsCaseSensitiveNamesForNewItem(at url: URL) -> Bool {
+        caseSensitivityWalkingUp(from: url) { probe in
+            (try? probe.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]))?.volumeSupportsCaseSensitiveNames
+        }
+    }
+
+    /// The pure walk behind ``volumeSupportsCaseSensitiveNamesForNewItem(at:)``: asks `probe` about
+    /// each ancestor in turn until one answers, and reports `false` if none does. Split out so the
+    /// walk is testable without a case-sensitive volume to run on — on the ordinary case-INsensitive
+    /// developer machine, "walked up and got the real answer" and "gave up and returned the
+    /// fallback" are the same `false`, and a test could not tell the fix from the bug.
+    nonisolated static func caseSensitivityWalkingUp(from url: URL, probe: (URL) -> Bool?) -> Bool {
+        var current = url
+        while true {
+            if let answer = probe(current) { return answer }
+            let up = current.deletingLastPathComponent()
+            if up.path == current.path { return false }
+            current = up
+        }
+    }
     
     
     /// Finds a free name near `url` by appending " 2", " 3", … A name counts as taken when it
