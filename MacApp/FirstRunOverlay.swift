@@ -149,10 +149,10 @@ struct FirstRunOverlay: View {
 
             VStack(spacing: 8) {
                 Text(page.title)
-                    .font(.title2.weight(.semibold))
+                    .scaledFont(.title2.weight(.semibold))
                     .multilineTextAlignment(.center)
                 Text(page.blurb)
-                    .font(.callout)
+                    .scaledFont(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -174,19 +174,19 @@ struct FirstRunOverlay: View {
                 Text(leftProviderName)
                     .fontWeight(.medium)
                 Image(systemName: "arrow.left.arrow.right")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .accessibilityLabel("compared with")
                 Text(rightProviderName)
                     .fontWeight(.medium)
             }
-            .font(.callout)
+            .scaledFont(.callout)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(.quaternary.opacity(0.5), in: Capsule())
         } else {
             Text("SyncCloud finds your cloud folders automatically — pick the two to compare in Settings.")
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -211,7 +211,7 @@ struct FirstRunOverlay: View {
         VStack(alignment: .leading, spacing: 14) {
             Toggle("Don't show this again", isOn: $dontShowAgain)
                 .toggleStyle(.checkbox)
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 10) {
@@ -285,7 +285,7 @@ private struct ProviderGlyph: View {
             Image(asset).resizable().scaledToFit().frame(width: size, height: size)
         } else {
             Image(systemName: "cloud.fill")
-                .font(.system(size: size * 0.82))
+                .scaledFont(.system(size: size * 0.82))
                 .foregroundStyle(ProviderHue.classify(name).tint)
                 .frame(width: size, height: size)
         }
@@ -421,13 +421,13 @@ private struct TransferArt: View {
             folder(name: leftName)
             VStack(spacing: 7) {
                 Image(systemName: "doc.text.fill")
-                    .font(.system(size: 30))
+                    .scaledFont(.system(size: 30))
                     .foregroundStyle(.tint)
                     .offset(x: drift ? 7 : -7)
                 HStack(spacing: 3) {
-                    Image(systemName: "arrow.left").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    Image(systemName: "arrow.left").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                     Rectangle().fill(Color.secondary.opacity(0.3)).frame(width: 26, height: 1.5)
-                    Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
+                    Image(systemName: "arrow.right").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(.tint)
                 }
             }
             folder(name: rightName)
@@ -440,7 +440,7 @@ private struct TransferArt: View {
 
     private func folder(name: String) -> some View {
         Image(systemName: "folder.fill")
-            .font(.system(size: 40))
+            .scaledFont(.system(size: 40))
             .foregroundStyle(ProviderHue.classify(name).tint)
             .overlay(alignment: .bottomTrailing) {
                 ProviderGlyph(name: name, size: 17)
@@ -470,7 +470,7 @@ private struct TidyArt: View {
             doc(tinted: true)
                 .overlay(alignment: .bottomTrailing) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 22))
+                        .scaledFont(.system(size: 22))
                         .foregroundStyle(SemanticColor.success)
                         // The knockout disc behind the check adapts light/dark (a hard-coded
                         // `.white` glowed against the dark-mode art). It does NOT exactly match
@@ -491,7 +491,7 @@ private struct TidyArt: View {
 
     private func doc(tinted: Bool) -> some View {
         Image(systemName: "doc.fill")
-            .font(.system(size: 54))
+            .scaledFont(.system(size: 54))
             .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.55)))
     }
 }
@@ -506,7 +506,7 @@ private struct FilingArt: View {
             HStack(spacing: 18) {
                 ForEach(0..<3, id: \.self) { index in
                     Image(systemName: "doc.fill")
-                        .font(.system(size: 19))
+                        .scaledFont(.system(size: 19))
                         .foregroundStyle(Color.secondary.opacity(0.5))
                         .offset(y: appeared ? 0 : -10)
                         .opacity(appeared ? 1 : 0)
@@ -518,7 +518,7 @@ private struct FilingArt: View {
             HStack(spacing: 34) {
                 ForEach(0..<3, id: \.self) { _ in
                     Image(systemName: "arrow.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .scaledFont(.system(size: 10, weight: .bold))
                         .foregroundStyle(Color.secondary.opacity(0.7))
                         .opacity(appeared ? 1 : 0)
                 }
@@ -535,7 +535,7 @@ private struct FilingArt: View {
 
     private func folder(tinted: Bool) -> some View {
         Image(systemName: "folder.fill")
-            .font(.system(size: 30))
+            .scaledFont(.system(size: 30))
             .foregroundStyle(tinted ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.secondary.opacity(0.5)))
     }
 }

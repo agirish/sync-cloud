@@ -130,7 +130,7 @@ public struct SyncHistoryView: View {
     private func toolbar(filtered: [SyncHistoryRecord]) -> some View {
         HStack(spacing: 10) {
             Text("Sync History")
-                .font(.headline)
+                .scaledFont(.headline)
             Spacer()
 
             Picker("Action", selection: $selectedAction) {
@@ -205,7 +205,7 @@ public struct SyncHistoryView: View {
             if !searchText.isEmpty {
                 Button(action: { searchText = "" }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.body)
+                        .scaledFont(.body)
                         .hoverInk()
                 }
                 .buttonStyle(.hoverAffordance(.inline))
@@ -303,7 +303,7 @@ private struct SyncHistoryRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: record.action.systemImage)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(actionColor)
                 .frame(width: 18)
                 .padding(.top, 2)
@@ -319,7 +319,7 @@ private struct SyncHistoryRow: View {
                     }
 
                     compactPathText
-                        .font(.system(.subheadline, design: .monospaced))
+                        .scaledFont(.system(.subheadline, design: .monospaced))
                         .textSelection(.enabled)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -353,15 +353,15 @@ private struct SyncHistoryRow: View {
                         HStack(spacing: 6) {
                             Text(Self.displayPath(record.sourcePath))
                             Image(systemName: "arrow.right")
-                                .font(.caption2)
+                                .scaledFont(.caption2)
                                 .foregroundStyle(.tertiary)
                             Text(Self.displayPath(dest))
                         }
-                        .font(.system(.subheadline, design: .monospaced))
+                        .scaledFont(.system(.subheadline, design: .monospaced))
                         .textSelection(.enabled)
                     } else {
                         Text(Self.displayPath(record.sourcePath))
-                            .font(.system(.subheadline, design: .monospaced))
+                            .scaledFont(.system(.subheadline, design: .monospaced))
                             .textSelection(.enabled)
                     }
                 }
@@ -377,19 +377,19 @@ private struct SyncHistoryRow: View {
 
     private func directionText(_ direction: String) -> some View {
         Text(direction)
-            .font(.caption2.weight(.medium))
+            .scaledFont(.caption2.weight(.medium))
             .foregroundStyle(.secondary)
     }
 
     private var timeText: some View {
         Text(Self.timeString(record.timestamp))
-            .font(.caption2)
+            .scaledFont(.caption2)
             .foregroundStyle(.secondary)
     }
 
     private func sizeText(_ size: Int) -> some View {
         Text(Self.sizeString(size))
-            .font(.caption2)
+            .scaledFont(.caption2)
             .foregroundStyle(.tertiary)
     }
 

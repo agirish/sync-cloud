@@ -20,7 +20,7 @@ public struct ProgressDialog: View {
                 // Single title row: description + close
                 HStack {
                     Text(progress.localizedDescription ?? "Processing…")
-                        .font(.headline)
+                        .scaledFont(.headline)
                     Spacer()
                     // The ✕ cancels (same action as the Cancel button below), but its glyph reads
                     // as a harmless "close" — label it honestly so hover and accessibility say
@@ -42,13 +42,13 @@ public struct ProgressDialog: View {
 
                 // Single count line, e.g. "3,336 of 7,363"
                 Text(formattedCount(completed: completed, total: total))
-                    .font(.subheadline)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(.secondary)
 
                 // Optional: current file name when set
                 if let additional = progress.localizedAdditionalDescription, !additional.isEmpty {
                     Text(additional)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)

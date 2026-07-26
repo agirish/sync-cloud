@@ -136,6 +136,8 @@ public struct TidyView: View {
     /// reclaim glow (H5) are dropped for today's instant swap. The numeric count-up is kept — it's an
     /// acceptable motion under Reduce motion.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The app's text size, for the provider name — a `Menu` label that must stay a `Text`.
+    @Environment(\.appFontScale) private var appFontScale
 
     /// The active lens. `lensTabs` writes it directly; the host owns the storage so the choice
     /// survives tab switches (and relaunches, via the host's `@AppStorage`) and so writing it can
@@ -487,7 +489,7 @@ public struct TidyView: View {
                 let isActive = (lens == tab)
                 Button { lens = tab } label: {
                     Text(tab.title)
-                        .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                        .scaledFont(.system(size: 12, weight: isActive ? .semibold : .regular))
                         .foregroundStyle(isActive ? Color.primary : Color.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 6)
@@ -519,7 +521,7 @@ public struct TidyView: View {
         let provider = providers.first(where: { $0.id == currentProviderId })
         return HStack(spacing: 8) {
             Text("Source")
-                .font(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
             HStack(spacing: 6) {
                 // Logo outside the Menu label (a resizable image inside one balloons under fixedSize).
@@ -529,16 +531,19 @@ public struct TidyView: View {
                 ProviderMenu(providers: providers, currentId: currentProviderId,
                              onSelect: onSelectProvider, onManage: onManageProviders) {
                     Text(provider?.displayName ?? "Provider")
-                        .font(.system(size: 12, weight: .semibold))
+                        // `Text.scaledFont(_:scale:)`, not the View modifier: a `Menu` label is
+                        // drawn by AppKit, which reads a Text's own font but ignores the
+                        // environment one a modifier would set. See `PaneHeader.providerCapsule`.
+                        .scaledFont(.system(size: 12, weight: .semibold), scale: appFontScale)
                         .contentShape(Rectangle())
                 }
                 .help("Switch which cloud you're tidying")
             }
             .pillSurface(.mini, tint: .secondary)
             if let folder = scanTargetFolder, !folder.isEmpty {
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").scaledFont(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                 Text((folder as NSString).lastPathComponent)
-                    .font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+                    .scaledFont(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
         }
@@ -627,7 +632,7 @@ public struct TidyView: View {
 
     private func ofMLabel(_ shown: Int, _ total: Int) -> some View {
         Text("\(shown) of \(total)")
-            .font(.caption)
+            .scaledFont(.caption)
             .monospacedDigit()
             .foregroundStyle(.secondary)
             .fixedSize()
@@ -683,7 +688,7 @@ public struct TidyView: View {
 
     private var filingSpendRow: some View {
         HStack(spacing: 8) {
-            Image(systemName: "cloud").font(.system(size: 10))
+            Image(systemName: "cloud").scaledFont(.system(size: 10))
             if let last = spendLast {
                 Text("Last cloud scan: \(FilingSpendFormat.model(last.model)) · \(last.fileCount) files · \(FilingSpendFormat.tokens(last.totalTokens)) · \(FilingSpendFormat.cost(last.estimatedCostUSD))")
                     .lineLimit(1).truncationMode(.middle)
@@ -692,7 +697,7 @@ public struct TidyView: View {
             Text("Total \(FilingSpendFormat.cost(spendTotals.costUSD))")
             Button("History") { showSpendHistory = true }.controlSize(.mini)
         }
-        .font(.system(size: 11))
+        .scaledFont(.system(size: 11))
         .foregroundStyle(.secondary)
     }
     /// "File all N confident", scoped to the FILTERED rows.
@@ -771,7 +776,7 @@ public struct TidyView: View {
         if let root {
             let name = (root as NSString).lastPathComponent
             Label(name, systemImage: "folder")
-                .font(.system(size: 11, weight: .medium))
+                .scaledFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .help("These results are for “\(name)”")
@@ -1110,7 +1115,7 @@ public struct TidyView: View {
                     .controlSize(.large)
             }
             Text(syncManager.duplicateScanStatus ?? "Analyzing…")
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Button("Cancel") { syncManager.cancelFindDuplicates() }
@@ -1300,14 +1305,14 @@ public struct TidyView: View {
         HStack(spacing: 8) {
             ConfidenceMeter(tier: section.tier)
             Text(section.tier.title)
-                .font(.system(size: 13, weight: .semibold))
+                .scaledFont(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
             Text(section.suggestions.count.formatted())
-                .font(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: 11, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.tertiary)
             Text("· \(section.tier.gloss)")
-                .font(.system(size: 11))
+                .scaledFont(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -1360,7 +1365,7 @@ public struct TidyView: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text(syncManager.filingScanStatus ?? "Analyzing…")
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Button("Cancel") { syncManager.cancelFindFilingSuggestions() }
@@ -1574,16 +1579,16 @@ private struct ReclaimPill: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "internaldrive")
-                .font(PillVariant.standard.iconFont)
+                .scaledFont(PillVariant.standard.iconFont)
                 .symbolRenderingMode(.hierarchical)
             Text("\(FileSyncManager.formatBytes(reclaimableBytes)) reclaimable")
-                .font(PillVariant.standard.numberFont)
+                .scaledFont(PillVariant.standard.numberFont)
                 .monospacedDigit()
                 // Numeric roll is kept even under Reduce motion (an acceptable content transition).
                 .contentTransition(.numericText())
             if let freedCaption {
                 Text("· \(freedCaption)")
-                    .font(.system(size: 11, weight: .medium))
+                    .scaledFont(.system(size: 11, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(SemanticColor.success.opacity(0.85))
                     .contentTransition(.numericText())

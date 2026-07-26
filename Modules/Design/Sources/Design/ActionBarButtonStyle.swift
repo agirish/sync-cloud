@@ -70,7 +70,7 @@ public enum ActionBarMetrics {
     public static let disabledOpacity: Double = 0.4
     /// Label font. Pinned rather than inherited: the bar sits inside a card that sets its own
     /// font, and a control that changes size with the surrounding text would break the row.
-    public static let font: Font = .system(size: 13)
+    public static let font: ScaledFont = .system(size: 13)
 }
 
 // MARK: - Style
@@ -146,7 +146,7 @@ private struct ActionBarButtonBody: View {
 
     var body: some View {
         configuration.label
-            .font(ActionBarMetrics.font)
+            .scaledFont(ActionBarMetrics.font)
             .foregroundStyle(labelColor)
             .lineLimit(1)
             .modifier(ActionBarShape(isIconOnly: isIconOnly))

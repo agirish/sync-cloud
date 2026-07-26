@@ -160,7 +160,7 @@ struct AutomationRuleEditor: View {
         HStack {
             Image(systemName: "gearshape.2").foregroundStyle(accent)
             Text(isNew ? "New automation" : "Edit automation")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(.system(size: 14, weight: .semibold))
             Spacer()
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
@@ -192,7 +192,7 @@ struct AutomationRuleEditor: View {
 
             if rows.isEmpty {
                 Text("Add at least one condition — all on-device.")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
                     .padding(.vertical, 4)
             } else {
                 ForEach($rows) { $row in
@@ -255,7 +255,7 @@ struct AutomationRuleEditor: View {
         case .nameMatches:
             TextField("*.pdf", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
-                .font(.system(size: 11, design: .monospaced))
+                .scaledFont(.system(size: 11, design: .monospaced))
         case .contentContains:
             TextField("invoice", text: stringBinding(condition))
                 .textFieldStyle(.roundedBorder).controlSize(.small)
@@ -266,7 +266,7 @@ struct AutomationRuleEditor: View {
                     .help("The file must mention every word — in its name or its text. Separate with commas.")
                 if Self.isUnmatchableMentions(condition.wrappedValue) {
                     Text("These words are too generic to match on — add a distinctive word (a vendor, topic, or year).")
-                        .font(.system(size: 11)).foregroundStyle(SemanticColor.warning)
+                        .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -279,13 +279,13 @@ struct AutomationRuleEditor: View {
             HStack(spacing: 5) {
                 TextField("100", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
-                Text("MB").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("MB").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
         case .untouchedForDays:
             HStack(spacing: 5) {
                 TextField("365", value: intBinding(condition), format: .number)
                     .textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 64)
-                Text("days").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("days").scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
         }
     }
@@ -317,16 +317,16 @@ struct AutomationRuleEditor: View {
             }
             TextField("Documents/Invoices/{year}", text: $destination)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12, design: .monospaced))
+                .scaledFont(.system(size: 12, design: .monospaced))
             // The caption states which of the two destination forms the field currently holds, so
             // a leading slash is a visible choice, never a silent reinterpretation.
             if destination.trimmingCharacters(in: .whitespaces).hasPrefix("/") {
                 Text("An absolute folder path (starts with “/”) — this rule only acts in the provider that contains that folder. Remove the leading slash to make it relative to the provider root instead.")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("Relative to the provider root\(browseRoot.map { " (\($0.lastPathComponent))" } ?? ""). Tokens fill from each file — a token a file can’t supply flags it as “needs a look” in the preview.")
-                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                    .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -400,7 +400,7 @@ struct AutomationRuleEditor: View {
         // The app-wide eyebrow spec: caption2 semibold, .textCase uppercase, 0.4 kerning.
         Text(text)
             .textCase(.uppercase)
-            .font(.caption2.weight(.semibold))
+            .scaledFont(.caption2.weight(.semibold))
             .foregroundStyle(.secondary)
             .kerning(0.4)
     }

@@ -138,7 +138,7 @@ public struct SettingsView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Settings")
-                    .font(.headline)
+                    .scaledFont(.headline)
                 Spacer()
                 CloseButton(action: onClose)
                     // Escape closes the overlay even when focus is elsewhere in the card.
@@ -208,7 +208,7 @@ public struct SettingsView: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.callout)
+                .scaledFont(.callout)
             TextField("Search settings", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .accessibilityLabel("Search settings")
@@ -393,7 +393,7 @@ private struct SettingsSearchResults: View {
                                     Text(entry.title)
                                         .foregroundStyle(.primary)
                                     Text(entry.tab.displayName)
-                                        .font(.caption)
+                                        .scaledFont(.caption)
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
@@ -623,6 +623,10 @@ struct AppearanceSettingsTab: View {
     @AppStorage(LiquidGlass.surfaceStyleKey) private var surfaceStyleRaw: String = SurfaceStyle.unified.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
+    @AppStorage(FontSize.defaultsKey) private var fontSizeRaw: String = FontSize.medium.rawValue
+
+    /// The resolved text size; `.medium` (the standard size) if unrecognized.
+    private var fontSize: FontSize { FontSize(rawValue: fontSizeRaw) ?? .medium }
 
     private var selectedHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: selectedHueRaw) ?? .blue
@@ -682,13 +686,13 @@ struct AppearanceSettingsTab: View {
                         Text("Tint")
                     } minimumValueLabel: {
                         Text("Subtle")
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .fixedSize()
                     } maximumValueLabel: {
                         Text("Vivid")
-                            .font(.caption)
+                            .scaledFont(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .fixedSize()
@@ -696,7 +700,7 @@ struct AppearanceSettingsTab: View {
                     .accessibilityValue("\(Int(surfaceTint * 100)) percent")
                     .disabled(selectedHue == .none)
                     Text("\(Int(surfaceTint * 100))%")
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(width: 36, alignment: .trailing)
                 }
@@ -718,6 +722,22 @@ struct AppearanceSettingsTab: View {
                 Text("Content surface")
             } footer: {
                 Text(selectedSurfaceStyle.detail)
+            }
+
+            // Text size leads List density: the two are the pair that decides how much fits on
+            // screen, and how big the type is has to be settled before how tightly it packs.
+            Section {
+                Picker("Text size", selection: $fontSizeRaw) {
+                    ForEach(FontSize.allCases) { size in
+                        Text(size.displayName).tag(size.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Text size")
+            } footer: {
+                Text(fontSize.detail)
             }
 
             Section {
@@ -757,7 +777,7 @@ private struct HueOptionView: View {
                         .shadow(color: swatchShadowColor, radius: isSelected ? 5 : 1.5)
                     if isSelected {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(.system(size: 13, weight: .semibold))
                             // The checkmark sits on the swatch's own fill, so it pairs with that
                             // fill's luminance — hardcoded white was ~2.1:1 on amber. "None" has no
                             // fill of its own (a neutral disc deferring to the system accent), so it
@@ -767,7 +787,7 @@ private struct HueOptionView: View {
                     }
                 }
                 Text(hue.displayName)
-                    .font(.caption2.weight(isSelected ? .semibold : .medium))
+                    .scaledFont(.caption2.weight(isSelected ? .semibold : .medium))
                     .foregroundStyle(isSelected ? .primary : .secondary)
                     // Twelve hues share one row; the longest name ("Graphite") shrinks to stay on a
                     // single line rather than wrapping in its narrow slot.
@@ -816,7 +836,7 @@ struct ProvidersSettingsTab: View {
             Section {
                 HStack {
                     Text("Discovered providers")
-                        .font(.body.weight(.medium))
+                        .scaledFont(.body.weight(.medium))
                     Spacer()
                     Button(action: refreshProviders) {
                         Label(
@@ -883,7 +903,7 @@ struct ProviderSettingsSection: View {
                     TextField("Provider name", text: $draftName)
                         .textFieldStyle(.plain)
                         .labelsHidden()
-                        .font(.body.weight(.medium))
+                        .scaledFont(.body.weight(.medium))
                         .focused($nameFieldFocused)
                         .onSubmit { commitName() }
                         .onChange(of: nameFieldFocused) { _, focused in
@@ -891,7 +911,7 @@ struct ProviderSettingsSection: View {
                         }
                         .help("Click to rename. Clear the name to restore the default.")
                     Text(provider.id)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -931,7 +951,7 @@ struct ProviderSettingsSection: View {
                 // fields commit through one identical set of triggers.
                 TextField("Synchronized path", text: $pathDraft.value)
                     .textFieldStyle(.plain)
-                    .font(.system(.callout, design: .monospaced))
+                    .scaledFont(.system(.callout, design: .monospaced))
                     .labelsHidden()
                     .focused($pathFieldFocused)
                     .onSubmit { commitPath() }
@@ -1287,7 +1307,7 @@ struct SyncSettingsTab: View {
                 ForEach(settings.ignorePatterns, id: \.self) { pattern in
                     HStack {
                         Text(pattern)
-                            .font(.system(.callout, design: .monospaced))
+                            .scaledFont(.system(.callout, design: .monospaced))
                         Spacer()
                         Button {
                             settings.removeIgnorePattern(pattern)
@@ -1302,7 +1322,7 @@ struct SyncSettingsTab: View {
                 HStack(spacing: 8) {
                     TextField("*.tmp, .DS_Store, node_modules", text: $patternDraft)
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(.callout, design: .monospaced))
+                        .scaledFont(.system(.callout, design: .monospaced))
                         .onSubmit(addPattern)
                     Button("Add", action: addPattern)
                         .disabled(IgnoreRules.normalized(patternDraft) == nil)
@@ -1334,13 +1354,13 @@ private struct IgnoredItemsList: View {
     var body: some View {
         if store.rootRelativePaths.isEmpty {
             Text("Nothing ignored right now. Right-click a difference and choose Ignore to hide it.")
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
         } else {
             ForEach(store.sortedPaths, id: \.self) { path in
                 HStack {
                     Text(path)
-                        .font(.system(.callout, design: .monospaced))
+                        .scaledFont(.system(.callout, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .help(path)
@@ -1545,28 +1565,28 @@ struct TidySettingsTab: View {
             keyStatusLine
 
             Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                Text("Get a key from the Anthropic Console ↗").font(.caption)
+                Text("Get a key from the Anthropic Console ↗").scaledFont(.caption)
             }
         }
     }
 
     @ViewBuilder private var keyStatusLine: some View {
         if testingKey {
-            Label("Testing…", systemImage: "ellipsis.circle").font(.caption).foregroundStyle(.secondary)
+            Label("Testing…", systemImage: "ellipsis.circle").scaledFont(.caption).foregroundStyle(.secondary)
         } else if let keyTestResult {
             switch keyTestResult {
             case .valid:
-                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                Label("Key works — you’re set.", systemImage: "checkmark.circle.fill").scaledFont(.caption).foregroundStyle(.green)
             case .invalid(let message):
-                Label(message, systemImage: "xmark.octagon.fill").font(.caption).foregroundStyle(.red)
+                Label(message, systemImage: "xmark.octagon.fill").scaledFont(.caption).foregroundStyle(.red)
             case .failed(let message):
-                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+                Label("Couldn’t reach Anthropic: \(message)", systemImage: "exclamationmark.triangle.fill").scaledFont(.caption).foregroundStyle(.orange)
             }
         } else if hasStoredKey {
-            Label("Key saved to Keychain.", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+            Label("Key saved to Keychain.", systemImage: "checkmark.circle").scaledFont(.caption).foregroundStyle(.secondary)
         } else {
             Text("No key yet — cloud suggestions fall back to the on-device model until you add one.")
-                .font(.caption).foregroundStyle(.secondary)
+                .scaledFont(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -1592,7 +1612,7 @@ struct TidySpendHistorySheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Cloud Filing Spend").font(.headline)
+                Text("Cloud Filing Spend").scaledFont(.headline)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
@@ -1615,14 +1635,14 @@ struct TidySpendHistorySheet: View {
                 List(entries.reversed()) { entry in
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).font(.system(size: 12))
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened)).scaledFont(.system(size: 12))
                             Text("\(FilingSpendFormat.model(entry.model)) · \(entry.fileCount) files · placed \(entry.placedCount)")
-                                .font(.system(size: 11)).foregroundStyle(.secondary)
+                                .scaledFont(.system(size: 11)).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 8)
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text(FilingSpendFormat.cost(entry.estimatedCostUSD)).font(.system(size: 12, weight: .semibold)).monospacedDigit()
-                            Text(FilingSpendFormat.tokens(entry.totalTokens)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                            Text(FilingSpendFormat.cost(entry.estimatedCostUSD)).scaledFont(.system(size: 12, weight: .semibold)).monospacedDigit()
+                            Text(FilingSpendFormat.tokens(entry.totalTokens)).scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
                         }
                     }
                     .padding(.vertical, 2)
@@ -1638,8 +1658,8 @@ struct TidySpendHistorySheet: View {
 
     private func stat(_ value: String, _ label: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(value).scaledFont(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
+            Text(label).scaledFont(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -1720,7 +1740,7 @@ struct AdvancedSettingsTab: View {
             if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
                 Section {
                     Text("SyncCloud \(version)")
-                        .font(.footnote)
+                        .scaledFont(.footnote)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)

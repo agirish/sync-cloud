@@ -57,12 +57,12 @@ struct TreemapView: View {
                 if clamped >= 46 {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(node.name)
-                            .font(.system(size: 11, weight: .semibold))
+                            .scaledFont(.system(size: 11, weight: .semibold))
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if clamped >= 68 {
                             Text(FileSyncManager.formatBytes(node.bytes))
-                                .font(.system(size: 10, weight: .medium))
+                                .scaledFont(.system(size: 10, weight: .medium))
                                 .opacity(0.92)
                         }
                     }

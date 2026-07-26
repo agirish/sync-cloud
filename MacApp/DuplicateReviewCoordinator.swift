@@ -151,13 +151,13 @@ struct DuplicateReviewCoordinator {
     func duplicateReviewBanner(_ review: DuplicateCompareContext) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(.system(size: 14, weight: .semibold))
                 .foregroundStyle(accentColor)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Reviewing duplicate “\(review.groupName)”")
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(.system(size: 12, weight: .semibold))
                 Text("Keeping the left copy — the right is the one you're deciding on")
-                    .font(.system(size: 11))
+                    .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 12)

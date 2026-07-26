@@ -19,7 +19,7 @@ public struct StatusBadge: View {
                 .frame(width: 6, height: 6)
             
             Text(isValid ? "Valid path" : "Invalid path")
-                .font(.system(size: 10, weight: .semibold))
+                .scaledFont(.system(size: 10, weight: .semibold))
                 .foregroundStyle(color)
         }
         .padding(.horizontal, 10)

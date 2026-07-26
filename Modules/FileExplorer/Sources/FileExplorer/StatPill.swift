@@ -65,14 +65,14 @@ struct StatPill: View {
                             }
                     } else {
                         Image(systemName: systemImage)
-                            .font(PillVariant.standard.iconFont)
+                            .scaledFont(PillVariant.standard.iconFont)
                             .symbolRenderingMode(.hierarchical)
                     }
                     Text(count.formatted())
-                        .font(PillVariant.standard.numberFont)
+                        .scaledFont(PillVariant.standard.numberFont)
                         .monospacedDigit()
                     Text(label)
-                        .font(PillVariant.standard.labelFont)
+                        .scaledFont(PillVariant.standard.labelFont)
                     if let detail {
                         // Same divider recipe the pane-header freshness badge used before this
                         // readout moved in here: a 1pt rule at the content colour's dimmed
@@ -82,7 +82,7 @@ struct StatPill: View {
                             .fill((semantic?.content ?? color).opacity(AccentLabel.dimmedOnFillOpacity))
                             .frame(width: 1, height: 11)
                         Text(detail)
-                            .font(PillVariant.standard.labelFont)
+                            .scaledFont(PillVariant.standard.labelFont)
                             .monospacedDigit()
                             // One line always: this rides in a header row whose height is pinned,
                             // and a wrapping capsule would push the pill past it.
@@ -90,7 +90,7 @@ struct StatPill: View {
                     }
                     if let trailingSystemImage {
                         Image(systemName: trailingSystemImage)
-                            .font(.system(size: 9, weight: .semibold))
+                            .scaledFont(.system(size: 9, weight: .semibold))
                             // A secondary run on an accent fill must dim with `dimmedOnFillOpacity`,
                             // never a local literal — the old 0.75 was one of the ad-hoc values that
                             // rule exists to stamp out (it drops white-on-Graphite under the 3:1

@@ -27,15 +27,15 @@ public enum PillVariant: Equatable, Sendable {
     public var hasStroke: Bool { self == .standard }
 
     /// Font for a leading SF Symbol.
-    public var iconFont: Font {
+    public var iconFont: ScaledFont {
         self == .standard ? .system(size: 11, weight: .bold) : .system(size: 10, weight: .semibold)
     }
     /// Font for the number in a count pill (pair with `.monospacedDigit()`).
-    public var numberFont: Font {
+    public var numberFont: ScaledFont {
         self == .standard ? .system(size: 12, weight: .semibold) : .system(size: 10, weight: .semibold)
     }
     /// Font for the word(s) after the number, or a mini's whole text.
-    public var labelFont: Font {
+    public var labelFont: ScaledFont {
         self == .standard ? .system(size: 11) : .system(size: 10, weight: .semibold)
     }
 }
@@ -104,13 +104,13 @@ public struct Pill: View {
         HStack(spacing: Self.contentSpacing) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(variant.iconFont)
+                    .scaledFont(variant.iconFont)
                     .symbolRenderingMode(.hierarchical)
             }
             textView
             if let label {
                 Text(label)
-                    .font(variant.labelFont)
+                    .scaledFont(variant.labelFont)
             }
         }
         .foregroundStyle(tint)
@@ -118,8 +118,12 @@ public struct Pill: View {
         .fixedSize()
     }
 
-    private var textView: Text {
-        let styled = Text(text).font(isNumeric ? variant.numberFont : variant.labelFont)
-        return isNumeric ? styled.monospacedDigit() : styled
+    /// The monospaced-digit treatment moved from the `Text` onto the *font* when pill fonts
+    /// became scalable: `scaledFont(_:)` has to resolve against the environment, so it returns
+    /// a view rather than a `Text`, and `Text.monospacedDigit()` is no longer reachable after it.
+    /// `ScaledFont.monospacedDigit()` is the same rendering applied one step earlier.
+    private var textView: some View {
+        let font = isNumeric ? variant.numberFont : variant.labelFont
+        return Text(text).scaledFont(isNumeric ? font.monospacedDigit() : font)
     }
 }

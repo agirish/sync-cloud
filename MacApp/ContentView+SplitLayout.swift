@@ -203,10 +203,10 @@ extension ContentView {
         } label: {
             VStack(spacing: 10) {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
+                    .scaledFont(.system(size: 10, weight: .bold))
                     .foregroundStyle(.secondary)
                 Image(systemName: "cloud")
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(.system(size: 14, weight: .semibold))
                     .foregroundStyle(glassHue.accentColor)
                 Spacer(minLength: 0)
             }
@@ -309,7 +309,7 @@ struct SeamPaneControls: View {
                 // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2). There is no
                 // `link.slash` in SF Symbols, so off/on is carried by the fill, not a second glyph.
                 Image(systemName: PaneGlyph.linkBothPanes)
-                    .font(.system(size: 11, weight: .bold))
+                    .scaledFont(.system(size: 11, weight: .bold))
                     .foregroundStyle(linkBothPanes ? hue.onAccentLabelColor : hue.accentColor)
                     .frame(width: Self.half, height: Self.half)
             }
@@ -364,7 +364,7 @@ struct SwapPanesGlyph: View {
 
     var body: some View {
         Image(systemName: "arrow.left.arrow.right")
-            .font(.system(size: 11, weight: .bold))
+            .scaledFont(.system(size: 11, weight: .bold))
             .foregroundStyle(accent)
             .rotationEffect(.degrees(flipped ? 180 : 0))
             .animation(.easeInOut(duration: 0.16), value: flipped)

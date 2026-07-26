@@ -80,15 +80,15 @@ public struct EmptyStateView: View {
     public var body: some View {
         VStack(spacing: isCompact ? 8 : 12) {
             Image(systemName: icon)
-                .font(.system(size: isCompact ? 28 : 40))
+                .scaledFont(.system(size: isCompact ? 28 : 40))
                 .foregroundStyle(tint)
                 .symbolRenderingMode(.hierarchical)
             Text(title)
-                .font(.system(size: isCompact ? 13 : 15, weight: .semibold))
+                .scaledFont(.system(size: isCompact ? 13 : 15, weight: .semibold))
                 .multilineTextAlignment(.center)
             if let message {
                 Text(message)
-                    .font(.callout)
+                    .scaledFont(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)
@@ -98,7 +98,7 @@ public struct EmptyStateView: View {
                 // and centers (fine for prose, unreadable for a long path), while a path
                 // needs single-line middle truncation with the full value on hover.
                 Text(path)
-                    .font(.caption.monospaced())
+                    .scaledFont(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -107,7 +107,7 @@ public struct EmptyStateView: View {
             }
             if let caption {
                 Text(caption)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 440)

@@ -10,6 +10,8 @@ import Design
 /// relative-path segments) below. Clicking a crumb navigates this pane; ⌥-clicking
 /// navigates both panes to the same relative path.
 public struct PaneHeader: View {
+    /// The app's text size, for the labels that have to stay a `Text` (see `providerCapsule`).
+    @Environment(\.appFontScale) private var appFontScale
     public let title: String
     public let provider: CloudProvider?
     public let rootPath: String
@@ -107,10 +109,10 @@ public struct PaneHeader: View {
                     .layoutPriority(2)
                 } else {
                     Image(systemName: "folder")
-                        .font(.title2)
+                        .scaledFont(.title2)
                         .foregroundStyle(.secondary)
                     Text(title)
-                        .font(.headline)
+                        .scaledFont(.headline)
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
@@ -164,7 +166,10 @@ public struct PaneHeader: View {
                 onManage: onManageProviders
             ) {
                 Text(provider.displayName)
-                    .font(.headline.weight(.semibold))
+                    // `Text.scaledFont(_:scale:)`, not the View modifier: this is a `Menu`
+                    // label, and AppKit renders it itself — a wrapped Text loses both the
+                    // weight and the accent tint below.
+                    .scaledFont(.headline.weight(.semibold), scale: appFontScale)
                     .foregroundStyle(hue.tint)
                     // A long custom provider name must truncate, not wrap the
                     // header taller in a narrow pane. Middle truncation is the intent, but the
@@ -308,7 +313,7 @@ enum PaneNavMetrics {
     }
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
-    static func glyphFont(_ controlSize: ControlSize) -> Font {
+    static func glyphFont(_ controlSize: ControlSize) -> ScaledFont {
         .system(size: controlSize == .mini ? 10 : 12, weight: .medium)
     }
 
@@ -347,7 +352,7 @@ struct PaneNavChrome: ViewModifier {
     func body(content: Content) -> some View {
         let pill = PaneNavMetrics.pill(controlSize)
         return content
-            .font(PaneNavMetrics.glyphFont(controlSize))
+            .scaledFont(PaneNavMetrics.glyphFont(controlSize))
             .foregroundStyle(glyph)
             .frame(width: pill.width, height: pill.height)
             .background(Capsule().fill(fill))

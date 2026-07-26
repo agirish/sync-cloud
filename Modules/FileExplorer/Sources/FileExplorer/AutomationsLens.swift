@@ -242,7 +242,7 @@ public struct AutomationsLens: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text(syncManager.automationDryRunStatus.isEmpty ? "Previewing…" : syncManager.automationDryRunStatus)
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Button("Cancel") { syncManager.cancelAutomationDryRun() }
@@ -301,7 +301,7 @@ public struct AutomationsLens: View {
                 .controlSize(.small)
                 .chromeHover(tint: accent)
             Text("Previewed \((report.root as NSString).lastPathComponent)")
-                .font(.system(size: 13, weight: .semibold))
+                .scaledFont(.system(size: 13, weight: .semibold))
                 .lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
             Button(action: { runPreview(only: nil) }) { Label("Preview again", systemImage: "arrow.clockwise") }
@@ -341,12 +341,12 @@ public struct AutomationsLens: View {
     private func ruleGroupHeader(_ group: RuleGroup) -> some View {
         HStack(spacing: 7) {
             Image(systemName: AutomationsGlyph.lens)
-                .font(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: 11, weight: .semibold))
                 .foregroundStyle(accent)
             Text(group.name.isEmpty ? "Untitled rule" : group.name)
-                .font(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: 11, weight: .semibold))
             Text("\(group.rows.count)")
-                .font(PillVariant.mini.numberFont).monospacedDigit()
+                .scaledFont(PillVariant.mini.numberFont).monospacedDigit()
                 .foregroundStyle(.secondary)
                 .pillSurface(.mini, tint: .secondary)
             Spacer(minLength: 0)
@@ -358,7 +358,7 @@ public struct AutomationsLens: View {
         HStack(spacing: 8) {
             Image(systemName: "eye.circle.fill").foregroundStyle(accent)
             Text("A preview — nothing has moved yet. “File …” walks you through the matches.")
-                .font(.system(size: 11, weight: .medium))
+                .scaledFont(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
@@ -382,25 +382,25 @@ public struct AutomationsLens: View {
         let isCollision: Bool = { if case .needsAttention = row.verdict { return true } else { return false } }()
         VStack(spacing: 16) {
             Text("File \(filing.displayPosition) of \(filing.queue.count)")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .scaledFont(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
             VStack(spacing: 10) {
                 Image(nsImage: FileIconCache.icon(name: row.fileName, isDirectory: false))
                     .resizable().frame(width: 44, height: 44)
                 Text(row.fileName)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(.system(size: 14, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 HStack(spacing: 5) {
-                    Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
-                    Image(systemName: "folder.fill").font(.system(size: 11)).foregroundStyle(accent)
+                    Image(systemName: "arrow.right").scaledFont(.system(size: 10, weight: .bold)).foregroundStyle(.tertiary)
+                    Image(systemName: "folder.fill").scaledFont(.system(size: 11)).foregroundStyle(accent)
                     Text(row.destinationLabel ?? "its destination")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .scaledFont(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(accent)
                         .lineLimit(1).truncationMode(.middle)
                 }
                 if isCollision {
                     Text("A file with this name is already there — it’ll be kept as a copy.")
-                        .font(.system(size: 11)).foregroundStyle(SemanticColor.warning)
+                        .scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.warning)
                         .multilineTextAlignment(.center)
                 }
                 // Inspection before deciding: Quick Look the file or see it in Finder — the same
@@ -444,7 +444,7 @@ public struct AutomationsLens: View {
                 .controlSize(.small)
                 .padding(.top, 2)
             Text("Filing moves real files into \(provider). The whole run undoes with ⌘Z.")
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -546,7 +546,7 @@ private struct AutomationRuleCard: View {
     private var nameRow: some View {
         HStack(spacing: 6) {
             Text(rule.name.isEmpty ? "Untitled rule" : rule.name)
-                .font(.system(size: 14, weight: .semibold))
+                .scaledFont(.system(size: 14, weight: .semibold))
                 .foregroundStyle(rule.enabled ? .primary : .secondary)
             if !rule.isRunnable {
                 Pill(.mini, tint: SemanticColor.warning, text: "incomplete")
@@ -559,12 +559,12 @@ private struct AutomationRuleCard: View {
     private var conditionRow: some View {
         if completeConditions.isEmpty {
             Text("No conditions yet — this rule won’t match anything.")
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+                .scaledFont(.system(size: 11)).foregroundStyle(.tertiary)
         } else {
             FlowLayout(spacing: 5, lineSpacing: 5) {
                 if completeConditions.count > 1 {
                     Text(rule.matchMode == .all ? "ALL" : "ANY")
-                        .font(.system(size: 9, weight: .bold)).kerning(0.4)
+                        .scaledFont(.system(size: 9, weight: .bold)).kerning(0.4)
                         .foregroundStyle(accent)
                         .padding(.horizontal, 6).padding(.vertical, 3)
                         .background(Capsule().fill(accent.opacity(0.14)))
@@ -604,8 +604,8 @@ struct ConditionChip: View {
     let text: String
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).font(.system(size: 10, weight: .semibold))
-            Text(text).font(.system(size: 11, weight: .medium))
+            Image(systemName: icon).scaledFont(.system(size: 10, weight: .semibold))
+            Text(text).scaledFont(.system(size: 11, weight: .medium))
                 .lineLimit(1).truncationMode(.tail)
         }
         .frame(maxWidth: 320, alignment: .leading)
@@ -623,10 +623,10 @@ private struct DestinationPill: View {
     let accent: Color
     var body: some View {
         HStack(spacing: 4) {
-            Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold))
-            Image(systemName: "folder.fill").font(.system(size: 9))
+            Image(systemName: "arrow.right").scaledFont(.system(size: 9, weight: .bold))
+            Image(systemName: "folder.fill").scaledFont(.system(size: 9))
             Text(template.isEmpty ? "set a destination" : template)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .scaledFont(.system(size: 11, weight: .medium, design: .monospaced))
                 .lineLimit(1).truncationMode(.middle)
         }
         .foregroundStyle(template.isEmpty ? Color.secondary : accent)
@@ -655,7 +655,7 @@ private struct AutomationDryRunRowView: View {
                 .resizable().frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 3) {
                 Text(row.fileName)
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(.system(size: 12, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 detail
             }
@@ -684,15 +684,15 @@ private struct AutomationDryRunRowView: View {
         switch row.verdict {
         case .wouldFile(let destination):
             HStack(spacing: 5) {
-                Image(systemName: "arrow.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+                Image(systemName: "arrow.right").scaledFont(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
                 Text(destination)
-                    .font(.system(size: 11, design: .monospaced))
+                    .scaledFont(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.middle)
             }
         case .needsAttention(let reason):
             Text(reason)
-                .font(.system(size: 11))
+                .scaledFont(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         case .alreadyThere:
@@ -701,7 +701,7 @@ private struct AutomationDryRunRowView: View {
             // in both densities — without them the row loses what would happen / what's wrong.
             if densityMetrics.showsSecondaryDetail {
                 Text("already in its destination")
-                    .font(.system(size: 11))
+                    .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
         }

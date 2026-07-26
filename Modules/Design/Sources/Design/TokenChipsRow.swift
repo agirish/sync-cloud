@@ -51,7 +51,7 @@ public struct TokenChipsRow: View {
         let tint = item.isActive ? tint : Color.secondary
         return HStack(spacing: 4) {
             Text(item.label)
-                .font(.caption.monospaced())
+                .scaledFont(.caption.monospaced())
                 .strikethrough(!item.isActive)
             Button {
                 onRemove(item.word)
@@ -59,7 +59,7 @@ public struct TokenChipsRow: View {
                 // The glyph stays 8 pt but the tappable area is padded well past it (then pulled
                 // back with negative padding so the chip's visual size is unchanged) — an 8 pt
                 // hit target is a misclick magnet.
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                Image(systemName: "xmark").scaledFont(.system(size: 8, weight: .bold))
                     .padding(6)
                     .contentShape(Rectangle())
             }

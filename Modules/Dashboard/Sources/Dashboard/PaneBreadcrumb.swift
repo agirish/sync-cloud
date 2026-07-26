@@ -94,7 +94,7 @@ struct PaneBreadcrumb: View {
             )
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .scaledFont(.caption)
     }
 
     /// `tint` carries the provider hue for the root crumb only (UX H2); path crumbs pass nil

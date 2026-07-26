@@ -757,13 +757,13 @@ struct FileRowView: View {
             // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
             // have a pixel-identical sibling that is actually a different item.
             Text(NameDisplay.visibleName(node.name))
-                .font(.system(.body, design: .rounded))
+                .scaledFont(.system(.body, design: .rounded))
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
             if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -772,7 +772,7 @@ struct FileRowView: View {
                 // A dataless placeholder: on the cloud, not on this Mac. A generic cloud (not the
                 // iCloud glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
                 Image(systemName: "cloud")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                     .help("Cloud-only — content isn't downloaded to this Mac")
                     .accessibilityLabel("Cloud-only, not downloaded")
@@ -781,13 +781,13 @@ struct FileRowView: View {
                 // Shape encodes direction/kind so status is readable without color
                 // (colors match the Differences table in the Differences pane).
                 Image(systemName: DifferenceGlyph.symbol(for: diffStatus, filled: false))
-                    .font(.subheadline)
+                    .scaledFont(.subheadline)
                     .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
                     .help(Self.badgeHelp(for: diffStatus))
                     .accessibilityLabel(Self.badgeHelp(for: diffStatus))
             } else if containedDiffCount > 0 {
                 Text("\(containedDiffCount)")
-                    .font(.caption2.weight(.semibold))
+                    .scaledFont(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)

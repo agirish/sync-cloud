@@ -14,7 +14,7 @@ public struct CloseButton: View {
     public var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .font(.system(size: 11, weight: .semibold))
+                .scaledFont(.system(size: 11, weight: .semibold))
                 .hoverInk()
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())

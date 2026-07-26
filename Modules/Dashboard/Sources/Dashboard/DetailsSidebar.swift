@@ -277,7 +277,7 @@ public struct DetailsSidebar: View {
 
                         VStack(alignment: .leading, spacing: 12) {
                             Text(summary.title)
-                                .font(.title2)
+                                .scaledFont(.title2)
                                 .fontWeight(.semibold)
                                 .padding(.top, 10)
 
@@ -308,7 +308,7 @@ public struct DetailsSidebar: View {
                         VStack(alignment: .leading, spacing: 12) {
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 Text(data.name)
-                                    .font(.title2)
+                                    .scaledFont(.title2)
                                     .fontWeight(.semibold)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -316,7 +316,7 @@ public struct DetailsSidebar: View {
                                 // not an item the user chose.
                                 if isShowingFocusedFolderFallback {
                                     Text("— focused folder")
-                                        .font(.caption)
+                                        .scaledFont(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize()
                                 }

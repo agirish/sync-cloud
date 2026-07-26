@@ -393,7 +393,7 @@ public struct HoverChevron: View {
 
     public var body: some View {
         Image(systemName: "chevron.right")
-            .font(.caption)
+            .scaledFont(.caption)
             .foregroundStyle(phase.isEngaged ? AnyShapeStyle(tint) : AnyShapeStyle(.tertiary))
             .offset(x: (phase.isEngaged && !reduceMotion) ? 2 : 0)
             // Matched to the style's own asymmetric timing so the chevron and the wash behind it

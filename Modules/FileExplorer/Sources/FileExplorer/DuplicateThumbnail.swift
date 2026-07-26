@@ -97,7 +97,7 @@ struct DuplicateThumbnailView: View {
             .overlay(alignment: .bottomTrailing) {
                 if isKeeper {
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 15))
+                        .scaledFont(.system(size: 15))
                         .foregroundStyle(SemanticColor.success)
                         // Adaptive knockout disc: hard-coded white glowed in dark mode.
                         .background(Circle().fill(Color(nsColor: .windowBackgroundColor)).padding(2))
@@ -110,7 +110,7 @@ struct DuplicateThumbnailView: View {
             .zIndex(isHovering ? 1 : 0)
 
             Text(isKeeper ? "keeper" : "duplicate")
-                .font(.system(size: 10, design: .monospaced))
+                .scaledFont(.system(size: 10, design: .monospaced))
                 .foregroundStyle(isKeeper ? AnyShapeStyle(SemanticColor.success) : AnyShapeStyle(.tertiary))
         }
         .onHover { hovering in

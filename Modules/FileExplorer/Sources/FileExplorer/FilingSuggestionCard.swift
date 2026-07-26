@@ -39,7 +39,7 @@ struct FilingSuggestionCard: View {
                     .padding(.top, 1)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(suggestion.fileName)
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(.system(size: 14, weight: .semibold))
                         .lineLimit(1).truncationMode(.middle)
                     // The source and "why" lines are the secondary detail compact hides (D4); the
                     // destination row and the actions still carry what happens and where.
@@ -80,19 +80,19 @@ struct FilingSuggestionCard: View {
     private var sourceRow: some View {
         let parent = ((suggestion.filePath as NSString).deletingLastPathComponent as NSString).lastPathComponent
         return Text("from \(parent) · \(FileSyncManager.formatBytes(suggestion.size))")
-            .font(.system(size: 11, design: .monospaced))
+            .scaledFont(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
     }
 
     private func destinationRow(_ dest: FilingDestination) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "arrow.turn.down.right")
-                .font(.system(size: 10, weight: .semibold))
+                .scaledFont(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
             breadcrumb(dest)
             if let peek = destinationPeekLabel(dest) {
                 Text("· \(peek)")
-                    .font(.system(size: 11, design: .monospaced))
+                    .scaledFont(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .help("Files already in the destination folder")
@@ -130,24 +130,24 @@ struct FilingSuggestionCard: View {
         let newStart = max(0, shown.count - dest.newSegments.count)
         return HStack(spacing: 4) {
             if truncated {
-                Text("…").font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
+                Text("…").scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
             }
             ForEach(Array(shown.enumerated()), id: \.offset) { i, comp in
                 if i > 0 || truncated {
-                    Text("›").font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
+                    Text("›").scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
                 }
                 let isNew = dest.isNew && i >= newStart
                 let isLeaf = i == shown.count - 1
                 HStack(spacing: 3) {
                     Text(comp)
-                        .font(.system(size: 12, weight: isLeaf ? .semibold : .regular, design: .monospaced))
+                        .scaledFont(.system(size: 12, weight: isLeaf ? .semibold : .regular, design: .monospaced))
                         .foregroundStyle(isNew ? hueAccent : (isLeaf ? Color.primary : Color.secondary))
                     if isNew {
                         // Deliberately NOT a full Pill.mini: its 10pt text and H8/V2 padding
                         // balloon an 8pt tag inline in a five-crumb breadcrumb. Only the wash
                         // opacity is unified with the shared pill recipe.
                         Text("NEW")
-                            .font(.system(size: 8, weight: .bold))
+                            .scaledFont(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Capsule().fill(hueAccent.opacity(PillVariant.fillOpacity)))
                             .foregroundStyle(hueAccent)
@@ -233,22 +233,22 @@ struct FilingSuggestionCard: View {
             // Content-derived (F2): the deciding word was read from the file, not its name — the
             // stronger, less-obvious signal. Highlight it so it reads distinctly from a name match.
             HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Image(systemName: "doc.text.magnifyingglass").font(.system(size: 11)).foregroundStyle(SemanticColor.success)
-                Text("Matched").font(.system(size: 12)).foregroundStyle(.secondary)
+                Image(systemName: "doc.text.magnifyingglass").scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.success)
+                Text("Matched").scaledFont(.system(size: 12)).foregroundStyle(.secondary)
                 Text(token)
-                    .font(.system(size: 11, weight: .semibold))
+                    .scaledFont(.system(size: 11, weight: .semibold))
                     .padding(.horizontal, 5).padding(.vertical, 1)
                     .background(Capsule(style: .continuous).fill(SemanticColor.success.opacity(0.14)))
                     .foregroundStyle(SemanticColor.success)
-                Text(evidenceTail(dest)).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(evidenceTail(dest)).scaledFont(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(rationale(dest) ?? "Matched \(token) \(evidenceTail(dest))")
         } else if let reason = dest.reasons.first {
             HStack(alignment: .top, spacing: 6) {
-                Image(systemName: "info.circle").font(.system(size: 11)).foregroundStyle(SemanticColor.info)
-                Text(reason).font(.system(size: 12)).foregroundStyle(.secondary)
+                Image(systemName: "info.circle").scaledFont(.system(size: 11)).foregroundStyle(SemanticColor.info)
+                Text(reason).scaledFont(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

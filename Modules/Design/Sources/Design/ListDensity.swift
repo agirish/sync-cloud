@@ -80,6 +80,23 @@ public struct ListDensityMetrics: Equatable, Sendable {
     public let logListSpacing: CGFloat
 }
 
+public extension ListDensity {
+    /// A pinned table row height adjusted for the app's text size.
+    ///
+    /// Only compact ever passes a non-nil `base`. Comfortable pins nothing, and a SwiftUI
+    /// `Table` left on `usesAutomaticRowHeights` measures its cells and grows on its own
+    /// (verified: rows went 24pt → 28pt when the cell font went 11pt → 17pt). Compact turns that
+    /// off to pin 20pt, so without this the larger text sizes would simply be clipped.
+    ///
+    /// The scale is clamped to `max(1, …)` — grow only, never shrink. This is a *text size*
+    /// setting, not a second density control: packing rows tighter is what compact already does,
+    /// and shrinking the pinned height further risks clipping the row content that is not text
+    /// (the icons keep their own size).
+    static func tableRowHeight(_ base: CGFloat?, fontScale: CGFloat) -> CGFloat? {
+        base.map { $0 * max(1, fontScale) }
+    }
+}
+
 public extension View {
     /// Applies a density to a `Table`/`List` subtree. Comfortable restores the default look;
     /// compact tightens the rows.
@@ -100,8 +117,22 @@ public extension View {
     /// leaves the value untouched when there is no override, so comfortable stays
     /// pixel-identical to the pre-density look.
     func listDensity(_ density: ListDensity) -> some View {
-        let minRowHeight = density.metrics.tableMinRowHeight
-        return self
+        modifier(ListDensityModifier(density: density))
+    }
+}
+
+/// Carries `listDensity(_:)`'s body so it can read the ambient `appFontScale`.
+///
+/// A `ViewModifier` (not a `@ViewBuilder` branch) keeps the structure stable across both density
+/// AND text-size changes, which the applier's restore path depends on — see `listDensity(_:)`.
+private struct ListDensityModifier: ViewModifier {
+    @Environment(\.appFontScale) private var fontScale
+    let density: ListDensity
+
+    func body(content: Content) -> some View {
+        let minRowHeight = ListDensity.tableRowHeight(density.metrics.tableMinRowHeight,
+                                                      fontScale: fontScale)
+        return content
             .transformEnvironment(\.defaultMinListRowHeight) { value in
                 if let minRowHeight { value = minRowHeight }
             }

@@ -472,7 +472,7 @@ public struct LogViewer: View {
             // Toolbar Area
             HStack {
                 Text("Activity Log")
-                    .font(.headline)
+                    .scaledFont(.headline)
                 Spacer()
 
                 // Copy covers EVERYTHING on screen — session rows AND any revealed "Earlier
@@ -644,7 +644,7 @@ public struct LogViewer: View {
         if !suggestions.isEmpty {
             HStack(spacing: 6) {
                 Text("Add filter")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
                 ForEach(suggestions, id: \.raw) { suggestion in
@@ -655,7 +655,7 @@ public struct LogViewer: View {
                         searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
                     } label: {
                         Text(suggestion.label)
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(.quaternary.opacity(0.6)))
@@ -711,7 +711,7 @@ public struct LogViewer: View {
                         ? AnyShapeStyle(onAccent.opacity(AccentLabel.dimmedOnFillOpacity))
                         : AnyShapeStyle(.secondary))
             }
-            .font(.caption.weight(.medium))
+            .scaledFont(.caption.weight(.medium))
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .foregroundStyle(selected ? AnyShapeStyle(onAccent) : AnyShapeStyle(.primary))
@@ -800,7 +800,7 @@ public struct LogViewer: View {
         HStack(spacing: 8) {
             VStack { Divider().opacity(0.5) }
             Text("Earlier sessions")
-                .font(.caption2.weight(.semibold))
+                .scaledFont(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
                 .fixedSize()
             VStack { Divider().opacity(0.5) }
@@ -834,7 +834,7 @@ public struct LogViewer: View {
         HStack {
             Spacer()
             Text(text)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
         }
@@ -908,7 +908,7 @@ struct LogEntryRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: entry.level.icon)
-                .font(.caption)
+                .scaledFont(.caption)
                 .foregroundStyle(entry.level.semanticColor)
                 .frame(width: 18)
                 .padding(.top, 2)
@@ -945,7 +945,7 @@ struct LogEntryRow: View {
                     // and in Copy.
                     if densityMetrics.showsSecondaryDetail, let location = entry.messageLocation {
                         Text(location)
-                            .font(.caption2.monospaced())
+                            .scaledFont(.caption2.monospaced())
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
                     }
@@ -962,13 +962,13 @@ struct LogEntryRow: View {
 
     private var timeText: some View {
         Text(timeString(from: entry.timestamp))
-            .font(.caption2)
+            .scaledFont(.caption2)
             .foregroundStyle(.secondary)
     }
 
     private var messageText: some View {
         Text(entry.messageBody)
-            .font(.system(.subheadline, design: .monospaced))
+            .scaledFont(.system(.subheadline, design: .monospaced))
             .textSelection(.enabled)
     }
     
@@ -994,7 +994,7 @@ private struct LogDayHeader: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(.caption2.weight(.semibold))
+            .scaledFont(.caption2.weight(.semibold))
             .textCase(.uppercase)
             .kerning(0.4)
             .foregroundStyle(.secondary)
@@ -1024,22 +1024,22 @@ private struct LogOperationGroupRow: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.bold))
+                        .scaledFont(.caption2.weight(.bold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(expanded ? 90 : 0))
                         .frame(width: 12)
                     Image(systemName: group.icon)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(group.level.semanticColor)
                         .frame(width: 18)
                     Text(group.title)
-                        .font(.subheadline.weight(.semibold))
+                        .scaledFont(.subheadline.weight(.semibold))
                     // The folded run's entry count — Design's neutral mini pill, not a
                     // hand-rolled capsule, so the badge matches every other count badge.
                     Pill(.mini, tint: .secondary, text: group.count.formatted(), isNumeric: true)
                     Spacer(minLength: 8)
                     Text(Self.timeString(group.timestamp))
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
                 .contentShape(Rectangle())

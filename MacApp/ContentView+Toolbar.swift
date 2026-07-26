@@ -69,7 +69,7 @@ extension ContentView {
             // right next to the ✓ summary the two circular glyphs read as one confusing pair.
             Label(SelectionSummary.text(for: selectionNodes), systemImage: "checkmark.circle.fill")
                 .labelStyle(.titleAndIcon)
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(.system(size: 12, weight: .semibold))
                 .foregroundStyle(accent)
                 .fixedSize()
                 .padding(.trailing, 4)
@@ -104,7 +104,7 @@ extension ContentView {
                 clearSelection(isLeft: isLeft)
             } label: {
                 Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 14))
+                    .scaledFont(.system(size: 14))
                     .hoverInk()
                     .padding(.leading, 4)
             }
@@ -171,7 +171,7 @@ extension ContentView {
                     selection.wrappedValue = tab
                 } label: {
                     Text(tab.title)
-                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                        .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
                         .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 4)

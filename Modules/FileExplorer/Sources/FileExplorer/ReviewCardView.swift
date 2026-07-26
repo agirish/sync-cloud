@@ -152,7 +152,7 @@ struct ReviewCardView: View {
             }
             Spacer(minLength: 12)
             Text("\(model.directionText) · \(model.directionDetail)")
-                .font(.caption.weight(.medium))
+                .scaledFont(.caption.weight(.medium))
                 .foregroundStyle(accent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -179,7 +179,7 @@ struct ReviewCardView: View {
                 if let deltaText = model.deltaText {
                     let tint: Color = model.sourceIsOlder ? SemanticColor.warning : SemanticColor.success
                     Text(deltaText)
-                        .font(.caption.weight(.semibold))
+                        .scaledFont(.caption.weight(.semibold))
                         .foregroundStyle(tint)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 3)
@@ -187,7 +187,7 @@ struct ReviewCardView: View {
                 }
             }
         }
-        .font(.callout)
+        .scaledFont(.callout)
     }
 
     /// One inline fact run: "Copying: **2.4 MB** · Jul 8, 6:12 PM" (mockup style). The date
@@ -216,7 +216,7 @@ struct ReviewCardView: View {
             Image(systemName: systemImage)
             Text(text)
         }
-        .font(.caption)
+        .scaledFont(.caption)
         .foregroundStyle(tint)
     }
 
@@ -290,7 +290,7 @@ struct ReviewCardView: View {
 
     private func keyCap(_ symbol: String) -> some View {
         Text(symbol)
-            .font(.caption2.monospaced())
+            .scaledFont(.caption2.monospaced())
             .foregroundStyle(.secondary)
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
@@ -306,13 +306,13 @@ struct ReviewCardView: View {
 
     private func hintVerb(_ text: String) -> some View {
         Text(text)
-            .font(.caption2)
+            .scaledFont(.caption2)
             .foregroundStyle(.tertiary)
     }
 
     private func hintDot() -> some View {
         Text("·")
-            .font(.caption2)
+            .scaledFont(.caption2)
             .foregroundStyle(.quaternary)
     }
 

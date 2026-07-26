@@ -143,7 +143,7 @@ struct FolderJumpMenu: View {
             content
         } label: {
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
+                .scaledFont(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.tertiary)
         }
         .menuStyle(.borderlessButton)

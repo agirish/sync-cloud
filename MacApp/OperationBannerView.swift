@@ -42,10 +42,10 @@ struct OperationBannerView: View {
         VStack(spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: OperationBannerStyle.iconName(for: banner.severity))
-                    .font(.title3)
+                    .scaledFont(.title3)
                     .foregroundStyle(tint)
                 Text(banner.message)
-                    .font(.subheadline.weight(.medium))
+                    .scaledFont(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)
 
@@ -55,7 +55,7 @@ struct OperationBannerView: View {
                             Image(systemName: "arrow.uturn.backward")
                             Text("Undo")
                         }
-                        .font(.subheadline.weight(.semibold))
+                        .scaledFont(.subheadline.weight(.semibold))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .contentShape(Rectangle())

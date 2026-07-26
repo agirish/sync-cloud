@@ -477,7 +477,7 @@ struct HelpView: View {
             Image(systemName: "lifepreserver")
                 .foregroundStyle(.secondary)
             Text("SyncCloud Help")
-                .font(.headline)
+                .scaledFont(.headline)
             Spacer()
             CloseButton(action: onClose)
                 .keyboardShortcut(.cancelAction)
@@ -510,7 +510,7 @@ struct HelpView: View {
                     ForEach(results, id: \.title) { section in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(section.title)
-                                .font(.caption2.weight(.semibold))
+                                .scaledFont(.caption2.weight(.semibold))
                                 .textCase(.uppercase)
                                 .kerning(0.4)
                                 .foregroundStyle(.tertiary)
@@ -531,7 +531,7 @@ struct HelpView: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.callout)
+                .scaledFont(.callout)
             TextField("Search Help", text: $query)
                 .textFieldStyle(.plain)
             if !query.isEmpty {
@@ -572,7 +572,7 @@ struct HelpView: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .font(.callout)
+            .scaledFont(.callout)
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .contentShape(Rectangle())
@@ -625,15 +625,15 @@ struct HelpArticleView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let sectionTitle {
                     Text(sectionTitle)
-                        .font(.caption2.weight(.semibold))
+                        .scaledFont(.caption2.weight(.semibold))
                         .textCase(.uppercase)
                         .kerning(0.4)
                         .foregroundStyle(Color.accentColor)
                 }
                 Text(topic.title)
-                    .font(.title2.weight(.semibold))
+                    .scaledFont(.title2.weight(.semibold))
                 Text(topic.article.intro)
-                    .font(.callout)
+                    .scaledFont(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -653,7 +653,7 @@ struct HelpArticleView: View {
         switch block {
         case .paragraph(let text):
             Text(text)
-                .font(.callout)
+                .scaledFont(.callout)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .bullets(let items):
@@ -661,11 +661,11 @@ struct HelpArticleView: View {
                 ForEach(items, id: \.self) { item in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: "circle.fill")
-                            .font(.system(size: 4))
+                            .scaledFont(.system(size: 4))
                             .foregroundStyle(.tertiary)
                             .padding(.top, 5)
                         Text(item)
-                            .font(.callout)
+                            .scaledFont(.callout)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -676,7 +676,7 @@ struct HelpArticleView: View {
                 Image(systemName: "lightbulb")
                     .foregroundStyle(Color.accentColor)
                 Text(text)
-                    .font(.callout)
+                    .scaledFont(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(12)
@@ -689,15 +689,15 @@ struct HelpArticleView: View {
                     if index > 0 { Divider() }
                     HStack(spacing: 10) {
                         Image(systemName: item.systemImage)
-                            .font(.system(size: 12, weight: .semibold))
+                            .scaledFont(.system(size: 12, weight: .semibold))
                             .foregroundStyle(item.mood.color)
                             .frame(width: 22, height: 22)
                             .background(item.mood.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                         HStack(spacing: 6) {
                             Text(item.title)
-                                .font(.callout.weight(.medium))
+                                .scaledFont(.callout.weight(.medium))
                             Text("— \(item.detail)")
-                                .font(.callout)
+                                .scaledFont(.callout)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -717,7 +717,7 @@ struct HelpArticleView: View {
     private var relatedChips: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Related")
-                .font(.caption2.weight(.semibold))
+                .scaledFont(.caption2.weight(.semibold))
                 .textCase(.uppercase)
                 .kerning(0.4)
                 .foregroundStyle(.tertiary)
@@ -744,9 +744,9 @@ private struct FlexibleChips: View {
                         HStack(spacing: 4) {
                             Text(topic.title)
                             Image(systemName: "arrow.right")
-                                .font(.caption2)
+                                .scaledFont(.caption2)
                         }
-                        .font(.callout)
+                        .scaledFont(.callout)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 5)

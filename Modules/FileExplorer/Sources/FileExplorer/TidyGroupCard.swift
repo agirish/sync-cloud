@@ -54,16 +54,16 @@ struct TidyGroupCard: View {
                 typeBadge
                 fileIcon
                 Text(group.name)
-                    .font(.system(size: 14, weight: .semibold))
+                    .scaledFont(.system(size: 14, weight: .semibold))
                     .lineLimit(1).truncationMode(.middle)
                 Text(subtitle)
-                    .font(.system(size: 11, design: .monospaced))
+                    .scaledFont(.system(size: 11, design: .monospaced))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 reclaimText
                 Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(.system(size: 12, weight: .semibold))
                     .hoverInk(rest: .tertiary)
             }
             .padding(.horizontal, 14)
@@ -76,10 +76,10 @@ struct TidyGroupCard: View {
     private var typeBadge: some View {
         HStack(spacing: 6) {
             Image(systemName: TidyMatchStyle.symbol(group.matchType))
-                .font(.system(size: 11, weight: .bold))
+                .scaledFont(.system(size: 11, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
             Text(TidyMatchStyle.label(group.matchType))
-                .font(.system(size: 11, weight: .bold))
+                .scaledFont(.system(size: 11, weight: .bold))
         }
         .foregroundStyle(accent)
         .pillSurface(.mini, tint: accent)
@@ -111,17 +111,17 @@ struct TidyGroupCard: View {
             // Overlap can't be one-click reclaimed yet (merge deferred) — report it as shared, not
             // as an actionable "reclaim", so the figure doesn't promise a button that isn't there.
             Text("~\(FileSyncManager.formatBytes(group.reclaimableBytes)) shared")
-                .font(.system(size: 12, design: .monospaced))
+                .scaledFont(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize()
         } else if group.reclaimableBytes > 0 {
             Text("reclaim \(FileSyncManager.formatBytes(group.reclaimableBytes))")
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(SemanticColor.success)
                 .fixedSize()
         } else {
             Text("nothing to reclaim")
-                .font(.system(size: 12, design: .monospaced))
+                .scaledFont(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .fixedSize()
         }
@@ -191,11 +191,11 @@ struct TidyGroupCard: View {
                 .frame(width: 54, height: 54 * 1.2)
                 .overlay(
                     Text("+\(count)")
-                        .font(.system(size: 14, weight: .semibold))
+                        .scaledFont(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.secondary)
                 )
             Text("more")
-                .font(.system(size: 10, design: .monospaced))
+                .scaledFont(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -209,7 +209,7 @@ struct TidyGroupCard: View {
                 // fate chip and breadcrumb still carry what happens to the copy and where it is.
                 if densityMetrics.showsSecondaryDetail {
                     Text(metaLine(copy))
-                        .font(.system(size: 11, design: .monospaced))
+                        .scaledFont(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -229,7 +229,7 @@ struct TidyGroupCard: View {
                                       isKeeper: copy.isRecommendedKeeper) {
         case .keeper:
             Image(systemName: "largecircle.fill.circle")
-                .font(.system(size: 15))
+                .scaledFont(.system(size: 15))
                 .foregroundStyle(SemanticColor.success)
                 .padding(.top, 1)
                 .accessibilityLabel(TidyKeeperMarker.keeper.accessibilityLabel ?? "")
@@ -292,10 +292,10 @@ struct TidyGroupCard: View {
         if let text = noteText {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 12))
+                    .scaledFont(.system(size: 12))
                     .foregroundStyle(SemanticColor.info)
                 Text(text)
-                    .font(.system(size: 12))
+                    .scaledFont(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -425,17 +425,17 @@ struct TidyGroupCard: View {
         return HStack(spacing: 5) {
             ForEach(Array(comps.enumerated()), id: \.offset) { idx, comp in
                 if idx > 0 {
-                    Text("›").font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
+                    Text("›").scaledFont(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
                 }
                 if idx == comps.count - 1 {
                     Text(comp)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.primary)
                         .padding(.horizontal, 5).padding(.vertical, 1)
                         .background(RoundedRectangle(cornerRadius: 5).fill(hueAccent.opacity(0.14)))
                 } else {
                     Text(comp)
-                        .font(.system(size: 12, design: .monospaced))
+                        .scaledFont(.system(size: 12, design: .monospaced))
                         .foregroundStyle(idx == 0 && providerName != nil ? hueAccent : .secondary)
                 }
             }
@@ -546,7 +546,7 @@ private struct SelectableKeeperRadio: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "circle")
-                .font(.system(size: 15))
+                .scaledFont(.system(size: 15))
                 .foregroundStyle(isHovering ? accent : Color.secondary)
                 .background(
                     Circle()

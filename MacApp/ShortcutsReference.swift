@@ -62,14 +62,14 @@ struct ShortcutsReferenceView: View {
                 ForEach(ShortcutsReference.groups, id: \.title) { group in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(group.title)
-                            .font(.headline)
+                            .scaledFont(.headline)
                         ForEach(group.items, id: \.action) { item in
                             HStack(alignment: .firstTextBaseline) {
                                 Text(item.keys)
-                                    .font(.system(.callout, design: .monospaced).weight(.medium))
+                                    .scaledFont(.system(.callout, design: .monospaced).weight(.medium))
                                     .frame(width: 190, alignment: .leading)
                                 Text(item.action)
-                                    .font(.callout)
+                                    .scaledFont(.callout)
                                     .foregroundStyle(.secondary)
                             }
                         }

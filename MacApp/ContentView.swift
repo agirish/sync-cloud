@@ -1262,9 +1262,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle")
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text("Info").font(.system(size: 12, weight: .semibold))
+                Text("Info").scaledFont(.system(size: 12, weight: .semibold))
                 Spacer(minLength: 0)
                 CloseButton {
                     withAnimation(.easeInOut(duration: 0.15)) { showInspector = false }
@@ -1645,7 +1645,7 @@ struct ContentView: View {
                             ProgressView()
                                 .controlSize(.large)
                             Text("Scanning \(paneNames.left) and \(paneNames.right)…")
-                                .font(.system(size: 13, weight: .medium))
+                                .scaledFont(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
                     } else if syncManager.hasScanned {

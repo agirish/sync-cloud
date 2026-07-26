@@ -225,7 +225,7 @@ public struct DifferencesView: View {
             // would scale the text up too). Result: same pill height AND same text size.
             .buttonBorderShape(.capsule)
             .controlSize(.large)
-            .font(.body)
+            .scaledFont(.body)
             .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
 
             // Table card: review card / progress (during ops) sits above the differences table.
@@ -462,7 +462,7 @@ public struct DifferencesView: View {
                 isCollapsed.wrappedValue.toggle()
             } label: {
                 Image(systemName: isCollapsed.wrappedValue ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .semibold))
+                    .scaledFont(.system(size: 12, weight: .semibold))
                     .hoverInk()
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
@@ -616,7 +616,7 @@ public struct DifferencesView: View {
     private var itemCountsReadout: some View {
         if syncManager.hasScanned, showItemCounts {
             Text("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
-                .font(.caption)
+                .scaledFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -676,7 +676,7 @@ public struct DifferencesView: View {
                     Text(name).lineLimit(1).truncationMode(.middle)
                     // The system indicator is hidden below so the glyph-only form stays a circle;
                     // the full form draws its own, matching the count pill's trailing chevron.
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                    Image(systemName: "chevron.down").scaledFont(.system(size: 9, weight: .semibold))
                 }
             } else {
                 Image(systemName: "line.3.horizontal.decrease.circle")
@@ -877,7 +877,7 @@ public struct DifferencesView: View {
                 .fill(glassHue.accentColor)
                 .frame(width: 7, height: 7)
             Text("Reviewing \(session.position) of \(session.total)")
-                .font(PillVariant.standard.numberFont)
+                .scaledFont(PillVariant.standard.numberFont)
                 .monospacedDigit()
                 .foregroundStyle(glassHue.accentColor)
         }
@@ -888,7 +888,7 @@ public struct DifferencesView: View {
         Spacer()
         if session.copiedCount + session.skippedCount > 0 {
             Text("\(session.copiedCount) \(session.isMove ? "moved" : "copied") · \(session.skippedCount) skipped")
-                .font(.caption)
+                .scaledFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -1262,7 +1262,7 @@ public struct DifferencesView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("\(verb) \(completed) of \(total)...")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let activeProgress = syncManager.activeProgress, activeProgress.isCancellable {
@@ -1274,7 +1274,7 @@ public struct DifferencesView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor))
-                    .font(.caption)
+                    .scaledFont(.caption)
                 }
             }
             ProgressView(value: Double(completed), total: Double(total))
@@ -1304,7 +1304,7 @@ public struct DifferencesView: View {
             trailing: {
                 if selectedFilter != .all || !searchText.isEmpty {
                     Text("\(filteredCount) of \(syncManager.differences.count)")
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
@@ -1352,7 +1352,7 @@ public struct DifferencesView: View {
         if !suggestions.isEmpty {
             HStack(spacing: 6) {
                 Text("Add filter")
-                    .font(.caption2)
+                    .scaledFont(.caption2)
                     .foregroundStyle(.tertiary)
                     .fixedSize()
                 ForEach(suggestions, id: \.raw) { suggestion in
@@ -1363,7 +1363,7 @@ public struct DifferencesView: View {
                         searchText = base.isEmpty ? suggestion.raw : base + " " + suggestion.raw
                     } label: {
                         Text(suggestion.label)
-                            .font(.caption2)
+                            .scaledFont(.caption2)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(.quaternary.opacity(0.6)))
@@ -1656,7 +1656,7 @@ struct DifferenceSectionHeader: View {
             // the padding below is load-bearing, not spacing.
             Button(action: onToggleCollapse) {
                 Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .scaledFont(.system(size: 9, weight: .semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 12, height: 12)
                     .padding(2)
@@ -1666,21 +1666,21 @@ struct DifferenceSectionHeader: View {
             .accessibilityLabel(isCollapsed ? "Expand \(folder)" : "Collapse \(folder)")
 
             Image(systemName: "folder.fill")
-                .font(.system(size: 10))
+                .scaledFont(.system(size: 10))
                 .foregroundStyle(accent)
             Text(folder)
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .truncationMode(.middle)
             Text(count.formatted())
-                .font(.system(size: 11))
+                .scaledFont(.system(size: 11))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
 
             if isCollapsed, !directionSummary.isEmpty {
                 Spacer(minLength: 12)
                 Text(directionSummary)
-                    .font(.system(size: 11))
+                    .scaledFont(.system(size: 11))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -1821,7 +1821,7 @@ private struct ReviewStatusCell: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .font(.caption.weight(.medium))
+        .scaledFont(.caption.weight(.medium))
     }
 }
 
@@ -1842,12 +1842,12 @@ private struct DifferenceDirectionCell: View {
         let isQuiet = difference.action == bulkDirection && !isHovered
         HStack(spacing: 4) {
             Image(systemName: toRight ? "arrow.right" : "arrow.left")
-                .font(PillVariant.mini.iconFont)
+                .scaledFont(PillVariant.mini.iconFont)
             Text(toRight ? paneNames.right : paneNames.left)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .font(PillVariant.mini.labelFont)
+        .scaledFont(PillVariant.mini.labelFont)
         .foregroundStyle(isQuiet ? AnyShapeStyle(.tertiary) : AnyShapeStyle(tint))
         .pillSurface(.mini, tint: tint, showsFill: !isQuiet)
         .onHover { isHovered = $0 }

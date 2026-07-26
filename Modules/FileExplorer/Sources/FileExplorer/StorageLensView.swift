@@ -101,7 +101,7 @@ struct StorageLensView: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text(syncManager.storageLensStatus.isEmpty ? "Analyzing…" : syncManager.storageLensStatus)
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Button("Cancel") { syncManager.cancelBuildStorageLens() }
@@ -171,26 +171,26 @@ struct StorageLensView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: section.icon)
-                        .font(.system(size: 13, weight: .semibold))
+                        .scaledFont(.system(size: 13, weight: .semibold))
                         .foregroundStyle(section.tint)
                         .symbolRenderingMode(.hierarchical)
                         .frame(width: 18)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(section.title)
-                            .font(.system(size: 13, weight: .semibold))
+                            .scaledFont(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.primary)
                         Text(section.subtitle)
-                            .font(.system(size: 11))
+                            .scaledFont(.system(size: 11))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                     Text(entries.count.formatted())
-                        .font(.system(size: 11, weight: .semibold))
+                        .scaledFont(.system(size: 11, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
+                        .scaledFont(.system(size: 11, weight: .semibold))
                         .hoverInk()
                 }
             }
@@ -201,7 +201,7 @@ struct StorageLensView: View {
                     // Under a live query the section's own empty text would lie — "Nothing here"
                     // claims the scan found none, when the query is what hid them.
                     Text(query.isEmpty ? section.emptyText : "No files here match your search.")
-                        .font(.system(size: 12))
+                        .scaledFont(.system(size: 12))
                         .foregroundStyle(.tertiary)
                         .padding(.leading, 26)
                         .padding(.vertical, 2)
@@ -227,13 +227,13 @@ struct StorageLensView: View {
     private func sectionHeaderLabel(icon: String, tint: Color, title: String, subtitle: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .semibold))
+                .scaledFont(.system(size: 13, weight: .semibold))
                 .foregroundStyle(tint)
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.system(size: 13, weight: .semibold))
-                Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(title).scaledFont(.system(size: 13, weight: .semibold))
+                Text(subtitle).scaledFont(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -328,12 +328,12 @@ private struct StorageEntryRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "doc.fill")
-                .font(.system(size: 16))
+                .scaledFont(.system(size: 16))
                 .foregroundStyle(.secondary)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
-                    .font(.system(size: 12, weight: .medium))
+                    .scaledFont(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 // The folder + age line is the secondary detail compact hides (D4); the name and
@@ -348,13 +348,13 @@ private struct StorageEntryRow: View {
                                 .lineLimit(1)
                         }
                     }
-                    .font(.system(size: 11))
+                    .scaledFont(.system(size: 11))
                     .foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 8)
             Text(FileSyncManager.formatBytes(entry.bytes))
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(.system(size: 12, weight: .semibold))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
             if let onPreview {

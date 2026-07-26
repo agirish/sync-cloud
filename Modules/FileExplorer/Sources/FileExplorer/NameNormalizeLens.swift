@@ -75,7 +75,7 @@ struct RenameLens: View {
         VStack(spacing: 14) {
             ProgressView().controlSize(.large)
             Text(syncManager.nameScanStatus.isEmpty ? "Scanning…" : syncManager.nameScanStatus)
-                .font(.system(size: 13, weight: .medium))
+                .scaledFont(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             Button("Cancel") { syncManager.cancelNameScan() }
@@ -180,7 +180,7 @@ private struct RiskyNameCard: View {
         let parent = (risky.relativePath as NSString).deletingLastPathComponent
         let kind = risky.isDirectory ? "folder" : "file"
         return Text(parent.isEmpty ? "\(kind) at the scan root" : "\(kind) in \(parent)")
-            .font(.system(size: 11, design: .monospaced))
+            .scaledFont(.system(size: 11, design: .monospaced))
             .foregroundStyle(.tertiary)
             .lineLimit(1).truncationMode(.middle)
     }
@@ -190,10 +190,10 @@ private struct RiskyNameCard: View {
             InvisibleMarkedName(name: risky.currentName)
                 .foregroundStyle(.primary)
             Image(systemName: "arrow.right")
-                .font(.system(size: 10, weight: .bold))
+                .scaledFont(.system(size: 10, weight: .bold))
                 .foregroundStyle(.tertiary)
             Text(risky.sanitizedName)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .scaledFont(.system(size: 12, weight: .semibold, design: .monospaced))
                 .foregroundStyle(SemanticColor.success)
                 .lineLimit(1).truncationMode(.middle)
         }
@@ -201,7 +201,7 @@ private struct RiskyNameCard: View {
 
     private var reasonRow: some View {
         Text(risky.reason)
-            .font(.system(size: 11))
+            .scaledFont(.system(size: 11))
             .foregroundStyle(.secondary)
             .lineLimit(2)
     }
@@ -246,7 +246,7 @@ private struct InvisibleMarkedName: View {
                 if cell.isMarker { marker(cell.glyph) } else { Text(cell.glyph) }
             }
         }
-        .font(.system(size: 12, weight: .medium, design: .monospaced))
+        .scaledFont(.system(size: 12, weight: .medium, design: .monospaced))
         .lineLimit(1)
     }
 

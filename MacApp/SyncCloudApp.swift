@@ -230,6 +230,7 @@ struct SyncCloudApp: App {
                 )
                     .environmentObject(Logger.shared)
                     .environmentObject(settings)
+                    .appFontSizeFromSettings()
             }
         }
         .windowStyle(.hiddenTitleBar)
@@ -297,6 +298,7 @@ struct SyncCloudApp: App {
 
         Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
             ShortcutsReferenceView()
+                .appFontSizeFromSettings()
         }
         .windowResizability(.contentSize)
 
@@ -306,6 +308,7 @@ struct SyncCloudApp: App {
             } else {
                 LogViewer()
                     .environmentObject(Logger.shared)
+                    .appFontSizeFromSettings()
             }
         }
         // Same chrome as the main window (and therefore as the Settings overlay that floats in
@@ -337,6 +340,7 @@ struct SyncCloudApp: App {
                     }
                 )
                 .environmentObject(Logger.shared)
+                .appFontSizeFromSettings()
             }
         }
         .windowResizability(.contentMinSize)
