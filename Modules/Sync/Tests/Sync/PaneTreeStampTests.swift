@@ -80,4 +80,47 @@ import Events
         let b = PaneTree(side: .left, version: 3, nodes: [node("b"), node("c")])
         #expect(a == b)
     }
+
+    // MARK: - RowNode
+
+    /// `RowNode` equality is (side, version, path). Same reasoning as `PaneTree`: a path
+    /// identifies one node per published tree, and changing that node's contents requires a
+    /// republish, which moves the stamp. These pin the two directions that matter.
+    @Test func testRowNodeDiffersWhenTheTreeWasRepublished() {
+        let m = FileSyncManager()
+        m.leftTree = [node("a")]
+        let before = m.leftPaneTree.row(node("a"))
+        m.leftTree = [node("a"), node("b")]          // any republish moves the stamp
+        let after = m.leftPaneTree.row(node("a"))
+        #expect(before != after)
+    }
+
+    /// Different paths within the SAME publish are never conflated — the case that would make a
+    /// row render its neighbour's contents.
+    @Test func testRowNodeDistinguishesPathsWithinOnePublish() {
+        let m = FileSyncManager()
+        m.leftTree = [node("a"), node("b")]
+        let t = m.leftPaneTree
+        #expect(t.row(node("a")) != t.row(node("b")))
+        #expect(t.row(node("a")) == t.row(node("a")))
+    }
+
+    /// A folder node's `children` are deliberately NOT compared — that is the entire point, since
+    /// recursing them is what cost 2,162 ms of main thread per refresh. Safe because differing
+    /// children cannot coexist with an unchanged stamp on a real published tree.
+    @Test func testRowNodeIgnoresChildren() {
+        let m = FileSyncManager()
+        m.leftTree = []
+        let t = m.leftPaneTree
+        let thin = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x")])
+        let fat  = FileNode(id: "/r/d", name: "d", isDirectory: true, children: [node("x"), node("y")])
+        #expect(t.row(thin) == t.row(fat))
+    }
+
+    /// Opposite panes never conflate, mirroring the `PaneTree` case.
+    @Test func testRowNodeSameVersionOppositeSidesDiffer() {
+        let l = RowNode(side: .left, version: 4, node: node("a"))
+        let r = RowNode(side: .right, version: 4, node: node("a"))
+        #expect(l != r)
+    }
 }

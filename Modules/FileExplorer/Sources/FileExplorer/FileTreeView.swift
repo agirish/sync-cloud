@@ -334,7 +334,7 @@ public struct FileTreeView: View {
     @ViewBuilder
     private func treeRow(for node: FileNode) -> some View {
         FileRowView(
-            node: node,
+            row: tree.row(node),
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
@@ -343,7 +343,7 @@ public struct FileTreeView: View {
         .tag(node.id)
         .contextMenu {
             FileContextMenu(
-                node: node,
+                row: tree.row(node),
                 selection: selection,
                 tree: tree,
                 otherTree: otherTree,
@@ -549,7 +549,12 @@ private struct PaneDropTarget: ViewModifier {
 /// Dynamically generated context menu for file operations bounding the selected node and the overarching selection
 /// Adapts its available buttons depending on whether a single file, a batch of files, or a folder was right-clicked.
 struct FileContextMenu: View {
-    let node: FileNode
+    /// Stamped for the same reason as `FileRowView.row` — a menu is built per row, so a bare
+    /// folder `FileNode` put its entire subtree into every row's comparison. Unlike the row, this
+    /// view does need the real node (the delegate handlers take `FileNode`), which is why it is
+    /// boxed rather than flattened.
+    let row: RowNode
+    private var node: FileNode { row.node }
     let selection: Set<String>
     /// Boxed for the same reason as `FileTreeView.tree`: a menu is built per row, so a bare
     /// `[FileNode]` here put a full ~40,000-node deep compare into every row's body output.
@@ -715,7 +720,13 @@ struct FileContextMenu: View {
 /// Renders a single row representing a file or directory node with its associated system icon,
 /// plus a trailing sync-status badge when the node (or, for folders, anything beneath it) differs.
 struct FileRowView: View {
-    let node: FileNode
+    /// The row's node, tagged with its tree's publish stamp. Stored as a `RowNode` rather than a
+    /// bare `FileNode` because a FOLDER node carries its whole subtree in `children`, and the
+    /// derived `FileNode.==` would recurse through all of it every time SwiftUI compared this
+    /// row's body output. This view only ever reads id/name/isDirectory/date/size — never
+    /// `children` — so nothing here needs the deep value.
+    let row: RowNode
+    private var node: FileNode { row.node }
     let isIgnored: Bool
     /// Diff status of the node itself, or nil when it is in sync.
     let diffStatus: FileDifference.DifferenceType?

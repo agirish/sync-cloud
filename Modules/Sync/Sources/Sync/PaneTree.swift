@@ -59,3 +59,45 @@ public struct PaneTree: Equatable, Sendable {
         lhs.side == rhs.side && lhs.version == rhs.version
     }
 }
+
+/// One node of a published pane tree, tagged with the same stamp — `PaneTree`'s per-row sibling.
+///
+/// `PaneTree` stopped SwiftUI deep-comparing the *whole* tree, but the row and menu views still
+/// stored a bare `FileNode`, and a **directory** node carries its entire subtree in `children`.
+/// A pane shows many folder rows, each view holding one, so the recursive compare came straight
+/// back per row: a `sample` after the `PaneTree` fix still put **2,162 ms** of main-thread time in
+/// `FileNode`-equality subtrees, spread over many ~167 ms entry points — one per row-ish view.
+///
+/// Equality is `(side, version, id)`. That is exact for the same reason `PaneTree`'s is: within
+/// one published tree a path identifies exactly one node with fixed contents, and any change to
+/// those contents requires a republish, which advances the stamp. So equal stamp + equal path ⇒
+/// equal node, without looking at `children`.
+///
+/// Build these from the pane's `PaneTree` (`PaneTree.row(_:)`) so the stamp always matches the
+/// tree the node actually came from.
+public struct RowNode: Equatable, Sendable {
+    public let side: PaneTree.Side
+    /// The publish stamp of the tree this node was taken from. See `PaneTree.version`.
+    public let version: Int
+    public let node: FileNode
+
+    public init(side: PaneTree.Side, version: Int, node: FileNode) {
+        self.side = side
+        self.version = version
+        self.node = node
+    }
+
+    /// Deliberately ignores everything but the node's path: see the note above.
+    public static func == (lhs: RowNode, rhs: RowNode) -> Bool {
+        lhs.side == rhs.side && lhs.version == rhs.version && lhs.node.id == rhs.node.id
+    }
+}
+
+extension PaneTree {
+    /// Tags one of this tree's nodes with this tree's stamp. Using the tree's own `side`/`version`
+    /// is what makes `RowNode`'s identity-only equality exact — a node stamped with a tree it did
+    /// not come from could compare equal to a different node at the same path.
+    public func row(_ node: FileNode) -> RowNode {
+        RowNode(side: side, version: version, node: node)
+    }
+}
