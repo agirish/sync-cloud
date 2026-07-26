@@ -129,6 +129,25 @@ import Sync
         }
     }
 
+    /// The grouped differences table's section header, at the two ends of the range: a short
+    /// folder name and a long one that must middle-truncate rather than push the count off the row.
+    /// Counts only by design — see `DifferenceSectionHeader`.
+    @Test func differenceSectionHeaders() {
+        assertViewSnapshot(
+            of: VStack(alignment: .leading, spacing: 10) {
+                DifferenceSectionHeader(folder: "Immigration", count: 6,
+                                        accent: LiquidGlassHue.green.accentColor)
+                DifferenceSectionHeader(folder: "Top level", count: 1,
+                                        accent: LiquidGlassHue.green.accentColor)
+                DifferenceSectionHeader(folder: "Quarterly Board Reporting And Archive",
+                                        count: 1284, accent: LiquidGlassHue.green.accentColor)
+                    .frame(width: 220, alignment: .leading)
+            }
+            .padding(12),
+            size: CGSize(width: 260, height: 96),
+            named: "section-headers")
+    }
+
     // MARK: Treemap
 
     /// Five tiles wide enough (≥ 68 pt) to show name + size labels. The palette assigns

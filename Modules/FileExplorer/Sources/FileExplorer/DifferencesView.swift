@@ -20,6 +20,13 @@ public struct DifferencesView: View {
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(ListDensity.defaultsKey) private var listDensityRaw: String = ListDensity.comfortable.rawValue
     @State private var selectedFilter: DifferenceFilter = .all
+    /// Whether the table breaks its rows into top-level folder sections. Persisted, and ON by
+    /// default: a flat list of five hundred differences has no landmarks, and the single-section
+    /// fall-back (`DifferenceGrouping.isWorthGrouping`) means a small comparison is never given a
+    /// lone header it gains nothing from. Turning it off restores the flat table — which is what
+    /// you want when sorting by Size across the whole comparison, since grouping means the largest
+    /// file is no longer the top row.
+    @AppStorage("differencesGroupByFolder") private var groupByFolder: Bool = true
     /// Toggles the per-side item totals beside the count pill — clicking the pill reveals them,
     /// clicking again collapses. Off by default so the header stays uncluttered until asked.
     @State private var showItemCounts = false
@@ -623,6 +630,11 @@ public struct DifferencesView: View {
             }
             .pickerStyle(.inline)
             .labelsHidden()
+
+            Divider()
+            // Grouping lives in the filter menu rather than earning chrome of its own: it is a
+            // scope decision like the filter above it, and the header has no width to spare.
+            Toggle("Group by folder", isOn: $groupByFolder)
         } label: {
             if compaction < .glyphFilter {
                 // Uncapped provider names can be long; truncate instead of forcing the
@@ -936,13 +948,45 @@ public struct DifferencesView: View {
         // majority is read over the whole visible list, not the selection.
         let bulkDirection = DifferencesQuery.bulkCopyDirection(sorted)
         let compact = listDensity == .compact
-        Table(sorted, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
-            TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
-            TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
-                .width(min: 70, ideal: 90)
-            TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
-                .width(min: 96, ideal: 140)
+        // Grouping is computed here, not inside the Table builder, so the "is it worth it?" gate
+        // is answered once per render rather than per row — and so the flat branch below is
+        // reached with no sections built at all when grouping is off.
+        let sections = groupByFolder ? DifferenceGrouping.sections(sorted) : []
+        Group {
+            if DifferenceGrouping.isWorthGrouping(sections) {
+                // The sectioned form. Deliberately a SEPARATE Table rather than one Table whose
+                // rows builder branches: `Table(_:selection:sortOrder:)` (collection) and
+                // `Table(of:selection:sortOrder:columns:rows:)` (row builder) are different
+                // initializers, and the columns have to be spelled out for each. `tableColumns`
+                // cannot be shared either — a @TableColumnBuilder result is generic over its row
+                // type and does not survive being hoisted into a computed property here.
+                Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
+                    TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
+                    TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
+                        .width(min: 70, ideal: 90)
+                    TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
+                        .width(min: 96, ideal: 140)
+                } rows: {
+                    ForEach(sections) { section in
+                        SwiftUI.Section {
+                            ForEach(section.rows) { TableRow($0) }
+                        } header: {
+                            DifferenceSectionHeader(folder: section.folder, count: section.count,
+                                                    accent: glassHue.accentColor)
+                        }
+                    }
+                }
+            } else {
+                Table(sorted, selection: $selection, sortOrder: $sortOrder) {
+                    TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact) }
+                    TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
+                    TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
+                        .width(min: 70, ideal: 90)
+                    TableColumn("Copy to", value: \.copyToSortRank) { DifferenceDirectionCell(difference: $0, paneNames: paneNames, bulkDirection: bulkDirection) }
+                        .width(min: 96, ideal: 140)
+                }
+            }
         }
         // Let the surface fill below show through: hide the scroll background AND the
         // alternating row fills, or the Table paints opaque (white) rows over the surface.
@@ -1457,6 +1501,44 @@ private extension View {
         } else {
             self
         }
+    }
+}
+
+/// A folder section header in the grouped differences table: folder glyph, folder name, row count.
+///
+/// Counts only, deliberately. A section can hold rows going BOTH ways — nine to iCloud and three
+/// to Dropbox is ordinary — and a header has room for roughly one action, so any scoped button
+/// would have to either name just the majority (silently hiding the rest) or grow the header into
+/// a second action bar. The landmarks are the value here; the scoped action can follow once the
+/// grouping has earned its place.
+///
+/// Not a `TableRow`: a `Section` header in a SwiftUI `Table` is an ordinary `View`, which is what
+/// makes a glyph + count possible at all (and would make a button possible later).
+///
+/// Internal rather than private so `FileExplorerSnapshotTests` can pin it — the truncation
+/// behaviour of a long folder name is the kind of thing only a rendered reference catches.
+struct DifferenceSectionHeader: View {
+    let folder: String
+    let count: Int
+    let accent: Color
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "folder.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(accent)
+            Text(folder)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(count.formatted())
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        // One element: VoiceOver reads "Immigration, 6 differences" rather than three fragments.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(folder), \(count.formatted()) difference\(count == 1 ? "" : "s")")
     }
 }
 
