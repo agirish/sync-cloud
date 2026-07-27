@@ -285,8 +285,18 @@ struct SeamPaneControls: View {
     /// The one link preference in the app; `PaneLinkPreference` names its other readers.
     @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
 
-    /// Shared with `SwapPanesGlyph`, which sizes itself to one half.
+    /// Shared with the two glyph views, which size themselves to one half.
     fileprivate static let half: CGFloat = 26
+
+    /// Ink for a seam half that is **not** carrying the linked fill — neutral at rest, accent once
+    /// the pointer is on it. These are `PaneNavChrome.glyph`'s two colours verbatim: the pane-header
+    /// nav pills sit a few points away in the same row, and the seam reading blue while they read
+    /// grey made it the loudest thing on screen for a control that is doing nothing.
+    ///
+    /// Spending the accent only on hover and on *linked* is what leaves it meaning something.
+    fileprivate static func glyphInk(accent: Color, phase: HoverAffordancePhase) -> Color {
+        phase.isEngaged ? accent : .primary.opacity(0.75)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -300,18 +310,15 @@ struct SeamPaneControls: View {
             .help("Swap the left and right panes")
 
             Rectangle()
-                .fill(hue.accentColor.opacity(0.28))
+                .fill(Color.primary.opacity(0.15))
                 .frame(width: Self.half, height: 0.5)
 
             Button {
                 linkBothPanes.toggle()
             } label: {
-                // A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2). There is no
-                // `link.slash` in SF Symbols, so off/on is carried by the fill, not a second glyph.
-                Image(systemName: PaneGlyph.linkBothPanes)
-                    .scaledFont(.system(size: 11, weight: .bold))
-                    .foregroundStyle(linkBothPanes ? hue.onAccentLabelColor : hue.accentColor)
-                    .frame(width: Self.half, height: Self.half)
+                LinkPanesGlyph(accent: hue.accentColor,
+                               onAccent: hue.onAccentLabelColor,
+                               isLinked: linkBothPanes)
             }
             // The hover wash has to show against whatever is under it, and that changes with the
             // state: the accent over material when unlinked, white over the deepened accent fill
@@ -339,11 +346,16 @@ struct SeamPaneControls: View {
                     .frame(height: Self.half)
             }
         }
-        // Material base plus a subtle accent wash over it, so the seam controls read in the app
-        // hue instead of a neutral gray chip. Behind the linked fill, which is the later layer.
+        // Material base plus a NEUTRAL wash — 0.075 is `PaneNavChrome`'s resting pill exactly, so
+        // the seam sits at the same weight as the nav pills either side of it. This used to be an
+        // accent wash under an accent border, which made an idle pill the one saturated object in
+        // the seam; the accent now belongs to hover and to the linked fill below, which are the two
+        // things worth looking at. Behind the linked fill, which is the later layer.
         .background(Capsule().fill(.regularMaterial)
-            .overlay(Capsule().fill(hue.accentColor.opacity(0.14))))
-        .overlay(Capsule().strokeBorder(hue.accentColor.opacity(0.35), lineWidth: 0.75))
+            .overlay(Capsule().fill(Color.primary.opacity(0.075))))
+        // The capsule floats over pane content rather than over chrome, so unlike the nav pills it
+        // still needs an edge to sit against a light file list — just a hairline, not a hue.
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.15), lineWidth: 0.75))
     }
 }
 
@@ -365,9 +377,35 @@ struct SwapPanesGlyph: View {
     var body: some View {
         Image(systemName: "arrow.left.arrow.right")
             .scaledFont(.system(size: 11, weight: .bold))
-            .foregroundStyle(accent)
+            .foregroundStyle(SeamPaneControls.glyphInk(accent: accent, phase: phase))
             .rotationEffect(.degrees(flipped ? 180 : 0))
             .animation(.easeInOut(duration: 0.16), value: flipped)
+            .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
+    }
+}
+
+/// The 🔗 half of `SeamPaneControls`.
+///
+/// A chain, not ⇄ — the ⇄ arrows are reserved for swap-panes (UX 1.2). There is no `link.slash` in
+/// SF Symbols, so off/on is carried by the fill, not a second glyph.
+///
+/// Its own `View` type for the same reason `SwapPanesGlyph` is: the resting ink now depends on the
+/// enclosing button's hover phase, and that only resolves inside the style's body. Written inline in
+/// the parent it would read the *parent's* environment and never leave `.rest`.
+struct LinkPanesGlyph: View {
+    let accent: Color
+    let onAccent: Color
+    let isLinked: Bool
+
+    @Environment(\.hoverAffordancePhase) private var phase
+
+    var body: some View {
+        Image(systemName: PaneGlyph.linkBothPanes)
+            .scaledFont(.system(size: 11, weight: .bold))
+            // Linked keeps both of its colours — white on the deepened accent fill underneath. That
+            // pairing is the whole "on" signal now that nothing else in the pill is accented.
+            .foregroundStyle(isLinked ? onAccent
+                                      : SeamPaneControls.glyphInk(accent: accent, phase: phase))
             .frame(width: SeamPaneControls.half, height: SeamPaneControls.half)
     }
 }
