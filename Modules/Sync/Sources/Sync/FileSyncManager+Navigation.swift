@@ -143,16 +143,23 @@ extension FileSyncManager {
     ///
     /// `mirror` is decided by the caller because it depends on the seam link, the ⌥ key and the
     /// layout, none of which belong down here.
+    ///
+    /// `otherIndex` is an autoclosure so an unmirrored click doesn't pay for it. Swift evaluates
+    /// arguments eagerly, so the plain parameter ran the caller's
+    /// `rightChildrenIndex(treeRoot:)` on **every** column click — and that is a cache miss, i.e. a
+    /// full walk of the other pane's ~40k-node tree, whenever that pane is in Tree mode (nothing
+    /// else warms its index there) and its tree has republished since the last click. That is
+    /// main-thread work inside the click handler, spent on a mirror the seam link had switched off.
     @MainActor public func applyColumnNavigation(
         _ path: PaneBrowsePath,
         isLeft: Bool,
         mirror: Bool,
-        otherIndex: PaneChildrenIndex,
+        otherIndex: @autoclosure () -> PaneChildrenIndex,
         otherTreeRoot: String
     ) {
         setBrowsePath(isLeft: isLeft, path)
         guard mirror else { return }
-        setBrowsePath(isLeft: !isLeft, path.pruned(against: otherIndex, treeRoot: otherTreeRoot))
+        setBrowsePath(isLeft: !isLeft, path.pruned(against: otherIndex(), treeRoot: otherTreeRoot))
     }
 
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing

@@ -173,6 +173,10 @@ struct ContentView: View {
     /// known synchronously the instant the selection changes — no gate, no show-then-flip.
     @State private var leftPlacement = PaneBarPlacement()
     @State private var rightPlacement = PaneBarPlacement()
+    /// Orders the deferred cross-pane selection clears, so a clear queued by one pane's click can
+    /// never wipe a selection a later click made in the other pane. See
+    /// `PaneLogic.applySelectionWrite`.
+    @State private var selectionSequencer = PaneSelectionSequencer()
     /// A pure re-render trigger for SCROLL-driven edge flips: `FileTreeView` mutates the placement
     /// (a class, so no invalidation) and calls back to toggle this, which re-renders `paneColumn` so
     /// it re-reads the flipped edge — animated. Selection changes re-render on their own.
@@ -1512,62 +1516,22 @@ struct ContentView: View {
 
     /// Selection binding for one pane that enforces the one-pane-selected invariant: setting a
     /// non-empty selection in one pane clears the other. The clicked pane commits synchronously
-    /// so the click lands on the first try; the OTHER pane's clear is deferred one runloop tick.
+    /// so the click lands on the first try; the OTHER pane's clear is deferred one runloop tick,
+    /// and stands down if a newer click has landed by the time it runs.
     ///
-    /// Clearing the other pane synchronously here (which the previous version did) writes a
-    /// `@Published` the sibling `List` is bound to *while this List is still committing its own
-    /// selection* — SwiftUI re-enters the enclosing view update, the sibling table reloads, and
-    /// AppKit drops the just-clicked row. The symptom was a dead first click on the comparison
-    /// panes: every selection took two clicks to stick. Deferring the sibling's clear to the next
-    /// tick lets this pane's selection settle first, so one click is enough.
-    ///
-    /// The one-tick window where both panes hold a selection is invisible (a single frame) and
-    /// harmless — `PaneLogic.activePane` is left-wins, so at worst the action bar / Info follow
-    /// the correct pane one frame late. Setting an EMPTY selection (a deselect, or SwiftUI
-    /// re-writing an unchanged empty set) still leaves the other pane alone, which is what keeps
-    /// the right-click "Copy from other pane" menu working.
+    /// Both halves of that, and why each is necessary, live in `PaneLogic.applySelectionWrite` —
+    /// where the ORDERING can be tested rather than only the arithmetic.
     private func paneSelectionBinding(isLeft: Bool) -> Binding<Set<String>> {
         Binding(
             get: { isLeft ? syncManager.selectedLeftPaths : syncManager.selectedRightPaths },
             set: { newSelection in
-                let reconciled = PaneLogic.reconciledSelections(
-                    settingSelection: newSelection,
+                PaneLogic.applySelectionWrite(
+                    newSelection,
                     isLeft: isLeft,
-                    currentLeft: syncManager.selectedLeftPaths,
-                    currentRight: syncManager.selectedRightPaths
+                    state: syncManager,
+                    sequencer: selectionSequencer,
+                    schedule: { DispatchQueue.main.async(execute: $0) }
                 )
-                // Commit the clicked pane now — this is the write the List is waiting on.
-                if isLeft {
-                    if syncManager.selectedLeftPaths != reconciled.left {
-                        syncManager.selectedLeftPaths = reconciled.left
-                    }
-                } else {
-                    if syncManager.selectedRightPaths != reconciled.right {
-                        syncManager.selectedRightPaths = reconciled.right
-                    }
-                }
-                // A deselect (empty write) enforces nothing — leave the other pane untouched
-                // (this is what keeps the right-click "Copy from other pane" menu working).
-                guard !newSelection.isEmpty else { return }
-                // Enforce the one-pane-selected invariant by clearing the other pane — but a tick
-                // later, so this pane's selection commits first (a synchronous sibling write here
-                // reloaded that List mid-commit and dropped the click). The clear is idempotent —
-                // it only ever writes the empty set (`reconciled` clears the other side for any
-                // non-empty pick) — so it needs no "is this still the active pane" guard: whatever
-                // the user's latest pick is, the non-clicked pane should end up empty regardless.
-                // Distinct click events land in separate runloop turns with this block draining
-                // between them, so it can't clobber a newer pick from a later click.
-                DispatchQueue.main.async {
-                    if isLeft {
-                        if syncManager.selectedRightPaths != reconciled.right {
-                            syncManager.selectedRightPaths = reconciled.right
-                        }
-                    } else {
-                        if syncManager.selectedLeftPaths != reconciled.left {
-                            syncManager.selectedLeftPaths = reconciled.left
-                        }
-                    }
-                }
             }
         )
     }

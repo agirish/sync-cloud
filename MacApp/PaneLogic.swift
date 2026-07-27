@@ -3,6 +3,42 @@ import FileExplorer
 import Foundation
 import Sync
 
+/// The two panes' selections, as the selection bindings need them. A protocol so
+/// `PaneLogic.applySelectionWrite` — which owns the ordering of a click's two halves — can be
+/// driven over a stub in tests instead of a live `FileSyncManager`.
+@MainActor
+protocol PaneSelectionState: AnyObject {
+    var selectedLeftPaths: Set<String> { get set }
+    var selectedRightPaths: Set<String> { get set }
+}
+
+extension FileSyncManager: PaneSelectionState {}
+
+/// Orders the deferred half of the one-pane-selected invariant.
+///
+/// A pane click clears the *other* pane a runloop turn later (clearing it synchronously reloads
+/// that pane's `List` mid-commit and drops the click). The queued clear writes a blind `[]`, so if
+/// the user clicks the other pane before it drains, it wipes that fresh selection. Each commit
+/// takes a token here; a deferral runs only while its token is still the newest.
+///
+/// A plain counter rather than anything observable: this must not invalidate a view. `&+` so a
+/// long session cannot trap on overflow — only equality is ever asked of it, and a wrapped token
+/// can collide with a live one no sooner than 2^63 clicks.
+@MainActor
+final class PaneSelectionSequencer {
+    private var newest = 0
+
+    /// Records a commit and returns its token.
+    func commit() -> Int {
+        newest &+= 1
+        return newest
+    }
+
+    /// Whether `token` is still the newest commit — i.e. whether the deferral queued alongside it
+    /// still speaks for the pane the user is on.
+    func isNewest(_ token: Int) -> Bool { token == newest }
+}
+
 /// The @AppStorage provider-id writes needed to repoint the Compare panes at target providers,
 /// plus how many of ContentView's id `onChange` handlers those writes will fire.
 ///
@@ -103,6 +139,64 @@ enum PaneLogic {
             return (left: newSelection, right: newSelection.isEmpty ? currentRight : [])
         } else {
             return (left: newSelection.isEmpty ? currentLeft : [], right: newSelection)
+        }
+    }
+
+    /// Applies one pane-selection write, enforcing the one-pane-selected invariant across the two
+    /// halves of a click.
+    ///
+    /// The clicked pane commits **synchronously** — that is the write its `List` is waiting on, and
+    /// clearing the sibling here instead reloads that List mid-commit and drops the click outright
+    /// (the two-clicks-to-select bug, `aa9d407`). The other pane's clear is therefore handed to the
+    /// next runloop turn.
+    ///
+    /// That deferral is only safe **while it is still the newest click**. The queued block writes a
+    /// blind `[]` to the other pane, and it carries no memory of which pane the user is on by the
+    /// time it runs. Click the left pane and then the right one before the first block drains, and
+    /// the left's deferral wipes the selection the right click just made: the row un-highlights, the
+    /// action bar never appears, and the click reads as ignored. `aa9d407` argued the two clicks
+    /// always land in separate runloop turns "with this block draining between them" — true only
+    /// while the main thread keeps up, which it does not once a click also rebuilds a Columns stack
+    /// and mirrors it onto the linked pane.
+    ///
+    /// So every commit takes a token and a deferral stands down unless its token is still the
+    /// newest. Standing down loses nothing: the newer click queued a deferral of its own, and that
+    /// one clears the correct pane.
+    ///
+    /// `schedule` is injected so the ordering — not just the arithmetic — can be tested.
+    @MainActor
+    static func applySelectionWrite(
+        _ newSelection: Set<String>,
+        isLeft: Bool,
+        state: PaneSelectionState,
+        sequencer: PaneSelectionSequencer,
+        schedule: (@escaping () -> Void) -> Void
+    ) {
+        let reconciled = reconciledSelections(
+            settingSelection: newSelection,
+            isLeft: isLeft,
+            currentLeft: state.selectedLeftPaths,
+            currentRight: state.selectedRightPaths
+        )
+        // Commit the clicked pane now — this is the write the List is waiting on.
+        if isLeft {
+            if state.selectedLeftPaths != reconciled.left { state.selectedLeftPaths = reconciled.left }
+        } else {
+            if state.selectedRightPaths != reconciled.right { state.selectedRightPaths = reconciled.right }
+        }
+        // A deselect (empty write) enforces nothing — leave the other pane untouched (this is what
+        // keeps the right-click "Copy from other pane" menu working). It takes no token either: it
+        // queues no deferral, so it has no newer-click race to lose, and letting it bump the counter
+        // would cancel a live deferral without replacing it.
+        guard !newSelection.isEmpty else { return }
+        let token = sequencer.commit()
+        schedule {
+            guard sequencer.isNewest(token) else { return }
+            if isLeft {
+                if state.selectedRightPaths != reconciled.right { state.selectedRightPaths = reconciled.right }
+            } else {
+                if state.selectedLeftPaths != reconciled.left { state.selectedLeftPaths = reconciled.left }
+            }
         }
     }
 

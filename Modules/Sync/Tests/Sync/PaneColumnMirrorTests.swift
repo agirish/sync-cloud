@@ -32,6 +32,27 @@ import Events
         #expect(m.rightBrowsePath.isEmpty, "unlinked, the sibling must not move")
     }
 
+    /// An unmirrored click must not even ASK for the other pane's index. Building it is a full walk
+    /// of that pane's tree — ~40k nodes in the real app — and the call site sits inside the click
+    /// handler, so an eagerly-evaluated argument spent that on the main thread on every column click
+    /// whether or not the seam link wanted a mirror.
+    @Test func testMirrorOffNeverBuildsTheOtherPanesIndex() {
+        let m = FileSyncManager()
+        var built = 0
+        m.applyColumnNavigation(PaneBrowsePath(components: ["Documents"]), isLeft: true,
+                                mirror: false,
+                                otherIndex: { built += 1; return otherIndex() }(),
+                                otherTreeRoot: root)
+        #expect(built == 0, "an unlinked click still paid for the other pane's index")
+
+        // …and it is still built when the mirror genuinely needs it.
+        m.applyColumnNavigation(PaneBrowsePath(components: ["Documents"]), isLeft: true,
+                                mirror: true,
+                                otherIndex: { built += 1; return otherIndex() }(),
+                                otherTreeRoot: root)
+        #expect(built == 1)
+    }
+
     @Test func testMirrorOnCarriesTheOtherPaneToTheSameFolder() {
         let m = FileSyncManager()
         m.applyColumnNavigation(PaneBrowsePath(components: ["Documents", "Invoices"]), isLeft: true,
