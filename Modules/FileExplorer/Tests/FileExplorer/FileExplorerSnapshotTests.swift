@@ -170,7 +170,12 @@ import Sync
             }
             .padding(12)
             .frame(width: 340, alignment: .leading),
-            size: CGSize(width: 364, height: 120),
+            // 152, not the 120 this shipped with. At the old header height the fourth subject —
+            // the long name that must middle-truncate — fell entirely off a 120pt canvas, so the
+            // reference pinned three states while its own comment described four. Shortening the
+            // header brought it half onto the canvas, which is worse than either: a clipped
+            // subject makes the crop boundary itself the assertion. 152 fits all four.
+            size: CGSize(width: 364, height: 152),
             named: "section-headers")
     }
 

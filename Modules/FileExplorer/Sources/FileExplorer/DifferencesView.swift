@@ -1746,12 +1746,25 @@ private extension View {
 struct DifferenceSectionHeader: View {
     /// Vertical padding inside the tap target, above and below the label row.
     ///
-    /// Serves two ends that turned out to be the same one. It is the difference between a hit area
-    /// the height of a line of text and one you can hit without aiming, and — because a collapsed
-    /// table is nothing BUT headers — it is also the air between folders in the collapsed summary.
-    /// `sectionHeaderIsAComfortableClickTarget` pins the laid-out result rather than this constant,
-    /// since what matters is the height the header actually reaches.
-    static let verticalPadding: CGFloat = 7
+    /// It is the difference between a hit area the height of a line of text and one you can hit
+    /// without aiming — and, because a collapsed table is nothing BUT headers, it also sets the
+    /// rhythm of the collapsed summary. `sectionHeaderIsAComfortableClickTarget` pins the laid-out
+    /// result rather than this constant, since what matters is the height the header reaches.
+    ///
+    /// **Was 7, which was too airy for the summary it was partly chosen to serve.** The reason it
+    /// overshot is that this padding is not the only thing setting the row's height: a SwiftUI
+    /// Table adds ~8pt of its own chrome around a hosted section header, so at Comfortable — where
+    /// nothing is pinned and the Table measures its rows — 7pt of padding became a 38pt row around
+    /// 16pt of text, better than half again a 25pt data row. Collapsed, that is the entire view.
+    ///
+    /// 4 lands the Comfortable header at 32pt, still visibly a header and still leaving ~16pt of
+    /// air to separate an expanded section from the rows above it. Measured, not derived; the
+    /// numbers for 3/4/5/6/7 were taken off a mounted table before one was picked.
+    ///
+    /// Compact is unaffected at ANY value here and that was measured too: its rows are pinned at
+    /// 20pt, which clamps the header's content, so its section rows sit at 28pt regardless. This
+    /// constant only moves Comfortable.
+    static let verticalPadding: CGFloat = 4
 
     let folder: String
     let count: Int

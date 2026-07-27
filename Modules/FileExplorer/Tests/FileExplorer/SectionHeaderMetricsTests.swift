@@ -27,10 +27,36 @@ import Testing
 
     /// The bug this exists to stop: the header's tappable region used to be the height of its text
     /// (~16pt) while the table drew a taller section row, so the band above the words looked like
-    /// header and did nothing. 28pt is the floor for something you hit without aiming — comfortably
-    /// under a Table row and comfortably over a line of 12pt text.
+    /// header and did nothing.
+    ///
+    /// The floor was 28pt while the padding was 7; it is 22pt now the padding is 4. That is a
+    /// deliberate loosening to match a deliberate design change, not an accommodation made to turn
+    /// a red test green — the laid-out 24pt it now permits is still taller than a compact data row.
+    ///
+    /// **What it does NOT catch**, despite what this comment used to imply: the padding moving back
+    /// OUTSIDE `contentShape`, which is the precise form the original bug took. `fittingSize` is
+    /// identical either way, so this passes cleanly on that mutation — verified, not assumed. SwiftUI's
+    /// content shape is not reachable from `NSHostingView.hitTest` either (it answers with the hosting
+    /// view at every point, padding band included), so nothing here pins the ORDER of those two
+    /// modifiers. Keep them adjacent in the view and read the comment there.
     @Test func sectionHeaderIsAComfortableClickTarget() {
-        #expect(laidOutHeight(header()) >= 28)
+        #expect(laidOutHeight(header()) >= 22)
+    }
+
+    /// The same guard expressed relative to the text rather than as an absolute floor, so it keeps
+    /// its meaning when the app's Text Size setting scales the label: at a large text size a bare
+    /// 16pt row grows past any fixed floor on its own, and the floor above would pass with the
+    /// padding entirely gone.
+    ///
+    /// The expected gap is written as a literal on purpose. Reading `verticalPadding` here — which
+    /// is what the first version of this test did — puts the constant on both sides of the
+    /// comparison, so setting it to 0 asks only that the header be at least as tall as its own
+    /// text, and the test cannot fail. Restating the number is the point: change the padding and
+    /// this must be changed with it, deliberately.
+    @Test func theHeaderClearsItsOwnTextByBothPaddings() {
+        let bare = laidOutHeight(
+            Text("Immigration").scaledFont(.system(size: 12, weight: .semibold)))
+        #expect(laidOutHeight(header()) >= bare + 8)
     }
 
     /// Every state has to be equally hittable. A collapsed header gains a direction summary and a
