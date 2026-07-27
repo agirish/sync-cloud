@@ -71,6 +71,17 @@ public struct FileTreeView: View {
     /// already re-renders the host, which recomputes the edge synchronously and instantly.
     private let onBarEdgeFlip: (() -> Void)?
 
+    /// How this pane presents its tree. Defaults to `.tree` so every existing caller — most
+    /// importantly the Tidy single-source rail — is unaffected until it opts in; only the two
+    /// comparison panes pass `.columns`.
+    public let viewMode: PaneViewMode
+    /// Path → children for this pane's published tree, used only by the columns presentation.
+    /// Built once per publish by the host; see `PaneChildrenIndex`.
+    public let childrenIndex: PaneChildrenIndex?
+    /// Where the pane is browsing inside its loaded tree. Writing this drills a column; it never
+    /// re-roots, so the comparison scope and every difference badge survive navigation.
+    @Binding public var browsePath: PaneBrowsePath
+
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
     /// draw for free: `PaneListSelectionStyler` turns the system highlight off (to get the accent
@@ -88,7 +99,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath())) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -108,16 +119,11 @@ public struct FileTreeView: View {
         self.placement = placement
         self.onBarEdgeFlip = onBarEdgeFlip
         self.isActivePane = isActivePane
+        self.viewMode = viewMode
+        self.childrenIndex = childrenIndex
+        self._browsePath = browsePath
     }
 
-    /// Preference carrying every visible row's bottom edge (GLOBAL space — see the viewport probe),
-    /// keyed by node id, up to the list. The reduce merges each row's single-entry contribution.
-    private struct RowBottomsKey: PreferenceKey {
-        static let defaultValue: [String: CGFloat] = [:]
-        static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) {
-            value.merge(nextValue()) { existing, _ in existing }
-        }
-    }
     /// The list viewport's global frame (height + window-space top edge).
     private struct ViewportFrameKey: PreferenceKey {
         static let defaultValue: CGRect = .zero
@@ -169,7 +175,7 @@ public struct FileTreeView: View {
 
     public var body: some View {
         ZStack {
-            paneList
+            presentation
 
             switch emptyState {
             case .none:
@@ -252,6 +258,40 @@ public struct FileTreeView: View {
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    /// Tree or columns. Columns needs a children index to resolve each column's rows, so a caller
+    /// that asks for it without supplying one falls back rather than rendering an empty pane.
+    @ViewBuilder
+    private var presentation: some View {
+        if viewMode == .columns, let childrenIndex {
+            PaneColumnsView(
+                tree: tree, otherTree: otherTree, childrenIndex: childrenIndex, treeRoot: currentPath,
+                browsePath: $browsePath, selection: $selection, otherSelection: otherSelection,
+                isLeft: isLeft, delegate: delegate, diffIndex: diffIndex, otherPaneName: otherPaneName,
+                isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
+                placement: placement, onBarEdgeFlip: onBarEdgeFlip,
+                onQuickLook: { quickLookItem = $0 }
+            )
+            .contentSurface(hue: glassHue, tint: surfaceTint)
+            .quickLookPreview($quickLookItem)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: ViewportFrameKey.self, value: geo.frame(in: .global))
+                }
+            )
+            .onPreferenceChange(ViewportFrameKey.self) { frame in
+                placement?.viewportHeight = frame.height
+                placement?.viewportGlobalMinY = frame.minY
+                flipEdgeIfScrolledAcross()
+            }
+            .onPreferenceChange(PaneRowBottomsKey.self) { bottoms in
+                placement?.rowBottoms = bottoms
+                flipEdgeIfScrolledAcross()
+            }
+        } else {
+            paneList
+        }
+    }
+
     /// The pane's List plus its list-level chrome: empty-area context menu, background drop
     /// target (drop into the pane's current folder), and the drop highlight.
     @ViewBuilder
@@ -293,7 +333,7 @@ public struct FileTreeView: View {
             placement?.viewportGlobalMinY = frame.minY
             flipEdgeIfScrolledAcross()
         }
-        .onPreferenceChange(RowBottomsKey.self) { bottoms in
+        .onPreferenceChange(PaneRowBottomsKey.self) { bottoms in
             placement?.rowBottoms = bottoms
             flipEdgeIfScrolledAcross()
         }
@@ -407,7 +447,7 @@ public struct FileTreeView: View {
         if placement != nil {
             GeometryReader { proxy in
                 Color.clear.preference(
-                    key: RowBottomsKey.self,
+                    key: PaneRowBottomsKey.self,
                     value: [node.id: proxy.frame(in: .global).maxY]
                 )
             }
@@ -511,7 +551,7 @@ enum SharedFileMenuItems {
 /// highlight while a valid drop hovers; file rows route the drop to their enclosing folder,
 /// like Finder, and never highlight — a highlight on the file row itself would misread as
 /// dropping "into" the file.
-private struct PaneDropTarget: ViewModifier {
+struct PaneDropTarget: ViewModifier {
     /// Absolute path of the node this row represents.
     let rowPath: String
     let rowIsDirectory: Bool

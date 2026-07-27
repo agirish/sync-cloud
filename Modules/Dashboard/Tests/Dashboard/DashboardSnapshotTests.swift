@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Testing
 import Sync
+import Design
 import Events
 @testable import Dashboard
 
@@ -108,7 +109,33 @@ import Events
 
     // MARK: Fixtures
 
-    private static func header(providerName: String) -> PaneHeader {
+    /// The Columns-era header: the same pane plus the two controls Columns adds — the Tree|Columns
+    /// switch and New Folder — at the 250 pt split clamp with a long provider name.
+    ///
+    /// This is the measurement the whole design rests on. Added inline the two controls cost 255 pt
+    /// in a 222 pt content box, overrunning it before the provider capsule gets a point; the fold
+    /// ladder is what buys them back. Pin that at the floor every control is still reachable and
+    /// the name still reads, rather than trusting the arithmetic.
+    @Test func paneHeaderNarrow250WithColumnsControls() {
+        assertViewSnapshot(
+            of: Self.header(providerName: "Marketing Team Shared Archive Drive",
+                            viewMode: .constant(PaneViewMode.columns), onNewFolder: {}),
+            size: CGSize(width: 250, height: 92),
+            named: "narrow-250-columns")
+    }
+
+    /// The roomy rung: everything inline, including the two-segment switch with Columns selected.
+    @Test func paneHeaderWideWithColumnsControls() {
+        assertViewSnapshot(
+            of: Self.header(providerName: "iCloud Drive",
+                            viewMode: .constant(PaneViewMode.columns), onNewFolder: {}),
+            size: CGSize(width: 660, height: 92),
+            named: "wide-660-columns")
+    }
+
+    private static func header(providerName: String,
+                               viewMode: Binding<PaneViewMode>? = nil,
+                               onNewFolder: (() -> Void)? = nil) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: CloudProvider(
@@ -126,6 +153,8 @@ import Events
             sortOption: .constant(.name),
             onRefresh: {},
             isRefreshing: false,
-            showHiddenFiles: .constant(false))
+            showHiddenFiles: .constant(false),
+            viewMode: viewMode,
+            onNewFolder: onNewFolder)
     }
 }

@@ -191,6 +191,24 @@ struct ContentView: View {
     @State private var leftDiffIndex: DiffStatusIndex = .empty
     @State private var rightDiffIndex: DiffStatusIndex = .empty
 
+    /// Each pane's presentation, stored per side so one can be a deep tree while the other is
+    /// flat. Defaults to Columns — which rests as a single full-pane column, so the pane opens
+    /// exactly as it did before the setting existed.
+    @AppStorage(PaneViewMode.defaultsKey(isLeft: true)) private var leftViewModeRaw = PaneViewMode.default.rawValue
+    @AppStorage(PaneViewMode.defaultsKey(isLeft: false)) private var rightViewModeRaw = PaneViewMode.default.rawValue
+
+    func paneViewMode(isLeft: Bool) -> PaneViewMode {
+        PaneViewMode(rawValue: isLeft ? leftViewModeRaw : rightViewModeRaw) ?? .default
+    }
+
+    /// Binding for the view switch in a pane's nav cluster.
+    func paneViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
+        Binding(
+            get: { paneViewMode(isLeft: isLeft) },
+            set: { if isLeft { leftViewModeRaw = $0.rawValue } else { rightViewModeRaw = $0.rawValue } }
+        )
+    }
+
     /// Everything the tree diff indices are derived from, as one Equatable value
     /// so a single task(id:) covers scan results, navigation, and provider switches.
     private struct DiffIndexInputs: Equatable, Sendable {
@@ -479,6 +497,21 @@ struct ContentView: View {
             }
         }
         .modifier(SettingsEngineMirrors(syncManager: syncManager, settings: settings))
+        // A republish can delete a folder a column stack is standing in — externally, or by the
+        // user's own Delete. Re-resolve each stack against the new tree so it falls back to the
+        // deepest surviving ancestor; without this the columns render nothing while
+        // `currentDirectory` still names the dead folder, which is where New Folder and paste
+        // would then act. `PaneTree` compares by publish stamp, so this fires once per publish.
+        .onChange(of: syncManager.leftPaneTree) { _, _ in
+            syncManager.pruneBrowsePath(isLeft: true,
+                                        against: syncManager.leftChildrenIndex(treeRoot: currentLeftPath),
+                                        treeRoot: currentLeftPath)
+        }
+        .onChange(of: syncManager.rightPaneTree) { _, _ in
+            syncManager.pruneBrowsePath(isLeft: false,
+                                        against: syncManager.rightChildrenIndex(treeRoot: currentRightPath),
+                                        treeRoot: currentRightPath)
+        }
         // Rebuilding the indices walks every difference's ancestor chain — with tens of
         // thousands of differences that froze the main thread after every scan, so the
         // work runs detached and only the results land on main. task(id:) also cancels a
@@ -1129,6 +1162,11 @@ struct ContentView: View {
         let diffIndex: DiffStatusIndex
         let otherPaneName: String?
         let hasOnlyHiddenEntries: Bool
+        /// How this pane presents its tree. Only the comparison panes reach Columns; the Tidy rail
+        /// renders through the same view and deliberately stays on `.tree`.
+        let viewMode: PaneViewMode
+        /// Path → children for the columns presentation, cached per publish by the manager.
+        let childrenIndex: PaneChildrenIndex
     }
 
     private func paneContext(isLeft: Bool) -> PaneContext {
@@ -1137,8 +1175,8 @@ struct ContentView: View {
             title: isLeft ? "Left" : "Right",
             providerId: isLeft ? leftProviderId : rightProviderId,
             relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
-            canGoBack: isLeft ? syncManager.leftHistory.canGoBack : syncManager.rightHistory.canGoBack,
-            canGoForward: isLeft ? syncManager.leftHistory.canGoForward : syncManager.rightHistory.canGoForward,
+            canGoBack: syncManager.canGoBack(isLeft: isLeft),
+            canGoForward: syncManager.canGoForward(isLeft: isLeft),
             tree: isLeft ? syncManager.leftPaneTree : syncManager.rightPaneTree,
             otherTree: isLeft ? syncManager.rightPaneTree : syncManager.leftPaneTree,
             isLoading: isLeft ? syncManager.isLoadingLeftTree : syncManager.isLoadingRightTree,
@@ -1146,7 +1184,13 @@ struct ContentView: View {
             otherSelection: isLeft ? syncManager.selectedRightPaths : syncManager.selectedLeftPaths,
             diffIndex: isLeft ? leftDiffIndex : rightDiffIndex,
             otherPaneName: isLeft ? paneNames.right : paneNames.left,
-            hasOnlyHiddenEntries: isLeft ? syncManager.leftTreeHasOnlyHiddenEntries : syncManager.rightTreeHasOnlyHiddenEntries
+            hasOnlyHiddenEntries: isLeft ? syncManager.leftTreeHasOnlyHiddenEntries : syncManager.rightTreeHasOnlyHiddenEntries,
+            // The Tidy rail shares this builder but never Columns: it has no sibling pane, no seam
+            // link, and re-roots per lens, so none of the Columns navigation rules apply to it.
+            viewMode: layoutMode == .singleSource ? .tree : paneViewMode(isLeft: isLeft),
+            childrenIndex: isLeft
+                ? syncManager.leftChildrenIndex(treeRoot: currentLeftPath)
+                : syncManager.rightChildrenIndex(treeRoot: currentRightPath)
         )
     }
 
@@ -1196,7 +1240,17 @@ struct ContentView: View {
                     : nil,
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanning,
-                showHiddenFiles: $syncManager.showHiddenFiles
+                showHiddenFiles: $syncManager.showHiddenFiles,
+                // The Tidy rail gets no switch: it has no Columns mode to switch to.
+                viewMode: layoutMode == .singleSource ? nil : paneViewModeBinding(isLeft: isLeft),
+                // Targets the pane's current folder, which in Columns is the deepest open column.
+                onNewFolder: {
+                    let target = pane.viewMode == .columns
+                        ? (isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath)
+                            .currentDirectory(treeRoot: pane.currentPath)
+                        : pane.currentPath
+                    actionHandler?.beginCreateFolder(in: target)
+                }
             )
             // Cards gives the provider header its own card, so the chrome reads as a separate
             // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace
@@ -1533,7 +1587,10 @@ struct ContentView: View {
             // Which pane the action bar is acting on — the same predicate that decides where the bar
             // renders, so the strong selection wash and the bar can never point at different panes.
             // The rail has no bar and no sibling, so it is always its own active pane.
-            isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft)
+            isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
+            viewMode: pane.viewMode,
+            childrenIndex: pane.childrenIndex,
+            browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath
         )
     }
 

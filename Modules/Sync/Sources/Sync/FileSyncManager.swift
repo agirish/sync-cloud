@@ -750,6 +750,34 @@ public class FileSyncManager: ObservableObject {
         return PaneTree(side: .left, version: version, nodes: leftTree, rows: rows)
     }
 
+    /// Children indices, rebuilt only when their pane republishes or is re-rooted — same
+    /// invalidate-on-`published*TreeVersion` shape as the row cache above. Without the cache every
+    /// column would rebuild the index per render, which is the whole-tree walk the index exists to
+    /// avoid.
+    private var leftChildrenCache: (version: Int, root: String, index: PaneChildrenIndex)?
+    private var rightChildrenCache: (version: Int, root: String, index: PaneChildrenIndex)?
+
+    /// Path → children for the left pane, for the Columns presentation. `treeRoot` is the pane's
+    /// current absolute path — the folder whose children are the pane's top-level rows.
+    public func leftChildrenIndex(treeRoot: String) -> PaneChildrenIndex {
+        if let cached = leftChildrenCache, cached.version == publishedLeftTreeVersion, cached.root == treeRoot {
+            return cached.index
+        }
+        let index = PaneChildrenIndex(tree: leftPaneTree, treeRoot: treeRoot)
+        leftChildrenCache = (publishedLeftTreeVersion, treeRoot, index)
+        return index
+    }
+
+    /// Right-pane counterpart of `leftChildrenIndex(treeRoot:)`.
+    public func rightChildrenIndex(treeRoot: String) -> PaneChildrenIndex {
+        if let cached = rightChildrenCache, cached.version == publishedRightTreeVersion, cached.root == treeRoot {
+            return cached.index
+        }
+        let index = PaneChildrenIndex(tree: rightPaneTree, treeRoot: treeRoot)
+        rightChildrenCache = (publishedRightTreeVersion, treeRoot, index)
+        return index
+    }
+
     /// Right-pane counterpart of `leftPaneTree`.
     public var rightPaneTree: PaneTree {
         let version = publishedRightTreeVersion

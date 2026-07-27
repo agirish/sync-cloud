@@ -43,6 +43,12 @@ public struct PaneHeader: View {
     /// Whether hidden files are shown. A per-pane control for the (global) setting, so it lives
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
+    /// This pane's presentation. `nil` hides the switch entirely — the Tidy rail has no Columns
+    /// mode, so it gets no control for one.
+    public var viewMode: Binding<PaneViewMode>?
+    /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
+    /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
+    public let onNewFolder: (() -> Void)?
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint. It does read the level back, though — the nav
     // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
@@ -76,7 +82,9 @@ public struct PaneHeader: View {
         onCollapse: (() -> Void)? = nil,
         onRefresh: (() -> Void)? = nil,
         isRefreshing: Bool = false,
-        showHiddenFiles: Binding<Bool>
+        showHiddenFiles: Binding<Bool>,
+        viewMode: Binding<PaneViewMode>? = nil,
+        onNewFolder: (() -> Void)? = nil
     ) {
         self.title = title
         self.provider = provider
@@ -96,6 +104,8 @@ public struct PaneHeader: View {
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
         self._showHiddenFiles = showHiddenFiles
+        self.viewMode = viewMode
+        self.onNewFolder = onNewFolder
     }
 
     public var body: some View {
@@ -211,13 +221,58 @@ public struct PaneHeader: View {
     /// and clickable, nothing is pushed out of view.
     private var navCluster: some View {
         ViewThatFits(in: .horizontal) {
-            navClusterContent(.small)
-            navClusterContent(.mini)
+            navClusterContent(.small, fold: .none)
+            navClusterContent(.mini, fold: .none)
+            navClusterContent(.mini, fold: .viewOptions)
+            navClusterContent(.mini, fold: .all)
         }
     }
 
-    private func navClusterContent(_ controlSize: ControlSize) -> some View {
+    /// How much of the cluster has collapsed into the ⋯ menu at this rung.
+    ///
+    /// The cluster was already at the edge of what a 250pt pane can hold — 159pt of controls in a
+    /// 222pt content box, leaving 51pt for a provider name that is already an ellipsis. Adding a
+    /// view switch and New Folder inline costs 255pt, which overruns the box by 33pt before the
+    /// capsule gets a point. So the extra controls arrive by folding the *rarely-pressed* ones
+    /// away as the pane narrows — sort and hidden-files first, which is where Finder keeps them
+    /// anyway — and at the floor the cluster is back to five pills, exactly today's geometry.
+    ///
+    /// Refresh never folds: it is the pane's scan control, not a view preference.
+    private enum ClusterFold {
+        case none
+        /// Sort and hidden-files move into ⋯.
+        case viewOptions
+        /// The view switch becomes a single menu and New Folder joins ⋯ as well.
+        case all
+    }
+
+    private func navClusterContent(_ controlSize: ControlSize, fold: ClusterFold) -> some View {
         HStack(spacing: 6) {
+            if let viewMode {
+                if fold == .all {
+                    // One pill showing the current mode; the alternatives live in its menu.
+                    Menu {
+                        Picker("View", selection: viewMode) {
+                            ForEach(PaneViewMode.allCases) { mode in
+                                Label(mode.displayName, systemImage: mode.symbol).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.inline)
+                        .labelsHidden()
+                    } label: {
+                        Image(systemName: viewMode.wrappedValue.symbol)
+                            .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                    }
+                    .menuIndicator(.hidden)
+                    .menuStyle(.button)
+                    .buttonStyle(navButtonStyle)
+                    .fixedSize()
+                    .help("Choose how this pane shows its files")
+                } else {
+                    viewModeSwitch(viewMode, controlSize: controlSize)
+                }
+            }
+
             if let onCollapse {
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
@@ -258,8 +313,20 @@ public struct PaneHeader: View {
                 .help("Scan for changes")
             }
 
+            // New Folder. In Columns its target is unambiguous — the deepest open column — which
+            // is why it graduates from the right-click menu to the chrome here.
+            if let onNewFolder, fold != .all {
+                Button(action: onNewFolder) {
+                    Image(systemName: "folder.badge.plus")
+                        .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                }
+                .buttonStyle(navButtonStyle)
+                .help("New folder in this pane's current folder")
+            }
+
             // Sort moved out of the titlebar (its file-action neighbors are now the pane's
             // contextual action bar); it lives per-pane, driving the shared sort order.
+            if fold == .none {
             Menu {
                 Picker("Sort By", selection: $sortOption) {
                     ForEach(SortOption.allCases, id: \.self) { option in
@@ -296,8 +363,87 @@ public struct PaneHeader: View {
             .help(showHiddenFiles
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
+            }
+
+            if fold != .none {
+                viewOptionsMenu(controlSize: controlSize, fold: fold)
+            }
         }
         .controlSize(controlSize)
+    }
+
+    /// Tree | Columns as a two-segment control, built from the same plain buttons as the window's
+    /// tab picker: a `Picker(.segmented)` renders neutral inside macOS 26 glass chrome and ignores
+    /// `.tint`, so the selected segment could never carry the app accent.
+    private func viewModeSwitch(_ mode: Binding<PaneViewMode>, controlSize: ControlSize) -> some View {
+        let pill = PaneNavMetrics.pill(controlSize)
+        return HStack(spacing: 3) {
+            ForEach(PaneViewMode.allCases) { candidate in
+                let isSelected = mode.wrappedValue == candidate
+                Button {
+                    mode.wrappedValue = candidate
+                } label: {
+                    Image(systemName: candidate.symbol)
+                        .scaledFont(PaneNavMetrics.glyphFont(controlSize))
+                        .foregroundStyle(isSelected
+                                         ? AnyShapeStyle(glassHue.onAccentLabelColor)
+                                         : AnyShapeStyle(Color.primary.opacity(0.75)))
+                        .frame(width: pill.width - 4, height: pill.height)
+                        .background(isSelected ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
+                                    in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: glassHue.accentFillColor))
+                // These stand in for a Picker, so they restate the selected-state semantics it
+                // would have given VoiceOver for free.
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .help(candidate.help)
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(.quaternary.opacity(0.5)))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pane view")
+    }
+
+    /// The ⋯ overflow. Holds whatever the current rung folded away, so nothing is ever merely
+    /// dropped — a narrow pane loses the pill, not the ability.
+    private func viewOptionsMenu(controlSize: ControlSize, fold: ClusterFold) -> some View {
+        Menu {
+            if fold == .all, let viewMode {
+                Picker("View", selection: viewMode) {
+                    ForEach(PaneViewMode.allCases) { mode in
+                        Label(mode.displayName, systemImage: mode.symbol).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                Divider()
+            }
+            if fold == .all, let onNewFolder {
+                Button(action: onNewFolder) {
+                    Label("New Folder", systemImage: "folder.badge.plus")
+                }
+                Divider()
+            }
+            Picker("Sort By", selection: $sortOption) {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Toggle(isOn: $showHiddenFiles) {
+                Label("Show Hidden Files", systemImage: showHiddenFiles ? "eye" : "eye.slash")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+        }
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(navButtonStyle)
+        .fixedSize()
+        .help("View options")
     }
 
     /// Shared by every nav control. `.filled` contributes the press scale and the hover phase
