@@ -19,9 +19,14 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
     var itemData: Data?
     /// When set, `copyMatching` returns this status regardless of the slot.
     var forcedCopyStatus: OSStatus?
+    /// When set, `delete` refuses with this status and LEAVES the item in place — what a locked
+    /// keychain, a denied prompt or an MDM policy actually does. The slot surviving is the point:
+    /// a fake that cleared it anyway could not tell a reported failure from a silent one.
+    var forcedDeleteStatus: OSStatus?
 
     func delete(_ query: [String: Any]) -> OSStatus {
         ops.append(.delete)
+        if let forced = forcedDeleteStatus { return forced }
         let had = itemData != nil
         itemData = nil
         return had ? errSecSuccess : errSecItemNotFound
@@ -215,9 +220,57 @@ private final class FakeKeychainStore: KeychainStore, @unchecked Sendable {
         AnthropicKeychain.store("sk-ant-test", in: store)
         #expect(AnthropicKeychain.hasKey(in: store))
 
-        AnthropicKeychain.delete(from: store)
+        #expect(AnthropicKeychain.delete(from: store) == errSecSuccess)
 
         #expect(AnthropicKeychain.read(from: store) == nil)
         #expect(AnthropicKeychain.hasKey(in: store) == false)
+    }
+
+    /// Deleting nothing is success from every caller's point of view — the item is gone, which is
+    /// what was asked for. Pinned so the status check above can't be tightened into treating an
+    /// already-absent key as a refusal.
+    @Test func deletingAnAbsentKeyIsNotAFailure() {
+        let store = FakeKeychainStore()
+
+        #expect(AnthropicKeychain.delete(from: store) == errSecItemNotFound)
+        #expect(AnthropicKeychain.isConfigured(in: store) == false)
+    }
+
+    /// The failure the returned status exists for. A delete can be refused exactly as a write can
+    /// — locked keychain, denied prompt, MDM policy — and the Settings row used to flip to "No key
+    /// yet" regardless, telling the user their API key was gone while it was still in the Keychain,
+    /// still used by every scan, and back on screen at the next launch.
+    ///
+    /// Two assertions, because either alone would pass against the broken version: the status must
+    /// come back non-success, AND the item must still be findable — which is what the row now
+    /// re-reads (via `isConfigured`) instead of assuming.
+    @Test func aRefusedDeleteReportsFailureAndLeavesTheKeyInPlace() {
+        let store = FakeKeychainStore()
+        AnthropicKeychain.store("sk-ant-test", in: store)
+        store.forcedDeleteStatus = errSecInteractionNotAllowed
+
+        let status = AnthropicKeychain.delete(from: store)
+
+        #expect(status == errSecInteractionNotAllowed)
+        #expect(AnthropicKeychain.isConfigured(in: store),
+                "the key is still stored, so anything reporting 'no key' after this is lying")
+    }
+
+    /// A refused delete must reach the log too, for the same reason a refused read does: the app's
+    /// own key-clearing paths take the `@discardableResult` spelling and would otherwise leave no
+    /// trace of why the key kept coming back.
+    @MainActor
+    @Test func aRefusedDeleteIsLogged() async {
+        let store = FakeKeychainStore()
+        AnthropicKeychain.store("sk-ant-test", in: store)
+        store.forcedDeleteStatus = errSecInteractionNotAllowed
+
+        AnthropicKeychain.delete(from: store)
+
+        await waitUntil("the refused delete is logged") {
+            Logger.shared.entries.contains {
+                $0.level == .warning && $0.message.contains("refused to delete the stored item")
+            }
+        }
     }
 }

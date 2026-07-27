@@ -25,13 +25,22 @@ import Testing
     }
 
     @MainActor
-    private func laidOutHeight(_ view: some View, width: CGFloat) -> CGFloat {
+    private func laidOutHeight(_ view: some View, width: CGFloat, scale: CGFloat = 1) -> CGFloat {
         // The text scale is pinned rather than inherited: `scaledFont` reads it from the
         // environment, so an unpinned measurement would silently report whatever text size the
         // machine running the test happens to have set.
-        let host = NSHostingView(rootView: view.environment(\.appFontScale, 1).frame(width: width))
+        let host = NSHostingView(rootView: view.environment(\.appFontScale, scale).frame(width: width))
         host.layoutSubtreeIfNeeded()
         return host.fittingSize.height
+    }
+
+    /// The margin Appearance has left at one text size — positive means it fits.
+    @MainActor
+    private func appearanceMargin(at scale: CGFloat) -> CGFloat {
+        let height = laidOutHeight(AppearanceSettingsTab(),
+                                   width: SettingsSheetMetrics.contentWidth(textScale: scale),
+                                   scale: scale)
+        return SettingsSheetMetrics.contentOpening(textScale: scale) - height
     }
 
     @MainActor
@@ -48,10 +57,43 @@ import Testing
     /// trips, either trim the tab or raise `SettingsSheetMetrics.baseSize.height` deliberately.
     @MainActor
     @Test func appearanceKeepsRoomForACopyEdit() async throws {
-        let height = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
-        let margin = SettingsSheetMetrics.contentOpening(textScale: 1) - height
+        let margin = appearanceMargin(at: 1)
 
         #expect(margin >= 15, "Only \(margin)pt of slack left below the last control.")
+    }
+
+    /// The fit at EVERY text size, not just the default — the gap that let the clipping this
+    /// layout was built to fix come back.
+    ///
+    /// A tab's height is not proportional to the text scale: only the type scales, while the
+    /// padding, spacing and control heights are fixed points. So a sheet scaled by the full
+    /// `FontSize.scale` shrinks faster than its contents do. At Small (0.9) the sheet gave up 69pt
+    /// of opening while Appearance gave back 12, and the tab measured 592pt into 578.6 — the last
+    /// control cut in half, exactly the failure the rail replaced a grouped `Form` to stop.
+    /// `resolvedSize` floors the scale at 1 for that reason; this is what proves it.
+    ///
+    /// Asserted per size rather than at the extremes: the two ends are not the only rungs, and a
+    /// failure names which one broke.
+    @MainActor
+    @Test(arguments: FontSize.allCases)
+    func appearanceFitsEveryTextSize(_ size: FontSize) async throws {
+        let margin = appearanceMargin(at: size.scale)
+
+        #expect(margin >= 15,
+                "Appearance has \(margin)pt of slack at \(size.displayName) (scale \(size.scale)).")
+    }
+
+    /// The rule the case above rests on, stated directly so a regression names the cause rather
+    /// than only the symptom: the sheet grows with the text setting and never shrinks below its
+    /// base size.
+    @Test func theSheetNeverShrinksBelowItsBaseSize() {
+        for size in FontSize.allCases {
+            let resolved = SettingsSheetMetrics.resolvedSize(textScale: size.scale, available: nil)
+
+            #expect(resolved.width >= SettingsSheetMetrics.baseSize.width)
+            #expect(resolved.height >= SettingsSheetMetrics.baseSize.height,
+                    "\(size.displayName) shrank the sheet to \(resolved.height)pt.")
+        }
     }
 
     /// Tidy is long by nature (Duplicates, Filing, Cloud spend) and is expected to scroll, so

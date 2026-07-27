@@ -9,6 +9,30 @@ import Foundation
     private let base = Date(timeIntervalSince1970: 1_000_000)
     private func at(_ offset: TimeInterval) -> Date { base.addingTimeInterval(offset) }
 
+    /// The spoken form is the only channel that puts staleness into WORDS. Everything else
+    /// distinguishing a stale scan from a fresh one is either colour (the age run's terracotta
+    /// capsule) or silent (`.help`), and the age string itself is identical in both states — so a
+    /// spoken form that didn't say it left VoiceOver with no way to know the diff may be out of
+    /// date.
+    ///
+    /// Asserted as a PAIR at one instant on either side of the threshold: the two strings differing
+    /// is the property, and checking only the stale one would pass against a version that appended
+    /// the warning unconditionally.
+    @Test func theSpokenFormSaysStaleOutLoudAndOnlyWhenStale() {
+        let fresh = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter - 1))
+        let stale = ScanFreshness.describe(scanDate: base, now: at(ScanFreshness.staleAfter))
+
+        #expect(fresh.isStale == false)
+        #expect(fresh.spoken == "scanned 59m ago")
+
+        #expect(stale.isStale)
+        #expect(stale.spoken == "scanned 1h ago, may be out of date")
+
+        // Both carry the same age; only the spoken form tells them apart in words.
+        #expect(fresh.age != stale.age || fresh.spoken != stale.spoken)
+        #expect(stale.spoken.contains(stale.age))
+    }
+
     @Test func relativeBuckets() {
         #expect(ScanFreshness.relative(0) == "0s ago")
         #expect(ScanFreshness.relative(30) == "30s ago")

@@ -417,15 +417,19 @@ public struct DifferencesView: View {
                                      help: "Scanning for changes…")
         }
         let freshness = ScanFreshness.describe(scanDate: scanDate, now: now)
+        // `freshness.spoken` on BOTH branches, and it is the only thing that says "stale" in
+        // words: the run's terracotta capsule is colour, the age itself reads the same either
+        // way, `.help` is not announced, and the button's own value/hint describe the toggle.
+        // `ScanFreshness.Result` owns the phrasing so the two branches cannot drift apart.
         guard freshness.isStale else {
             return CountPillDressing(semantic: accent, detailStyle: nil, detail: freshness.age,
-                                     spokenDetail: "scanned \(freshness.age)",
+                                     spokenDetail: freshness.spoken,
                                      help: "Last scanned \(stamp)")
         }
         return CountPillDressing(semantic: accent,
                                  detailStyle: .of(.attention, colorScheme),
                                  detail: freshness.age,
-                                 spokenDetail: "scanned \(freshness.age)",
+                                 spokenDetail: freshness.spoken,
                                  help: "This comparison may be out of date — last scanned \(stamp)")
     }
 

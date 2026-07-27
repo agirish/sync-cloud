@@ -31,6 +31,21 @@ public enum ScanFreshness {
         /// the capsule a sentence fragment about two different things.
         public let age: String
         public let isStale: Bool
+
+        /// What VoiceOver is told in the age run's place — and the ONE place staleness is put
+        /// into words.
+        ///
+        /// The age alone reads identically fresh or stale ("scanned 2h ago" is not a warning),
+        /// and every other channel carrying the state is visual or silent: the run's terracotta
+        /// capsule is colour, and `.help` is not announced. Colour as the sole carrier of a
+        /// warning is exactly what the contrast work around this pill exists to avoid, so the
+        /// spoken form says it outright.
+        ///
+        /// Derived here rather than composed at the call site so the fresh and stale phrasings
+        /// cannot drift — they differ by one clause, which is the easiest kind of pair to let rot.
+        public var spoken: String {
+            isStale ? "scanned \(age), may be out of date" : "scanned \(age)"
+        }
     }
 
     public static func describe(scanDate: Date, now: Date, staleAfter: TimeInterval = staleAfter) -> Result {

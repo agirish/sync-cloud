@@ -73,8 +73,17 @@ enum SettingsSheetMetrics {
     /// Scaling up is the point — Larger type needs a larger sheet, or the taller tabs go straight
     /// back to scrolling — but a sheet must never exceed the space it is centered in. The window's
     /// own minimum is 600pt wide, narrower than the sheet wants at any text size.
+    ///
+    /// **Grow only.** The scale is floored at 1, the same rule and the same reason as
+    /// `ListDensity.tableRowHeight`. A tab's height is not proportional to the text scale: its
+    /// padding, spacing and control heights are fixed points, so only the type shrinks at Small.
+    /// Scaling the sheet down by the full 0.9 took 69pt off the opening while Appearance gave back
+    /// 12pt, and the tab measured 592pt into a 578.6pt opening — the last control cut in half by
+    /// the sheet's bottom edge, which is the exact defect this whole layout exists to prevent.
+    /// `appearanceFitsEveryTextSize` pins it at all four sizes now, not just the default.
     static func resolvedSize(textScale: CGFloat, available: CGSize?) -> CGSize {
-        let wanted = CGSize(width: baseSize.width * textScale, height: baseSize.height * textScale)
+        let scale = max(1, textScale)
+        let wanted = CGSize(width: baseSize.width * scale, height: baseSize.height * scale)
         guard let available else { return wanted }
         return CGSize(
             width: min(wanted.width, max(floorSize.width, available.width - hostMargin)),

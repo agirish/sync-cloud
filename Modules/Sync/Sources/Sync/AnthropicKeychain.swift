@@ -94,8 +94,23 @@ public enum AnthropicKeychain {
         Task { @MainActor in Logger.shared.warning(message) }
     }
 
-    public static func delete(from store: KeychainStore = SecItemKeychainStore()) {
-        store.delete(baseQuery())
+    /// Removes the stored key.
+    /// - Returns: The `SecItemDelete` status. `errSecItemNotFound` means there was nothing to
+    ///   remove, which is success as far as any caller is concerned.
+    ///
+    /// Returned for the same reason ``store(_:in:)`` returns its own, and the failure it exposes
+    /// is the worse of the two: a delete can be refused (locked keychain, denied prompt, an MDM
+    /// policy) exactly as a write can, and a UI that reports "no key" on an unverified delete tells
+    /// the user their API key is gone while it is still in the Keychain — where it reappears at the
+    /// next launch and keeps being usable in the meantime. Callers that act on the outcome should
+    /// confirm with ``isConfigured``, which answers without asking for the secret.
+    @discardableResult
+    public static func delete(from store: KeychainStore = SecItemKeychainStore()) -> OSStatus {
+        let status = store.delete(baseQuery())
+        if status != errSecSuccess, status != errSecItemNotFound {
+            log("Anthropic API key: the Keychain refused to delete the stored item (status \(status)) — the key is still there")
+        }
+        return status
     }
 
     /// True when a non-empty, *readable* key is stored.

@@ -281,13 +281,27 @@ struct CloudKeyRow: View {
             : .invalid("The Keychain refused to store the key (status \(status)). Unlock your login keychain and try again.")
     }
 
+    /// Deletes the key — and confirms it actually went, rather than assuming.
+    ///
+    /// A Keychain delete can be refused exactly as a write can (locked keychain, denied prompt, an
+    /// MDM policy). This used to set `hasStoredKey = false` unconditionally, so a refused delete
+    /// left the row reading "No key yet — cloud suggestions fall back to the on-device model",
+    /// while the key was still in the Keychain, still being used by every scan, and back in the UI
+    /// at the next launch. That is the mirror image of the invisible failure `saveTypedKey` reports
+    /// — and the worse direction, because the user believes a secret is gone when it is not.
+    ///
+    /// `isConfigured`, not `hasKey`: confirming the item is gone must not ask for the secret.
     private func removeKey() {
-        AnthropicKeychain.delete()
+        let status = AnthropicKeychain.delete()
         apiKeyField = ""
         revealedKey = nil
         isReplacingKey = false
-        hasStoredKey = false
-        keyTestResult = nil
+        hasStoredKey = AnthropicKeychain.isConfigured
+        // `.invalid` renders its message verbatim; `.failed` would prefix "Couldn't reach
+        // Anthropic" and misattribute a local refusal to the network. Same choice as `saveTypedKey`.
+        keyTestResult = hasStoredKey
+            ? .invalid("The Keychain refused to delete the key (status \(status)). It is still stored. Unlock your login keychain and try again.")
+            : nil
     }
 
     /// Reads the secret — the one place in Settings that deliberately does, and so the one place
