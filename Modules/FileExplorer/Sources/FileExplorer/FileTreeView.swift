@@ -844,33 +844,12 @@ struct FileRowView: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
             }
-            if isCloudOnly {
-                // A dataless placeholder: on the cloud, not on this Mac. A generic cloud (not the
-                // iCloud glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
-                Image(systemName: "cloud")
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                    .help("Cloud-only — content isn't downloaded to this Mac")
-                    .accessibilityLabel("Cloud-only, not downloaded")
-            }
-            if let diffStatus {
-                // Shape encodes direction/kind so status is readable without color
-                // (colors match the Differences table in the Differences pane).
-                Image(systemName: DifferenceGlyph.symbol(for: diffStatus, filled: false))
-                    .scaledFont(.subheadline)
-                    .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
-                    .help(Self.badgeHelp(for: diffStatus))
-                    .accessibilityLabel(Self.badgeHelp(for: diffStatus))
-            } else if containedDiffCount > 0 {
-                Text("\(containedDiffCount)")
-                    .scaledFont(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(.quaternary))
-                    .help("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
-                    .accessibilityLabel("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
-            }
+            FileRowAccessories(
+                isCloudOnly: isCloudOnly,
+                reservesCloudSlot: !node.isDirectory,
+                diffStatus: diffStatus,
+                containedDiffCount: containedDiffCount
+            )
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
         .contentShape(Rectangle())
@@ -911,6 +890,79 @@ struct FileRowView: View {
         case .missingOnLeft: return "Missing on left"
         case .differentDates: return "Different dates or sizes"
         case .nameConflict: return "Name conflict (names differ only invisibly)"
+        }
+    }
+}
+
+/// A file row's trailing badges: the cloud-only marker, then either the difference badge or the
+/// contained-differences count.
+///
+/// Split out of `FileRowView` so both cloud states can be RENDERED and measured. The cloud badge is
+/// the one thing on a row that arrives *after* the row does — `FileRowView` resolves it with a
+/// per-row `lstat` off the main actor, so it lands one row at a time, well after the rows are on
+/// screen. Without a reserved slot the row's trailing cluster jumps sideways as each answer comes
+/// back, which on a folder of cloud-only files is a visible ripple down the pane.
+///
+/// The slot is reserved the same way `PaneActionBar` reserves its summary zone: a hidden copy of
+/// the real glyph establishes the width, and the visible one draws inside it. That needs no pt
+/// constant, which matters because the glyph is `scaledFont` — a hard-coded width would be wrong at
+/// every text size but the default.
+///
+/// Only FILE rows reserve it. `FileRowView` forces `isCloudOnly` false for directories, so a
+/// reserved slot there would be permanently empty space that can never be filled.
+struct FileRowAccessories: View {
+    let isCloudOnly: Bool
+    /// Whether to hold the cloud badge's width even when it isn't showing.
+    let reservesCloudSlot: Bool
+    let diffStatus: FileDifference.DifferenceType?
+    let containedDiffCount: Int
+
+    /// The bare glyph, which is also what sizes the reserved slot. A generic cloud (not the iCloud
+    /// glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
+    private var cloudGlyph: some View {
+        Image(systemName: "cloud")
+            .scaledFont(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    /// The glyph as the user meets it — with its tooltip and VoiceOver label.
+    private var cloudBadge: some View {
+        cloudGlyph
+            .help("Cloud-only — content isn't downloaded to this Mac")
+            .accessibilityLabel("Cloud-only, not downloaded")
+    }
+
+    var body: some View {
+        if reservesCloudSlot {
+            // `.hidden()` keeps the space and drops the twin from hit-testing and the
+            // accessibility tree, so the reservation is invisible to VoiceOver and to the cursor.
+            cloudGlyph
+                .hidden()
+                .overlay { if isCloudOnly { cloudBadge } }
+        } else if isCloudOnly {
+            // No slot held, but the badge still shows when it applies. Folding this into the branch
+            // above (reserve-or-nothing) silently dropped the badge for any caller that opted out of
+            // the reservation — caught only because the stability suite asserts that an unreserved
+            // zone genuinely DOES resize, which it cannot do if it never renders anything.
+            cloudBadge
+        }
+        if let diffStatus {
+            // Shape encodes direction/kind so status is readable without color
+            // (colors match the Differences table in the Differences pane).
+            Image(systemName: DifferenceGlyph.symbol(for: diffStatus, filled: false))
+                .scaledFont(.subheadline)
+                .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
+                .help(FileRowView.badgeHelp(for: diffStatus))
+                .accessibilityLabel(FileRowView.badgeHelp(for: diffStatus))
+        } else if containedDiffCount > 0 {
+            Text("\(containedDiffCount)")
+                .scaledFont(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(.quaternary))
+                .help("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
+                .accessibilityLabel("\(containedDiffCount) difference\(containedDiffCount == 1 ? "" : "s") inside")
         }
     }
 }

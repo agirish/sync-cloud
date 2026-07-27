@@ -1,4 +1,5 @@
 import CoreGraphics
+import Events
 import FileExplorer
 import Foundation
 import Sync
@@ -190,15 +191,33 @@ enum PaneLogic {
         // would cancel a live deferral without replacing it.
         guard !newSelection.isEmpty else { return }
         let token = sequencer.commit()
+        // The deferral doubles as the click's stopwatch. This block cannot run until the main
+        // thread has finished everything the commit above kicked off — the re-render of both panes,
+        // any tree walks a row's context menu does, the column rebuild — so the gap between here
+        // and there IS the cost of the click, measured where the user feels it. Nothing else in the
+        // app can see that number: timing the setter alone reports ~0 no matter how slow the click.
+        let committed = CFAbsoluteTimeGetCurrent()
         schedule {
-            guard sequencer.isNewest(token) else { return }
+            let settleMs = (CFAbsoluteTimeGetCurrent() - committed) * 1000
+            let side = isLeft ? "left" : "right"
+            guard sequencer.isNewest(token) else {
+                Logger.shared.debug(
+                    "[click] \(side) selection superseded before its cross-pane clear ran "
+                    + "(settle \(Self.ms(settleMs)))")
+                return
+            }
             if isLeft {
                 if state.selectedRightPaths != reconciled.right { state.selectedRightPaths = reconciled.right }
             } else {
                 if state.selectedLeftPaths != reconciled.left { state.selectedLeftPaths = reconciled.left }
             }
+            Logger.shared.debug(
+                "[click] \(side) pane selected \(newSelection.count) item(s), settle \(Self.ms(settleMs))")
         }
     }
+
+    /// One decimal place, so a log line reads `412.4ms` rather than `412.35917663574219ms`.
+    static func ms(_ value: Double) -> String { String(format: "%.1fms", value) }
 
     /// The left pane wins when both panes have selections (it is checked first, matching
     /// the historical behavior of the details/actions targeting). The selection bindings

@@ -157,9 +157,26 @@ extension FileSyncManager {
         otherIndex: @autoclosure () -> PaneChildrenIndex,
         otherTreeRoot: String
     ) {
+        let side = isLeft ? "left" : "right"
+        let from = (isLeft ? leftBrowsePath : rightBrowsePath).depth
         setBrowsePath(isLeft: isLeft, path)
-        guard mirror else { return }
-        setBrowsePath(isLeft: !isLeft, path.pruned(against: otherIndex(), treeRoot: otherTreeRoot))
+        guard mirror else {
+            // Columns navigation logged NOTHING until now, which is why the log covering the two
+            // 2026-07-27 layout crashes was silent for the 80 minutes leading up to one of them:
+            // walking columns writes no history entry and runs no scan, so not one line was left
+            // behind describing what the user was actually doing.
+            Logger.shared.debug("[columns] \(side) pane depth \(from) → \(path.depth) at \(path.relativePath.isEmpty ? "root" : path.relativePath)")
+            return
+        }
+        // The mirror is the expensive half: `pruned` walks the other pane's children index, and
+        // building that index is a full pass over its tree when the cache is cold.
+        let started = CFAbsoluteTimeGetCurrent()
+        let mirrored = path.pruned(against: otherIndex(), treeRoot: otherTreeRoot)
+        let elapsed = (CFAbsoluteTimeGetCurrent() - started) * 1000
+        setBrowsePath(isLeft: !isLeft, mirrored)
+        Logger.shared.debug(
+            "[columns] \(side) pane depth \(from) → \(path.depth) at \(path.relativePath.isEmpty ? "root" : path.relativePath); "
+            + "mirrored to depth \(mirrored.depth) in \(String(format: "%.1fms", elapsed))")
     }
 
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
