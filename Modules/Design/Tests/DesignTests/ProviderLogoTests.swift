@@ -3,77 +3,52 @@ import SwiftUI
 import Testing
 @testable import Design
 
-/// `ProviderLogo` gives a brand mark the light page it was drawn for, but only where the surface
-/// stops supplying one. Two properties have to hold for that to be safe, and neither is visible
-/// in the source: the plate must actually PAINT on a dark appearance and not on a light one, and
-/// adding it must cost the view nothing — the provider capsule picks its `ViewThatFits` rung by
-/// ideal width, so a logo that grew in dark would drop itself from the header on the appearance
-/// that needs it most.
+/// `ProviderLogo` is the one place a provider mark is drawn, so the property worth pinning is that
+/// it costs the mark's box nothing — the provider capsule picks its `ViewThatFits` rung by ideal
+/// width, so any presentation that grew the logo would drop the logo from the header, and would do
+/// it silently.
 ///
-/// The asset itself is absent here (the catalog belongs to the app target), which suits the test:
-/// what is left in the frame is the plate alone, so a centre sample reads the ground and nothing
-/// else.
+/// It measures rather than reads the source because the presentation is still being iterated: a
+/// light plate was added and reverted (`d9e9698`), and the next attempt will land in the same view.
+/// This is the guard rail that attempt has to clear.
+///
+/// The asset is absent here — the catalog belongs to the app target — so these renders carry an
+/// empty frame. That is exactly why the size assertion is the one that matters: it holds whether or
+/// not the mark resolves, while anything about the mark's own pixels is only verifiable in the app.
 @MainActor
 @Suite(.serialized) struct ProviderLogoTests {
 
-    @Test func plateOnlyAppearsOnADarkAppearance() {
-        let backdrop = Color(white: 0.30)
-        let dark = centreLuminance(appearance: .darkAqua, over: backdrop)
-        let light = centreLuminance(appearance: .aqua, over: backdrop)
-        // The plate is white at 0.93, so it lands far above a 0.30 backdrop...
-        #expect(dark > 0.80, "dark appearance must paint a light plate, measured \(dark)")
-        // ...and on a light appearance nothing is painted at all, so the backdrop survives.
-        #expect(abs(light - 0.30) < 0.02, "light appearance must paint no plate, measured \(light)")
-    }
-
-    /// The plate is free. Both appearances must measure exactly the declared size — that is what
-    /// keeps the capsule's ladder, and therefore whether the logo is shown at all, appearance-blind.
-    @Test func costsNothingInEitherAppearance() {
+    /// Every call site's size, in both appearances. Appearance is included because the reverted
+    /// plate was appearance-driven — the failure mode it could have introduced was a logo that
+    /// measured one way in light and another in dark.
+    @Test func measuresItsDeclaredSizeInEitherAppearance() {
         for size in [CGFloat(16), 26, 28] {
-            let dark = laidOutSize(size: size, appearance: .darkAqua)
-            let light = laidOutSize(size: size, appearance: .aqua)
-            #expect(dark == CGSize(width: size, height: size))
-            #expect(light == CGSize(width: size, height: size))
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                #expect(laidOutSize(size: size, appearance: appearance)
+                        == CGSize(width: size, height: size))
+            }
         }
     }
 
-    /// The mark insets *within* the plate rather than the plate growing around the mark — the
-    /// property the previous test can only imply. Pinned directly so a later tweak to `markScale`
-    /// can't quietly start expanding the view instead.
-    @Test func markInsetsWithinThePlate() {
-        #expect(ProviderLogo.markScale < 1.0)
-        #expect(28 * ProviderLogo.markScale < 28)
+    /// And the two appearances agree with each other, which is the form the capsule actually
+    /// depends on: the ladder is only appearance-blind if dark and light measure identically.
+    @Test func appearancesAgree() {
+        for size in [CGFloat(16), 26, 28] {
+            #expect(laidOutSize(size: size, appearance: .darkAqua)
+                    == laidOutSize(size: size, appearance: .aqua))
+        }
     }
 
-    // MARK: Rigs
-
-    private func host<V: View>(_ view: V, _ appearance: NSAppearance.Name, size: CGSize) -> NSHostingView<AnyView> {
-        let host = NSHostingView(rootView: AnyView(view))
+    private func laidOutSize(size: CGFloat, appearance: NSAppearance.Name) -> CGSize {
+        let host = NSHostingView(rootView: AnyView(ProviderLogo("icloud", size: size)))
         host.appearance = NSAppearance(named: appearance)
-        host.frame = CGRect(origin: .zero, size: size)
+        host.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.appearance = NSAppearance(named: appearance)
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        return host
-    }
-
-    private func laidOutSize(size: CGFloat, appearance: NSAppearance.Name) -> CGSize {
-        host(ProviderLogo("icloud", size: size), appearance, size: CGSize(width: 200, height: 200))
-            .fittingSize
-    }
-
-    private func centreLuminance(appearance: NSAppearance.Name, over backdrop: Color) -> Double {
-        let scene = ZStack { backdrop; ProviderLogo("icloud", size: 28) }
-            .frame(width: 60, height: 60)
-        let view = host(scene, appearance, size: CGSize(width: 60, height: 60))
-        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return .nan }
-        view.cacheDisplay(in: view.bounds, to: rep)
-        let scale = Double(rep.pixelsWide) / 60.0
-        guard let px = rep.colorAt(x: Int(30 * scale), y: Int(30 * scale)) else { return .nan }
-        return 0.2126 * Double(px.redComponent) + 0.7152 * Double(px.greenComponent)
-             + 0.0722 * Double(px.blueComponent)
+        return host.fittingSize
     }
 }
