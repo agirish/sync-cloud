@@ -364,6 +364,7 @@ struct PaneNavChrome: ViewModifier {
 
     @Environment(\.hoverAffordancePhase) private var phase
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
         let pill = PaneNavMetrics.pill(controlSize)
@@ -386,9 +387,16 @@ struct PaneNavChrome: ViewModifier {
         }
     }
 
+    /// Disabled stays quiet in both appearances — `canGoBack` is false at the top of a tree, and a
+    /// Back arrow that reads live there promises a click that does nothing.
+    ///
+    /// Enabled, dark is full-strength white via `ChromeInk`: on the hue-washed surface this app
+    /// actually renders, the 0.75 rest ink measures ~3.4:1 and the engaged accent glyph sits on an
+    /// accent wash with nothing to shift against. The pill's `fill` still carries the hover in both
+    /// appearances, so dropping the glyph's tint costs the affordance nothing.
     private var glyph: Color {
         guard isEnabled else { return .primary.opacity(0.25) }
-        return phase.isEngaged ? accent : .primary.opacity(0.75)
+        return ChromeInk.label(colorScheme, light: phase.isEngaged ? accent : .primary.opacity(0.75))
     }
 }
 

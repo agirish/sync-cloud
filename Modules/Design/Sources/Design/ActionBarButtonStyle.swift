@@ -104,6 +104,7 @@ private struct ActionBarButtonBody: View {
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     private var phase: HoverAffordancePhase {
         guard isEnabled else { return .rest }
@@ -116,12 +117,15 @@ private struct ActionBarButtonBody: View {
                  isEnabled: isEnabled, reduceMotion: reduceMotion)
     }
 
-    /// The label reads against whatever the weight fills with.
+    /// The label reads against whatever the weight fills with — on light. On dark it reads against
+    /// a hue-washed surface instead, where the accent and `.secondary` both lose (see `ChromeInk`);
+    /// `.primary` is exempt because its label is already `onTint`, white on a deepened fill built
+    /// to carry it.
     private var labelColor: Color {
         switch weight {
         case .primary: return onTint
-        case .quiet: return tint
-        case .outline: return .secondary
+        case .quiet: return ChromeInk.label(colorScheme, light: tint)
+        case .outline: return ChromeInk.label(colorScheme, light: .secondary)
         }
     }
 
