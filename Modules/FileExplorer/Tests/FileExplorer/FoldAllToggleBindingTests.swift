@@ -21,9 +21,10 @@ import Testing
 /// the button isn't there.
 ///
 /// Both harness lessons from `DifferencesTableIdentityTests` are kept: the tests are `async` and
-/// wait with `Task.sleep` (a `@MainActor` test that spins `RunLoop.run` starves the `.task(id:)` it
-/// is waiting on), and the window is created but never ordered in, because this machine's owner
-/// drives the real app while these run.
+/// yield with `Task.sleep` (a `@MainActor` test that spins `RunLoop.run` starves the `.task(id:)`
+/// it is waiting on), and the window is created but never ordered in, because this machine's owner
+/// drives the real app while these run. What is NOT kept is sleeping a fixed duration and then
+/// measuring: see `headerControls`, which waits on the table's own row count and asserts it.
 ///
 /// `.serialized` orders the cases here; `.exclusiveGroupingPreference` keeps them from overlapping
 /// with the other suite that drives `differencesGroupByFolder` in `UserDefaults.standard` — the
@@ -79,16 +80,57 @@ import Testing
 
     // MARK: Reading the header back
 
+    /// Rows the differences table has drawn. A sectioned `Table` counts its section headers as
+    /// rows, so grouped is one per folder more than flat — the same fact that once made row 0 of a
+    /// sectioned table the header rather than the first difference.
+    private static var flatRowCount: Int { folders.count * rowsPerFolder }
+    private static var groupedRowCount: Int { flatRowCount + folders.count }
+
+    /// `NSTableView.numberOfRows` for the differences table, or nil before one exists.
+    private func tableRowCount(_ view: NSView) -> Int? {
+        if let table = view as? NSTableView { return table.numberOfRows }
+        for child in view.subviews {
+            if let rows = tableRowCount(child) { return rows }
+        }
+        return nil
+    }
+
     /// The header's focusable controls, `WxH`, left to right.
     ///
     /// Scoped to the header strip — the shallow, ~48pt-tall branch of the hierarchy — so the
     /// table's own rows below can never contribute a coincidentally-24×24 ring.
-    private func headerControls(grouped: Bool, width: CGFloat = 1200) async -> [String] {
+    ///
+    /// **Why it waits on the table rather than on a clock.** The rows are built by an async
+    /// `.task(id:)`, and the header's shape depends on them: `sections` is empty until they land,
+    /// so a mount measured too early draws a header with no fold toggle — indistinguishable, to
+    /// this measurement, from a header that correctly withheld one. This used to sleep a flat 1.2s
+    /// and measure whatever was there, which makes every "the toggle is absent" case vacuously
+    /// true whenever the wait loses, and produced one unexplained failure of the narrow case in a
+    /// full-package run that could not be reproduced in isolation. A duration is not a fact about
+    /// the view; the row count is.
+    ///
+    /// So the wait is a bounded poll on `NSTableView.numberOfRows`, and the expected count is
+    /// asserted rather than assumed: if the table never reaches it, the test fails saying the rows
+    /// never landed instead of quietly reporting a header the user would never see. The signal is
+    /// neutral to everything this suite asserts — those are all header chrome — so waiting on it
+    /// cannot beg the question the way waiting for the toggle itself would.
+    private func headerControls(grouped: Bool, width: CGFloat = 1200,
+                                sourceLocation: SourceLocation = #_sourceLocation) async -> [String] {
         let (host, window) = mount(grouped: grouped, width: width)
         defer { window.contentView = nil }
-        // The header lays out immediately; the sleep lets the async row build settle first so the
-        // measurement is taken against the shape the user would actually be looking at.
-        try? await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let expected = grouped ? Self.groupedRowCount : Self.flatRowCount
+        var rows: Int?
+        for _ in 0..<100 {                       // 100 × 50ms = 5s, ~50× the observed settle
+            host.layoutSubtreeIfNeeded()
+            rows = tableRowCount(host)
+            if rows == expected { break }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        let drew = rows.map(String.init) ?? "no"
+        #expect(rows == expected,
+                "harness: the table drew \(drew) row(s), expected \(expected) — the measurement below would be of a half-built header",
+                sourceLocation: sourceLocation)
         host.layoutSubtreeIfNeeded()
 
         var sizes: [String] = []
