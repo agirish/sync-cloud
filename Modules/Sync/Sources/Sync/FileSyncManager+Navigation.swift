@@ -123,12 +123,36 @@ extension FileSyncManager {
         }
     }
 
-    @MainActor func setBrowsePath(isLeft: Bool, _ path: PaneBrowsePath) {
+    /// Sets a pane's column stack outright. Public because the mirroring decision needs both
+    /// panes' children indices, which only the app layer holds.
+    @MainActor public func setBrowsePath(isLeft: Bool, _ path: PaneBrowsePath) {
         if isLeft {
             if leftBrowsePath != path { leftBrowsePath = path }
         } else {
             if rightBrowsePath != path { rightBrowsePath = path }
         }
+    }
+
+    /// Applies a column drill, optionally mirroring it onto the sibling pane.
+    ///
+    /// The mirror is *pruned* against the other pane's tree rather than copied outright. The two
+    /// sides are being compared precisely because they differ, so a folder opened on one may not
+    /// exist on the other; pruning walks that pane as deep as it genuinely can and stops. That
+    /// lands it on the deepest folder the two still share, instead of on an empty column claiming a
+    /// folder that isn't there — and a pane that shares nothing simply returns to its root column.
+    ///
+    /// `mirror` is decided by the caller because it depends on the seam link, the ⌥ key and the
+    /// layout, none of which belong down here.
+    @MainActor public func applyColumnNavigation(
+        _ path: PaneBrowsePath,
+        isLeft: Bool,
+        mirror: Bool,
+        otherIndex: PaneChildrenIndex,
+        otherTreeRoot: String
+    ) {
+        setBrowsePath(isLeft: isLeft, path)
+        guard mirror else { return }
+        setBrowsePath(isLeft: !isLeft, path.pruned(against: otherIndex, treeRoot: otherTreeRoot))
     }
 
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing

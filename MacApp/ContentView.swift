@@ -201,6 +201,33 @@ struct ContentView: View {
         PaneViewMode(rawValue: isLeft ? leftViewModeRaw : rightViewModeRaw) ?? .default
     }
 
+    /// Applies a column drill, mirroring it onto the sibling pane when the panes are linked (or ⌥
+    /// is held) — the same rule the breadcrumb and the tree's drill-in already follow, so all three
+    /// ways of walking into a folder move the panes together or not together as one setting says.
+    ///
+    /// The mirror is *pruned* against the other pane's tree rather than copied outright. The two
+    /// sides are being compared precisely because they differ, so the folder you just opened may
+    /// not exist over there; pruning walks that pane as deep as it genuinely can and stops, which
+    /// is both honest and useful — it lands you on the deepest folder the two still share instead
+    /// of on an empty column claiming a folder that isn't there.
+    func applyColumnNavigation(_ path: PaneBrowsePath, isLeft: Bool) {
+        // Only the comparison layout has a sibling to mirror into; the Tidy rail has none. The
+        // link-or-⌥ test is the same one the breadcrumb and the tree's drill-in already apply, so
+        // all three ways of walking into a folder obey one setting.
+        let mirror = layoutMode == .compare
+            && (PaneLinkPreference.isLinked || NSEvent.modifierFlags.contains(.option))
+        let otherRoot = isLeft ? currentRightPath : currentLeftPath
+        syncManager.applyColumnNavigation(
+            path,
+            isLeft: isLeft,
+            mirror: mirror,
+            otherIndex: isLeft
+                ? syncManager.rightChildrenIndex(treeRoot: otherRoot)
+                : syncManager.leftChildrenIndex(treeRoot: otherRoot),
+            otherTreeRoot: otherRoot
+        )
+    }
+
     /// Binding for the view switch in a pane's nav cluster.
     func paneViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
         Binding(
@@ -1590,7 +1617,8 @@ struct ContentView: View {
             isActivePane: isRail || paneActionBarSideActive(isLeft: pane.isLeft),
             viewMode: pane.viewMode,
             childrenIndex: pane.childrenIndex,
-            browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath
+            browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
+            onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) }
         )
     }
 

@@ -25,6 +25,10 @@ struct PaneColumnsView: View {
     /// Absolute path of the pane's tree root — the folder the first column lists.
     let treeRoot: String
     @Binding var browsePath: PaneBrowsePath
+    /// Applies a new column stack for this pane. Routed through the host rather than written
+    /// straight to the binding because the seam link makes this a two-pane decision, and only the
+    /// host can see the other pane's tree to mirror into it.
+    let onNavigate: (PaneBrowsePath) -> Void
     @Binding var selection: Set<String>
     let otherSelection: Set<String>
     let isLeft: Bool
@@ -173,11 +177,13 @@ struct PaneColumnsView: View {
         // A file click closes any deeper columns without opening one of its own.
         .contentShape(Rectangle())
         .onTapGesture {
+            var path = browsePath
             if node.isDirectory {
-                browsePath.drill(into: node.name, atDepth: depth)
+                path.drill(into: node.name, atDepth: depth)
             } else {
-                browsePath.truncate(toDepth: depth)
+                path.truncate(toDepth: depth)
             }
+            onNavigate(path)
             selection = [node.id]
         }
         .contextMenu {

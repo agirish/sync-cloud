@@ -81,6 +81,9 @@ public struct FileTreeView: View {
     /// Where the pane is browsing inside its loaded tree. Writing this drills a column; it never
     /// re-roots, so the comparison scope and every difference badge survive navigation.
     @Binding public var browsePath: PaneBrowsePath
+    /// Applies a new column stack. The host owns this because the seam link makes a column drill a
+    /// two-pane move; defaults to writing the binding for callers with no sibling pane.
+    public let onColumnNavigate: ((PaneBrowsePath) -> Void)?
 
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
@@ -99,7 +102,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath())) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -122,6 +125,7 @@ public struct FileTreeView: View {
         self.viewMode = viewMode
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
+        self.onColumnNavigate = onColumnNavigate
     }
 
     /// The list viewport's global frame (height + window-space top edge).
@@ -265,7 +269,9 @@ public struct FileTreeView: View {
         if viewMode == .columns, let childrenIndex {
             PaneColumnsView(
                 tree: tree, otherTree: otherTree, childrenIndex: childrenIndex, treeRoot: currentPath,
-                browsePath: $browsePath, selection: $selection, otherSelection: otherSelection,
+                browsePath: $browsePath,
+                onNavigate: onColumnNavigate ?? { browsePath = $0 },
+                selection: $selection, otherSelection: otherSelection,
                 isLeft: isLeft, delegate: delegate, diffIndex: diffIndex, otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
