@@ -526,7 +526,7 @@ public struct TidyView: View {
             HStack(spacing: 6) {
                 // Logo outside the Menu label (a resizable image inside one balloons under fixedSize).
                 if let provider {
-                    Image(provider.imageName).resizable().scaledToFit().frame(width: 16, height: 16)
+                    ProviderLogo(provider.imageName, size: 16)
                 }
                 ProviderMenu(providers: providers, currentId: currentProviderId,
                              onSelect: onSelectProvider, onManage: onManageProviders) {

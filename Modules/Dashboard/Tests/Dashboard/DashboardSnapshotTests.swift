@@ -17,6 +17,13 @@ import Events
     /// A comfortable-width header: provider capsule, nav cluster, breadcrumb. Scan freshness is
     /// deliberately absent — it moved to the differences count pill, so this pins that the pane
     /// header no longer draws a second copy of it.
+    ///
+    /// The white rounded square in the dark reference is `ProviderLogo`'s plate with nothing on it:
+    /// the brand asset lives in the app's catalog, which this SPM test target cannot see, so
+    /// `Image("icloud-logo")` resolves to nothing in every one of these renders. The plate is drawn
+    /// by the appearance rather than by the image, so it shows up regardless — and the capsule's
+    /// span is unchanged by it (x 28-327 before and after), which is the property worth having
+    /// pinned here. The mark itself is only ever verified in the running app.
     @Test func paneHeaderComfortable() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive"),

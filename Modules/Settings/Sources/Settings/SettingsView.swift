@@ -884,10 +884,7 @@ struct ProviderSettingsSection: View {
     var body: some View {
         SettingsSection {
             HStack(spacing: 12) {
-                Image(provider.imageName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 26, height: 26)
+                ProviderLogo(provider.imageName, size: 26)
 
                 VStack(alignment: .leading, spacing: 2) {
                     // The name itself is the rename affordance: click to edit in place.

@@ -159,10 +159,7 @@ public struct PaneHeader: View {
         let hue = ProviderHue.classify(provider.displayName)
         return HStack(spacing: 10) {
             if showsLogo {
-                Image(provider.imageName)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 28, height: 28)
+                ProviderLogo(provider.imageName, size: 28)
             }
             ProviderMenu(
                 providers: providers,
