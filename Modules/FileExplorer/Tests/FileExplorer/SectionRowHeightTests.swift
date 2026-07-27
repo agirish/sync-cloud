@@ -1,0 +1,101 @@
+import AppKit
+import Design
+import SwiftUI
+import Sync
+import Testing
+@testable import FileExplorer
+
+/// Pins the height a section header actually REACHES inside the table, at both densities.
+///
+/// `SectionHeaderMetricsTests` measures the header view's own `fittingSize`, which is what the
+/// header asks for. This measures what it gets, and the two are not the same number: a SwiftUI
+/// Table adds ~8pt of chrome around a hosted section header and floors the row at 28pt. Every
+/// spacing decision made about the collapsed summary was made about THIS number, so this is the
+/// one worth pinning — twice now, a padding value has been chosen against the view's height and
+/// been surprised by the row's.
+///
+/// The 28pt floor is SwiftUI's own and is not reachable from either lever we own: padding below 2
+/// changes nothing, and dropping Compact's `tableMinRowHeight` from 20 to 16 takes its DATA rows
+/// to 16pt while leaving the header at 28. That is why both densities are expected to agree here
+/// while their data rows do not.
+@MainActor
+@Suite(.serialized, .exclusiveGroupingPreference) struct SectionRowHeightTests {
+
+    /// The floor SwiftUI imposes on a section header row. Both densities sit on it.
+    private static let headerRowHeight: CGFloat = 28
+
+    private func differences() -> [FileDifference] {
+        ["Documents", "Photos", "Projects"].flatMap { folder in
+            (1...4).map { index in
+                FileDifference(relativePath: "\(folder)/file-\(index).txt",
+                               leftItemPath: "/left/\(folder)/file-\(index).txt",
+                               rightItemPath: "/right/\(folder)/file-\(index).txt",
+                               type: .missingOnRight, action: .copyToRight,
+                               description: "Only on the left", leftFileSize: 1024)
+            }
+        }
+    }
+
+    /// Mounts the real view at `density` and reports (header row, data row).
+    ///
+    /// Restores the density preference on the way out. It is process-global like the grouping
+    /// preference, and unlike that one it has no trait guarding it — a suite that renders a
+    /// density explicitly would otherwise inherit whatever this left behind.
+    private func rowHeights(_ density: ListDensity) async -> (header: CGFloat, data: CGFloat)? {
+        let previousDensity = UserDefaults.standard.string(forKey: ListDensity.defaultsKey)
+        defer { UserDefaults.standard.set(previousDensity, forKey: ListDensity.defaultsKey) }
+        UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
+        UserDefaults.standard.set(density.rawValue, forKey: ListDensity.defaultsKey)
+
+        let manager = FileSyncManager()
+        manager.differences = differences()
+        manager.hasScanned = true
+        let host = NSHostingView(rootView: AnyView(
+            DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())))
+        host.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        defer { window.contentView = nil }
+
+        func table(_ view: NSView) -> NSTableView? {
+            if let found = view as? NSTableView { return found }
+            for subview in view.subviews { if let found = table(subview) { return found } }
+            return nil
+        }
+        // Row 0 of a sectioned Table is the section HEADER, not the first file.
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let t = table(host), t.numberOfRows >= 2 { break }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        host.layoutSubtreeIfNeeded()
+        guard let t = table(host), t.numberOfRows >= 2 else { return nil }
+        return (t.rect(ofRow: 0).height, t.rect(ofRow: 1).height)
+    }
+
+    @Test func comfortableDrawsTheHeaderAtTheFloor() async throws {
+        let heights = try #require(await rowHeights(.comfortable), "table never produced rows")
+        #expect(heights.header == Self.headerRowHeight)
+        // Named so a failure says which number moved. The data row is the yardstick the header is
+        // judged against — a header that grew because the whole table grew is a different bug.
+        #expect(heights.data == 25)
+    }
+
+    @Test func compactDrawsTheSameHeaderOverShorterRows() async throws {
+        let heights = try #require(await rowHeights(.compact), "table never produced rows")
+        #expect(heights.header == Self.headerRowHeight)
+        #expect(heights.data == 20)
+    }
+
+    /// The claim the padding constant's doc rests on, asserted rather than left as a comment: the
+    /// densities differ in their data rows and agree on their header.
+    @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
+        let comfortable = try #require(await rowHeights(.comfortable))
+        let compact = try #require(await rowHeights(.compact))
+        #expect(comfortable.header == compact.header)
+        #expect(comfortable.data > compact.data)
+    }
+}

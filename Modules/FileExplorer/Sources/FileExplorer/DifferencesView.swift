@@ -1757,14 +1757,26 @@ struct DifferenceSectionHeader: View {
     /// nothing is pinned and the Table measures its rows — 7pt of padding became a 38pt row around
     /// 16pt of text, better than half again a 25pt data row. Collapsed, that is the entire view.
     ///
-    /// 4 lands the Comfortable header at 32pt, still visibly a header and still leaving ~16pt of
-    /// air to separate an expanded section from the rows above it. Measured, not derived; the
-    /// numbers for 3/4/5/6/7 were taken off a mounted table before one was picked.
+    /// **2 is the end of the lever, not a preference.** A section header row cannot go below 28pt,
+    /// and 2 is the largest padding that reaches it — measured off a mounted table rather than
+    /// reasoned about:
     ///
-    /// Compact is unaffected at ANY value here and that was measured too: its rows are pinned at
-    /// 20pt, which clamps the header's content, so its section rows sit at 28pt regardless. This
-    /// constant only moves Comfortable.
-    static let verticalPadding: CGFloat = 4
+    ///     padding   7    6    5    4    3    2    1    0
+    ///     row      38   36   34   32   30   28   28   28
+    ///
+    /// 7 shipped first and read as a column of gaps once collapsed; 4 was a half-step that landed
+    /// at 32pt and was not enough to notice. Below 2 the padding stops mattering entirely, because
+    /// the floor is SwiftUI's, not ours.
+    ///
+    /// That floor is **not** reachable from the density system either, which is worth recording
+    /// because it looks like it should be: Compact pins `tableMinRowHeight` at 20 and its section
+    /// rows also measure 28, so the two look related. They are not — dropping that pin to 16 takes
+    /// Compact's DATA rows to 16pt and leaves its header at 28. Both densities now draw an
+    /// identical 28pt section header and differ only in their data rows (25 vs 20).
+    ///
+    /// Beating 28 would mean shrinking what the header contains — the disclosure triangle's hit box
+    /// or the folder name itself — which changes how it reads, not just how it is spaced.
+    static let verticalPadding: CGFloat = 2
 
     let folder: String
     let count: Int
@@ -1826,6 +1838,17 @@ struct DifferenceSectionHeader: View {
         // landed on table chrome outside this view. Owning the vertical space converts it into hit
         // area, and it buys the extra air between collapsed headers at the same time.
         .padding(.vertical, Self.verticalPadding)
+        // Expand into whatever height the Table gives the row before the shape is taken, so the
+        // hit area is the ROW and not just the padded label. Without it the shape is the 20pt the
+        // content asks for, centred in a 28pt row, leaving 4pt of dead band above and below — a
+        // smaller version of the bug the padding-before-contentShape ordering was written to fix.
+        //
+        // Costs nothing where there is no row to fill: `fittingSize` is 20pt either way (measured),
+        // so the metrics tests below still see the header's own height. Honest caveat — that the
+        // shape then covers the full row is reasoned from the hosting container being row-height,
+        // NOT proven: SwiftUI's content shape is not observable from AppKit, and
+        // `NSHostingView.hitTest` answers with the hosting view at every point.
+        .frame(maxHeight: .infinity)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .background(
