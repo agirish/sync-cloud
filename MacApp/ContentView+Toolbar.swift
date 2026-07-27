@@ -55,97 +55,41 @@ extension ContentView {
     }
 
     /// The selection-driven file-action bar, docked at the bottom of the active pane. These are the
-    /// actions that used to sit in the titlebar (Compare / Copy / Move / New Folder / Delete), now
-    /// scoped to — and naming — the pane whose selection they act on. `selectionNodes` is resolved
-    /// by the caller (once) rather than re-read here, so the tree isn't walked twice per render.
+    /// actions that used to sit in the titlebar (Compare / Copy / Move / Delete), now scoped to —
+    /// and naming — the pane whose selection they act on. `selectionNodes` is resolved by the caller
+    /// (once) rather than re-read here, so the tree isn't walked twice per render.
+    ///
+    /// The bar itself lives in `FileExplorer` so its layout can be rendered and asserted; this
+    /// supplies the strings and the handlers, which are the only parts that need the app's state.
     @ViewBuilder
     func paneActionBar(isLeft: Bool, selectionNodes: [FileNode]) -> some View {
         let copyTarget = PaneLogic.copyTargetName(activePane: activePane, paneNames: paneNames)
         let actionSymbols = PaneLogic.actionBarSymbols(activePane: activePane)
-        let accent = glassHue.accentColor
-        return HStack(spacing: 8) {
-            // Selection summary — the "what's selected" half of the bar, in the accent on the
-            // subtle bar. Its ✕ (clear selection) lives at the far trailing edge, past Delete:
-            // right next to the ✓ summary the two circular glyphs read as one confusing pair.
-            Label(SelectionSummary.text(for: selectionNodes), systemImage: "checkmark.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .scaledFont(.system(size: 12, weight: .semibold))
-                .foregroundStyle(accent)
-                .fixedSize()
-                .padding(.trailing, 4)
-
-            if selectionNodes.count == 1, selectionNodes[0].isDirectory {
-                actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent) {
-                    actionHandler?.focusFolder(selectionNodes[0], isLeft: isLeft,
-                                               leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-                }
-            }
-            actionBarButton(copyTarget.map { "Copy to \($0)" } ?? "Copy", systemImage: actionSymbols.copy, accent: accent) {
+        PaneActionBar(
+            summaryText: SelectionSummary.text(for: selectionNodes),
+            showsCompare: selectionNodes.count == 1 && selectionNodes[0].isDirectory,
+            copyTitle: copyTarget.map { "Copy to \($0)" } ?? "Copy",
+            moveTitle: copyTarget.map { "Move to \($0)" } ?? "Move",
+            copySymbol: actionSymbols.copy,
+            moveSymbol: actionSymbols.move,
+            onCompare: {
+                guard let folder = selectionNodes.first else { return }
+                actionHandler?.focusFolder(folder, isLeft: isLeft,
+                                           leftProviderId: leftProviderId, rightProviderId: rightProviderId)
+            },
+            onCopy: {
                 actionHandler?.copyItems(selectionNodes, fromLeft: isLeft,
                                          leftProviderId: leftProviderId, rightProviderId: rightProviderId)
-            }
-            actionBarButton(copyTarget.map { "Move to \($0)" } ?? "Move", systemImage: actionSymbols.move, accent: accent) {
+            },
+            onMove: {
                 Task {
                     _ = await actionHandler?.moveItems(selectionNodes, fromLeft: isLeft,
                                                        leftProviderId: leftProviderId, rightProviderId: rightProviderId)
                 }
-            }
-            // New Folder is intentionally omitted here to keep the bar compact — it stays on the
-            // pane's right-click menu (SharedFileMenuItems.newFolder) for now.
-            Spacer(minLength: 6)
-            actionBarButton("Delete", systemImage: "trash", accent: accent, role: .destructive) {
-                actionHandler?.confirmDelete(selectionNodes)
-            }
-
-            // ✕ dismisses the selection (the file lists offer no deselect gesture; Escape does the
-            // same). At the trailing edge, separated from the actions, so it reads as "close this
-            // bar" rather than pairing visually with the ✓ in the summary.
-            Button {
-                clearSelection(isLeft: isLeft)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .scaledFont(.system(size: 14))
-                    .hoverInk()
-                    .padding(.leading, 4)
-            }
-            .buttonStyle(.hoverAffordance(.inline))
-            .help("Clear selection (Esc)")
-            .accessibilityLabel("Clear selection")
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        // A subtle, transparent-ish accent-tinted glass — not a gray material and not a solid slab.
-        // The buttons carry the accent chrome (below); the bar itself just whispers the hue.
-        .accentGlassCapsule(accent, strength: 0.12)
-        .overlay(Capsule().strokeBorder(accent.opacity(0.35), lineWidth: 0.75))
-        .shadow(color: .black.opacity(0.10), radius: 8, y: 2)
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// One button in the pane action bar — the same `ActionBarButtonStyle` the differences header
-    /// uses, at `.primary`. It used to be a private lookalike (`PaneActionButton`) with its own
-    /// capsule, metrics and fill, which is how the two drifted: `ActionBarWeight.primary` fills at
-    /// opacity 1, the lookalike filled at 0.9 while resting, and `AccentFill` leaves NO headroom for
-    /// that — the deepened colour sits exactly on the 4.55:1 ceiling, so any alpha below 1 composites
-    /// the surface behind it back in and puts the white label under the floor. One implementation
-    /// now, so the fill rule can only be stated once.
-    ///
-    /// `isPrimary` is gone with it: `.primary` carries no resting hairline (a stroke on a
-    /// full-strength fill only muddies its edge), and Compare's leading position already reads as
-    /// the headline.
-    ///
-    /// The destructive red needs no deepening — it already carries white — but goes through the same
-    /// call so there is one rule here instead of a special case.
-    private func actionBarButton(_ title: String, systemImage: String, accent: Color,
-                                 role: ButtonRole? = nil,
-                                 action: @escaping () -> Void) -> some View {
-        let isDestructive = role == .destructive
-        return Button(role: role, action: action) {
-            Label(title, systemImage: systemImage)
-        }
-        .buttonStyle(.actionBar(.primary,
-                                tint: AccentFill.deepened(isDestructive ? .red : accent),
-                                onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
+            },
+            onDelete: { actionHandler?.confirmDelete(selectionNodes) },
+            onClear: { clearSelection(isLeft: isLeft) }
+        )
     }
 
     /// The primary tabs — a boxed segmented control. It rides the toolbar's leading region, which
