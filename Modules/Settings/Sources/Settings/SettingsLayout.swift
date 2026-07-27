@@ -29,10 +29,15 @@ import SwiftUI
 /// with no compile error. This is plain math; it belongs somewhere plain.
 enum SettingsSheetMetrics {
     /// The sheet at the default text size. The height is chosen against a measurement, not a
-    /// round number: Appearance is the tallest tab that can be made to fit (seven sections,
-    /// 576pt laid out), and the opening has to clear it with room to spare so a copy edit doesn't
-    /// silently push it back into scrolling. See `SettingsLayoutTests`.
-    static let baseSize = CGSize(width: 760, height: 660)
+    /// round number: Appearance is the tallest tab that can be made to fit, and the opening has
+    /// to clear it with room to spare so a copy edit doesn't silently push it back into
+    /// scrolling. See `SettingsLayoutTests`.
+    ///
+    /// 660 → 688 when `sectionTitleAir` was added: that air costs 28pt across Appearance's seven
+    /// sections, so the sheet grows by exactly 28pt and the safety margin is left where it was.
+    /// Paying for the air out of the margin instead would have left the tab one caption line
+    /// from scrolling again.
+    static let baseSize = CGSize(width: 760, height: 688)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
@@ -41,6 +46,22 @@ enum SettingsSheetMetrics {
 
     /// Breathing room kept between the sheet and the window edge.
     static let hostMargin: CGFloat = 48
+
+    /// The rail's width. Wide enough for the longest tab name ("Appearance") plus its symbol at
+    /// the largest text size without the label truncating.
+    static let railWidth: CGFloat = 176
+
+    /// Extra air under a section title, beyond the stack's own spacing.
+    ///
+    /// Measured against System Settings ▸ Appearance sitting beside this pane in one capture:
+    /// its group headers stand ~37pt off their first row where ours stood ~25pt, and its groups
+    /// end ~38pt before the next header where ours ended ~22pt. Type sizes matched exactly
+    /// (11pt headers, 13pt row labels) — the whole difference was air.
+    ///
+    /// This closes about a third of that gap, which is what the height budget allows: Appearance
+    /// is the tab that has to fit, and +4pt across its seven sections spends 28pt of the slack.
+    /// Matching Apple outright would want +12pt a section — 84pt — and a taller sheet.
+    static let sectionTitleAir: CGFloat = 4
 
     /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
     /// 44pt clears `.headline` at the largest text scale (13 × 1.3 = 16.9pt) with padding.
@@ -71,7 +92,7 @@ enum SettingsSheetMetrics {
 
     /// The content column's width: the sheet, less the rail and the divider beside it.
     static func contentWidth(textScale: CGFloat, available: CGSize? = nil) -> CGFloat {
-        resolvedSize(textScale: textScale, available: available).width - SettingsRail.width - 1
+        resolvedSize(textScale: textScale, available: available).width - railWidth - 1
     }
 }
 
@@ -125,6 +146,7 @@ struct SettingsSection<Content: View, Caption: View>: View {
             if let title {
                 Text(title)
                     .scaledFont(.subheadline.weight(.semibold))
+                    .padding(.bottom, SettingsSheetMetrics.sectionTitleAir)
             }
             VStack(alignment: .leading, spacing: 8) {
                 content
@@ -192,9 +214,9 @@ struct SettingsRail: View {
     /// The window's accent hue: fills the selected row, tints the hover wash on the others.
     let hue: LiquidGlassHue
 
-    /// Rail width. Wide enough for the longest tab name ("Appearance") plus its symbol at the
-    /// largest text size without the label truncating.
-    static let width: CGFloat = 176
+    /// Rail width. Lives on `SettingsSheetMetrics` rather than here because a static on a
+    /// SwiftUI `View` is `@MainActor`, and `contentWidth` — plain arithmetic — is not.
+    static var width: CGFloat { SettingsSheetMetrics.railWidth }
 
     /// The rail's vertical rhythm, measured against System Settings sitting next to it rather
     /// than picked: its sidebar rows run a ~34pt pitch and put a clear gap under the search

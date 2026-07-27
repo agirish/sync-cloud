@@ -940,7 +940,13 @@ struct ProviderSettingsSection: View {
                 }
             }
 
-            SettingsRow("Location") {
+            // The path gets its own full-width line rather than sharing one with its label.
+            // Beside the label it had ~300pt, and every provider under ~/Library/CloudStorage
+            // runs past that — the paths were clipped at the pane edge with no ellipsis, so the
+            // tail that actually distinguishes them (…/OneDrive-Personal/Documents from
+            // …/OneDrive-Personal/Desktop) was the part you couldn't see.
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Location")
                 // Mirrors the name field above: Enter or clicking away commits.
                 // No Save button — focus-loss covers the same ground, so the two
                 // fields commit through one identical set of triggers.
@@ -948,13 +954,18 @@ struct ProviderSettingsSection: View {
                     .textFieldStyle(.plain)
                     .scaledFont(.system(.callout, design: .monospaced))
                     .labelsHidden()
-                    .multilineTextAlignment(.trailing)
                     .focused($pathFieldFocused)
                     .onSubmit { commitPath() }
                     .onChange(of: pathFieldFocused) { _, focused in
                         if !focused { commitPath() }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // A TextField scrolls rather than ellipsizing, so a path longer than even the
+                    // full width still hides its tail. The tooltip is the backstop — the same
+                    // answer the ignored-items list already uses for long root-relative paths.
+                    .help(pathDraft.value)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(!isEnabled)
 
             HStack(spacing: 8) {
