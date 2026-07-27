@@ -1174,7 +1174,7 @@ struct ContentView: View {
             isLeft: isLeft,
             title: isLeft ? "Left" : "Right",
             providerId: isLeft ? leftProviderId : rightProviderId,
-            relativePath: isLeft ? syncManager.leftRelativePath : syncManager.rightRelativePath,
+            relativePath: syncManager.combinedRelativePath(isLeft: isLeft),
             canGoBack: syncManager.canGoBack(isLeft: isLeft),
             canGoForward: syncManager.canGoForward(isLeft: isLeft),
             tree: isLeft ? syncManager.leftPaneTree : syncManager.rightPaneTree,
@@ -1221,11 +1221,11 @@ struct ContentView: View {
                 canGoForward: pane.canGoForward,
                 onBack: { syncManager.goBack(isLeft: isLeft) },
                 onForward: { syncManager.goForward(isLeft: isLeft) },
-                onNavigate: { syncManager.focusOn(relativePath: $0, isLeft: isLeft) },
+                onNavigate: { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) },
                 // The Tidy rail has no visible sibling: ⌥-click (and the 🔗-linked crumb click)
                 // must behave as plain navigation there, never drive the hidden right pane.
                 onNavigateBoth: layoutMode == .singleSource
-                    ? { syncManager.focusOn(relativePath: $0, isLeft: isLeft) }
+                    ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) }
                     : { syncManager.focusBoth(relativePath: $0) },
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in

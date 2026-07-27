@@ -90,6 +90,47 @@ extension FileSyncManager {
         }
     }
 
+    /// A pane's location as one path: its comparison scope joined with where it is browsing.
+    ///
+    /// The two are separate state on purpose (see `PaneBrowsePath`), but that is an implementation
+    /// distinction, not something to make the user hold. The header's path line renders this, so
+    /// walking into a column moves the breadcrumb exactly as re-rooting does — one location, one
+    /// readout, and no way for the header to describe a folder the pane is not showing.
+    public func combinedRelativePath(isLeft: Bool) -> String {
+        let focus = isLeft ? leftRelativePath : rightRelativePath
+        let browse = (isLeft ? leftBrowsePath : rightBrowsePath).relativePath
+        if focus.isEmpty { return browse }
+        if browse.isEmpty { return focus }
+        return focus + "/" + browse
+    }
+
+    /// Routes a click on that joined path back to whichever half owns it.
+    ///
+    /// A crumb inside the scope is a browse move — cheap, no rescan. A crumb *above* the scope is
+    /// the only way back out, so it re-roots. Without this split, clicking an ancestor while three
+    /// columns deep would either do nothing or re-scan for a folder you were already looking at.
+    @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String) {
+        let focus = isLeft ? leftRelativePath : rightRelativePath
+        if focus.isEmpty {
+            setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: combined))
+        } else if combined == focus {
+            setBrowsePath(isLeft: isLeft, PaneBrowsePath())
+        } else if combined.hasPrefix(focus + "/") {
+            setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: String(combined.dropFirst(focus.count + 1))))
+        } else {
+            // Above the comparison scope — genuinely a re-root, history and all.
+            focusOn(relativePath: combined, isLeft: isLeft)
+        }
+    }
+
+    @MainActor func setBrowsePath(isLeft: Bool, _ path: PaneBrowsePath) {
+        if isLeft {
+            if leftBrowsePath != path { leftBrowsePath = path }
+        } else {
+            if rightBrowsePath != path { rightBrowsePath = path }
+        }
+    }
+
     /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
     /// folders that no longer exist.
     ///
