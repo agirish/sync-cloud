@@ -44,13 +44,18 @@ public struct PaneHeader: View {
     /// right next to each pane's navigation buttons.
     @Binding public var showHiddenFiles: Bool
     // No surface style here: the header's shape comes from its container, its material from the
-    // glass level. This view only paints the tint. It reads no glass level of its own either: the
-    // nav cluster it used to frost at Clear is drawn in-house now (6bb7bdf), which took the last
-    // reader with it.
+    // glass level. This view only paints the tint. It does read the level back, though — the nav
+    // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
+    // needs it again: at Clear the header is see-through to the desktop, and the capsule has to
+    // floor itself to frosted so the logo and name keep a ground (`chromePillSurface`).
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
+    }
+    private var glassLevel: GlassLevel {
+        GlassLevel(rawValue: glassLevelRaw) ?? .frosted
     }
 
     public init(
@@ -185,7 +190,7 @@ public struct PaneHeader: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 3)
-        .background(hue.soft, in: Capsule())
+        .chromePillSurface(glassLevel, wash: hue.soft)
     }
 
     /// This pane's navigation/action buttons. Rendered through ViewThatFits so that at the

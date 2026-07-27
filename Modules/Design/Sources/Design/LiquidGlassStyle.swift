@@ -456,6 +456,34 @@ public extension View {
         }
     }
 
+    /// The ground under a chrome pill that sits on a card taking the glass level verbatim — today
+    /// the pane header's provider capsule.
+    ///
+    /// At every level but `.clear` the pill is a plain hue wash over the card's own material, exactly
+    /// as before. At `.clear` the card is see-through to the desktop and a 12% wash has nothing to
+    /// read against, so the logo and name end up on whatever slice of wallpaper happens to be behind
+    /// them — a ground that changes as the window moves. Every provider mark makes that worse: none
+    /// of the four assets paints a single opaque white pixel, so their negative space (Dropbox's
+    /// folded-box seams, Drive's triangle seams) fills with wallpaper rather than with page.
+    ///
+    /// So the pill floors to `.frosted` and paints its own material — the same trade `chromeButtonStyle`
+    /// makes for bar buttons and `flooredForChrome` makes for overlay cards. The *card* stays clear;
+    /// only the pill frosts, so Clear keeps its transparency everywhere it isn't costing legibility.
+    /// Keyed off `needsChromeFrosting` rather than an `== .clear` check, so a level added later
+    /// decides its chrome treatment in `GlassLevel` alone.
+    @ViewBuilder
+    func chromePillSurface(_ level: GlassLevel, wash: Color) -> some View {
+        if !level.needsChromeFrosting {
+            self.background(wash, in: Capsule())
+        } else if #available(macOS 26.0, *) {
+            // Tint the glass itself rather than floating the wash on top of it, for the reason
+            // `accentGlassCapsule` does: a wash over neutral gray glass reads as "wash over gray".
+            self.glassEffect(.regular.tint(wash), in: Capsule())
+        } else {
+            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(wash)))
+        }
+    }
+
     /// The material fill for one content surface. This is the single place the level → appearance
     /// decision is made: panes, the bottom workspace, bars and overlay chrome all route through
     /// it, so they can't drift apart the way they did when each call site mapped a raw intensity
