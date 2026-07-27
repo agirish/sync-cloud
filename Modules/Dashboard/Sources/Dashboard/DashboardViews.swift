@@ -147,9 +147,23 @@ public struct PaneHeader: View {
         .contentSurface(hue: glassHue, tint: surfaceTint)
     }
 
-    /// The brand-tinted provider capsule (UX H2: the hue tints the name and washes softly behind
-    /// the logo so the two panes are distinguishable — and visibly matching — at a glance; buttons
-    /// and selection states keep the user's accent color). The name + chevron is the menu trigger;
+    /// The provider capsule. UX H2's hue still washes behind it (`hue.soft`) so the two panes are
+    /// distinguishable — and visibly matching — at a glance, but the NAME is the standard label
+    /// colour, not the brand tint.
+    ///
+    /// H2 tinted the name, and `ProviderHue`'s dark variants were lifted to clear AA "on the app's
+    /// dark surfaces". Measured against the surface a hue wash actually produces, they do not:
+    /// sampled from the running app at the green hue, the pane reads `#4d7f68` — a mid-tone, not a
+    /// dark one — and on it iCloud's `#6FB6FF` is 2.16:1 and OneDrive's `#3E9BE0` is 1.53:1, against
+    /// 4.5 for text. Plain white is 4.61:1, which is why the folder names in the list below read
+    /// perfectly on the same pixels while the provider name above them did not. The wash was tuned
+    /// as a background and then had text put on it.
+    ///
+    /// So identity moves to the logo and the wash, and the name buys legibility with lightness
+    /// instead of chroma. `ProviderHue.tint` is still right for a hairline or a fill — this is only
+    /// about text on a washed surface, which is also true of `PaneBreadcrumb`'s root crumb.
+    ///
+    /// The name + chevron is the menu trigger;
     /// the logo stays a plain image OUTSIDE the menu label (a resizable image inside one balloons
     /// to its native size). ViewThatFits compares each variant's IDEAL width against the offer,
     /// so the logo variant wins only while the full name fits alongside it; once the name would
@@ -170,9 +184,9 @@ public struct PaneHeader: View {
                 Text(provider.displayName)
                     // `Text.scaledFont(_:scale:)`, not the View modifier: this is a `Menu`
                     // label, and AppKit renders it itself — a wrapped Text loses both the
-                    // weight and the accent tint below.
+                    // weight and the colour below.
                     .scaledFont(.headline.weight(.semibold), scale: appFontScale)
-                    .foregroundStyle(hue.tint)
+                    .foregroundStyle(.primary)
                     // A long custom provider name must truncate, not wrap the
                     // header taller in a narrow pane. Middle truncation is the intent, but the
                     // menu style's AppKit-backed label ignores the preference and elides the
