@@ -35,6 +35,25 @@ public final class PaneBarPlacement {
     /// anchor and the bar flip-flopped.)
     private(set) var atTop = false
 
+    /// The selection the bar is actually acting on: whatever the HOST last resolved against.
+    ///
+    /// One anchor was not enough, because the two callers fed it different selections. The host
+    /// resolves against `barSelectionNodes` — empty for the pane that isn't active, and empty for
+    /// the pane that was *just* clicked while the other one still holds a selection, since the
+    /// exclusivity clear lands a runloop turn later and `activePane` breaks that tie towards the
+    /// left. The pane itself re-resolved against its own raw List selection, which is populated
+    /// immediately. So for one turn after every click the two answers differed, and each of them
+    /// committed: the pane's geometry callback saw a "flip", wrote host state from inside the
+    /// layout pass that produced it, and the host's re-render promptly committed the opposite
+    /// answer back. In Columns a single click also opens a column and animates a scroll, so fresh
+    /// geometry kept re-arming that exchange — and a layout that never settles is not a cosmetic
+    /// problem: AppKit raises once a window needs more constraint passes than it has views, which
+    /// is a hard crash.
+    ///
+    /// So geometry-driven re-resolves go through `reresolveAtTop()`, which reasons from this,
+    /// never from a caller's own idea of the selection.
+    private(set) var barSelection: Set<String> = []
+
     /// Extra clearance (beyond leaving the coverage zone) a selected row must gain before the bar
     /// drops back to the bottom — about one comfortable row. The old 28pt dead-zone was thinner
     /// than a row step, so arrowing near the boundary bounced the bar.
@@ -47,8 +66,22 @@ public final class PaneBarPlacement {
     /// happens the moment covering would occur; returning to the bottom additionally requires
     /// `exitHysteresis` of clearance, so a row parked at the boundary can't chatter the bar.
     /// Idempotent for unchanged geometry + selection, so the host may call it on every render.
+    ///
+    /// This is the HOST's entry point, and it is what defines the bar's selection of record. A pane
+    /// re-resolving after a scroll or a new column calls `reresolveAtTop()` instead.
     @discardableResult
     public func resolveAtTop(selection: Set<String>) -> Bool {
+        barSelection = selection
+        return reresolveAtTop()
+    }
+
+    /// Re-resolves the edge for the selection the host last committed, after geometry moved.
+    ///
+    /// Same maths as `resolveAtTop(selection:)` — it is the same function; only the source of the
+    /// selection differs, and that is the whole point.
+    @discardableResult
+    func reresolveAtTop() -> Bool {
+        let selection = barSelection
         // A pane shorter than the bar is covered end to end whichever edge the bar takes, so there
         // is no placement that reveals anything — stay at the resting bottom rather than pinning to
         // the top for every row (a negative `coveredFrom` made EVERY row read as covered).

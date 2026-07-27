@@ -141,11 +141,23 @@ public struct FileTreeView: View {
     /// its own anchor); if it flipped, ask the host to re-render (animated cross-fade). Selection
     /// changes are NOT handled here — they re-render the host anyway, which recomputes the edge
     /// synchronously and instantly.
+    ///
+    /// Two rules keep this from feeding back into the layout pass that called it:
+    ///
+    /// 1. It re-resolves against the bar's selection of record (`reresolveAtTop`), never against
+    ///    this pane's raw List selection. The two disagree for a runloop turn after every click,
+    ///    and resolving from each in turn made the pane and its host commit opposite edges to the
+    ///    same anchor, forever — see `PaneBarPlacement.barSelection`.
+    /// 2. The flip itself is handed to the next runloop turn. This runs inside a preference
+    ///    callback, i.e. inside AppKit's layout pass; writing host state synchronously from here
+    ///    re-enters that pass, and a pass that keeps re-entering is the crash AppKit raises when a
+    ///    window needs more constraint passes than it has views. A turn's delay is invisible under
+    ///    the flip's own 0.22s cross-fade.
     private func flipEdgeIfScrolledAcross() {
         guard let placement, let onBarEdgeFlip else { return }
         let wasAtTop = placement.atTop
-        guard placement.resolveAtTop(selection: selection) != wasAtTop else { return }
-        onBarEdgeFlip()
+        guard placement.reresolveAtTop() != wasAtTop else { return }
+        DispatchQueue.main.async { onBarEdgeFlip() }
     }
     
     private func isPathIgnored(_ node: FileNode) -> Bool {
