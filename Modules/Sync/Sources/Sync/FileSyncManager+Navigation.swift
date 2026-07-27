@@ -54,6 +54,10 @@ extension FileSyncManager {
         // current folder doesn't stack a duplicate history entry that makes Back appear to stall.
         guard (isLeft ? leftRelativePath : rightRelativePath) != relativePath else { return }
         clearSessionIgnoredPaths()
+        // Re-rooting replaces the tree this pane's columns were walking, so the column stack is
+        // about to name folders relative to a root that no longer applies. Reset rather than prune:
+        // the new tree is a different scope, not a changed one.
+        resetBrowsePath(isLeft: isLeft)
         if isLeft {
             leftHistory.push(relativePath)
         } else {
@@ -68,13 +72,74 @@ extension FileSyncManager {
     public func focusBoth(relativePath: String) {
         guard leftRelativePath != relativePath || rightRelativePath != relativePath else { return }
         clearSessionIgnoredPaths()
-        if leftRelativePath != relativePath { leftHistory.push(relativePath) }
-        if rightRelativePath != relativePath { rightHistory.push(relativePath) }
+        // Only the panes that actually move lose their column stack, matching the history rule
+        // directly below — a pane already focused there keeps both.
+        if leftRelativePath != relativePath { resetBrowsePath(isLeft: true); leftHistory.push(relativePath) }
+        if rightRelativePath != relativePath { resetBrowsePath(isLeft: false); rightHistory.push(relativePath) }
         syncPathsFromHistory()
     }
 
-    /// Navigates one pane to the previous entry in its own history stack.
+    // MARK: - Column stack
+
+    /// Drops a pane back to its resting single column.
+    @MainActor func resetBrowsePath(isLeft: Bool) {
+        if isLeft {
+            if !leftBrowsePath.isEmpty || leftBrowsePath.canAdvance { leftBrowsePath.reset() }
+        } else {
+            if !rightBrowsePath.isEmpty || rightBrowsePath.canAdvance { rightBrowsePath.reset() }
+        }
+    }
+
+    /// Re-resolves a pane's column stack against a freshly published tree, dropping any trailing
+    /// folders that no longer exist.
+    ///
+    /// Must run on every republish. The stack is folder names resolved against a tree that has just
+    /// been rebuilt, so a folder deleted here — externally, or by the user's own Delete — would
+    /// otherwise leave columns rendering nothing while `currentDirectory` still names it, which is
+    /// where New Folder and paste would then act. Assigns only on a real change so an unaffected
+    /// stack costs no publish.
+    @MainActor public func pruneBrowsePath(isLeft: Bool, against index: PaneChildrenIndex, treeRoot: String) {
+        if isLeft {
+            let pruned = leftBrowsePath.pruned(against: index, treeRoot: treeRoot)
+            if pruned != leftBrowsePath { leftBrowsePath = pruned }
+        } else {
+            let pruned = rightBrowsePath.pruned(against: index, treeRoot: treeRoot)
+            if pruned != rightBrowsePath { rightBrowsePath = pruned }
+        }
+    }
+
+    /// Whether this pane's `‹` has anywhere to go — the column stack first, then the focus history.
+    ///
+    /// One button, one meaning: "undo my last navigation". A pane can be three columns deep without
+    /// having re-rooted once, so gating the arrow on the focus history alone left it dead exactly
+    /// where the Columns view leans on it hardest — in a narrow pane, where the single column
+    /// replaces its contents and `‹` is the only way back out.
+    public func canGoBack(isLeft: Bool) -> Bool {
+        let browse = isLeft ? leftBrowsePath : rightBrowsePath
+        return !browse.isEmpty || (isLeft ? leftHistory : rightHistory).canGoBack
+    }
+
+    /// Counterpart of `canGoBack(isLeft:)`. Forward walks back into a column `‹` stepped out of
+    /// before it considers the focus history, so the two arrows stay each other's inverse.
+    public func canGoForward(isLeft: Bool) -> Bool {
+        let browse = isLeft ? leftBrowsePath : rightBrowsePath
+        return browse.canAdvance || (isLeft ? leftHistory : rightHistory).canGoForward
+    }
+
+    /// Navigates one pane back: out of a column if it is inside one, otherwise to the previous
+    /// entry in its own focus history.
     @MainActor public func goBack(isLeft: Bool) {
+        // Columns first. Browsing costs no history entry (it never re-roots), so if the pane is
+        // inside a column stack that is unambiguously the most recent navigation to undo.
+        //
+        // Deliberately returns WITHOUT `clearSessionIgnoredPaths()`: that clear belongs to a change
+        // of comparison scope, and stepping out of a column changes only where you are looking. An
+        // item ignored for this session stays ignored while you walk around.
+        if isLeft ? leftBrowsePath.popLast() : rightBrowsePath.popLast() {
+            let browse = isLeft ? leftBrowsePath : rightBrowsePath
+            Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane out to column depth \(browse.depth)")
+            return
+        }
         if isLeft {
             guard leftHistory.canGoBack else { return }
             leftHistory.goBack()
@@ -89,8 +154,14 @@ extension FileSyncManager {
         syncPathsFromHistory()
     }
 
-    /// Navigates one pane to the next entry in its own history stack.
+    /// Navigates one pane forward: back into a column `‹` stepped out of, otherwise to the next
+    /// entry in its own focus history. The inverse of `goBack(isLeft:)`, in the same order.
     @MainActor public func goForward(isLeft: Bool) {
+        if isLeft ? leftBrowsePath.advance() : rightBrowsePath.advance() {
+            let browse = isLeft ? leftBrowsePath : rightBrowsePath
+            Logger.shared.debug("Stepped \(isLeft ? "left" : "right") pane into column depth \(browse.depth)")
+            return
+        }
         if isLeft {
             guard leftHistory.canGoForward else { return }
             leftHistory.goForward()
@@ -119,6 +190,10 @@ extension FileSyncManager {
 
         if leftHistory != PaneNavigationHistory() { leftHistory.reset() }
         if rightHistory != PaneNavigationHistory() { rightHistory.reset() }
+        // Both trees are about to be replaced by ones from different roots; a column stack naming
+        // folders in the old ones is meaningless, not merely stale.
+        resetBrowsePath(isLeft: true)
+        resetBrowsePath(isLeft: false)
         syncPathsFromHistory()
     }
 
@@ -239,6 +314,9 @@ extension FileSyncManager {
         swap(&leftRelativePath, &rightRelativePath)
         swap(&selectedLeftPaths, &selectedRightPaths)
         swap(&leftHistory, &rightHistory)
+        // Travels with the tree it indexes, like the history beside it: after a swap the left pane
+        // shows what the right one did, so it must be looking at the same folder within it.
+        swap(&leftBrowsePath, &rightBrowsePath)
 
         swap(&rawLeftTree, &rawRightTree)
         swap(&leftTree, &rightTree)

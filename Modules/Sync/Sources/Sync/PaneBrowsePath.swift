@@ -24,18 +24,30 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// Folder names from the tree root down, outermost first. Never contains an empty component.
     public private(set) var components: [String]
 
+    /// Components `popLast` has stepped out of, deepest last, so `›` can walk back in.
+    ///
+    /// Decision 10 named only `‹`, but the two arrows are one control in the user's head: drilling
+    /// three columns, pressing Back twice and then Forward has to return you to where you were. If
+    /// only Back understood columns, Forward would either sit dead or — worse — fire the pane's
+    /// *focus* history and jump the comparison somewhere unrelated. Any move that branches
+    /// (`drill`, `truncate`) discards this, exactly as a browser drops its forward stack.
+    private var forwardComponents: [String]
+
     public init() {
         components = []
+        forwardComponents = []
     }
 
     public init(components: [String]) {
         self.components = components.filter { !$0.isEmpty }
+        forwardComponents = []
     }
 
     /// Parses a `"Documents/Invoices"`-style relative path; tolerates surrounding and doubled
     /// separators so a caller can hand over a joined path without pre-cleaning it.
     public init(relativePath: String) {
         components = relativePath.split(separator: "/").map(String.init)
+        forwardComponents = []
     }
 
     public var isEmpty: Bool { components.isEmpty }
@@ -49,25 +61,39 @@ public struct PaneBrowsePath: Equatable, Sendable {
 
     // MARK: - Navigation
 
+    /// Whether `›` has a column to walk back into. False once you branch.
+    public var canAdvance: Bool { !forwardComponents.isEmpty }
+
     /// Opens `name` from the column at `depth`, discarding any columns beyond it — clicking a
     /// folder in column 1 while three are open closes columns 2 and 3, like Finder.
     public mutating func drill(into name: String, atDepth depth: Int) {
         guard !name.isEmpty else { return }
         components = Array(components.prefix(clamped(depth))) + [name]
+        forwardComponents = []
     }
 
     /// Truncates to `depth` without opening anything — selecting a *file* in a column closes the
     /// columns to its right but adds none of its own.
     public mutating func truncate(toDepth depth: Int) {
         components = Array(components.prefix(clamped(depth)))
+        forwardComponents = []
     }
 
     /// Steps out one level. Returns false when already at the root, which is the signal for `‹`
     /// to fall through to the pane's focus history rather than doing nothing.
     @discardableResult
     public mutating func popLast() -> Bool {
-        guard !components.isEmpty else { return false }
-        components.removeLast()
+        guard let last = components.popLast() else { return false }
+        forwardComponents.append(last)
+        return true
+    }
+
+    /// Steps back into the column `popLast` left. Returns false when there is none, the signal for
+    /// `›` to fall through to the focus history.
+    @discardableResult
+    public mutating func advance() -> Bool {
+        guard let next = forwardComponents.popLast() else { return false }
+        components.append(next)
         return true
     }
 
@@ -75,6 +101,7 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// tree under this path is about to be replaced by an unrelated one.
     public mutating func reset() {
         components = []
+        forwardComponents = []
     }
 
     // MARK: - Resolution against a tree

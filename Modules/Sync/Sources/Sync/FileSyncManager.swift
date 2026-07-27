@@ -921,9 +921,20 @@ public class FileSyncManager: ObservableObject {
     var isVerifyAllRunning = false
 
     /// Current subfolder path relative to the left pane root (empty = root).
+    ///
+    /// This is the pane's comparison **scope**, not merely where it is looking: assigning it goes
+    /// through `focusOn` → `syncPathsFromHistory` → `refreshSubject`, reloading the tree and
+    /// re-running the scan. Where the pane is *browsing* inside that scope is `leftBrowsePath`.
     @Published public var leftRelativePath: String = ""
     /// Current subfolder path relative to the right pane root (empty = root).
     @Published public var rightRelativePath: String = ""
+
+    /// Where the left pane is browsing inside its loaded tree — the Columns view's column stack.
+    /// Empty is the resting single column. See `PaneBrowsePath` for why this is deliberately not
+    /// `leftRelativePath`.
+    @Published public var leftBrowsePath = PaneBrowsePath()
+    /// Right-pane counterpart of `leftBrowsePath`.
+    @Published public var rightBrowsePath = PaneBrowsePath()
 
     /// Paths currently selected in the left pane.
     ///
