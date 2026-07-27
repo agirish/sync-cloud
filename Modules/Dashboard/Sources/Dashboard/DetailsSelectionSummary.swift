@@ -19,12 +19,35 @@ struct DetailsSelectionSummary: Equatable {
     /// (they were selected, so hiding them would be misleading); unresolved paths just
     /// contribute nothing to the breakdown or the byte total.
     static func make(selectedPaths: Set<String>, in tree: [FileNode]) -> DetailsSelectionSummary? {
+        make(selectedPaths: selectedPaths) { tree.findNodes(at: $0) }
+    }
+
+    /// The spelling the sidebar uses: it hands over a resolver rather than a tree, so the paths
+    /// can go through `FileSyncManager`'s cached path→node index instead of a walk.
+    ///
+    /// `findNodes` looks cheap because it unwinds as soon as every requested path has matched —
+    /// and it is, when the selection happens to sit near the front of the tree (measured 0.03ms).
+    /// The cases that don't: a path at the far end of a ~40k-node tree costs 10.7ms, and a STALE
+    /// path — one selected before a rescan removed it — never satisfies the exit at all and
+    /// degrades to a full walk, 8.2ms. This is read straight from `body`, so during a bulk sync,
+    /// which re-renders per published file, that is 8–11ms of main-thread work per copied file:
+    /// the same shape as the freeze `PaneTree` was built to remove, in the one selection path that
+    /// change did not reach. `ContentView+Toolbar.activeSelectionNodes` was moved onto the index
+    /// for exactly this reason and this was left behind.
+    ///
+    /// The resolver is a closure rather than a `[FileNode]` parameter so the `count > 1` early-out
+    /// still runs FIRST — a single selection resolves nothing, as before.
+    ///
+    /// Order is not read (only counts and a sum), which is what makes the index — documented as
+    /// unordered — a safe substitute for `findNodes`' pre-order.
+    static func make(selectedPaths: Set<String>,
+                     resolving resolve: (Set<String>) -> [FileNode]) -> DetailsSelectionSummary? {
         guard selectedPaths.count > 1 else { return nil }
 
         var fileCount = 0
         var folderCount = 0
         var totalFileBytes: Int64 = 0
-        for node in tree.findNodes(at: selectedPaths) {
+        for node in resolve(selectedPaths) {
             if node.isDirectory {
                 folderCount += 1
             } else {

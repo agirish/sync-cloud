@@ -26,6 +26,55 @@ import Sync
         #expect(DetailsSelectionSummary.make(selectedPaths: ["/vault/a.txt"], in: tree) == nil)
     }
 
+    /// The sidebar reads this from `body`, so what it costs per render is a property worth
+    /// pinning, not an implementation detail: the resolver runs ONCE for a multi-selection and
+    /// NOT AT ALL below the threshold.
+    ///
+    /// The zero case is the one that matters. `make` guards on the count before resolving, which
+    /// is what keeps a single selection from paying anything — reordering those two lines is free
+    /// to write and invisible without this.
+    @Test func theResolverRunsOnceAndOnlyForAMultiSelection() {
+        var calls = 0
+        let resolve: (Set<String>) -> [FileNode] = { paths in
+            calls += 1
+            return paths.map { file($0, size: 5) }
+        }
+
+        _ = DetailsSelectionSummary.make(selectedPaths: [], resolving: resolve)
+        _ = DetailsSelectionSummary.make(selectedPaths: ["/vault/a.txt"], resolving: resolve)
+        #expect(calls == 0, "a selection too small to summarize must not resolve anything")
+
+        let summary = DetailsSelectionSummary.make(selectedPaths: ["/vault/a.txt", "/vault/b.txt"],
+                                                   resolving: resolve)
+        #expect(calls == 1)
+        #expect(summary?.fileCount == 2)
+    }
+
+    /// The two spellings must agree. The sidebar moved onto the resolver form so it could go
+    /// through the manager's cached path→node index instead of walking the tree per render; that
+    /// substitution is only safe if nothing here depends on `findNodes`' pre-order, which the
+    /// index does not promise.
+    @Test func theResolverFormMatchesTheTreeForm() {
+        let tree = [
+            folder("/vault/docs", children: [file("/vault/docs/deep.txt", size: 900)]),
+            file("/vault/a.txt", size: 10),
+            file("/vault/b.txt", size: 32),
+        ]
+        let paths: Set<String> = ["/vault/a.txt", "/vault/b.txt", "/vault/docs"]
+
+        let viaTree = DetailsSelectionSummary.make(selectedPaths: paths, in: tree)
+        // Deliberately REVERSED against the tree's pre-order, which is the difference the index
+        // is allowed to have.
+        let viaResolver = DetailsSelectionSummary.make(selectedPaths: paths) { requested in
+            tree.findNodes(at: requested).reversed()
+        }
+
+        #expect(viaTree == viaResolver)
+        #expect(viaTree?.fileCount == 2)
+        #expect(viaTree?.folderCount == 1)
+        #expect(viaTree?.totalFileBytes == 42, "the folder's child must not leak into the total")
+    }
+
     @Test func countsFilesAndFoldersAndSumsOnlyFileBytes() {
         // The folder's own children must not leak into the byte total — the summary is
         // metadata-only, never a directory walk.

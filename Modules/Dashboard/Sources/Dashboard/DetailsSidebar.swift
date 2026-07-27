@@ -108,11 +108,19 @@ public struct DetailsSidebar: View {
     /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead
     /// of single-item metadata (which would silently describe only the alphabetically-first
     /// path). Left pane wins when both have selections — the same rule as `activePath`.
+    ///
+    /// Resolved through the manager's cached path→node index, NOT `leftTree.findNodes` — this is
+    /// read from `body`, and the walk costs 8–11ms per render whenever the selection sits deep in
+    /// the tree or holds a path a rescan has removed. See `DetailsSelectionSummary.make(selectedPaths:resolving:)`.
     internal var selectionSummary: DetailsSelectionSummary? {
         if !syncManager.selectedLeftPaths.isEmpty {
-            return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedLeftPaths, in: syncManager.leftTree)
+            return DetailsSelectionSummary.make(selectedPaths: syncManager.selectedLeftPaths) {
+                syncManager.leftNodes(for: $0)
+            }
         }
-        return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths, in: syncManager.rightTree)
+        return DetailsSelectionSummary.make(selectedPaths: rightSelectionPaths) {
+            syncManager.rightNodes(for: $0)
+        }
     }
 
     /// `.task(id:)` key for the directory-size walk. Includes the multi-selection flag so the
