@@ -14,16 +14,34 @@ enum DifferenceGrouping {
 
     /// One section: the folder that names it and the rows beneath it, in the order they arrived.
     struct Section: Identifiable, Equatable {
-        /// The top-level folder name, or `rootLabel` for items sitting directly in the scan root.
+        /// The bucket this section is keyed on: a top-level folder name, or `rootKey` for items
+        /// sitting directly in the scan root. An identity, not a label — render `title`.
         let folder: String
         let rows: [FileDifference]
         var id: String { folder }
         var count: Int { rows.count }
+
+        /// What the header prints. The only place `rootKey` becomes words, so nothing else has to
+        /// know that the root bucket is spelled differently from the thing it is called.
+        var title: String { folder == DifferenceGrouping.rootKey ? DifferenceGrouping.rootLabel : folder }
     }
 
-    /// What a difference lying directly in the compared folder is filed under. Not a real folder
-    /// name, so it cannot collide with one: a folder called "Top level" would be grouped under
-    /// its own name, and this label is only ever chosen for rows whose `parentPath` is empty.
+    /// The bucket a difference lying directly in the compared folder is filed under.
+    ///
+    /// A "/" rather than the words below, and that is the whole point: `split(separator: "/")`
+    /// drops empty components, so no path can ever yield a component containing a separator —
+    /// which makes this key unreachable by any real folder, by construction.
+    ///
+    /// Keying on the LABEL, as this used to, merged the loose rows into a folder literally named
+    /// "Top level": both sides answered "Top level" from `folder(for:)` and landed in one bucket,
+    /// so the header counted rows that were not in that folder and — once the header became a
+    /// selection target — selecting the folder also selected files sitting beside it. The comment
+    /// here claimed the collision could not happen, which is the version of this worth naming: the
+    /// label and the identity were the same string, so there was nothing to keep honest.
+    static let rootKey = "/"
+
+    /// What `rootKey` is CALLED. Display only — never a bucket, never compared against a folder
+    /// name. See `Section.title`.
     static let rootLabel = "Top level"
 
     /// The single split `folder(for:)` and `pathWithinSection(_:)` both read, so the header and the
@@ -47,14 +65,14 @@ enum DifferenceGrouping {
         return (components.removeFirst(), components.joined(separator: "/"))
     }
 
-    /// The top-level folder a difference belongs to — the first path component of its parent, or
-    /// `rootLabel` when it has no parent at all.
+    /// The bucket a difference belongs to — the first path component of its parent, or `rootKey`
+    /// when it has no parent at all.
     ///
     /// First component, not the whole parent path: grouping by the full parent turns 576 rows into
     /// roughly 400 sections of one row each, which is the flat list with extra chrome. The
     /// top-level folder is the unit people actually decide about.
     static func folder(for difference: FileDifference) -> String {
-        split(difference.parentPath).folder ?? rootLabel
+        split(difference.parentPath).folder ?? rootKey
     }
 
     /// The parent path with the section's own folder taken off the front — what the Name cell

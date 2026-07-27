@@ -437,9 +437,11 @@ public struct DifferencesView: View {
     ///
     /// Anchored to `lastScanDate`, NOT to `Date()`: anchored to view creation the ticks sat on an
     /// arbitrary phase relative to the scan, so a "30s ago" label could land anywhere within 30s
-    /// of the truth — and, because the 600s stale threshold is a multiple of 30, anchoring also
-    /// puts the fresh→stale flip exactly on ten minutes instead of up to 30s late. Pre-scan there
-    /// is nothing to tick, so the content renders once.
+    /// of the truth — and, because `ScanFreshness.staleAfter` is a whole number of 30s ticks,
+    /// anchoring also puts the fresh→stale flip exactly on the threshold instead of up to 30s
+    /// late. Stated as a property of the constant rather than as its value, which is what let this
+    /// go on naming ten minutes for an hour after the threshold moved. Pre-scan there is nothing
+    /// to tick, so the content renders once.
     @ViewBuilder
     private func withScanFreshness(@ViewBuilder _ content: @escaping (CountPillDressing) -> some View) -> some View {
         if let scanDate = syncManager.lastScanDate {
@@ -1138,7 +1140,9 @@ public struct DifferencesView: View {
                         ForEach(isCollapsed ? [] : section.rows) { TableRow($0) }
                     } header: {
                         DifferenceSectionHeader(
-                            folder: section.folder,
+                            // `title`, not `folder`: the latter is the bucket identity (the root
+                            // bucket is spelled "/"), and only `title` turns it into words.
+                            folder: section.title,
                             count: section.count,
                             accent: glassHue.accentColor,
                             isFullySelected: DifferenceGrouping.isFullySelected(section, in: selection),

@@ -28,7 +28,7 @@ import Sync
     }
 
     @Test func testRootLevelItemsGetTheRootLabel() {
-        #expect(DifferenceGrouping.folder(for: diff("loose.pdf")) == DifferenceGrouping.rootLabel)
+        #expect(DifferenceGrouping.folder(for: diff("loose.pdf")) == DifferenceGrouping.rootKey)
     }
 
     @Test func testLeadingSlashDoesNotProduceANamelessSection() {
@@ -108,8 +108,47 @@ import Sync
     /// quietly merge everything loose into one bucket named "".
     @Test func testRootRowsFormTheirOwnNamedSection() {
         let sections = DifferenceGrouping.sections([diff("loose.pdf"), diff("Work/a.pdf"), diff("other.txt")])
-        #expect(sections.map(\.folder) == [DifferenceGrouping.rootLabel, "Work"])
+        #expect(sections.map(\.folder) == [DifferenceGrouping.rootKey, "Work"])
+        #expect(sections.map(\.title) == [DifferenceGrouping.rootLabel, "Work"])
         #expect(sections.first?.count == 2)
+    }
+
+    /// A real folder named exactly like the root label must not swallow the loose rows.
+    ///
+    /// The bucket used to BE the label, so `folder(for:)` answered "Top level" for a file at the
+    /// scan root and for a file inside a folder called "Top level", and `sections` put them in one
+    /// bucket. Nothing on screen could tell them apart either — both render with no path prefix, so
+    /// the header just counted three rows where two were in the folder and one was beside it. Once
+    /// the header became a selection target that got worse: "select this folder's differences" also
+    /// selected a file that is not in the folder.
+    ///
+    /// Asserted on the SECTIONS rather than on `folder(for:)` alone, because the defect was the
+    /// merge, not the string: two separate buckets with the right rows in each is the property.
+    @Test func testARealFolderNamedLikeTheRootLabelKeepsItsOwnSection() {
+        let sections = DifferenceGrouping.sections([
+            diff("loose.pdf"),
+            diff("\(DifferenceGrouping.rootLabel)/a.pdf"),
+            diff("\(DifferenceGrouping.rootLabel)/b.pdf"),
+        ])
+
+        #expect(sections.count == 2, "the loose row merged into the folder's section")
+        #expect(sections.map(\.count) == [1, 2])
+        #expect(sections[0].folder == DifferenceGrouping.rootKey)
+        #expect(sections[1].folder == DifferenceGrouping.rootLabel)
+        // Both PRINT the same words — which is why the identity has to be the thing that differs.
+        #expect(sections.map(\.title) == [DifferenceGrouping.rootLabel, DifferenceGrouping.rootLabel])
+        #expect(sections[0].rows.map(\.relativePath) == ["loose.pdf"])
+    }
+
+    /// The property that makes the case above unrepresentable rather than merely fixed: the root
+    /// bucket contains a separator, and `split` can never hand back a component that does.
+    @Test func testTheRootKeyCannotBeProducedByAnyPath() {
+        #expect(DifferenceGrouping.rootKey.contains("/"))
+        for path in ["a.pdf", "One/a.pdf", "/One/a.pdf", "One//Two/a.pdf", "One/Two/Three/a.pdf"] {
+            let folder = DifferenceGrouping.folder(for: diff(path))
+            #expect(folder == DifferenceGrouping.rootKey || !folder.contains("/"),
+                    "path \(path) produced folder \(folder)")
+        }
     }
 
     // MARK: Path shown inside a section
@@ -164,16 +203,21 @@ import Sync
             let folder = DifferenceGrouping.folder(for: d)
             let rest = DifferenceGrouping.pathWithinSection(d)
             let rejoined = [folder, rest]
-                .filter { !$0.isEmpty && $0 != DifferenceGrouping.rootLabel }
+                .filter { !$0.isEmpty && $0 != DifferenceGrouping.rootKey }
                 .joined(separator: "/")
             let expected = d.parentPath
                 .components(separatedBy: "/")
                 .filter { !$0.isEmpty }
                 .joined(separator: "/")
             #expect(rejoined == expected, "path \(path): folder=\(folder) rest=\(rest)")
-            // Never a section with no name, and never one named after a separator.
+            // Never a section with no name, and never one named after a separator. Asserted on
+            // the TITLE, which is what a header prints: the root bucket's key is deliberately "/"
+            // (the one string no path component can be — see `rootKey`), and it is `Section.title`
+            // that turns it into words.
+            let title = DifferenceGrouping.Section(folder: folder, rows: [d]).title
             #expect(!folder.isEmpty, "path \(path)")
-            #expect(!folder.contains("/"), "path \(path)")
+            #expect(!title.isEmpty, "path \(path)")
+            #expect(!title.contains("/"), "path \(path): header would read \(title)")
             // Never a prefix that opens or closes on a bare separator — the Name cell appends "/".
             #expect(!rest.hasPrefix("/") && !rest.hasSuffix("/"), "path \(path)")
         }
@@ -204,7 +248,7 @@ import Sync
     /// A parent of pure separators has no folder to name, so it files under the root label rather
     /// than minting a section whose header is blank or "/".
     @Test func testASeparatorOnlyParentFilesUnderTheRootLabel() {
-        #expect(DifferenceGrouping.folder(for: diff("//loose.pdf")) == DifferenceGrouping.rootLabel)
+        #expect(DifferenceGrouping.folder(for: diff("//loose.pdf")) == DifferenceGrouping.rootKey)
         #expect(DifferenceGrouping.pathWithinSection(diff("//loose.pdf")) == "")
     }
 

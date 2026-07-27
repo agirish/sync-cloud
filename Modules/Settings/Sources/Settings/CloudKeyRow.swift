@@ -205,6 +205,12 @@ struct CloudKeyRow: View {
                     Button("Cancel") {
                         isReplacingKey = false
                         apiKeyField = ""
+                        // The verdict described the candidate, which is now discarded. Left
+                        // standing it reappears above the STORED key's row as though it were
+                        // about that key — so "Key rejected (401)" from a mistyped replacement
+                        // ends up accusing the key that is actually saved and working.
+                        // `Replace…` clears it on the way in for the same reason.
+                        keyTestResult = nil
                     }
                 }
             }
