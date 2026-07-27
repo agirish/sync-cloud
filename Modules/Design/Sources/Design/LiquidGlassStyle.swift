@@ -288,6 +288,16 @@ public extension LiquidGlass {
     /// and the toolbar band.
     static let clearAccentVeil: Double = 0.12
 
+    /// The film `chromePillSurface` lays under a chrome pill at Clear — `.primary`, so it lifts on
+    /// a dark appearance and settles on a light one, in both cases separating the pill from a
+    /// surface that has stopped supplying one.
+    ///
+    /// Sits deliberately above the nav pills' 0.075 rest fill: those carry a single glyph, the
+    /// provider capsule carries a brand mark whose negative space is transparent, so it needs more
+    /// ground to sit on. Kept a film rather than a frost — `.regular` glass here read as a dark
+    /// slab against the header (see `chromePillSurface`).
+    static let clearPillLift: Double = 0.13
+
     /// Extra accent painted into the top strip at Clear, fading out over `clearTitlebarBoostHeight`.
     ///
     /// The titlebar/toolbar band is a translucent AppKit material *above* the app background — no
@@ -466,21 +476,29 @@ public extension View {
     /// of the four assets paints a single opaque white pixel, so their negative space (Dropbox's
     /// folded-box seams, Drive's triangle seams) fills with wallpaper rather than with page.
     ///
-    /// So the pill floors to `.frosted` and paints its own material — the same trade `chromeButtonStyle`
-    /// makes for bar buttons and `flooredForChrome` makes for overlay cards. The *card* stays clear;
-    /// only the pill frosts, so Clear keeps its transparency everywhere it isn't costing legibility.
+    /// So at `.clear` the pill draws a ground of its own. The *card* stays clear; only the pill
+    /// gets a ground, so Clear keeps its transparency everywhere it isn't costing legibility.
     /// Keyed off `needsChromeFrosting` rather than an `== .clear` check, so a level added later
     /// decides its chrome treatment in `GlassLevel` alone.
+    ///
+    /// The ground is a LIFT, not a frost, and the app owns it — `PaneNavChrome`'s reasoning, for
+    /// the same reason it applies there. `29d0cc7` shipped this as `.glassEffect(.regular.tint:)`,
+    /// which floors the pill to Frosted the way `chromeButtonStyle` floors bar buttons, and on a
+    /// dark appearance `.regular` renders as a dark slab: the capsule came out heavier than the
+    /// header around it. A thin film of `.primary` plus the brand wash and a hairline separates the
+    /// pill from the surface *without* darkening it — and unlike glass it paints offscreen, so the
+    /// ground is a testable fact rather than something only a screenshot can confirm.
     @ViewBuilder
     func chromePillSurface(_ level: GlassLevel, wash: Color) -> some View {
-        if !level.needsChromeFrosting {
-            self.background(wash, in: Capsule())
-        } else if #available(macOS 26.0, *) {
-            // Tint the glass itself rather than floating the wash on top of it, for the reason
-            // `accentGlassCapsule` does: a wash over neutral gray glass reads as "wash over gray".
-            self.glassEffect(.regular.tint(wash), in: Capsule())
+        if level.needsChromeFrosting {
+            self.background(
+                Capsule()
+                    .fill(Color.primary.opacity(LiquidGlass.clearPillLift))
+                    .overlay(Capsule().fill(wash))
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+            )
         } else {
-            self.background(Capsule().fill(.thinMaterial).overlay(Capsule().fill(wash)))
+            self.background(wash, in: Capsule())
         }
     }
 
