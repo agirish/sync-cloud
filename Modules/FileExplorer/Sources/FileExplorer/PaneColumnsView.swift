@@ -53,30 +53,31 @@ struct PaneColumnsView: View {
 
     /// Live width while a divider is being dragged, so the drag doesn't write defaults per frame.
     @State private var dragWidth: CGFloat?
-    /// Pane width, measured — the push/stack decision is about painted width, not a guess.
-    @State private var paneWidth: CGFloat = 0
+    /// The column width the current divider drag started from. `DragGesture.translation` is
+    /// cumulative, so the anchor must not move while the drag runs.
+    @State private var dragAnchorWidth: CGFloat?
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var columnWidth: CGFloat {
         PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
     }
-    /// Below two minimum columns there is no room for a second one, so the pane shows a single
-    /// column that replaces its contents as you drill and `‹` walks back out.
-    private var usesPush: Bool { PaneViewMode.usesPushNavigation(paneWidth: paneWidth) }
-
     /// The directories each open column lists, root first.
     private var directories: [String] { browsePath.columnDirectories(treeRoot: treeRoot) }
 
     var body: some View {
+        // The measured width feeds the layout directly. It used to be mirrored into @State and read
+        // back from there, which meant the first render of any pane decided push-vs-stack from a
+        // width of 0 — a wide pane opened as one column and corrected itself a frame later.
         GeometryReader { geo in
             columnStack(paneWidth: geo.size.width)
-                .onAppear { paneWidth = geo.size.width }
-                .onChange(of: geo.size.width) { _, width in paneWidth = width }
         }
     }
 
     @ViewBuilder
     private func columnStack(paneWidth: CGFloat) -> some View {
+        // Below two minimum columns there is no room for a second one, so the pane shows a single
+        // column that replaces its contents as you drill and `‹` walks back out.
+        let usesPush = PaneViewMode.usesPushNavigation(paneWidth: paneWidth)
         // Push mode shows only the deepest column; the rest of the stack is still in `browsePath`,
         // which is what lets `‹` walk back out and `›` walk back in.
         let visible = usesPush ? Array(directories.suffix(1)) : directories
@@ -172,11 +173,18 @@ struct PaneColumnsView: View {
             showsChevron: node.isDirectory
         )
         .tag(node.id)
-        // Single click opens a folder's column, per the decision — this is the one real change to
-        // the pane's click contract, and it is what makes "columns appear when you click" work.
-        // A file click closes any deeper columns without opening one of its own.
+        // Single click opens a folder's column, per the decision — the one real change to the
+        // pane's click contract, and what makes "columns appear when you click" work. A file click
+        // closes any deeper columns without opening one of its own.
+        //
+        // `simultaneousGesture`, and no writing to `selection`: the List owns selection here exactly
+        // as it does in the tree presentation. An `onTapGesture` that also assigned
+        // `selection = [node.id]` consumed the click and flattened every ⌘/⇧-click back to a single
+        // row, so Copy, Move and Delete could never act on more than one item.
         .contentShape(Rectangle())
-        .onTapGesture {
+        .simultaneousGesture(TapGesture().onEnded {
+            // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
+            guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
             var path = browsePath
             if node.isDirectory {
                 path.drill(into: node.name, atDepth: depth)
@@ -184,8 +192,7 @@ struct PaneColumnsView: View {
                 path.truncate(toDepth: depth)
             }
             onNavigate(path)
-            selection = [node.id]
-        }
+        })
         .contextMenu {
             FileContextMenu(
                 row: row, selection: selection, tree: tree, otherTree: otherTree,
@@ -268,11 +275,17 @@ struct PaneColumnsView: View {
                     .gesture(
                         DragGesture(coordinateSpace: .global)
                             .onChanged { value in
-                                dragWidth = PaneViewMode.clampColumnWidth(columnWidth + value.translation.width)
+                                // Capture the starting width once; `translation` is cumulative, so
+                                // folding it into the live width compounds every frame.
+                                let anchor = dragAnchorWidth ?? columnWidth
+                                if dragAnchorWidth == nil { dragAnchorWidth = anchor }
+                                dragWidth = PaneViewMode.draggedColumnWidth(anchor: anchor,
+                                                                            translation: value.translation.width)
                             }
                             .onEnded { _ in
                                 if let dragWidth { storedColumnWidth = Double(dragWidth) }
                                 dragWidth = nil
+                                dragAnchorWidth = nil
                             }
                     )
             }

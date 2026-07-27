@@ -94,15 +94,30 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         paneWidth < pushNavigationBelowWidth
     }
 
-    /// How many columns of `width` fit in `paneWidth`, at least one. The stack scrolls when the
-    /// open depth exceeds this, keeping the deepest column visible.
-    public static func visibleColumnCount(paneWidth: CGFloat, columnWidth: CGFloat) -> Int {
-        guard columnWidth > 0 else { return 1 }
-        return max(1, Int(paneWidth / columnWidth))
-    }
-
     /// Clamps a dragged width into the legible range.
     public static func clampColumnWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minimumColumnWidth), maximumColumnWidth)
+    }
+
+    /// The width a divider drag has reached, from the width it started at and the gesture's
+    /// translation.
+    ///
+    /// `anchor` must be the width captured when the drag *began*, never the current one.
+    /// `DragGesture.translation` is cumulative from the drag's start, so folding it into a width
+    /// that already includes it compounds: a drag of 10, 20, 30 points produced 220, 240, 270
+    /// instead of 220, 230, 240, and the column shot to its maximum almost immediately. Taking the
+    /// anchor explicitly makes that mistake unrepresentable rather than merely fixed.
+    public static func draggedColumnWidth(anchor: CGFloat, translation: CGFloat) -> CGFloat {
+        clampColumnWidth(anchor + translation)
+    }
+
+    /// Whether a click on a column row should navigate, or be left entirely to the list's own
+    /// selection handling.
+    ///
+    /// ⌘ and ⇧ clicks are the list's: they extend and range-select. A navigation handler that ran
+    /// for them too would collapse every multi-selection back to the one row just clicked, which is
+    /// exactly what it did — Copy/Move/Delete could never act on more than one item in Columns.
+    public static func clickNavigates(modifiers: NSEvent.ModifierFlags) -> Bool {
+        !modifiers.contains(.command) && !modifiers.contains(.shift)
     }
 }

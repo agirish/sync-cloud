@@ -530,11 +530,15 @@ struct ContentView: View {
         // `currentDirectory` still names the dead folder, which is where New Folder and paste
         // would then act. `PaneTree` compares by publish stamp, so this fires once per publish.
         .onChange(of: syncManager.leftPaneTree) { _, _ in
+            // Skipped entirely when the pane has no column stack to prune — building the index to
+            // prune an empty path would be the whole-tree walk for nothing.
+            guard !syncManager.leftBrowsePath.isEmpty else { return }
             syncManager.pruneBrowsePath(isLeft: true,
                                         against: syncManager.leftChildrenIndex(treeRoot: currentLeftPath),
                                         treeRoot: currentLeftPath)
         }
         .onChange(of: syncManager.rightPaneTree) { _, _ in
+            guard !syncManager.rightBrowsePath.isEmpty else { return }
             syncManager.pruneBrowsePath(isLeft: false,
                                         against: syncManager.rightChildrenIndex(treeRoot: currentRightPath),
                                         treeRoot: currentRightPath)
@@ -1192,12 +1196,17 @@ struct ContentView: View {
         /// How this pane presents its tree. Only the comparison panes reach Columns; the Tidy rail
         /// renders through the same view and deliberately stays on `.tree`.
         let viewMode: PaneViewMode
-        /// Path → children for the columns presentation, cached per publish by the manager.
-        let childrenIndex: PaneChildrenIndex
+        /// Path → children for the columns presentation, cached per publish by the manager. `nil`
+        /// in Tree mode: building it walks the whole tree, and a pane that will never draw a column
+        /// should not pay that on every publish.
+        let childrenIndex: PaneChildrenIndex?
     }
 
     private func paneContext(isLeft: Bool) -> PaneContext {
-        PaneContext(
+        // The Tidy rail shares this builder but never Columns: it has no sibling pane, no seam
+        // link, and re-roots per lens, so none of the Columns navigation rules apply to it.
+        let mode: PaneViewMode = layoutMode == .singleSource ? .tree : paneViewMode(isLeft: isLeft)
+        return PaneContext(
             isLeft: isLeft,
             title: isLeft ? "Left" : "Right",
             providerId: isLeft ? leftProviderId : rightProviderId,
@@ -1212,12 +1221,11 @@ struct ContentView: View {
             diffIndex: isLeft ? leftDiffIndex : rightDiffIndex,
             otherPaneName: isLeft ? paneNames.right : paneNames.left,
             hasOnlyHiddenEntries: isLeft ? syncManager.leftTreeHasOnlyHiddenEntries : syncManager.rightTreeHasOnlyHiddenEntries,
-            // The Tidy rail shares this builder but never Columns: it has no sibling pane, no seam
-            // link, and re-roots per lens, so none of the Columns navigation rules apply to it.
-            viewMode: layoutMode == .singleSource ? .tree : paneViewMode(isLeft: isLeft),
-            childrenIndex: isLeft
-                ? syncManager.leftChildrenIndex(treeRoot: currentLeftPath)
-                : syncManager.rightChildrenIndex(treeRoot: currentRightPath)
+            viewMode: mode,
+            childrenIndex: mode == .columns
+                ? (isLeft ? syncManager.leftChildrenIndex(treeRoot: currentLeftPath)
+                          : syncManager.rightChildrenIndex(treeRoot: currentRightPath))
+                : nil
         )
     }
 

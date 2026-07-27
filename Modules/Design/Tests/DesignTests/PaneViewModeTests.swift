@@ -63,12 +63,31 @@ import SwiftUI
         #expect(PaneViewMode.usesPushNavigation(paneWidth: 660) == false)
     }
 
-    @Test func testVisibleColumnCountNeverDropsBelowOne() {
-        #expect(PaneViewMode.visibleColumnCount(paneWidth: 660, columnWidth: 210) == 3)
-        #expect(PaneViewMode.visibleColumnCount(paneWidth: 420, columnWidth: 210) == 2)
-        // Narrower than one column, and a degenerate width, still yield a column to draw.
-        #expect(PaneViewMode.visibleColumnCount(paneWidth: 100, columnWidth: 210) == 1)
-        #expect(PaneViewMode.visibleColumnCount(paneWidth: 660, columnWidth: 0) == 1)
+    /// The drag regression: translation is cumulative, so the anchor must stay the width the drag
+    /// STARTED at. Walking a drag frame by frame is the only way to catch a moving anchor — a
+    /// single call looks correct either way.
+    @Test func testDragWidthTracksTranslationFromAFixedAnchor() {
+        let anchor: CGFloat = 210
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 10) == 220)
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 20) == 230)
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 30) == 240)
+        // Dragging back past the start shrinks by the same amount it grew.
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: -10) == 200)
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 0) == anchor)
+        // Still clamped at both ends.
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: 9_999) == PaneViewMode.maximumColumnWidth)
+        #expect(PaneViewMode.draggedColumnWidth(anchor: anchor, translation: -9_999) == PaneViewMode.minimumColumnWidth)
+    }
+
+    /// ⌘ and ⇧ clicks belong to the list, not to navigation — otherwise every multi-selection
+    /// collapses to the row just clicked and the action bar can never act on more than one item.
+    @Test func testOnlyPlainClicksNavigate() {
+        #expect(PaneViewMode.clickNavigates(modifiers: []))
+        #expect(PaneViewMode.clickNavigates(modifiers: [.option]))
+        #expect(PaneViewMode.clickNavigates(modifiers: [.control]))
+        #expect(PaneViewMode.clickNavigates(modifiers: [.command]) == false)
+        #expect(PaneViewMode.clickNavigates(modifiers: [.shift]) == false)
+        #expect(PaneViewMode.clickNavigates(modifiers: [.command, .shift]) == false)
     }
 
     @Test func testEveryModeHasDistinctChrome() {
