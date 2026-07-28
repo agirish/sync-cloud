@@ -225,6 +225,42 @@ enum PaneLogic {
     /// One decimal place, so a log line reads `412.4ms` rather than `412.35917663574219ms`.
     static func ms(_ value: Double) -> String { String(format: "%.1fms", value) }
 
+    /// Lets go of the selection in **both** panes, for a plain click on a pane's empty space.
+    ///
+    /// Deliberately not routed through `applySelectionWrite`. That path treats an empty write as
+    /// enforcing nothing and leaves the other pane alone on purpose — which is what keeps the
+    /// right-click "Copy N items from other pane" menu working, since a right-click never sets a
+    /// selection. A click on empty space is the opposite case: it is a deliberate "I am done with
+    /// that", and the one-pane-selected invariant means the selection it dismisses usually lives in
+    /// the pane the user did *not* just click. Clearing only the clicked side would leave the
+    /// gesture looking dead on its most common path.
+    ///
+    /// Synchronous, and safely so: this runs from a click recognizer on mouse-UP, outside the
+    /// mouse-down tracking loop an `NSTableView` commits its selection from. It is therefore not
+    /// the mid-commit sibling write that dropped clicks in `aa9d407`, and it queues nothing that
+    /// could go stale the way `94554e9`'s deferral did.
+    @MainActor
+    static func clearBothSelections(state: PaneSelectionState) {
+        if !state.selectedLeftPaths.isEmpty { state.selectedLeftPaths = [] }
+        if !state.selectedRightPaths.isEmpty { state.selectedRightPaths = [] }
+    }
+
+    /// The column stack a background click leaves behind, or nil when it changes nothing.
+    ///
+    /// Finder's rule: clicking a column's empty space closes the columns to its right but opens
+    /// none — the same truncation a click on a *file* in that column performs, which is why both go
+    /// through `PaneBrowsePath.truncate(toDepth:)`.
+    ///
+    /// `depth` is nil where there is no column to truncate to: Tree mode, the Tidy rail, and the
+    /// dead space past the last column. Closing the stack from a click *past* it would be a
+    /// navigation the user did not ask for.
+    static func backgroundDeselectPath(from browsePath: PaneBrowsePath, depth: Int?) -> PaneBrowsePath? {
+        guard let depth else { return nil }
+        var path = browsePath
+        path.truncate(toDepth: depth)
+        return path == browsePath ? nil : path
+    }
+
     /// The left pane wins when both panes have selections (it is checked first, matching
     /// the historical behavior of the details/actions targeting). The selection bindings
     /// enforce exclusivity via `reconciledSelections`, clearing the other pane one runloop

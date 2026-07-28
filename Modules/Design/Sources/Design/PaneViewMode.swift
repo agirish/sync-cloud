@@ -111,6 +111,27 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         clampColumnWidth(anchor + translation)
     }
 
+    /// Width of the dead space to the right of the last column, which the pane fills with a
+    /// deselect target so clicking there behaves like clicking below a column's last row.
+    ///
+    /// Zero whenever the stack overflows its pane, which is the load-bearing half. The column
+    /// stack's scroll behaviour was fought over four times (`63bb6cf` through `a89aa40`) and its
+    /// mounted test holds only while the stack genuinely overflows; a filler that padded the
+    /// content in that state would move the very condition those fixes were tuned against. It only
+    /// ever occupies slack that already existed.
+    ///
+    /// A single column is framed to the full pane width rather than `columnWidth`, so it leaves no
+    /// slack either — which also covers push mode, where exactly one column is ever visible.
+    public static func trailingFillerWidth(
+        paneWidth: CGFloat,
+        columnWidth: CGFloat,
+        columnCount: Int,
+        isSingleColumn: Bool
+    ) -> CGFloat {
+        guard !isSingleColumn else { return 0 }
+        return max(0, paneWidth - CGFloat(columnCount) * columnWidth)
+    }
+
     /// Whether a click on a column row should navigate, or be left entirely to the list's own
     /// selection handling.
     ///

@@ -1590,8 +1590,35 @@ struct ContentView: View {
             viewMode: pane.viewMode,
             childrenIndex: pane.childrenIndex,
             browsePath: pane.isLeft ? $syncManager.leftBrowsePath : $syncManager.rightBrowsePath,
-            onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) }
+            onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },
+            onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) }
         )
+    }
+
+    /// A plain click on a pane's empty space: let the selection go, and — in Columns — close the
+    /// columns to the right of the one clicked in, which is what Finder does.
+    ///
+    /// **Both panes are cleared, deliberately.** The one-pane-selected invariant means the selection
+    /// usually lives in the pane the user did *not* just click, so clearing only this side would
+    /// leave the click looking dead on the more common path. That is also why this does not go
+    /// through `paneSelectionBinding`: `PaneLogic.applySelectionWrite` treats an empty write as
+    /// enforcing nothing and leaves the other pane alone on purpose, since that is what keeps the
+    /// right-click "Copy N items from other pane" menu working. Right-click cannot reach here —
+    /// `NSClickGestureRecognizer` watches the primary button only — so that menu is untouched.
+    ///
+    /// Both writes are synchronous, and safely so: the recognizer fires on mouse-UP, outside the
+    /// mouse-down tracking loop an `NSTableView` commits its selection from. This is therefore not
+    /// the mid-commit sibling write that dropped clicks in `aa9d407`, and it queues no deferral that
+    /// could go stale the way `94554e9`'s did.
+    ///
+    /// The truncation is routed through `applyColumnNavigation` rather than written straight to the
+    /// browse path so that closing columns obeys the seam link exactly as opening them does — a
+    /// linked pane truncates (pruned) alongside, and the move is logged like any other.
+    func handleBackgroundDeselect(depth: Int?, isLeft: Bool) {
+        PaneLogic.clearBothSelections(state: syncManager)
+        let browsePath = isLeft ? syncManager.leftBrowsePath : syncManager.rightBrowsePath
+        guard let path = PaneLogic.backgroundDeselectPath(from: browsePath, depth: depth) else { return }
+        applyColumnNavigation(path, isLeft: isLeft)
     }
 
     /// Binding for the primary tab picker that, when the user switches *to* Tidy, opens the source

@@ -90,6 +90,50 @@ import SwiftUI
         #expect(PaneViewMode.clickNavigates(modifiers: [.command, .shift]) == false)
     }
 
+    // MARK: - Trailing deselect filler
+
+    /// The load-bearing case. An overflowing stack must get a filler of exactly zero: the column
+    /// stack's scroll behaviour was tuned across four commits (`63bb6cf` … `a89aa40`) against a
+    /// stack that genuinely overflows, and padding its content in that state would move the very
+    /// condition those fixes — and their mounted test — depend on.
+    @Test func testAnOverflowingStackGetsNoFiller() {
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: 500, columnWidth: 210, columnCount: 3, isSingleColumn: false)
+        #expect(width == 0)
+    }
+
+    /// Exactly-full is the boundary of the same rule, and the one an off-by-one would land on.
+    @Test func testAnExactlyFullStackGetsNoFiller() {
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: 630, columnWidth: 210, columnCount: 3, isSingleColumn: false)
+        #expect(width == 0)
+    }
+
+    /// Under-filled: the filler takes the slack that already existed and nothing more.
+    @Test func testAnUnderFilledStackFillsTheRemainder() {
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: 900, columnWidth: 210, columnCount: 2, isSingleColumn: false)
+        #expect(width == 480)
+    }
+
+    /// A resting pane frames its one column to the full pane width, so there is no slack to fill —
+    /// asking `paneWidth - columnWidth` here would wrongly claim most of the pane.
+    @Test func testASingleColumnGetsNoFiller() {
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: 900, columnWidth: 210, columnCount: 1, isSingleColumn: true)
+        #expect(width == 0)
+    }
+
+    /// Push mode renders exactly one column at any depth, and it spans the pane — same rule,
+    /// reached by the other door.
+    @Test func testPushModeGetsNoFiller() {
+        let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
+        #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: paneWidth, columnWidth: 210, columnCount: 1, isSingleColumn: true)
+        #expect(width == 0)
+    }
+
     @Test func testEveryModeHasDistinctChrome() {
         let symbols = Set(PaneViewMode.allCases.map(\.symbol))
         #expect(symbols.count == PaneViewMode.allCases.count)

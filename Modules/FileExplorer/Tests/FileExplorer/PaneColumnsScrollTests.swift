@@ -80,7 +80,7 @@ import Sync
                 selection: $box.selection, otherSelection: [], isLeft: true,
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: false, density: .compact, isActivePane: true,
-                placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }
+                placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
         }
     }

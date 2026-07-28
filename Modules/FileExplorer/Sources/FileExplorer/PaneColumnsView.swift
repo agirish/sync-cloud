@@ -44,6 +44,11 @@ struct PaneColumnsView: View {
     let onBarEdgeFlip: (() -> Void)?
     /// Presents a Quick Look preview; owned by the hosting `FileTreeView`.
     let onQuickLook: (URL) -> Void
+    /// A plain click on empty space, carrying the depth of the column it landed in — `nil` when it
+    /// landed past the last column, where there is nothing to truncate to. Routed to the host for
+    /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
+    /// holding it may not be this one) and only the host can see both sides.
+    let onBackgroundDeselect: (Int?) -> Void
 
     /// One width shared by both panes, so the two sides stay symmetric while you read them against
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
@@ -99,6 +104,8 @@ struct PaneColumnsView: View {
                                 }
                             }
                     }
+                    trailingDeselectFiller(paneWidth: paneWidth, columnCount: visible.count,
+                                           isSingleColumn: isSingleColumn)
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
                 // rather than a column's own list. See `PaneColumnsOverscrollReturn`.
@@ -121,6 +128,35 @@ struct PaneColumnsView: View {
         }
     }
 
+    /// The dead space to the right of the last column, made a deselect target so that clicking
+    /// there behaves like clicking below a column's last row.
+    ///
+    /// Finder never shows this area — it fills the pane with empty columns — so there is no Finder
+    /// answer to borrow for what it should do. It clears the selection and truncates nothing:
+    /// there is no column here, so there is no depth to truncate to, and closing the stack from a
+    /// click *past* it would be a navigation the user did not ask for.
+    ///
+    /// Width is zero whenever the stack overflows, so this cannot pad the scroll content — see
+    /// `PaneViewMode.trailingFillerWidth`.
+    @ViewBuilder
+    private func trailingDeselectFiller(paneWidth: CGFloat, columnCount: Int, isSingleColumn: Bool) -> some View {
+        let width = PaneViewMode.trailingFillerWidth(
+            paneWidth: paneWidth, columnWidth: columnWidth,
+            columnCount: columnCount, isSingleColumn: isSingleColumn)
+        if width > 0 {
+            Color.clear
+                .frame(width: width)
+                .contentShape(Rectangle())
+                // Plain clicks only, matching the row path and the list catcher: ⌘ and ⇧ belong to
+                // the lists' own extend and range-select.
+                .onTapGesture {
+                    guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
+                    Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") past last column")
+                    onBackgroundDeselect(nil)
+                }
+        }
+    }
+
     /// One column: the rows of `directory`, or a placeholder when it has none.
     ///
     /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
@@ -136,6 +172,12 @@ struct PaneColumnsView: View {
         .listStyle(.sidebar)
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
+        // Clicking below this column's last row deselects and closes the columns to its right,
+        // like Finder. The depth is this column's own, so a click in column 0 of three closes two.
+        .background(PaneBackgroundDeselect {
+            Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") col\(depth) empty area")
+            onBackgroundDeselect(depth)
+        })
         // Instrumentation for the open "first column moves up and down" report — see
         // `PaneColumnJitterProbe`.
         .background(PaneColumnJitterProbe(depth: depth, isLeft: isLeft))

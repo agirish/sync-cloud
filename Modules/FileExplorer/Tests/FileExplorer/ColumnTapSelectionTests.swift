@@ -107,7 +107,7 @@ import Sync
                 isActivePane: true,
                 placement: nil,
                 onBarEdgeFlip: nil,
-                onQuickLook: { _ in }
+                onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
         }
     }

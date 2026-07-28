@@ -77,10 +77,12 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             guard budget > 0 else { return }
             budget -= 1
             // A List's `.background` sits BESIDE the list's scroll view, not inside it, so an
-            // ancestor walk never enters it. `PaneListSelectionStyler` already solved this exact
-            // resolution — walk up scanning subtrees for the unique single-column table, refusing
-            // ambiguity — so its rule is reused rather than approximated.
-            guard let table = PaneListSelectionStyler.StylerView.findTableView(from: superview),
+            // ancestor walk never enters it. `PaneListResolver` does this resolution for every
+            // background sibling that needs it — by frame, because in a column stack the lists are
+            // siblings and tree position cannot tell them apart. This probe was resolving only the
+            // first column before that changed, which is worth knowing when reading any jitter
+            // sample taken before it.
+            guard let table = PaneListResolver.table(matching: self),
                   let scroller = table.enclosingScrollView else { return }
             if let observer { NotificationCenter.default.removeObserver(observer) }
             let clip = scroller.contentView

@@ -8,9 +8,13 @@ import SwiftUI
 /// setting `selectionHighlightStyle = .none` removes that gray; the SwiftUI selection binding (and
 /// therefore the row background keyed on it) is unaffected, so selection behaviour is unchanged.
 ///
-/// Placed as a zero-size `.background` sibling of the list, it walks up to the nearest single-column
-/// `NSTableView` (a multi-column one would be a `Table`, not our pane list) and re-asserts on every
-/// layout pass, since SwiftUI re-tiles and can recreate the table on data changes or tab switches.
+/// Placed as a `.background` sibling of the list, it finds that list's table through
+/// `PaneListResolver` and re-asserts on every layout pass, since SwiftUI re-tiles and can recreate
+/// the table on data changes or tab switches.
+///
+/// It reached only the first column of a Columns pane until the resolver was frame-anchored: every
+/// column drilled into kept the OS highlight. See `PaneListResolver` for the mechanism and the
+/// measurement.
 struct PaneListSelectionStyler: NSViewRepresentable {
     func makeNSView(context: Context) -> StylerView { StylerView() }
     /// A SwiftUI update can mean a rebuilt table, so re-arm the search as well as re-asserting.
@@ -51,41 +55,22 @@ struct PaneListSelectionStyler: NSViewRepresentable {
             }
         }
 
+        /// Re-validates a cached table against this view's current frame instead of trusting it for
+        /// the lifetime of the window. A drill rebuilds the column stack wholesale, so a table that
+        /// was this list's a moment ago can belong to a different column now — see
+        /// `PaneListResolver` for why the frame is the identifier.
         private func resolveTableView() -> NSTableView? {
             guard window != nil else { return nil }
-            if let cached = cachedTable, cached.window === window { return cached }
+            let target = convert(bounds, to: nil)
+            // Not laid out yet. Spending budget here would burn the search on a frame SwiftUI has
+            // not assigned, and the retry would find none left.
+            guard !target.isEmpty else { return nil }
+            if let cached = cachedTable, cached.window === window,
+               PaneListResolver.matches(cached, target: target) { return cached }
             guard searchBudget > 0 else { return nil }
             searchBudget -= 1
-            cachedTable = Self.findTableView(from: superview)
+            cachedTable = PaneListResolver.table(matching: self)
             return cachedTable
-        }
-
-        /// Walk up a few levels, scanning each subtree for the pane's single-column table. Ambiguity
-        /// (two tables in one subtree — e.g. both panes momentarily under one ancestor) is refused,
-        /// not guessed; a lower level, closer to this view's own list, resolves to exactly one.
-        /// Static and internal so `PaneListSelectionStylerTests` can drive it over a synthetic
-        /// hierarchy — the refusal rule is the part worth pinning, since getting it wrong would
-        /// silently style the OTHER pane's table.
-        static func findTableView(from start: NSView?) -> NSTableView? {
-            var root: NSView? = start
-            for _ in 0..<6 {
-                guard let candidate = root else { return nil }
-                let tables = singleColumnTables(in: candidate)
-                if tables.count == 1 { return tables[0] }
-                if tables.count > 1 { return nil }
-                root = candidate.superview
-            }
-            return nil
-        }
-
-        static func singleColumnTables(in view: NSView) -> [NSTableView] {
-            var result: [NSTableView] = []
-            func walk(_ v: NSView) {
-                if let table = v as? NSTableView, table.tableColumns.count <= 1 { result.append(table) }
-                for sub in v.subviews { walk(sub) }
-            }
-            walk(view)
-            return result
         }
     }
 }

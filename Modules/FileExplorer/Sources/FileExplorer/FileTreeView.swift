@@ -84,6 +84,14 @@ public struct FileTreeView: View {
     /// Applies a new column stack. The host owns this because the seam link makes a column drill a
     /// two-pane move; defaults to writing the binding for callers with no sibling pane.
     public let onColumnNavigate: ((PaneBrowsePath) -> Void)?
+    /// A plain click on the pane's empty space, carrying the depth of the column it landed in
+    /// (`nil` in Tree mode, and past the last column, where nothing is truncated).
+    ///
+    /// The host owns it for the same reason it owns `onColumnNavigate`: the selection this dismisses
+    /// may live in the *other* pane — the one-pane-selected invariant means it usually does — and
+    /// only the host can reach across the seam. `nil` for callers with no sibling pane, which leaves
+    /// the pane exactly as it behaves today.
+    public let onBackgroundDeselect: ((Int?) -> Void)?
 
     /// Whether this pane is the one the action bar is currently acting on. Drives the strength of
     /// the row-selection wash, restoring the emphasized/unemphasized distinction AppKit used to
@@ -102,7 +110,7 @@ public struct FileTreeView: View {
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
 
-    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil) {
+    public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil) {
         self.tree = tree
         self.otherTree = otherTree
         self.isLoading = isLoading
@@ -126,6 +134,7 @@ public struct FileTreeView: View {
         self.childrenIndex = childrenIndex
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
+        self.onBackgroundDeselect = onBackgroundDeselect
     }
 
     /// The list viewport's global frame (height + window-space top edge).
@@ -287,7 +296,8 @@ public struct FileTreeView: View {
                 isLeft: isLeft, delegate: delegate, diffIndex: diffIndex, otherPaneName: otherPaneName,
                 isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
-                onQuickLook: { quickLookItem = $0 }
+                onQuickLook: { quickLookItem = $0 },
+                onBackgroundDeselect: onBackgroundDeselect ?? { _ in }
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
@@ -329,6 +339,13 @@ public struct FileTreeView: View {
         // accent background via `.listRowBackground`.
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
+        // Clicking below the last row deselects. Depth is `nil`: Tree mode has no column stack, so
+        // there is nothing to truncate — this surface (and the Tidy rail, which is always Tree)
+        // only clears.
+        .background(PaneBackgroundDeselect {
+            Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") tree empty area")
+            onBackgroundDeselect?(nil)
+        })
         // Drop the sidebar list's own vibrant background so the pane picks up the selected
         // content surface, matching the bottom workspace.
         .scrollContentBackground(.hidden)
