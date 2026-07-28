@@ -562,7 +562,7 @@ import Sync
     }
 
     /// A legally scrolled rest — the position a reading user is parked at — is never touched.
-    @Test func testALegallyScrolledRestIsNeverTouched() async throws {
+    @Test func testALegallyScrolledRestIsNeverTouchedByTheListWatchdog() async throws {
         let (window, clip, probe) = mount()
         defer { _ = window }
         await pump(seconds: 0.3)
@@ -572,5 +572,136 @@ import Sync
         await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
         #expect(clip.bounds.origin == NSPoint(x: 0, y: 250),
                 "the watchdog moved a list resting at a legal scroll position")
+    }
+}
+
+/// The gesture-axis lock: a vertical trackpad scroll's leaked horizontal deltas must not move
+/// the stack — the sideways wiggle reported as "jitter when a 2nd column is open".
+@MainActor
+@Suite struct WheelGestureTrackerTests {
+
+    @Test func testAVerticalDragEngagesTheLock() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 2, dy: -14, at: 0.01)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.02))
+    }
+
+    @Test func testAHorizontalDragDoesNot() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: -20, dy: 3, at: 0.01)
+        #expect(!tracker.isVerticalGestureInFlight(at: 0.02))
+    }
+
+    /// The decision is made ONCE, from the first real deltas: a vertical drag that wobbles
+    /// horizontal mid-flight stays a vertical drag.
+    @Test func testTheFirstRealDeltasDecideForTheWholeGesture() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -10, at: 0.01)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: -9, dy: 2, at: 0.02)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.03),
+                "a mid-gesture wobble re-decided the axis")
+    }
+
+    /// Momentum inherits the drag's decision and keeps the lock alive while it delivers.
+    @Test func testMomentumInheritsTheDecisionAndItsEndReleasesIt() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
+        tracker.ingest(phase: [], momentumPhase: .changed, dx: -30, dy: -4, at: 0.05)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.06),
+                "momentum's own deltas re-decided the axis — their direction is history, not intent")
+        tracker.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0, at: 0.4)
+        #expect(!tracker.isVerticalGestureInFlight(at: 0.41))
+    }
+
+    /// A gesture that ends with no momentum releases the lock by going quiet — otherwise a
+    /// stale lock defeats the drill's own programmatic auto-scroll after the next click.
+    @Test func testTheLockDecaysWhenEventsStopArriving() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.05), "still within the recency window")
+        #expect(!tracker.isVerticalGestureInFlight(at: 0.02 + WheelGestureTracker.staleness + 0.01),
+                "the lock outlived its events — the next programmatic scroll will be fought")
+    }
+
+    @Test func testANewGestureStartsUndecided() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0.05)
+        #expect(!tracker.isVerticalGestureInFlight(at: 0.06),
+                "the previous gesture's decision leaked into the new one")
+    }
+}
+
+/// The lock's enforcement on the stack, over the strandable harness: while a vertical gesture
+/// delivers, leaked horizontal drift is reverted on the spot; once it releases, horizontal
+/// movement is the stack's own business again.
+@MainActor
+@Suite struct PaneColumnsAxisLockTests {
+
+    private final class StrandableClipView: NSClipView {
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
+    }
+
+    private func mount() -> (window: NSWindow, clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView, lock: WheelGestureTracker) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let clip = StrandableClipView()
+        clip.automaticallyAdjustsContentInsets = false
+        scroller.contentView = clip
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        scroller.documentView = document
+        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        let lock = WheelGestureTracker()
+        watchdog.axisLock = lock
+        document.addSubview(watchdog)
+        window.contentView?.addSubview(scroller)
+        return (window, clip, watchdog, lock)
+    }
+
+    private func pump(seconds: Double) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+    }
+
+    @Test func testLeakedHorizontalDriftIsRevertedDuringAVerticalGesture() async throws {
+        let (window, clip, watchdog, lock) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
+
+        // A vertical drag is delivering events right now.
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12)
+
+        // Its leaked horizontal component nudges the stack sideways…
+        clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
+        // …and the snap has already put it back by the time the notification unwinds.
+        #expect(clip.bounds.origin.x == 0,
+                "a vertical gesture's leaked deltas moved the stack to x=\(clip.bounds.origin.x)")
+    }
+
+    @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {
+        let (window, clip, watchdog, lock) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
+
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: -18, dy: 2)
+
+        clip.setBoundsOrigin(NSPoint(x: 120, y: 0))
+        #expect(clip.bounds.origin.x == 120,
+                "the lock held the stack during a HORIZONTAL gesture — columns can no longer scroll")
     }
 }

@@ -24,6 +24,74 @@ import SwiftUI
 /// Placed as a zero-size `.background` INSIDE the horizontal `ScrollView`, so the ancestor walk
 /// resolves that scroll view and not a column's list — a column's scroll view hosts an
 /// `NSTableView` as its document, the stack's does not.
+/// Which axis the current wheel gesture belongs to, decided once per gesture from its first
+/// real deltas — the axis lock Finder's column view applies.
+///
+/// Why it exists: a "vertical" trackpad scroll is never purely vertical. Its small horizontal
+/// components leak through the column list to the stack (per-event responder forwarding, the
+/// same channel that loses gesture phase), and with two or more columns open the stack is live —
+/// so every vertical scroll nudged the stack sideways a few points, the drift parked in
+/// overscroll, and the watchdog animated it back: a repeating sideways wiggle reported as
+/// "jitter when a 2nd column is open". Locking the gesture to its dominant axis stops the leak
+/// at the root: while a vertical-dominant gesture (and its momentum) is in flight, the stack
+/// holds still.
+///
+/// Pure state machine, fed by `WatchdogView`'s app-level scroll-wheel monitor; separated so the
+/// transitions are unit-testable without synthesizing `NSEvent`s.
+@MainActor
+final class WheelGestureTracker {
+    /// The app-wide tracker, fed by a local scroll-wheel monitor it installs on first use.
+    /// Tests build their own un-monitored instances and drive `ingest` directly.
+    static let shared: WheelGestureTracker = {
+        let tracker = WheelGestureTracker()
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            tracker.ingest(phase: event.phase, momentumPhase: event.momentumPhase,
+                           dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+            return event
+        }
+        return tracker
+    }()
+
+    /// How long after the last wheel event the lock stays engaged. Events arrive at frame
+    /// cadence throughout a drag AND its momentum, so recency is what distinguishes "gesture
+    /// still delivering deltas" from "gesture over, nothing followed" — the `.ended` event
+    /// itself cannot, because momentum may or may not arrive after it. Without this, a vertical
+    /// flick that produced no momentum left the lock engaged and quietly defeated the next
+    /// programmatic scroll (the drill's own auto-scroll after a click).
+    static let staleness: TimeInterval = 0.1
+
+    private var verticalDominant = false
+    private var decided = false
+    private var lastEventAt: TimeInterval = 0
+
+    /// True while a vertical-dominant gesture (or its momentum tail) is actively delivering
+    /// events.
+    func isVerticalGestureInFlight(at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
+        verticalDominant && now - lastEventAt < Self.staleness
+    }
+
+    /// Feed one scroll-wheel event's fields. A `.began` phase starts a fresh, undecided gesture;
+    /// the first drag event with any real delta decides its axis; momentum events inherit the
+    /// decision (they never make one — their direction is history, not intent). The decision
+    /// clears when momentum finishes, the gesture cancels, or a new gesture begins.
+    func ingest(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, dx: CGFloat, dy: CGFloat,
+                at now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
+        lastEventAt = now
+        if phase.contains(.began) {
+            decided = false
+            verticalDominant = false
+        }
+        if !decided, dx != 0 || dy != 0, momentumPhase.isEmpty {
+            decided = true
+            verticalDominant = abs(dy) > abs(dx)
+        }
+        if momentumPhase.contains(.ended) || phase.contains(.cancelled) {
+            decided = false
+            verticalDominant = false
+        }
+    }
+}
+
 struct PaneColumnsOverscrollReturn: NSViewRepresentable {
     func makeNSView(context: Context) -> WatchdogView { WatchdogView() }
     /// A SwiftUI update can rebuild the scroll view under us, so re-resolve rather than trusting
@@ -31,6 +99,13 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
     func updateNSView(_ view: WatchdogView, context: Context) { view.rearm() }
 
     final class WatchdogView: NSView {
+        /// The gesture-axis lock the snap consults. `.shared` in the app; tests inject their own
+        /// and drive it directly.
+        var axisLock: WheelGestureTracker = .shared
+        /// The stack's horizontal rest, updated on every bounds change made OUTSIDE a
+        /// vertical-dominant gesture. While one is in flight, this is the position the stack is
+        /// held at — the leak-snap below reverts any drift straight back to it.
+        private var restX: CGFloat = 0
         private weak var observedScroller: NSScrollView?
         /// The scroll view the watchdog is currently guarding — exposed so the mounted test can
         /// assert the ancestor walk resolved the STACK's scroll view and not a column's list.
@@ -106,10 +181,31 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
                     forName: NSView.boundsDidChangeNotification,
                     object: clip, queue: .main
                 ) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.scheduleCheck() }
+                    MainActor.assumeIsolated {
+                        self?.holdAgainstVerticalGestureLeak()
+                        self?.scheduleCheck()
+                    }
                 }
             ]
             observedScroller = scroller
+            restX = clip.bounds.origin.x
+        }
+
+        /// The axis lock's enforcement: while a vertical-dominant wheel gesture is in flight, the
+        /// stack holds its horizontal position — any drift from that gesture's leaked horizontal
+        /// deltas is reverted on the spot, unanimated, before the frame draws. Outside such a
+        /// gesture this only keeps `restX` current. Self-terminating: the revert lands the clip
+        /// back on `restX`, so the bounds change it causes re-enters here as a no-op.
+        private func holdAgainstVerticalGestureLeak() {
+            guard let scroller = observedScroller else { return }
+            let clip = scroller.contentView
+            guard axisLock.isVerticalGestureInFlight() else {
+                restX = clip.bounds.origin.x
+                return
+            }
+            guard clip.bounds.origin.x != restX else { return }
+            clip.setBoundsOrigin(NSPoint(x: restX, y: clip.bounds.origin.y))
+            scroller.reflectScrolledClipView(clip)
         }
 
         /// Re-arms the quiescence timer. Called on every bounds change, so the check only ever
