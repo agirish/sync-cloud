@@ -305,6 +305,30 @@ import Sync
         let origin = NSPoint(x: 150, y: 0)
         #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip()) == origin)
     }
+
+    /// A document NARROWER than the clip — the left pane resting with three columns in a wide
+    /// pane. Home collapses to the document's leading edge: a zero-based clamp happened to give
+    /// the same x here, but only by luck of the document sitting at zero, and the width case has
+    /// to be pinned because a dragged-and-stranded *fitting* stack must still return.
+    @Test func testAFittingDocumentsHomeIsItsLeadingEdge() {
+        let view = NSClipView(frame: NSRect(x: 0, y: 0, width: 772, height: 100))
+        view.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 100))
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(
+            for: NSPoint(x: -60, y: 0), clip: view) == NSPoint(x: 0, y: 0))
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(
+            for: NSPoint(x: 45, y: 0), clip: view) == NSPoint(x: 0, y: 0))
+    }
+
+    /// The pull's threshold exists and is meaningfully sub-visible: SwiftUI parks clips at
+    /// fractional origins, and a watchdog without slack for that corrects them every quiescence
+    /// interval forever — the 18,000-pull night. The cycle suite drives the behavior; this pins
+    /// the constant's floor so a future "tighten it up" cannot silently reintroduce the loop.
+    @Test func testTheToleranceClearsPixelAlignmentButNotVisibleStrandings() {
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.tolerance >= 1,
+                "sub-point pixel alignment must never trigger a pull")
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.tolerance <= 8,
+                "a stranding this size is visible — the watchdog would ignore real bugs")
+    }
 }
 
 /// The watchdog's full cycle — observe, wait for rest, pull home — driven over a synthetic
@@ -349,7 +373,7 @@ import Sync
     /// parallel test run, other main-actor work can starve the watchdog's 140ms timer well past
     /// any polite fixed window — which is exactly how these tests first flaked.
     private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
-                               timeout: Double = 5) async -> Bool {
+                               timeout: Double = 15) async -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if clip.bounds.origin == expected { return true }
@@ -395,5 +419,48 @@ import Sync
         await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
         #expect(clip.bounds.origin == NSPoint(x: 150, y: 0),
                 "the watchdog moved a clip resting inside its legal range")
+    }
+
+    /// **The loop-breaker.** SwiftUI parks clip origins fractionally off the mathematical home;
+    /// pulling those made the watchdog correct the same fraction every quiescence interval all
+    /// night — each pull an animated `setBoundsOrigin`, visible as jitter on the left pane's
+    /// first column. A sub-tolerance offset must be left exactly where it is, forever.
+    @Test func testAFractionalOffsetIsLeftAloneNotCorrectedForever() async {
+        let (window, _, clip) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+
+        // `setBoundsOrigin` itself pixel-rounds (−0.4 became −0.5 on this backing), so the pin
+        // is against the value that actually landed — what matters is that the watchdog never
+        // "corrects" it to zero.
+        clip.setBoundsOrigin(NSPoint(x: -0.4, y: 0.33))
+        let parked = clip.bounds.origin
+        #expect(parked != .zero, "fixture failed to park the clip off the mathematical home")
+        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 6)
+        #expect(clip.bounds.origin == parked,
+                "the watchdog corrected a sub-point offset — the repeating-pull loop is back")
+    }
+
+    /// A FITTING document dragged out and stranded must still return: the tolerance exempts
+    /// pixel fractions, not real strandings, and content narrower than the clip is exactly the
+    /// state the left pane rests in.
+    @Test func testAStrandedFittingDocumentIsPulledToItsLeadingEdge() async {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let clip = StrandableClipView()
+        scroller.contentView = clip
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: 100))
+        scroller.documentView = document
+        document.addSubview(PaneColumnsOverscrollReturn.WatchdogView())
+        window.contentView?.addSubview(scroller)
+        defer { _ = window }
+        await pump(seconds: 0.3)
+
+        clip.setBoundsOrigin(NSPoint(x: -60, y: 0))
+        #expect(clip.bounds.origin.x == -60, "fixture failed to strand the fitting document")
+
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
+                "a stranded fitting document was not pulled home, at \(clip.bounds.origin)")
     }
 }

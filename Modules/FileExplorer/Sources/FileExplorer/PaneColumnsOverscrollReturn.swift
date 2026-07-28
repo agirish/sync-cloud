@@ -47,6 +47,17 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// return reads as a bounce, not a correction.
         static let quiescence: TimeInterval = 0.14
 
+        /// How far out of range a resting origin must be before it is worth a pull.
+        ///
+        /// Not an optimisation — the loop-breaker. SwiftUI parks the clip at fractional origins
+        /// (pixel alignment on Retina), so a zero-tolerance watchdog pulls the origin to the
+        /// mathematically legal point, SwiftUI re-parks it a fraction off, the bounds change
+        /// re-arms the timer, and the "correction" repeats every quiescence interval forever —
+        /// 18,000 pulls in one night, each an animated `setBoundsOrigin`, visible as a shimmer on
+        /// the pane while scrolling. A stranding the eye can see is tens of points; anything
+        /// under this threshold is noise that must be left exactly where SwiftUI put it.
+        static let tolerance: CGFloat = 2
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             // Torn down here rather than in `deinit`: a nonisolated `deinit` cannot touch
@@ -114,14 +125,14 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         private func returnHomeIfStranded() {
             guard let scroller = observedScroller else { return }
             let clip = scroller.contentView
-            let home = Self.legalOrigin(for: clip.bounds.origin, clip: clip)
-            guard home != clip.bounds.origin else { return }
-            // Every pull is logged: a pull with a Y component would mean the stack was displaced
-            // on an axis nothing should move, which is exactly the kind of line the "first column
-            // moves up and down" report needs beside its timestamps.
+            let origin = clip.bounds.origin
+            let home = Self.legalOrigin(for: origin, clip: clip)
+            guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= Self.tolerance else { return }
+            // Every pull is logged — fractional, because `%.0f` is exactly how a sub-point
+            // correction loop hid as "pull (0, 0) → (0, 0)" for a night of 18,000 lines.
             Logger.shared.debug(String(
-                format: "[stack] pull (%.0f, %.0f) → (%.0f, %.0f), doc %.0f×%.0f clip %.0f×%.0f",
-                clip.bounds.origin.x, clip.bounds.origin.y, home.x, home.y,
+                format: "[stack] pull (%.2f, %.2f) → (%.2f, %.2f), doc %.1f×%.1f clip %.1f×%.1f",
+                origin.x, origin.y, home.x, home.y,
                 clip.documentView?.frame.width ?? -1, clip.documentView?.frame.height ?? -1,
                 clip.bounds.width, clip.bounds.height))
             NSAnimationContext.runAnimationGroup { context in
@@ -132,13 +143,23 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             scroller.reflectScrolledClipView(clip)
         }
 
-        /// The nearest legal resting origin: within the document on both axes. Static and internal
-        /// so the clamp can be pinned directly; the mounted test drives the whole watchdog.
+        /// The nearest legal resting origin. Static and internal so the clamp can be pinned
+        /// directly; the mounted test drives the whole watchdog.
+        ///
+        /// Measured from the document's FRAME, not from zero: when the document is wider than the
+        /// clip the legal band is [minX, maxX − clipWidth] as usual, and when it is *narrower* —
+        /// the left pane resting with three columns in a wide pane, doc 420 in a clip 772 — the
+        /// band collapses to the leading edge, which is where SwiftUI parks fitting content. A
+        /// zero-based clamp got that case wrong and turned the wrong answer into a repeating
+        /// pull; see `tolerance`.
         static func legalOrigin(for origin: NSPoint, clip: NSClipView) -> NSPoint {
             guard let document = clip.documentView else { return origin }
+            let frame = document.frame
+            let highX = max(frame.minX, frame.maxX - clip.bounds.width)
+            let highY = max(frame.minY, frame.maxY - clip.bounds.height)
             return NSPoint(
-                x: min(max(origin.x, 0), max(0, document.frame.width - clip.bounds.width)),
-                y: min(max(origin.y, 0), max(0, document.frame.height - clip.bounds.height)))
+                x: min(max(origin.x, frame.minX), highX),
+                y: min(max(origin.y, frame.minY), highY))
         }
 
         /// The nearest enclosing scroll view that is NOT one of the columns' lists.
