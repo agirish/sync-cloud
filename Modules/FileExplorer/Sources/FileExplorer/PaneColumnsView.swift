@@ -100,9 +100,6 @@ struct PaneColumnsView: View {
                             }
                     }
                 }
-                // Inside the ScrollView, so it resolves to the STACK's scroll view rather than a
-                // column's own list. See `PaneColumnsScrollStyler`.
-                .background(PaneColumnsScrollStyler())
             }
             .scrollDisabled(isSingleColumn)
             // Keep the deepest column in view as you drill, like Finder.
