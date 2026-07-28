@@ -206,6 +206,19 @@ struct PaneColumnsView: View {
                 path.truncate(toDepth: depth)
             }
             onNavigate(path)
+            // The click's cost, measured from mouse-UP.
+            //
+            // `[click]`'s own timing is taken from the selection commit, which happens on mouse-DOWN
+            // inside `NSTableView`'s tracking loop — so it spans however long the button was held,
+            // and reports ~290ms for a click that cost the app nothing. Rebuilding the app with
+            // optimisations changed those numbers not at all, which is what gave the lie away: real
+            // computation would have moved. This stamp starts after the button is already up, so
+            // whatever it measures is work.
+            let released = CFAbsoluteTimeGetCurrent()
+            DispatchQueue.main.async {
+                let ms = (CFAbsoluteTimeGetCurrent() - released) * 1000
+                Logger.shared.debug("[render] \(isLeft ? "left" : "right") pane re-rendered in \(String(format: "%.1fms", ms))")
+            }
         })
         .contextMenu {
             FileContextMenu(

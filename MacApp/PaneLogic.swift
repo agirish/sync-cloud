@@ -191,19 +191,24 @@ enum PaneLogic {
         // would cancel a live deferral without replacing it.
         guard !newSelection.isEmpty else { return }
         let token = sequencer.commit()
-        // The deferral doubles as the click's stopwatch. This block cannot run until the main
-        // thread has finished everything the commit above kicked off — the re-render of both panes,
-        // any tree walks a row's context menu does, the column rebuild — so the gap between here
-        // and there IS the cost of the click, measured where the user feels it. Nothing else in the
-        // app can see that number: timing the setter alone reports ~0 no matter how slow the click.
+        // Timing from here spans the button HOLD, not just work.
+        //
+        // This runs from the selection commit, which `NSTableView` performs on mouse-DOWN from
+        // inside its own tracking loop, so the gap to the deferred block covers however long the
+        // button stayed down. It was originally read as "the cost of the click" and reported
+        // 230-720ms; rebuilding the app with optimisations left those numbers completely unchanged,
+        // which is what exposed it — real computation would have moved. `PaneColumnsView`'s
+        // `[render]` line starts after mouse-up and is the one to trust for cost. This stays because
+        // press-to-settled is still what the user's hand experiences, but it is labelled for what it
+        // is so nobody optimises against it again.
         let committed = CFAbsoluteTimeGetCurrent()
         schedule {
-            let settleMs = (CFAbsoluteTimeGetCurrent() - committed) * 1000
+            let heldAndSettledMs = (CFAbsoluteTimeGetCurrent() - committed) * 1000
             let side = isLeft ? "left" : "right"
             guard sequencer.isNewest(token) else {
                 Logger.shared.debug(
                     "[click] \(side) selection superseded before its cross-pane clear ran "
-                    + "(settle \(Self.ms(settleMs)))")
+                    + "(press→settled \(Self.ms(heldAndSettledMs)), includes button hold)")
                 return
             }
             if isLeft {
@@ -212,7 +217,8 @@ enum PaneLogic {
                 if state.selectedLeftPaths != reconciled.left { state.selectedLeftPaths = reconciled.left }
             }
             Logger.shared.debug(
-                "[click] \(side) pane selected \(newSelection.count) item(s), settle \(Self.ms(settleMs))")
+                "[click] \(side) pane selected \(newSelection.count) item(s), "
+                + "press→settled \(Self.ms(heldAndSettledMs)) (includes button hold)")
         }
     }
 
