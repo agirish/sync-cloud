@@ -650,6 +650,19 @@ import Sync
         override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
     }
 
+    /// Never lands where the hold puts it — every revert to x comes back at x+0.5, the way
+    /// SwiftUI's animated scroll kept moving the clip against the hold in the crash.
+    private final class FightingClipView: NSClipView {
+        var fightsBack = false
+        private(set) var setCount = 0
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
+        override func setBoundsOrigin(_ newOrigin: NSPoint) {
+            setCount += 1
+            let origin = fightsBack ? NSPoint(x: newOrigin.x + 0.5, y: newOrigin.y) : newOrigin
+            super.setBoundsOrigin(origin)
+        }
+    }
+
     private func mount() -> (window: NSWindow, clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView, lock: WheelGestureTracker) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
                               styleMask: [.titled], backing: .buffered, defer: false)
@@ -684,11 +697,72 @@ import Sync
         lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
         lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12)
 
-        // Its leaked horizontal component nudges the stack sideways…
+        // Its leaked horizontal components nudge the stack sideways, continuously — a real
+        // gesture is a delta STREAM, so the loop keeps stranding and keeps feeding the lock.
+        // One-shot stranding is not faithful and flakes: the revert is a runloop hop away by
+        // design (reverting synchronously inside the bounds notification is the recursion that
+        // crashed at level 1839), and under a loaded parallel run a single hop can land after
+        // the lock's recency window, which is a graceful no-op, not a failure.
+        // Alternating drifts, because re-setting the CURRENT origin posts no bounds
+        // notification: after one late hop, a fixed drift value would never schedule another
+        // hold, and the test would report a working hold as broken.
+        let deadline = Date().addingTimeInterval(10)
+        var reverted = false
+        var flip = false
+        while !reverted, Date() < deadline {
+            lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -8)
+            clip.setBoundsOrigin(NSPoint(x: flip ? 12 : 9, y: 0))
+            flip.toggle()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+            reverted = clip.bounds.origin.x == 0
+        }
+        #expect(reverted,
+                "a vertical gesture's leaked deltas moved the stack and the hold never reverted them")
+    }
+
+    /// The crash's shape, pinned: something keeps re-scrolling the stack against the hold — as
+    /// SwiftUI's own animated scroll did mid-gesture — and the enforcement must stay BOUNDED,
+    /// one revert per runloop turn at most, instead of recursing inside the notification until
+    /// the stack guard kills the app.
+    @Test func testAFightingScrollCannotRecurseTheHold() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let clip = FightingClipView()
+        clip.automaticallyAdjustsContentInsets = false
+        scroller.contentView = clip
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        scroller.documentView = document
+        let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+        let lock = WheelGestureTracker()
+        watchdog.axisLock = lock
+        document.addSubview(watchdog)
+        window.contentView?.addSubview(scroller)
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
+
+        // Vertical gesture in flight; the clip refuses to land on the held position — every
+        // revert to 0 comes back half a point off, forever.
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12)
+        clip.fightsBack = true
         clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
-        // …and the snap has already put it back by the time the notification unwinds.
-        #expect(clip.bounds.origin.x == 0,
-                "a vertical gesture's leaked deltas moved the stack to x=\(clip.bounds.origin.x)")
+
+        // Keep the gesture alive for a while; the old in-notification revert would have
+        // recursed thousands of frames deep INSIDE the first setBoundsOrigin call.
+        let deadline = Date().addingTimeInterval(0.4)
+        while Date() < deadline {
+            lock.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -8)
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        // Reaching this line at all is most of the assertion. The set count pins boundedness:
+        // ~50 runloop turns elapsed, so per-turn enforcement stays in that order — recursion
+        // would have piled up thousands before the first turn ended.
+        #expect(clip.setCount < 500,
+                "the hold fought a moving scroll \(clip.setCount) times — per-turn bounding is gone")
+        // More than the strand's own set: the hold really did engage and fight (once per turn).
+        #expect(clip.setCount > 1, "the fixture never engaged the hold at all — nothing was pinned")
     }
 
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {

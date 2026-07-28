@@ -112,6 +112,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         var resolvedScroller: NSScrollView? { observedScroller }
         private var observers: [NSObjectProtocol] = []
         private var pendingCheck: DispatchWorkItem?
+        private var pendingHold: DispatchWorkItem?
         /// Bounds the ancestor walk: `layout()` runs on every pass, and a hierarchy this can never
         /// resolve would otherwise re-walk the ancestry forever.
         private var budget = WatchdogView.searchesPerChange
@@ -148,6 +149,8 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             observedScroller = nil
             pendingCheck?.cancel()
             pendingCheck = nil
+            pendingHold?.cancel()
+            pendingHold = nil
         }
 
         override func layout() {
@@ -192,17 +195,44 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         }
 
         /// The axis lock's enforcement: while a vertical-dominant wheel gesture is in flight, the
-        /// stack holds its horizontal position — any drift from that gesture's leaked horizontal
-        /// deltas is reverted on the spot, unanimated, before the frame draws. Outside such a
-        /// gesture this only keeps `restX` current. Self-terminating: the revert lands the clip
-        /// back on `restX`, so the bounds change it causes re-enters here as a no-op.
+        /// stack holds its horizontal position — drift from the gesture's leaked horizontal
+        /// deltas is reverted by `enforceHold()`. Outside such a gesture this only keeps `restX`
+        /// current.
+        ///
+        /// **The revert must never run from in here.** This executes inside the bounds-change
+        /// notification, and `setBoundsOrigin` posts that same notification SYNCHRONOUSLY, at a
+        /// point where the origin does not yet read as the value being set — so a revert made
+        /// on the spot re-enters itself and recurses until the stack guard kills the app
+        /// (shipped, crashed at recursion level 1839, triggered by SwiftUI starting its own
+        /// animated scroll mid-gesture). Same rule the quiescence timer already followed:
+        /// handlers only *schedule*; mutation happens outside notification context. The
+        /// coalesced hop also bounds any fight with a SwiftUI-driven scroll at one revert per
+        /// runloop turn, and the lock's 100ms recency ends even that.
         private func holdAgainstVerticalGestureLeak() {
             guard let scroller = observedScroller else { return }
-            let clip = scroller.contentView
             guard axisLock.isVerticalGestureInFlight() else {
-                restX = clip.bounds.origin.x
+                restX = scroller.contentView.bounds.origin.x
                 return
             }
+            guard pendingHold == nil else { return }
+            let work = DispatchWorkItem { [weak self] in
+                self?.pendingHold = nil
+                self?.enforceHold()
+            }
+            pendingHold = work
+            DispatchQueue.main.async(execute: work)
+        }
+
+        /// Puts the stack back on `restX`, outside any notification context. Re-checks the lock
+        /// at execution time: if it lapsed during the hop, the moment has passed and this does
+        /// NOTHING — including not adopting the drifted position. Adoption is the observer's
+        /// job, on bounds changes made outside a lock; adopting here bakes a leak in as the new
+        /// rest whenever enforcement lands late (a loaded main thread pushed it past the
+        /// recency window), and every later hold then defends the leaked position.
+        private func enforceHold() {
+            guard let scroller = observedScroller else { return }
+            let clip = scroller.contentView
+            guard axisLock.isVerticalGestureInFlight() else { return }
             guard clip.bounds.origin.x != restX else { return }
             clip.setBoundsOrigin(NSPoint(x: restX, y: clip.bounds.origin.y))
             scroller.reflectScrolledClipView(clip)
