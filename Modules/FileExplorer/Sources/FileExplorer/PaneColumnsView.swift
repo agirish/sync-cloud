@@ -177,14 +177,28 @@ struct PaneColumnsView: View {
         // pane's click contract, and what makes "columns appear when you click" work. A file click
         // closes any deeper columns without opening one of its own.
         //
-        // `simultaneousGesture`, and no writing to `selection`: the List owns selection here exactly
-        // as it does in the tree presentation. An `onTapGesture` that also assigned
-        // `selection = [node.id]` consumed the click and flattened every ⌘/⇧-click back to a single
-        // row, so Copy, Move and Delete could never act on more than one item.
+        // `simultaneousGesture` rather than `onTapGesture`: the tap must not CONSUME the click, so
+        // that ⌘- and ⇧-click still reach the List and extend or range-select there. That much is
+        // unchanged from `dba5cd3`.
+        //
+        // What changed is that this handler commits a PLAIN click's selection itself again. Leaving
+        // it entirely to the List looked right — it is what the tree presentation does — but it does
+        // not survive this gesture: one instrumented session logged **42 column taps and only 8
+        // selections**, i.e. this closure ran (the column navigated) while the row never highlighted
+        // and the action bar never appeared. That is the dead click, and it is why `[click]` lines
+        // were so much rarer than `[columns]` lines in the log.
+        //
+        // Only a plain click is taken. ⌘ and ⇧ return at the guard below without touching
+        // `selection`, so the multi-select `dba5cd3` restored is untouched: the flattening it fixed
+        // came from assigning on EVERY tap, modifiers included.
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
             // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
             guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
+            Logger.shared.debug("[tap] \(isLeft ? "left" : "right") col\(depth) \(node.isDirectory ? "dir" : "file") \(node.name)")
+            // Before navigating: a drill restructures the column stack, and the selection should be
+            // committed against the stack the user clicked in, not the one they are about to get.
+            if selection != [node.id] { selection = [node.id] }
             var path = browsePath
             if node.isDirectory {
                 path.drill(into: node.name, atDepth: depth)
@@ -215,7 +229,14 @@ struct PaneColumnsView: View {
         let ids = Set(rows.map(\.id))
         return Binding(
             get: { selection.intersection(ids) },
-            set: { selection = $0 }
+            set: { newValue in
+                // Logged including the EMPTY writes, which are the interesting ones: an empty write
+                // is silent everywhere else (it enforces nothing and takes no token in
+                // `applySelectionWrite`), so a selection that lands and is then cleared would look
+                // exactly like one that never landed at all.
+                Logger.shared.debug("[sel] \(isLeft ? "left" : "right") list wrote \(newValue.count) item(s)")
+                selection = newValue
+            }
         )
     }
 
