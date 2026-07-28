@@ -331,10 +331,20 @@ struct CloudKeyRow: View {
     /// Copies the revealed key, then clears the pasteboard a minute later — but only if nothing
     /// else has written to it since, which `changeCount` is the only reliable way to know.
     /// Clearing unconditionally would wipe whatever the user copied in the meantime.
+    ///
+    /// Marked concealed, which the sixty-second wipe does not make redundant: clipboard-history
+    /// apps snapshot the pasteboard the instant it changes, so without the marker the key is
+    /// already archived in a third-party database before the timer has a chance to run — and the
+    /// general pasteboard is also what Universal Clipboard relays to nearby devices.
+    /// `org.nspasteboard.ConcealedType` is the convention password managers publish for exactly
+    /// this, and well-behaved clipboard managers skip anything carrying it.
     private func copyRevealedKey() {
         guard let revealedKey else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        // Declared BEFORE the string is written: a manager watching `changeCount` reads the types
+        // as soon as it sees a change, so the marker has to already be on the item.
+        pasteboard.setData(Data(), forType: .init("org.nspasteboard.ConcealedType"))
         pasteboard.setString(revealedKey, forType: .string)
         let stamp = pasteboard.changeCount
         Task { @MainActor in
