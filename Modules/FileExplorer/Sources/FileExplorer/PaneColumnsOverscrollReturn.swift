@@ -152,14 +152,21 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// band collapses to the leading edge, which is where SwiftUI parks fitting content. A
         /// zero-based clamp got that case wrong and turned the wrong answer into a repeating
         /// pull; see `tolerance`.
+        /// Content insets widen the legal band: an inset clip legally RESTS at a negative origin
+        /// (`-insets.top`), and clamping that to the document edge would repeat the stack's
+        /// pull-forever mistake on any inset list. The pane's clips measure zero insets today, so
+        /// this is armor, not a behavior change.
         static func legalOrigin(for origin: NSPoint, clip: NSClipView) -> NSPoint {
             guard let document = clip.documentView else { return origin }
             let frame = document.frame
-            let highX = max(frame.minX, frame.maxX - clip.bounds.width)
-            let highY = max(frame.minY, frame.maxY - clip.bounds.height)
+            let insets = clip.contentInsets
+            let lowX = frame.minX - insets.left
+            let lowY = frame.minY - insets.top
+            let highX = max(lowX, frame.maxX + insets.right - clip.bounds.width)
+            let highY = max(lowY, frame.maxY + insets.bottom - clip.bounds.height)
             return NSPoint(
-                x: min(max(origin.x, frame.minX), highX),
-                y: min(max(origin.y, frame.minY), highY))
+                x: min(max(origin.x, lowX), highX),
+                y: min(max(origin.y, lowY), highY))
         }
 
         /// The nearest enclosing scroll view that is NOT one of the columns' lists.

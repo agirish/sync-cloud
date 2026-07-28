@@ -2,18 +2,27 @@ import AppKit
 import Events
 import SwiftUI
 
-/// Instrumentation for the open jitter report: "selecting folders in other columns makes the 1st
-/// column move up and down".
+/// Watches one column's list: logs its vertical travel, and pulls it home when it parks
+/// stretched in overscroll.
 ///
-/// The headless harness cannot reproduce it — driving the same `browsePath`/`selection` writes a
-/// click commits leaves every column's frame, clip offset and the stack's offset pixel-still — so
-/// whatever moves involves the live event stream. Rather than guess, each column logs its own
-/// vertical scroll offset changes; the `[tap]`/`[sel]` lines already in the log give the clicks,
-/// and correlating timestamps says which column moved, when, and by how much.
+/// This began as pure instrumentation for the jitter report ("the first column moves up and
+/// down"), and what it recorded closed the case: `[col] right col0 y 0.0 → -17.5` followed
+/// six hundred milliseconds later by `-17.5 → 0.0`. The list itself was PARKING in vertical
+/// overscroll and snapping back on some later event — the same lost-gesture-phase disease
+/// `PaneColumnsOverscrollReturn` treats on the stack's horizontal axis, on the lists' vertical
+/// one. A gesture that starts diagonal is claimed by one scroll view of the nested pair and its
+/// deltas reach the other without phase, so the rubber band stretches and never hears the
+/// release. Parked stretch, late snap: the reported jitter, and — parked low — the original
+/// "scroll brings down content lower".
 ///
-/// Coalesced to at most one line per column per 250ms, spanning from the position the excursion
-/// started at to where it is now — a burst of 60Hz scroll callbacks folds into one line, so a
-/// normal user scroll costs a handful of lines, not hundreds.
+/// So the same treatment applies, with the same constants: any bounds movement re-arms the
+/// quiescence timer; a list found RESTING out of its legal range past the tolerance is animated
+/// home. A healthy native bounce keeps its bounds moving until it settles in range, so the
+/// watchdog never interferes with it, and the tolerance keeps sub-point pixel parking sacred —
+/// the lesson of the stack watchdog's 18,000-pull night.
+///
+/// The travel log stays: it is one coalesced line per column per 250ms of actual movement, it is
+/// what caught this, and the pulls log too — so the next report reads straight off the file.
 struct PaneColumnJitterProbe: NSViewRepresentable {
     /// Column position in the stack, for the log line.
     let depth: Int
@@ -46,6 +55,7 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private var windowMax: CGFloat?
         private var windowStart: CGFloat?
         private var pendingFlush: DispatchWorkItem?
+        private var pendingReturn: DispatchWorkItem?
         private static let coalesce: TimeInterval = 0.25
 
         override func viewDidMoveToWindow() {
@@ -56,6 +66,8 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
                 observedClip = nil
                 pendingFlush?.cancel()
                 pendingFlush = nil
+                pendingReturn?.cancel()
+                pendingReturn = nil
                 return
             }
             rearm()
@@ -94,6 +106,9 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             }
             observedClip = clip
             windowStart = clip.bounds.origin.y
+            // A list can already be parked stretched when the probe attaches (view-mode switch,
+            // column reopened); give it its first check without waiting for a bounds change.
+            scheduleReturn()
         }
 
         private func recordSample() {
@@ -108,6 +123,36 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
                 pendingFlush = work
                 DispatchQueue.main.asyncAfter(deadline: .now() + Self.coalesce, execute: work)
             }
+            scheduleReturn()
+        }
+
+        /// Re-arms the quiescence timer, exactly as the stack's watchdog does: while the list is
+        /// genuinely moving — a drag, momentum, a native spring that works — the check never
+        /// runs. It fires only once the list has come to rest.
+        private func scheduleReturn() {
+            pendingReturn?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.returnHomeIfParked() }
+            pendingReturn = work
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + PaneColumnsOverscrollReturn.WatchdogView.quiescence,
+                execute: work)
+        }
+
+        private func returnHomeIfParked() {
+            guard let clip = observedClip else { return }
+            let origin = clip.bounds.origin
+            let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip)
+            let tolerance = PaneColumnsOverscrollReturn.WatchdogView.tolerance
+            guard max(abs(home.x - origin.x), abs(home.y - origin.y)) >= tolerance else { return }
+            Logger.shared.debug(String(
+                format: "[col] %@ pull (%.2f, %.2f) → (%.2f, %.2f)",
+                label, origin.x, origin.y, home.x, home.y))
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.25
+                context.allowsImplicitAnimation = true
+                clip.setBoundsOrigin(home)
+            }
+            clip.enclosingScrollView?.reflectScrolledClipView(clip)
         }
 
         private func flushWindow() {

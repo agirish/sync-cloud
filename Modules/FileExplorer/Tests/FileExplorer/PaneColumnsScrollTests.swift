@@ -463,4 +463,114 @@ import Sync
         #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
                 "a stranded fitting document was not pulled home, at \(clip.bounds.origin)")
     }
+
+    /// An inset clip legally RESTS at a negative origin (`-insets.top`); clamping it to the
+    /// document edge would repeat the pull-forever mistake on any inset list.
+    @Test func testAnInsetClipsRestingOriginIsLegal() {
+        let clip = NSClipView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        clip.automaticallyAdjustsContentInsets = false
+        clip.contentInsets = NSEdgeInsets(top: 20, left: 0, bottom: 0, right: 0)
+        clip.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        let resting = NSPoint(x: 0, y: -20)
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: resting, clip: clip) == resting,
+                "an inset clip's natural rest was judged out of range — that is the pull loop")
+    }
+}
+
+/// The column-list watchdog: the same treatment, on the lists' VERTICAL axis, driven through the
+/// probe that also logs their travel.
+///
+/// What demanded it is in the live log: `[col] right col0 y 0.0 → -17.5` and, six hundred
+/// milliseconds later, `-17.5 → 0.0` — a list PARKED in overscroll, snapping back on some later
+/// event. Same lost-phase disease as the stack's, same synthetic-strand test shape, because the
+/// real state is only reachable through the broken gesture routing.
+@MainActor
+@Suite struct PaneColumnListWatchdogTests {
+
+    private final class StrandableClipView: NSClipView {
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
+    }
+
+    /// A table-backed scroll view — what a column's List is to the resolver — with the probe
+    /// mounted as a frame-matched sibling, exactly as SwiftUI lays a `.background` out.
+    private func mount() -> (window: NSWindow, clip: NSClipView, probe: PaneColumnJitterProbe.ProbeView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let clip = StrandableClipView()
+        // In a titled window AppKit hands an automatic top inset to the clip, which widens the
+        // legal band and silently legalizes the very park the test strands — zero them so the
+        // fixture's legality is exactly its document edges.
+        clip.automaticallyAdjustsContentInsets = false
+        scroller.contentView = clip
+        // A row-less NSTableView as the document auto-sizes itself back to the clip, collapsing
+        // the scrollable extent the tests assume. So the document proper is a plain view that
+        // keeps its 600pt, and the table sits INSIDE it — the resolver still matches, because it
+        // measures the table's enclosing scroll view, which is this scroller either way.
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 600))
+        document.addSubview(NSTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 50)))
+        scroller.documentView = document
+        let probe = PaneColumnJitterProbe.ProbeView()
+        probe.label = "test col"
+        probe.frame = scroller.frame
+        window.contentView?.addSubview(scroller)
+        window.contentView?.addSubview(probe)
+        return (window, clip, probe)
+    }
+
+    private func pump(seconds: Double) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+    }
+
+    private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
+                               timeout: Double = 15) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if clip.bounds.origin == expected { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return clip.bounds.origin == expected
+    }
+
+    /// The live signature: parked stretched above the top, pulled flat once at rest.
+    @Test func testAListParkedInTopOverscrollIsPulledHome() async throws {
+        let (window, clip, probe) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
+
+        clip.setBoundsOrigin(NSPoint(x: 0, y: -17.5))
+        #expect(clip.bounds.origin.y == -17.5, "fixture failed to park the list — the pull is vacuous")
+
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
+                "the list stayed parked in top overscroll, at \(clip.bounds.origin)")
+    }
+
+    /// A list parked past its bottom comes back to the last legal line.
+    @Test func testAListParkedPastTheBottomIsPulledToTheEnd() async throws {
+        let (window, clip, probe) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
+
+        clip.setBoundsOrigin(NSPoint(x: 0, y: 560))  // 500 is the last legal origin
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 500)),
+                "the list stayed parked past its bottom, at \(clip.bounds.origin)")
+    }
+
+    /// A legally scrolled rest — the position a reading user is parked at — is never touched.
+    @Test func testALegallyScrolledRestIsNeverTouched() async throws {
+        let (window, clip, probe) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+        try #require(probe.resolvedClip === clip, "probe failed to resolve its list")
+
+        clip.setBoundsOrigin(NSPoint(x: 0, y: 250))
+        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        #expect(clip.bounds.origin == NSPoint(x: 0, y: 250),
+                "the watchdog moved a list resting at a legal scroll position")
+    }
 }
