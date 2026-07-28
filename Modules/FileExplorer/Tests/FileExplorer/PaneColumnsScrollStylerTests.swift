@@ -173,30 +173,69 @@ import Sync
         return view
     }
 
-    @Test func testOverscrollPastTheStartIsCapped() {
+    /// Mid-gesture, the slack is available and capped.
+    @Test func testOverscrollPastTheStartIsCappedDuringAGesture() {
         let slack = BoundedElasticClipView.maximumOverscroll
-        let proposed = NSRect(x: -5000, y: 0, width: 200, height: 100)
-        #expect(clip().constrainBoundsRect(proposed).origin.x == -slack)
+        let view = clip()
+        view.beginLiveScroll()
+        #expect(view.constrainBoundsRect(NSRect(x: -5000, y: 0, width: 200, height: 100)).origin.x == -slack)
     }
 
-    @Test func testOverscrollPastTheEndIsCapped() {
+    @Test func testOverscrollPastTheEndIsCappedDuringAGesture() {
         let slack = BoundedElasticClipView.maximumOverscroll
-        let proposed = NSRect(x: 5000, y: 0, width: 200, height: 100)
+        let view = clip()
+        view.beginLiveScroll()
         // 600 content − 200 viewport = 400 of real travel, then the cap.
-        #expect(clip().constrainBoundsRect(proposed).origin.x == 400 + slack)
+        #expect(view.constrainBoundsRect(NSRect(x: 5000, y: 0, width: 200, height: 100)).origin.x == 400 + slack)
     }
 
     /// Some give must actually survive — a cap of zero is just the hard stop again.
-    @Test func testASmallOverscrollIsAllowedThrough() {
-        let proposed = NSRect(x: -12, y: 0, width: 200, height: 100)
-        #expect(clip().constrainBoundsRect(proposed).origin.x == -12)
+    @Test func testASmallOverscrollIsAllowedThroughDuringAGesture() {
+        let view = clip()
+        view.beginLiveScroll()
+        #expect(view.constrainBoundsRect(NSRect(x: -12, y: 0, width: 200, height: 100)).origin.x == -12)
         #expect(BoundedElasticClipView.maximumOverscroll > 0)
     }
 
-    /// Scrolling inside the content is untouched by the cap.
+    /// **The spring.** With no gesture in flight there is no slack at all, so an out-of-bounds
+    /// position stops being legal and the stack is pulled home. Granting the slack unconditionally
+    /// is what left it stuck out of bounds: `constrainBoundsRect` is the restoring force, not just
+    /// a limit.
+    @Test func testWithNoGestureInFlightThereIsNoSlack() {
+        let view = clip()
+        #expect(view.constrainBoundsRect(NSRect(x: -5000, y: 0, width: 200, height: 100)).origin.x == 0)
+        #expect(view.constrainBoundsRect(NSRect(x: 5000, y: 0, width: 200, height: 100)).origin.x == 400)
+    }
+
+    /// …and the gesture ending is what removes it.
+    @Test func testEndingTheGestureWithdrawsTheSlack() {
+        let view = clip()
+        view.beginLiveScroll()
+        #expect(view.isLiveScrolling)
+        #expect(view.constrainBoundsRect(NSRect(x: -30, y: 0, width: 200, height: 100)).origin.x == -30)
+        view.endLiveScroll()
+        #expect(!view.isLiveScrolling)
+        #expect(view.constrainBoundsRect(NSRect(x: -30, y: 0, width: 200, height: 100)).origin.x == 0)
+    }
+
+    /// Ending a gesture from an overscrolled position brings the stack back into bounds rather
+    /// than leaving it parked there — the reported "it does scroll over bounds but gets stuck".
+    @Test func testEndingAGestureReturnsAnOverscrolledStackToBounds() {
+        let view = clip()
+        view.beginLiveScroll()
+        view.setBoundsOrigin(NSPoint(x: -40, y: 0))
+        #expect(view.bounds.origin.x < 0, "fixture never left bounds — the assertion below is vacuous")
+        view.endLiveScroll()
+        #expect(view.bounds.origin.x == 0, "the stack stayed overscrolled after the gesture ended")
+    }
+
+    /// Scrolling inside the content is untouched, gesture or not.
     @Test func testOrdinaryScrollingIsUnaffected() {
         let proposed = NSRect(x: 150, y: 0, width: 200, height: 100)
         #expect(clip().constrainBoundsRect(proposed).origin.x == 150)
+        let live = clip()
+        live.beginLiveScroll()
+        #expect(live.constrainBoundsRect(proposed).origin.x == 150)
     }
 
     /// The bounce may never open a gap wide enough to read as a missing column — the report that

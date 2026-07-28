@@ -1,20 +1,25 @@
 import AppKit
+import Events
 import SwiftUI
 
-/// Bounds how far the column stack can rubber-band past its own edges.
+/// Bounds how far the column stack can rubber-band past its own edges, and makes it spring back.
 ///
 /// AppKit's overscroll is open-ended: push left at the first column and the whole stack drags
-/// right, exposing a column-wide band of empty pane where the first column should be. A screenshot
-/// caught exactly that — five columns open, leftmost slot blank, everything shifted over.
+/// right, exposing a column-wide band of empty pane where the first column should be.
 ///
-/// Switching elasticity off entirely fixed the hole and went too far: the stack then stops dead at
-/// each edge, which reads as a stutter of its own. What is wanted is a little give and no more, so
-/// the bounce is *capped* rather than removed — `.allowed` elasticity over a clip view that refuses
-/// to travel more than `maximumOverscroll` beyond the content.
+/// Switching elasticity off entirely (`63bb6cf`) fixed the hole and went too far — the stack then
+/// stops dead at each edge. Capping the travel (`60fd18f`) restored the give but left it *stuck*
+/// out there, which is worse than either: the whole point of a rubber band is that it returns.
+///
+/// The cap and the return are the same mechanism, which is why that version failed. Slack granted
+/// unconditionally makes an overscrolled position permanently **legal**, so nothing ever pulls the
+/// stack home — `constrainBoundsRect` is not merely a limit, it is the restoring force. The slack
+/// therefore exists only while a gesture is in flight; the moment it ends, the hard clamp comes
+/// back and the stack animates to it.
 ///
 /// `NSClipView.constrainBoundsRect(_:)` is AppKit's supported hook for this and the only one:
-/// `NSScrollElasticity` has no bounded case, so the limit cannot be expressed through the scroll
-/// view's own API.
+/// `NSScrollElasticity` has no bounded case, so neither the limit nor the spring can be expressed
+/// through the scroll view's own API.
 ///
 /// Placed as a zero-size `.background` INSIDE the horizontal `ScrollView`, so `enclosingScrollView`
 /// resolves to that scroll view directly. It must not be attached inside a column: each column is a
@@ -31,6 +36,7 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
 
     final class StylerView: NSView {
         private weak var cached: NSScrollView?
+        private var observers: [NSObjectProtocol] = []
         /// Bounds the search the way `PaneListSelectionStyler` does: `layout()` runs on every pass,
         /// and a hierarchy this can never resolve (the steady state if a future macOS reshapes
         /// SwiftUI's ScrollView) would otherwise re-walk the ancestry forever, on both panes.
@@ -39,7 +45,16 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            // Torn down here rather than in `deinit`: a nonisolated `deinit` cannot touch
+            // non-Sendable stored state, and leaving the window is the moment the observation
+            // stops being about anything anyway.
+            guard window != nil else { return releaseObservers() }
             rearm()
+        }
+
+        private func releaseObservers() {
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers = []
         }
 
         override func layout() {
@@ -54,7 +69,7 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
 
         private func apply() {
             guard let scroller = resolveScrollView() else { return }
-            // Elasticity stays ON; the clip view is what bounds it.
+            // Elasticity stays ON; the clip view is what bounds it and springs it back.
             if scroller.horizontalScrollElasticity != .allowed {
                 scroller.horizontalScrollElasticity = .allowed
             }
@@ -72,6 +87,24 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
             scroller.contentView = bounded
             scroller.documentView = document
             scroller.reflectScrolledClipView(bounded)
+            observeLiveScroll(of: scroller, clipView: bounded)
+        }
+
+        /// The gesture's start and end are what gate the slack, so the clip view has to hear about
+        /// them. `NSScrollView` posts both; nothing else tells a clip view whether the user's
+        /// gesture is still in flight.
+        private func observeLiveScroll(of scroller: NSScrollView, clipView: BoundedElasticClipView) {
+            releaseObservers()
+            observers = [
+                NotificationCenter.default.addObserver(
+                    forName: NSScrollView.willStartLiveScrollNotification,
+                    object: scroller, queue: .main
+                ) { [weak clipView] _ in clipView?.beginLiveScroll() },
+                NotificationCenter.default.addObserver(
+                    forName: NSScrollView.didEndLiveScrollNotification,
+                    object: scroller, queue: .main
+                ) { [weak clipView] _ in clipView?.endLiveScroll() }
+            ]
         }
 
         private func resolveScrollView() -> NSScrollView? {
@@ -106,12 +139,7 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
     }
 }
 
-/// A clip view whose overscroll is capped instead of open-ended.
-///
-/// `NSScrollElasticity` is all-or-nothing, so the cap has to be applied where AppKit asks what
-/// bounds a scroll is allowed to reach. `super` clamps hard to the document's own extent; this
-/// re-opens a fixed amount of travel past each edge and nothing beyond it, which is the difference
-/// between a stack that gives a little and one that scrolls into an empty pane.
+/// A clip view that gives a little during a scroll and springs back the moment it ends.
 final class BoundedElasticClipView: NSClipView {
 
     /// How far past the content the stack may travel, in points.
@@ -121,18 +149,54 @@ final class BoundedElasticClipView: NSClipView {
     /// was reported.
     static let maximumOverscroll: CGFloat = 44
 
+    /// True only while the user's gesture is in flight. The slack is gated on this, and that gate
+    /// IS the spring — see the note on `PaneColumnsScrollStyler`.
+    private(set) var isLiveScrolling = false
+
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
-        var rect = super.constrainBoundsRect(proposedBounds)
-        guard let documentView else { return rect }
+        let settled = super.constrainBoundsRect(proposedBounds)
+        guard isLiveScrolling, let documentView else { return settled }
+        var rect = settled
         let slack = Self.maximumOverscroll
         // `super` has already clamped to the content; the proposed origin is what carries the
         // overscroll, so the limits are measured against it rather than against the clamped rect.
-        let lowerX = -slack
-        let upperX = max(0, documentView.frame.width - rect.width) + slack
-        rect.origin.x = min(max(proposedBounds.origin.x, lowerX), upperX)
-        let lowerY = -slack
-        let upperY = max(0, documentView.frame.height - rect.height) + slack
-        rect.origin.y = min(max(proposedBounds.origin.y, lowerY), upperY)
+        rect.origin.x = min(max(proposedBounds.origin.x, -slack),
+                            max(0, documentView.frame.width - rect.width) + slack)
+        rect.origin.y = min(max(proposedBounds.origin.y, -slack),
+                            max(0, documentView.frame.height - rect.height) + slack)
         return rect
+    }
+
+    func beginLiveScroll() { isLiveScrolling = true }
+
+    /// Ends the gesture and returns the stack to legal bounds.
+    ///
+    /// Clearing the flag alone would let AppKit's *next* constrain pull it in, but nothing
+    /// guarantees another one happens while the stack sits still — which is exactly how it got
+    /// stuck out of bounds. The animation makes the return unconditional.
+    func endLiveScroll() {
+        isLiveScrolling = false
+        let home = super.constrainBoundsRect(bounds)
+        guard home.origin != bounds.origin else { return }
+        let overshoot = max(abs(home.origin.x - bounds.origin.x),
+                            abs(home.origin.y - bounds.origin.y))
+        if overshoot > Self.maximumOverscroll + 1 {
+            // The cap is meant to make this impossible. If it is ever logged, the blank band on
+            // screen is NOT overscroll and has another cause entirely — worth knowing, because a
+            // screenshot showed a gap roughly a full column wide, far beyond this cap.
+            Logger.shared.debug(
+                "[columns] stack ended a scroll \(Int(overshoot))pt out of bounds, past the "
+                + "\(Int(Self.maximumOverscroll))pt cap")
+        }
+        // `setBoundsOrigin` directly rather than through `animator()`: with
+        // `allowsImplicitAnimation` the move still animates, but the MODEL value lands at once.
+        // Through the animator the model trails the animation, so the stack reads as still
+        // overscrolled to anything that asks — including the test that pins this.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.allowsImplicitAnimation = true
+            setBoundsOrigin(home.origin)
+        }
+        enclosingScrollView?.reflectScrolledClipView(self)
     }
 }
