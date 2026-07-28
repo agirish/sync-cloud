@@ -46,9 +46,14 @@ private final class RevealBox: ObservableObject {
         try await Task.sleep(for: .milliseconds(100))
 
         withAnimation(ExpandingSearch.animation) { box.isExpanded = true }
-        try await Task.sleep(for: .milliseconds(400))
 
-        #expect(Self.isEditingText(window), "the revealed field must hold the caret — no second click")
+        // The focus claim is asynchronous twice over — the `.onAppear` Task hop, then
+        // FocusState→AppKit first-responder propagation — so a fixed pump here flakes under
+        // suite load (CI run 30403470882; shrinking the pump to 1ms reproduces that failure
+        // exactly). The deadline is a ceiling, not a wait: the poll returns as soon as the
+        // caret lands, ~150ms in a quiet run.
+        #expect(await Self.becomesEditingText(window),
+                "the revealed field must hold the caret — no second click")
     }
 
     // MARK: Behaviour-preservation of the extraction
@@ -119,6 +124,19 @@ private final class RevealBox: ObservableObject {
     private static func isEditingText(_ window: NSWindow) -> Bool {
         guard let responder = window.firstResponder else { return false }
         return responder.isKind(of: NSTextView.self)
+    }
+
+    /// Polls until a text editor holds first responder, pumping layout each pass so AppKit can
+    /// finish standing up the field editor. 15s matches the ceiling the FileExplorer mounted
+    /// suites converged on for a loaded run of the whole test host.
+    private static func becomesEditingText(_ window: NSWindow, timeout: TimeInterval = 15) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            window.layoutIfNeeded()
+            if isEditingText(window) { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return isEditingText(window)
     }
 }
 
