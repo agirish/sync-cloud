@@ -862,26 +862,34 @@ import Sync
         try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
 
         // Vertical gesture in flight; the clip refuses to land on the held position — every
-        // revert to 0 comes back half a point off, forever.
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12)
+        // revert to 0 comes back half a point off, forever. Dated ahead of the wall clock like
+        // the leaked-drift test above, so the "engaged and fought" bound below cannot starve
+        // when a loaded main queue drains the enforcement hops past the lock's real recency
+        // window.
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
+        // Counted from here: mounting alone racks up setBoundsOrigin calls, and a lower bound
+        // that includes them held even with enforceHold's revert deleted (a mutation run
+        // proved it).
+        let mountSets = clip.setCount
         clip.fightsBack = true
         clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
 
-        // Keep the gesture alive for a while; the old in-notification revert would have
+        // Keep the runloop turning for a while; the old in-notification revert would have
         // recursed thousands of frames deep INSIDE the first setBoundsOrigin call.
         let deadline = Date().addingTimeInterval(0.4)
         while Date() < deadline {
-            lock.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -8)
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
         // Reaching this line at all is most of the assertion. The set count pins boundedness:
         // ~50 runloop turns elapsed, so per-turn enforcement stays in that order — recursion
         // would have piled up thousands before the first turn ended.
-        #expect(clip.setCount < 500,
-                "the hold fought a moving scroll \(clip.setCount) times — per-turn bounding is gone")
+        let fightSets = clip.setCount - mountSets
+        #expect(fightSets < 500,
+                "the hold fought a moving scroll \(fightSets) times — per-turn bounding is gone")
         // More than the strand's own set: the hold really did engage and fight (once per turn).
-        #expect(clip.setCount > 1, "the fixture never engaged the hold at all — nothing was pinned")
+        #expect(fightSets > 1, "the fixture never engaged the hold at all — nothing was pinned")
     }
 
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {
