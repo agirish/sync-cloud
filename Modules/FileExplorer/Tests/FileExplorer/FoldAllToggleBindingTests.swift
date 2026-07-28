@@ -26,11 +26,12 @@ import Testing
 /// drives the real app while these run. What is NOT kept is sleeping a fixed duration and then
 /// measuring: see `headerControls`, which waits on the table's own row count and asserts it.
 ///
-/// `.serialized` orders the cases here; `.exclusiveGroupingPreference` keeps them from overlapping
-/// with the other suite that drives `differencesGroupByFolder` in `UserDefaults.standard` — the
-/// test process's own domain, never the shipping app's, but process-global all the same.
+/// `.serialized` orders the cases here; `.oneMountedDifferencesTable` keeps this suite's mounts
+/// from stacking on top of the other mounting suites' (see that trait). Isolation needs neither:
+/// every mount seeds its own `ScratchDefaults` suite (see `mount`), so no other suite — and no
+/// leftover plist from a previous run — can reach the grouping preference this one renders.
 @MainActor
-@Suite(.serialized, .exclusiveGroupingPreference) struct FoldAllToggleBindingTests {
+@Suite(.serialized, .oneMountedDifferencesTable) struct FoldAllToggleBindingTests {
 
     /// The toggle's laid-out size: a 24×24 hit target, matching `collapseToggle`'s. Distinct from
     /// every other control in the row, which is what makes it findable by measurement.
@@ -60,13 +61,23 @@ import Testing
         }
     }
 
+    /// The view reads its preferences from a fresh `ScratchDefaults` suite, seeded before the
+    /// view exists, via `.defaultAppStorage`. `UserDefaults.standard` is never touched:
+    /// `@AppStorage`'s process-wide storage location for a (store, key) pair outlives every view
+    /// that used it and can re-attach to a fresh view without re-reading the defaults — which is
+    /// how a `grouped: false` mount here drew 15 rows for the whole of `headerControls`' 5s wait
+    /// under CPU load on 2026-07-28, no matter what the standard domain's plist said. A location
+    /// born from this mount's own store cannot hold anything but this test's value. Full
+    /// account: `DifferencesTableIdentityTests`.
     private func mount(grouped: Bool, width: CGFloat) -> (host: NSHostingView<AnyView>, window: NSWindow) {
-        UserDefaults.standard.set(grouped, forKey: "differencesGroupByFolder")
+        let store = ScratchDefaults("FoldAllToggleBindingTests")
+        store.set(grouped, forKey: "differencesGroupByFolder")
         let manager = FileSyncManager()
         manager.differences = differences()
         manager.hasScanned = true
 
         let view = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())
+            .defaultAppStorage(store)
         let host = NSHostingView(rootView: AnyView(view))
         host.frame = CGRect(x: 0, y: 0, width: width, height: 700)
 
@@ -119,22 +130,16 @@ import Testing
         let (host, window) = mount(grouped: grouped, width: width)
         defer { window.contentView = nil }
 
+        // Deadline-based, not iteration-counted, and generous: under deliberate CPU load the
+        // rows can take seconds to land, and waiting for the EXACT count is what keeps a
+        // half-built table from being measured.
         let expected = grouped ? Self.groupedRowCount : Self.flatRowCount
-        // Generous because the full suite runs in parallel around this — and re-asserting the
-        // preference while the count is wrong, because time alone cannot fix a view whose first
-        // `@AppStorage` read raced the write in `mount` and latched the previous test's value;
-        // there is no later change coming to correct it. See `reassertPreference`.
         let deadline = Date().addingTimeInterval(15)
-        var nextNudge = Date().addingTimeInterval(1)
         var rows: Int?
         while Date() < deadline {
             host.layoutSubtreeIfNeeded()
             rows = tableRowCount(host)
             if rows == expected { break }
-            if Date() >= nextNudge {
-                reassertPreference(grouped, forKey: "differencesGroupByFolder")
-                nextNudge = Date().addingTimeInterval(1)
-            }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         let drew = rows.map(String.init) ?? "no"

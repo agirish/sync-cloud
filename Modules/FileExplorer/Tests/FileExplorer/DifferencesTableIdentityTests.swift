@@ -25,21 +25,26 @@ import Testing
 ///   until the timeout and every assertion downstream reads as a product failure.
 /// - The window is never ordered in. `.task` fires without it, and this machine's owner drives
 ///   the real app while these run.
-/// - Every wait is for the EXACT row count of the shape under test (see `waitForRows`), because a
-///   fresh mount can transiently draw the previous test's shape when the preference write races
-///   the view's first `@AppStorage` read — under full-suite load the flat 120-row fixture
-///   measured 140 rows off a wait that accepted "any rows".
+/// - Mount waits target the EXACT settled row count, never `rows > 0`. Row materialization is
+///   async, so a wait that latches the first non-empty count certifies whatever shape happened
+///   to render first — under six CPU loaders that was ~4-in-10 full-suite failures on
+///   2026-07-28, "flat" mounts drawing 15 and 140 rows.
 ///
-/// `.serialized`, and it drives `UserDefaults.standard` (what `@AppStorage` reads): the grouping
-/// preference is process-global, so two of these in flight would fight over it. That is the test
-/// process's own defaults domain, never the shipping app's.
-///
-/// `.serialized` alone was not enough once a second suite arrived — it orders cases within a suite
-/// while swift-testing runs suites in parallel, so `FoldAllToggleBindingTests` and this one read
-/// each other's preference and both failed. `.exclusiveGroupingPreference` is the gate that fixes
-/// it; see that trait for the full account.
+/// Every mount reads its preferences from its own `ScratchDefaults` suite via
+/// `.defaultAppStorage`, never from `UserDefaults.standard`. The standard domain made the
+/// grouping key process-global state, and no discipline over it survived contact with SwiftUI:
+/// suite-level serialization (`.exclusiveGroupingPreference`, now deleted) still lost to
+/// `@AppStorage`'s process-wide storage location for the (store, key) pair, which outlives every
+/// view that used it and can re-attach to a fresh view WITHOUT re-reading the defaults — a
+/// loaded run showed a mount rendering grouped for 15 straight seconds while the plist said
+/// flat, healed only by the NEXT test's writes. A scratch store sidesteps the cache entirely:
+/// the location is created by this mount's first render, reads a value this test seeded, and no
+/// other suite can touch it. `.serialized` orders the cases here; `.oneMountedDifferencesTable`
+/// keeps this suite's mounts — the priciest main-actor jobs in the target — from stacking on
+/// top of the other mounting suites' and starving everyone else's runloop-hop deadlines (that
+/// trait has the numbers).
 @MainActor
-@Suite(.serialized, .exclusiveGroupingPreference) struct DifferencesTableIdentityTests {
+@Suite(.serialized, .oneMountedDifferencesTable) struct DifferencesTableIdentityTests {
 
     /// The Size column's declared ideal, from `standardTableSection`. The dragged width asserted
     /// below must not be this, or "the width survived" and "the column was rebuilt and re-derived
@@ -70,14 +75,23 @@ import Testing
 
     /// Mounts the real `DifferencesView` — not a lookalike. A harness that rebuilt "a Table shaped
     /// like the production one" would keep passing after the production one regressed.
+    ///
+    /// The view reads its preferences from a fresh `ScratchDefaults` suite (see the suite doc),
+    /// seeded BEFORE the view exists so the storage location `@AppStorage` creates on first
+    /// render is born holding this test's value — there is no window in which a stale or foreign
+    /// value can be latched. Mid-test toggles write to the returned `store`, whose location has
+    /// been live and observing since that first render.
     private func mount(grouped: Bool,
-                       rows: [FileDifference]? = nil) -> (host: NSHostingView<AnyView>, window: NSWindow) {
-        UserDefaults.standard.set(grouped, forKey: "differencesGroupByFolder")
+                       rows: [FileDifference]? = nil)
+        -> (host: NSHostingView<AnyView>, window: NSWindow, store: UserDefaults) {
+        let store = ScratchDefaults("DifferencesTableIdentityTests")
+        store.set(grouped, forKey: "differencesGroupByFolder")
         let manager = FileSyncManager()
         manager.differences = rows ?? differences()
         manager.hasScanned = true
 
         let view = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())
+            .defaultAppStorage(store)
         let host = NSHostingView(rootView: AnyView(view))
         host.frame = CGRect(x: 0, y: 0, width: 900, height: 600)
 
@@ -87,7 +101,7 @@ import Testing
         window.isReleasedWhenClosed = false
         window.contentView = host
         host.layoutSubtreeIfNeeded()
-        return (host, window)
+        return (host, window, store)
     }
 
     // MARK: Waiting + hierarchy helpers
@@ -106,31 +120,25 @@ import Testing
         return condition()
     }
 
-    /// Waits until the table draws EXACTLY `expected` rows, and reports the count it last saw.
+    /// Waits for the table to settle at EXACTLY `expected` rows, and reports the last count seen.
     ///
-    /// Exact, not "> 0" or "different from before": under full-suite load a freshly mounted view
-    /// can come up drawing the PREVIOUS test's shape — `@AppStorage` serves the first read from a
-    /// process-shared cache that the mount's own preference write can race — and "some rows" is a
-    /// condition a stale render satisfies. That is precisely how the flat 120-row fixture once
-    /// measured 140 rows: the wait returned on the leftover grouped shape. The exact count is the
-    /// one observable that says the shape under test is actually on screen.
-    ///
-    /// While the shape is missing it re-asserts the preference about once a second — a view that
-    /// latched a stale value has no later change coming to correct it, so a passive poll would
-    /// run out its whole timeout against a shape that can never appear. See `reassertPreference`.
-    private func waitForRows(_ expected: Int, grouped: Bool, in host: NSView,
-                             timeout: TimeInterval = 15) async -> Int {
+    /// `rows > 0` is not a settle signal here: the rows and the grouping toggle both land
+    /// asynchronously, so a wait that latches the first non-empty count certifies whatever shape
+    /// happened to render first rather than the one under test. The count is returned rather
+    /// than asserted so each caller's failure message can name the mount it was measuring; on
+    /// timeout that is the count actually on screen, not a nil — the same shape as
+    /// `SectionRowHeightTests.rowHeights`. The 15s deadline is sized for a machine under
+    /// deliberate CPU load, where a toggle can take seconds to redraw the table.
+    private func settle(_ host: NSView, atRows expected: Int, timeout: TimeInterval = 15) async -> Int {
         let deadline = Date().addingTimeInterval(timeout)
-        var nextNudge = Date().addingTimeInterval(1)
+        var last = 0
         while Date() < deadline {
-            if tableView(in: host)?.numberOfRows == expected { return expected }
-            if Date() >= nextNudge {
-                reassertPreference(grouped, forKey: "differencesGroupByFolder")
-                nextNudge = Date().addingTimeInterval(1)
-            }
+            host.layoutSubtreeIfNeeded()
+            last = tableView(in: host)?.numberOfRows ?? 0
+            if last == expected { return last }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        return tableView(in: host)?.numberOfRows ?? 0
+        return last
     }
 
     private func tableView(in view: NSView) -> NSTableView? {
@@ -158,14 +166,12 @@ import Testing
     /// The load-bearing one. Drag a column to a width nothing would choose on its own, flip the
     /// grouping preference, and the width is still there — on the same table view.
     @Test func widthSurvivesTheGroupingToggle() async throws {
-        let (host, window) = mount(grouped: false)
+        let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        // 12 = the fixture's 3 folders × 4 rows, with no section headers.
-        let flatRows = 12
-        let drewFlat = await waitForRows(flatRows, grouped: false, in: host)
-        #expect(drewFlat == flatRows,
-                "flat table drew \(drewFlat) rows, not \(flatRows) — every later assertion would be vacuous")
+        let flatRows = await settle(host, atRows: 12)
+        #expect(flatRows == 12,
+                "flat table settled at \(flatRows) row(s), not the 12 fixture rows — every later assertion would be vacuous")
         let table = try #require(tableView(in: host))
         let column = try #require(sizeColumn(of: table))
 
@@ -177,11 +183,10 @@ import Testing
         host.layoutSubtreeIfNeeded()
         #expect(abs(column.width - dragged) < 0.5, "the fixture could not set the width it measures")
 
-        UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        // 15 = the 12 data rows plus one section-header row per folder.
-        let drewGrouped = await waitForRows(15, grouped: true, in: host)
-        #expect(drewGrouped == 15,
-                "grouped table drew \(drewGrouped) rows, not 15 — the toggle under test did not happen")
+        store.set(true, forKey: "differencesGroupByFolder")
+        let groupedRows = await settle(host, atRows: 15)
+        #expect(groupedRows == 15,
+                "grouping toggle never took effect — settled at \(groupedRows) row(s), not the 15 sectioned rows (12 + 3 headers)")
 
         let after = try #require(tableView(in: host))
         #expect(after === table, "the toggle swapped the NSTableView — the Table was rebuilt")
@@ -201,15 +206,11 @@ import Testing
         // 20 folders × 6 rows: enough content to scroll a 600pt viewport several times over, so
         // the offset below is nowhere near the clamp at the bottom of a short list.
         let many = differences(folders: (1...20).map { "Folder\($0)" }, perFolder: 6)
-        let (host, window) = mount(grouped: false, rows: many)
+        let (host, window, store) = mount(grouped: false, rows: many)
         defer { window.contentView = nil }
 
-        // 120 = 20 folders × 6 rows, headerless. Settled on exactly, because this is the test
-        // that once drew 140 — the stale grouped shape, whose 20 header rows a "produced rows"
-        // wait cannot tell from the flat one.
-        let flatRows = 120
-        let drewFlat = await waitForRows(flatRows, grouped: false, in: host)
-        #expect(drewFlat == flatRows, "expected \(flatRows) fixture rows, drew \(drewFlat)")
+        let flatRows = await settle(host, atRows: 120)
+        #expect(flatRows == 120, "expected 120 fixture rows, settled at \(flatRows)")
         let scroller = try #require(scrollView(in: host))
 
         let offset: CGFloat = 400
@@ -219,11 +220,10 @@ import Testing
         let scrolledTo = scroller.contentView.bounds.origin.y
         #expect(scrolledTo > 100, "the fixture could not scroll (landed at \(scrolledTo)) — nothing to preserve")
 
-        UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        // 140 = the 120 data rows plus one header per folder.
-        let drewGrouped = await waitForRows(140, grouped: true, in: host)
-        #expect(drewGrouped == 140,
-                "grouped table drew \(drewGrouped) rows, not 140 — the grouping toggle never took effect")
+        store.set(true, forKey: "differencesGroupByFolder")
+        let groupedRows = await settle(host, atRows: 140)
+        #expect(groupedRows == 140,
+                "grouping toggle never took effect — settled at \(groupedRows) row(s), not the 140 sectioned rows (120 + 20 headers)")
 
         let after = try #require(scrollView(in: host))
         #expect(after === scroller, "the toggle swapped the NSScrollView — the Table was rebuilt")
@@ -235,17 +235,16 @@ import Testing
     /// identity assertion above would prove nothing more than that an untouched table keeps its
     /// columns. Grouped adds one header row per folder, so the row count must rise.
     @Test func togglingGroupingChangesTheRowShape() async throws {
-        let (host, window) = mount(grouped: false)
+        let (host, window, store) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        let flatRows = await waitForRows(12, grouped: false, in: host)
-        #expect(flatRows == 12, "expected the 12 fixture rows, drew \(flatRows)")
+        let flatRows = await settle(host, atRows: 12)
+        #expect(flatRows == 12, "expected the 12 fixture rows, settled at \(flatRows)")
 
-        UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        // 15 = 12 data rows + one header per folder: the row shape the toggle must produce.
-        let groupedRows = await waitForRows(15, grouped: true, in: host)
-        #expect(groupedRows == 15,
-                "grouped drew \(groupedRows) rows vs flat \(flatRows) — fixture is not clearing isWorthGrouping")
+        store.set(true, forKey: "differencesGroupByFolder")
+        let groupedRows = await settle(host, atRows: 15)
+        #expect(groupedRows > flatRows,
+                "grouped settled at \(groupedRows) rows vs flat \(flatRows) — fixture is not clearing isWorthGrouping")
     }
 
     /// Both row shapes must reach the same selection binding. `contextMenu(forSelectionType:)` and
@@ -254,12 +253,12 @@ import Testing
     /// is gone — the modifiers now attach to the Table itself — and this keeps both shapes honest.
     @Test func bothRowShapesAcceptSelection() async throws {
         for grouped in [false, true] {
-            let (host, window) = mount(grouped: grouped)
+            let (host, window, _) = mount(grouped: grouped)
             defer { window.contentView = nil }
 
             let expected = grouped ? 15 : 12
-            let drew = await waitForRows(expected, grouped: grouped, in: host)
-            #expect(drew == expected, "grouped=\(grouped) drew \(drew) rows, expected \(expected)")
+            let rows = await settle(host, atRows: expected)
+            #expect(rows == expected, "grouped=\(grouped) settled at \(rows) row(s), expected \(expected)")
             let table = try #require(tableView(in: host))
             #expect(table.selectionHighlightStyle != .none, "grouped=\(grouped): table is not selectable")
 
@@ -284,12 +283,12 @@ import Testing
     @Test func bothRowShapesDrawTheSameColumns() async throws {
         var seen: [[String]] = []
         for grouped in [false, true] {
-            let (host, window) = mount(grouped: grouped)
+            let (host, window, _) = mount(grouped: grouped)
             defer { window.contentView = nil }
 
             let expected = grouped ? 15 : 12
-            let drew = await waitForRows(expected, grouped: grouped, in: host)
-            #expect(drew == expected, "grouped=\(grouped) drew \(drew) rows, expected \(expected)")
+            let rows = await settle(host, atRows: expected)
+            #expect(rows == expected, "grouped=\(grouped) settled at \(rows) row(s), expected \(expected)")
             seen.append(try #require(tableView(in: host)).tableColumns.map(\.title))
         }
         #expect(seen[0] == ["Name", "Change", "Size", "Copy to"], "flat columns were \(seen[0])")

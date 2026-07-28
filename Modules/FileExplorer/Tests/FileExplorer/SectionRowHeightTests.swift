@@ -19,7 +19,7 @@ import Testing
 /// to 16pt while leaving the header at 28. That is why both densities are expected to agree here
 /// while their data rows do not.
 @MainActor
-@Suite(.serialized, .exclusiveGroupingPreference) struct SectionRowHeightTests {
+@Suite(.serialized, .oneMountedDifferencesTable) struct SectionRowHeightTests {
 
     /// The floor SwiftUI imposes on a section header row. Both densities sit on it.
     private static let headerRowHeight: CGFloat = 28
@@ -39,21 +39,26 @@ import Testing
     /// Mounts the real view at `density` and reports (header row, data row), waiting until the
     /// pair settles at `expectedData` under the header floor (or the timeout runs out).
     ///
-    /// Restores the density preference on the way out. It is process-global like the grouping
-    /// preference, and unlike that one it has no trait guarding it — a suite that renders a
-    /// density explicitly would otherwise inherit whatever this left behind.
+    /// Both preferences are seeded into a fresh `ScratchDefaults` suite the view reads via
+    /// `.defaultAppStorage` — `UserDefaults.standard` is never touched, so nothing is inherited
+    /// from other suites, nothing leaks to them, and no restore is owed on the way out.
+    /// `@AppStorage`'s process-wide storage location for a standard-domain key can re-attach to
+    /// a fresh view without re-reading the defaults, and a loaded run of this suite proved the
+    /// grouping key was not special: it drew Comfortable's 25pt data rows for Compact's entire
+    /// 15s wait. A location born from this mount's own store cannot hold a foreign value. Full
+    /// account: `DifferencesTableIdentityTests`.
     private func rowHeights(_ density: ListDensity,
                             expectingData expectedData: CGFloat) async -> (header: CGFloat, data: CGFloat)? {
-        let previousDensity = UserDefaults.standard.string(forKey: ListDensity.defaultsKey)
-        defer { UserDefaults.standard.set(previousDensity, forKey: ListDensity.defaultsKey) }
-        UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        UserDefaults.standard.set(density.rawValue, forKey: ListDensity.defaultsKey)
+        let store = ScratchDefaults("SectionRowHeightTests")
+        store.set(true, forKey: "differencesGroupByFolder")
+        store.set(density.rawValue, forKey: ListDensity.defaultsKey)
 
         let manager = FileSyncManager()
         manager.differences = differences()
         manager.hasScanned = true
         let host = NSHostingView(rootView: AnyView(
-            DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())))
+            DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore())
+                .defaultAppStorage(store)))
         host.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -77,28 +82,14 @@ import Testing
         // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
         // and on timeout return the last measurement so a real regression fails with the
         // numbers actually on screen rather than hanging the assertions on a nil.
-        //
-        // Waiting alone was still not enough: this kept flaking on runs where the pair sat wrong
-        // for the ENTIRE 15s window, which is not starvation — the poll itself was iterating on
-        // the same MainActor that any pending refresh would run on. That is the stale-latch race
-        // `reassertPreference` documents: the view's first `@AppStorage` read raced the writes
-        // above, and a view showing the flat shape (or the wrong density's row height) has no
-        // later change coming to correct it. So while the pair is unsettled, re-post both
-        // preferences about once a second, and give the whole thing a longer leash.
         let settled = (header: Self.headerRowHeight, data: expectedData)
-        let deadline = Date().addingTimeInterval(30)
-        var nextNudge = Date().addingTimeInterval(1)
+        let deadline = Date().addingTimeInterval(15)
         var last: (header: CGFloat, data: CGFloat)?
         while Date() < deadline {
             host.layoutSubtreeIfNeeded()
             if let t = table(host), t.numberOfRows >= 2 {
                 last = (header: t.rect(ofRow: 0).height, data: t.rect(ofRow: 1).height)
                 if last! == settled { return last }
-            }
-            if Date() >= nextNudge {
-                reassertPreference(true, forKey: "differencesGroupByFolder")
-                reassertPreference(density.rawValue, forKey: ListDensity.defaultsKey)
-                nextNudge = Date().addingTimeInterval(1)
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
