@@ -41,6 +41,11 @@ import Sync
     final class Box: ObservableObject {
         @Published var browsePath = PaneBrowsePath()
         @Published var selection: Set<String> = []
+        /// Counts every `onNavigate` delivery, including ones that recompute the current path.
+        /// The reselect test needs it: its end state equals its start state, so the only way to
+        /// know the deferred navigation actually ran — rather than asserting into a window it
+        /// never reached — is to watch the delivery itself.
+        var navigations = 0
     }
 
     static let root = "/root"
@@ -65,7 +70,8 @@ import Sync
             PaneColumnsView(
                 tree: tree, otherTree: PaneTree(side: .right, version: 1, nodes: []),
                 childrenIndex: index, treeRoot: ColumnDrillSourceTests.root,
-                browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
+                browsePath: $box.browsePath,
+                onNavigate: { box.navigations += 1; box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "Right",
                 isSingleSource: false, density: .compact, isActivePane: true,
@@ -86,16 +92,23 @@ import Sync
         return window
     }
 
-    /// Pumps layout while letting the main dispatch queue drain.
+    /// Pumps layout until `condition` holds, letting the main dispatch queue drain between polls.
     ///
     /// `await` is load-bearing and no amount of runloop spinning replaces it. A `@MainActor` test
     /// body *occupies* the main queue, so a `DispatchQueue.main.async` block — which is how the pane
     /// defers its navigation — cannot run until the body suspends. Pumping with `CFRunLoopRunInMode`
     /// or `RunLoop.main.run` reported "the column never opened" while the block sat queued and ran
     /// after the assertions, at teardown. Suspending is what releases the queue.
-    private func pump(_ window: NSWindow, seconds: Double) async {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
+    ///
+    /// The deadline bounds only a FAILING run. A fixed real-time pump here is unwinnable under a
+    /// loaded parallel suite — the deferred-navigation hop drains seconds late while the wall
+    /// clock runs regardless, so a 0.8s window expired before `onNavigate` ran and both drill
+    /// tests failed at ~9.5s with `browsePath` still at its initial value. Polling the observable
+    /// costs a passing run nothing and gives a starved one the whole deadline.
+    private func settle(_ window: NSWindow, deadline: TimeInterval = 20,
+                        until condition: () -> Bool) async {
+        let end = Date().addingTimeInterval(deadline)
+        while !condition() && Date() < end {
             window.layoutIfNeeded()
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
@@ -116,13 +129,15 @@ import Sync
     @Test func testAListCommittedFolderSelectionOpensItsColumn() async throws {
         let box = Box()
         let window = mount(box)
-        await pump(window, seconds: 0.6)
+        await settle(window) { !tables(window.contentView!).isEmpty }
         let table = try #require(tables(window.contentView!).first)
         #expect(tables(window.contentView!).count == 1, "should rest as one column")
 
         // Row 2 is folder `a2`. Driving the table is the List committing WITHOUT a tap.
         table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
-        await pump(window, seconds: 0.8)
+        await settle(window) {
+            box.browsePath.components == ["a2"] && tables(window.contentView!).count == 2
+        }
 
         #expect(box.selection == ["\(Self.root)/a2"], "the table's selection never reached the pane")
         #expect(box.browsePath.components == ["a2"],
@@ -135,13 +150,13 @@ import Sync
         let box = Box()
         let window = mount(box)
         box.browsePath = PaneBrowsePath(components: ["a2"])
-        await pump(window, seconds: 0.8)
+        await settle(window) { tables(window.contentView!).count == 2 }
         #expect(tables(window.contentView!).count == 2)
 
         // Row 6 in the ROOT column is `z0.pdf` (six folders precede it).
         let root = try #require(tables(window.contentView!).first)
         root.selectRowIndexes(IndexSet(integer: 6), byExtendingSelection: false)
-        await pump(window, seconds: 0.8)
+        await settle(window) { box.browsePath.components.isEmpty }
 
         #expect(box.selection == ["\(Self.root)/z0.pdf"])
         #expect(box.browsePath.components.isEmpty,
@@ -155,12 +170,22 @@ import Sync
         let box = Box()
         let window = mount(box)
         box.browsePath = PaneBrowsePath(components: ["a2"])
-        await pump(window, seconds: 0.8)
+        await settle(window) { tables(window.contentView!).count == 2 }
 
         let root = try #require(tables(window.contentView!).first)
+        let navigationsBefore = box.navigations
         root.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
-        await pump(window, seconds: 0.8)
+        // The end state here EQUALS the start state, so polling for it would pass before the
+        // deferred navigation even ran. Wait for the delivery itself, then drain a fixed number
+        // of queue turns — turns, not wall time, so a starved run still gets real drains — to
+        // let any churn the navigation caused reach the view tree.
+        await settle(window) { box.navigations > navigationsBefore }
+        for _ in 0..<30 {
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
 
+        #expect(box.navigations > navigationsBefore, "the reselect never delivered its navigation")
         #expect(box.browsePath.components == ["a2"])
         #expect(tables(window.contentView!).count == 2, "the open column was torn down and not replaced")
     }
