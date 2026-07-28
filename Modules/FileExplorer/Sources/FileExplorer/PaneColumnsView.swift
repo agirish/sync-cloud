@@ -251,7 +251,9 @@ struct PaneColumnsView: View {
         .simultaneousGesture(TapGesture().onEnded {
             // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
             guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
-            Logger.shared.debug("[tap] \(isLeft ? "left" : "right") col\(depth) \(node.isDirectory ? "dir" : "file") \(node.name)")
+            if PaneScrollTrace.isEnabled {
+                Logger.shared.debug("[tap] \(isLeft ? "left" : "right") col\(depth) \(node.isDirectory ? "dir" : "file") \(node.name)")
+            }
             // Before navigating: a drill restructures the column stack, and the selection should be
             // committed against the stack the user clicked in, not the one they are about to get.
             if selection != [node.id] { selection = [node.id] }
@@ -264,10 +266,12 @@ struct PaneColumnsView: View {
             // optimisations changed those numbers not at all, which is what gave the lie away: real
             // computation would have moved. This stamp starts after the button is already up, so
             // whatever it measures is work.
-            let released = CFAbsoluteTimeGetCurrent()
-            DispatchQueue.main.async {
-                let ms = (CFAbsoluteTimeGetCurrent() - released) * 1000
-                Logger.shared.debug("[render] \(isLeft ? "left" : "right") pane re-rendered in \(String(format: "%.1fms", ms))")
+            if PaneScrollTrace.isEnabled {
+                let released = CFAbsoluteTimeGetCurrent()
+                DispatchQueue.main.async {
+                    let ms = (CFAbsoluteTimeGetCurrent() - released) * 1000
+                    Logger.shared.debug("[render] \(isLeft ? "left" : "right") pane re-rendered in \(String(format: "%.1fms", ms))")
+                }
             }
         })
         .contextMenu {
@@ -296,8 +300,11 @@ struct PaneColumnsView: View {
                 // Logged including the EMPTY writes, which are the interesting ones: an empty write
                 // is silent everywhere else (it enforces nothing and takes no token in
                 // `applySelectionWrite`), so a selection that lands and is then cleared would look
-                // exactly like one that never landed at all.
-                Logger.shared.debug("[sel] \(isLeft ? "left" : "right") list wrote \(newValue.count) item(s)")
+                // exactly like one that never landed at all. Gated with the rest of the dead-click
+                // instrumentation — `[click]` remains as the ungated record that a selection landed.
+                if PaneScrollTrace.isEnabled {
+                    Logger.shared.debug("[sel] \(isLeft ? "left" : "right") list wrote \(newValue.count) item(s)")
+                }
                 selection = newValue
                 // The List committed this one, which means the tap gesture did NOT — the two never
                 // both drive a single click, and the log showed `[sel]` lines with no `[tap]`

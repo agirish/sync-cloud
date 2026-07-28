@@ -84,10 +84,18 @@ import SwiftUI
     @Test func testOnlyPlainClicksNavigate() {
         #expect(PaneViewMode.clickNavigates(modifiers: []))
         #expect(PaneViewMode.clickNavigates(modifiers: [.option]))
-        #expect(PaneViewMode.clickNavigates(modifiers: [.control]))
         #expect(PaneViewMode.clickNavigates(modifiers: [.command]) == false)
         #expect(PaneViewMode.clickNavigates(modifiers: [.shift]) == false)
         #expect(PaneViewMode.clickNavigates(modifiers: [.command, .shift]) == false)
+    }
+
+    /// ⌃ is the secondary click, and it reaches a primary-button recognizer because macOS delivers
+    /// it as a button-1 event carrying `.control`. It used to be admitted here, so control-clicking
+    /// a column's empty space opened the context menu AND — in the same gesture — cleared both
+    /// panes' selections and closed every column to the right of the one clicked in.
+    @Test func testControlClickIsTheSecondaryClickAndNeverNavigates() {
+        #expect(PaneViewMode.clickNavigates(modifiers: [.control]) == false)
+        #expect(PaneViewMode.clickNavigates(modifiers: [.control, .option]) == false)
     }
 
     // MARK: - Trailing deselect filler

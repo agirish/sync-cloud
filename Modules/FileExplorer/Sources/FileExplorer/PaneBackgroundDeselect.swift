@@ -68,9 +68,17 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         var onDeselect: () -> Void
 
         private weak var cachedTable: NSTableView?
-        /// The view the recognizer currently sits on, so a rebuilt list moves it rather than
+        /// The table the recognizer currently sits on, so a rebuilt list moves it rather than
         /// accumulating one recognizer per rebuild.
-        private weak var installedOn: NSView?
+        ///
+        /// Typed as the table rather than a bare view because the gate below reads it: it is by
+        /// construction the view a click on this recognizer hit-tested to, which `cachedTable` is
+        /// not. A resolve that comes up empty — the budget ran out, or the frame matched nothing
+        /// mid-rebuild — assigns `cachedTable = nil` while leaving this recognizer installed and
+        /// live, and a gate reading `cachedTable` then declined every click until some later pass
+        /// happened to re-resolve. Silently, since a recognizer that never fires looks exactly like
+        /// a feature nobody built.
+        private weak var installedOn: NSTableView?
         private var recognizer: NSClickGestureRecognizer?
 
         /// Same budget as `PaneListSelectionStyler`: the walk scans up to six ancestor subtrees and
@@ -141,11 +149,15 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
 
         /// The gate. Returning false here means the recognizer never engages and the click reaches
         /// the table exactly as it does today.
+        ///
+        /// Reads `installedOn`, not `cachedTable`: the recognizer is ON that table, so it is the
+        /// view this click hit-tested to and the only one whose coordinate space the point below is
+        /// meaningful in. See the note on the property for what reading the cache instead cost.
         func gestureRecognizer(
             _ gestureRecognizer: NSGestureRecognizer,
             shouldAttemptToRecognizeWith event: NSEvent
         ) -> Bool {
-            guard let table = cachedTable else { return false }
+            guard let table = installedOn else { return false }
             let point = table.convert(event.locationInWindow, from: nil)
             return PaneBackgroundDeselect.acceptsClick(
                 modifiers: event.modifierFlags, pointInTable: point, table: table)

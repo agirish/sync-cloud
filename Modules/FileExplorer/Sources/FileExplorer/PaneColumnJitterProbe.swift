@@ -2,6 +2,33 @@ import AppKit
 import Events
 import SwiftUI
 
+/// The opt-in switch for the pane's frame-rate diagnostics: the column travel trace, and the
+/// per-click `[tap]`/`[sel]`/`[render]` stamps left over from the dead-click investigation.
+///
+/// **Off by default, and that is the load-bearing part.** These lines are emitted per frame of
+/// scrolling and per click, not per thing the user did: the travel trace alone is one coalesced
+/// line per column per 250ms of movement, so with three columns open in each pane a few seconds of
+/// scrolling writes a few hundred lines describing nothing. That volume does not merely sit in the
+/// file — `LogFileWriter` caps the log at 5 MB and trims it from the TAIL, so scroll noise evicts
+/// the sync runs, errors and scan results the log exists to preserve. A user who scrolls for a
+/// minute before hitting a real bug has thrown away the evidence of it.
+///
+/// What stays ungated is everything that describes a decision rather than a frame: `[click]`,
+/// `[columns]`, `[crumb]`, `[deselect]`, and both watchdogs' `pull` lines. Those are rare,
+/// actionable, and precisely what the next report will need — the travel trace earned its keep by
+/// catching the park-and-snap `PaneColumnJitterProbe` now fixes, and it stays available for the
+/// next one rather than being deleted.
+@MainActor
+enum PaneScrollTrace {
+    /// `defaults write com.abhishekgirish.SyncCloud paneScrollTraceEnabled -bool YES` to turn the
+    /// trace on for a diagnostic session.
+    static let defaultsKey = "paneScrollTraceEnabled"
+
+    /// Read once, so a per-frame log site costs a Bool rather than a `UserDefaults` lookup. Tests
+    /// set it directly to drive the emission they assert on.
+    static var isEnabled = UserDefaults.standard.bool(forKey: defaultsKey)
+}
+
 /// Watches one column's list: logs its vertical travel, and pulls it home when it parks
 /// stretched in overscroll.
 ///
@@ -168,6 +195,10 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
             // Only genuine travel is worth a line — and a window that ended where it began but
             // visited somewhere else in between is the bob being hunted, so range decides.
             guard max(high, start, now) - min(low, start, now) >= 0.5 else { return }
+            // Checked AFTER the window has been measured and BEFORE anything is written, so the
+            // sampling (and the `defer` above that rolls the window forward) behaves identically
+            // whether or not anyone is listening. See `PaneScrollTrace`.
+            guard PaneScrollTrace.isEnabled else { return }
             linesLogged += 1
             Logger.shared.debug(String(
                 format: "[col] %@ y %.1f → %.1f (range %.1f…%.1f)", label, start, now, low, high))

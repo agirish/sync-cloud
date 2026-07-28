@@ -236,6 +236,17 @@ import Sync
         let scrollable = (clip.documentView?.frame.height ?? 0) - clip.bounds.height
         #expect(scrollable > 10, "fixture column does not overflow, so the emission check is vacuous")
 
+        // Both halves live in ONE test because they share a process-wide switch: as two tests they
+        // interleave at their `await` points and each flips the flag under the other — which is
+        // exactly how the first draft failed, the "silent" case logging a line its sibling had
+        // enabled. Owning the flag for the whole test removes the ordering question rather than
+        // answering it.
+        let wasEnabled = PaneScrollTrace.isEnabled
+        defer { PaneScrollTrace.isEnabled = wasEnabled }
+
+        // Asked for: the probe must genuinely emit. Silent instrumentation would report a healthy
+        // pane no matter what the pane did.
+        PaneScrollTrace.isEnabled = true
         let before = probe.linesLogged
         clip.scroll(to: NSPoint(x: 0, y: min(30, scrollable)))
         clip.enclosingScrollView?.reflectScrolledClipView(clip)
@@ -245,6 +256,17 @@ import Sync
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
         #expect(probe.linesLogged > before, "the probe never reported the column's travel")
+
+        // Not asked for — how it ships. The same travel, back the way it came, must write nothing.
+        // `LogFileWriter` caps the log at 5 MB and trims it from the TAIL, so a per-frame line does
+        // not merely sit there: it evicts the sync runs and errors the log is kept for.
+        PaneScrollTrace.isEnabled = false
+        let afterTracing = probe.linesLogged
+        clip.scroll(to: NSPoint(x: 0, y: 0))
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        await pump(window, seconds: 0.8)
+        #expect(probe.linesLogged == afterTracing,
+                "the travel trace wrote to the log with the diagnostic switched off")
     }
 }
 
@@ -637,6 +659,45 @@ import Sync
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0.05)
         #expect(!tracker.isVerticalGestureInFlight(at: 0.06),
                 "the previous gesture's decision leaked into the new one")
+    }
+
+    // MARK: - Traditional (non-phased) scroll wheels
+    //
+    // Every test above drives a trackpad: `.began`, `.changed`, momentum, `.ended`. A plain wheel
+    // mouse sends NONE of those — phase and momentumPhase are both empty on every event — so all
+    // three of the clears above are unreachable for it, and the whole suite passed while the lock
+    // was permanently stuck for anyone not on a touch surface.
+
+    /// The regression. Each wheel click is its own gesture, so a horizontal one is horizontal even
+    /// after a vertical one: without this the first vertical click of the session latched
+    /// `verticalDominant` forever and `enforceHold` reverted the stack against every later ⇧-wheel.
+    @Test func testAWheelMouseRedecidesEveryEvent() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: [], momentumPhase: [], dx: 0, dy: -10, at: 0)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.01), "a vertical wheel click must engage the lock")
+
+        tracker.ingest(phase: [], momentumPhase: [], dx: -10, dy: 0, at: 0.02)
+        #expect(!tracker.isVerticalGestureInFlight(at: 0.03),
+                "a ⇧-wheel horizontal scroll was held against the user by a lock still reading 'vertical'")
+    }
+
+    /// The lock must still decay for a wheel mouse, so a burst of vertical clicks cannot defeat the
+    /// drill's programmatic auto-scroll once the hand stops.
+    @Test func testAWheelMouseLockDecaysOnQuiet() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: [], momentumPhase: [], dx: 0, dy: -10, at: 0)
+        #expect(!tracker.isVerticalGestureInFlight(at: WheelGestureTracker.staleness + 0.01))
+    }
+
+    /// A trackpad gesture's own events must not be mistaken for ungrouped ones — `.ended` carries
+    /// an empty momentumPhase, and re-deciding there would drop the lock before momentum arrives.
+    @Test func testAPhasedGestureIsNeverTreatedAsUngrouped() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: 0.01)
+        tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
+        #expect(tracker.isVerticalGestureInFlight(at: 0.03),
+                "`.ended` was read as an ungrouped event and cleared the decision early")
     }
 }
 

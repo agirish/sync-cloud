@@ -74,10 +74,20 @@ final class WheelGestureTracker {
     /// the first drag event with any real delta decides its axis; momentum events inherit the
     /// decision (they never make one — their direction is history, not intent). The decision
     /// clears when momentum finishes, the gesture cancels, or a new gesture begins.
+    ///
+    /// A traditional (non-Magic) mouse wheel groups nothing: its events carry no `.began`, no
+    /// momentum and no `.ended`, so none of those three clears would ever fire and the FIRST wheel
+    /// click of the session would latch the axis for the rest of it. Latched vertical, the lock
+    /// then reported "in flight" within its recency window of every later wheel event and
+    /// `enforceHold` reverted the stack — so a ⇧-wheel horizontal scroll of the column stack was
+    /// held against the user, permanently, on any mouse without a touch surface. An ungrouped event
+    /// therefore decides for itself, which is the truthful reading: with no phase to group them,
+    /// each wheel click *is* its own gesture.
     func ingest(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, dx: CGFloat, dy: CGFloat,
                 at now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
         lastEventAt = now
-        if phase.contains(.began) {
+        let isUngrouped = phase.isEmpty && momentumPhase.isEmpty
+        if phase.contains(.began) || isUngrouped {
             decided = false
             verticalDominant = false
         }

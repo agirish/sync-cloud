@@ -21,7 +21,6 @@ import Sync
     @Test func testAPlainClickIsTheTapHandlersToCommit() {
         #expect(PaneViewMode.clickNavigates(modifiers: []))
         #expect(PaneViewMode.clickNavigates(modifiers: [.option]))
-        #expect(PaneViewMode.clickNavigates(modifiers: [.control]))
     }
 
     /// …and a modified click is not: the handler returns before assigning, so the List keeps its
@@ -33,6 +32,16 @@ import Sync
         // A modifier the rule doesn't name must not smuggle a plain click past the gate.
         #expect(!PaneViewMode.clickNavigates(modifiers: [.command, .option]))
         #expect(!PaneViewMode.clickNavigates(modifiers: [.shift, .option]))
+    }
+
+    /// ⌃ is the secondary click, not a plain one. It reaches the tap handler and the background
+    /// deselect recognizer alike — macOS delivers control-click as a button-1 event carrying
+    /// `.control` — so admitting it meant the contextual menu opened while the same gesture
+    /// committed a selection, cleared the other pane, and (on empty space) closed every column to
+    /// the right of the one clicked in.
+    @Test func testAControlClickIsSecondaryAndBelongsToTheContextMenu() {
+        #expect(!PaneViewMode.clickNavigates(modifiers: [.control]))
+        #expect(!PaneViewMode.clickNavigates(modifiers: [.control, .option]))
     }
 }
 

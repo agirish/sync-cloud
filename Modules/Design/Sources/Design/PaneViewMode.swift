@@ -132,13 +132,23 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         return max(0, paneWidth - CGFloat(columnCount) * columnWidth)
     }
 
-    /// Whether a click on a column row should navigate, or be left entirely to the list's own
-    /// selection handling.
+    /// Whether a click on a column row (or on a pane's empty space) should navigate, or be left
+    /// entirely to the list's own mouse handling.
     ///
     /// ⌘ and ⇧ clicks are the list's: they extend and range-select. A navigation handler that ran
     /// for them too would collapse every multi-selection back to the one row just clicked, which is
     /// exactly what it did — Copy/Move/Delete could never act on more than one item in Columns.
+    ///
+    /// ⌃ is excluded for a different reason: it is the secondary click. macOS delivers control-click
+    /// as a primary-button event carrying `.control` — which is what lets it reach an
+    /// `NSClickGestureRecognizer` watching button 1 at all — and then opens the contextual menu from
+    /// it. Admitting it here meant a secondary click on a column's empty space cleared BOTH panes'
+    /// selections and truncated the column stack, closing every column to the right, at the same
+    /// moment its context menu appeared. A secondary click must not navigate: it exists to ask what
+    /// the options are, and destroying the selection the menu is about to act on (the same
+    /// "Copy N items from other pane" entry the empty-write rule in `applySelectionWrite` was
+    /// written to protect) is the opposite of that.
     public static func clickNavigates(modifiers: NSEvent.ModifierFlags) -> Bool {
-        !modifiers.contains(.command) && !modifiers.contains(.shift)
+        !modifiers.contains(.command) && !modifiers.contains(.shift) && !modifiers.contains(.control)
     }
 }
