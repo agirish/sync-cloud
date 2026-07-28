@@ -36,12 +36,14 @@ import Testing
         }
     }
 
-    /// Mounts the real view at `density` and reports (header row, data row).
+    /// Mounts the real view at `density` and reports (header row, data row), waiting until the
+    /// pair settles at `expectedData` under the header floor (or the timeout runs out).
     ///
     /// Restores the density preference on the way out. It is process-global like the grouping
     /// preference, and unlike that one it has no trait guarding it — a suite that renders a
     /// density explicitly would otherwise inherit whatever this left behind.
-    private func rowHeights(_ density: ListDensity) async -> (header: CGFloat, data: CGFloat)? {
+    private func rowHeights(_ density: ListDensity,
+                            expectingData expectedData: CGFloat) async -> (header: CGFloat, data: CGFloat)? {
         let previousDensity = UserDefaults.standard.string(forKey: ListDensity.defaultsKey)
         defer { UserDefaults.standard.set(previousDensity, forKey: ListDensity.defaultsKey) }
         UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
@@ -66,18 +68,32 @@ import Testing
             return nil
         }
         // Row 0 of a sectioned Table is the section HEADER, not the first file.
-        let deadline = Date().addingTimeInterval(5)
+        //
+        // The header does not get its height in the pass that materializes the rows: the table
+        // first lays row 0 out at the data-row height and only differentiates it when SwiftUI's
+        // row-height invalidation runs. Under a full parallel test run that invalidation can be
+        // starved well past any polite fixed window — measuring as soon as rows existed is how
+        // this test flaked, catching the header still at the data row's 25. So wait for the
+        // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
+        // and on timeout return the last measurement so a real regression fails with the
+        // numbers actually on screen rather than hanging the assertions on a nil.
+        let settled = (header: Self.headerRowHeight, data: expectedData)
+        let deadline = Date().addingTimeInterval(15)
+        var last: (header: CGFloat, data: CGFloat)?
         while Date() < deadline {
-            if let t = table(host), t.numberOfRows >= 2 { break }
+            host.layoutSubtreeIfNeeded()
+            if let t = table(host), t.numberOfRows >= 2 {
+                last = (header: t.rect(ofRow: 0).height, data: t.rect(ofRow: 1).height)
+                if last! == settled { return last }
+            }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
-        host.layoutSubtreeIfNeeded()
-        guard let t = table(host), t.numberOfRows >= 2 else { return nil }
-        return (t.rect(ofRow: 0).height, t.rect(ofRow: 1).height)
+        return last
     }
 
     @Test func comfortableDrawsTheHeaderAtTheFloor() async throws {
-        let heights = try #require(await rowHeights(.comfortable), "table never produced rows")
+        let heights = try #require(await rowHeights(.comfortable, expectingData: 25),
+                                   "table never produced rows")
         #expect(heights.header == Self.headerRowHeight)
         // Named so a failure says which number moved. The data row is the yardstick the header is
         // judged against — a header that grew because the whole table grew is a different bug.
@@ -85,7 +101,8 @@ import Testing
     }
 
     @Test func compactDrawsTheSameHeaderOverShorterRows() async throws {
-        let heights = try #require(await rowHeights(.compact), "table never produced rows")
+        let heights = try #require(await rowHeights(.compact, expectingData: 20),
+                                   "table never produced rows")
         #expect(heights.header == Self.headerRowHeight)
         #expect(heights.data == 20)
     }
@@ -93,8 +110,8 @@ import Testing
     /// The claim the padding constant's doc rests on, asserted rather than left as a comment: the
     /// densities differ in their data rows and agree on their header.
     @Test func theTwoDensitiesAgreeOnTheHeaderAndDisagreeOnTheRow() async throws {
-        let comfortable = try #require(await rowHeights(.comfortable))
-        let compact = try #require(await rowHeights(.compact))
+        let comfortable = try #require(await rowHeights(.comfortable, expectingData: 25))
+        let compact = try #require(await rowHeights(.compact, expectingData: 20))
         #expect(comfortable.header == compact.header)
         #expect(comfortable.data > compact.data)
     }
