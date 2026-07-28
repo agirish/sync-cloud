@@ -190,9 +190,22 @@ import Sync
         defer { _ = window }
         let clip = stack.contentView
 
-        // Wait for genuine rest first: the drill's own deferred auto-scroll can land late under a
-        // loaded parallel run, and a baseline read before it lands fails this test against the
-        // scroll, not the watchdog. Rest = the origin holding still for a full second.
+        // Wait for the drill's own auto-scroll FIRST: it reveals the newest column by scrolling
+        // the stack to its max extent, and under a loaded parallel run it lands seconds after
+        // the mount's pump — one run read "rest" at x=0 for a full second and then watched the
+        // reveal land at x=110 inside the assertion window below, failing this test against the
+        // drill's scroll, not the watchdog. The extent is recomputed per pass because layout can
+        // land late too.
+        let revealDeadline = Date().addingTimeInterval(15)
+        while Date() < revealDeadline {
+            let extent = max(0, (stack.documentView?.frame.width ?? 0) - stack.contentSize.width)
+            if extent > 0, clip.bounds.origin.x >= extent - 1 { break }
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+
+        // Then for genuine rest: a baseline read while anything still moves fails this test
+        // against that movement. Rest = the origin holding still for a full second.
         var settled = clip.bounds.origin
         var heldSince = Date()
         let deadline = Date().addingTimeInterval(10)
@@ -250,7 +263,12 @@ import Sync
         let before = probe.linesLogged
         clip.scroll(to: NSPoint(x: 0, y: min(30, scrollable)))
         clip.enclosingScrollView?.reflectScrolledClipView(clip)
-        let deadline = Date().addingTimeInterval(5)
+        // The emission is two main-thread hops away — a bounds-change notification, then the
+        // probe's 250ms coalescing flush — and under a full parallel run other main-actor work
+        // can starve those hops well past a polite window (`waitForOrigin`'s lesson, below).
+        // 15s matches it; a 5s deadline here failed about one full-suite run in six under load,
+        // and shortening it to 0.4s reproduces that failure's exact signature on demand.
+        let deadline = Date().addingTimeInterval(15)
         while probe.linesLogged == before, Date() < deadline {
             window.layoutIfNeeded()
             try? await Task.sleep(nanoseconds: 8_000_000)
