@@ -1,17 +1,20 @@
 import AppKit
 import SwiftUI
 
-/// Stops the column stack rubber-banding past its own edges.
+/// Bounds how far the column stack can rubber-band past its own edges.
 ///
-/// AppKit gives every scroll view elastic overscroll, and on the horizontal stack that reads as a
-/// defect rather than a flourish: pushing left at the first column drags the whole stack right and
-/// exposes a column-wide band of empty pane where the first column should be. A screenshot caught
-/// exactly that — five columns open, the leftmost slot blank and everything shifted over — and the
-/// bounce is also part of why walking back through three or four columns feels unsteady rather
-/// than smooth.
+/// AppKit's overscroll is open-ended: push left at the first column and the whole stack drags
+/// right, exposing a column-wide band of empty pane where the first column should be. A screenshot
+/// caught exactly that — five columns open, leftmost slot blank, everything shifted over.
 ///
-/// Finder's column view does not bounce horizontally either, so this is the native behaviour for
-/// the thing being imitated, not a preference.
+/// Switching elasticity off entirely fixed the hole and went too far: the stack then stops dead at
+/// each edge, which reads as a stutter of its own. What is wanted is a little give and no more, so
+/// the bounce is *capped* rather than removed — `.allowed` elasticity over a clip view that refuses
+/// to travel more than `maximumOverscroll` beyond the content.
+///
+/// `NSClipView.constrainBoundsRect(_:)` is AppKit's supported hook for this and the only one:
+/// `NSScrollElasticity` has no bounded case, so the limit cannot be expressed through the scroll
+/// view's own API.
 ///
 /// Placed as a zero-size `.background` INSIDE the horizontal `ScrollView`, so `enclosingScrollView`
 /// resolves to that scroll view directly. It must not be attached inside a column: each column is a
@@ -19,8 +22,8 @@ import SwiftUI
 /// the horizontal stack untouched while appearing to work. `documentView` is checked for exactly
 /// that reason — a column's scroll view hosts an `NSTableView`, the stack's does not.
 ///
-/// Vertical elasticity is deliberately left alone: it belongs to the columns' own lists, which
-/// scroll vertically and should bounce like every other list in the app.
+/// The columns' own vertical bounce is untouched: it belongs to their lists, which should behave
+/// like every other list in the app.
 struct PaneColumnsScrollStyler: NSViewRepresentable {
     func makeNSView(context: Context) -> StylerView { StylerView() }
     /// A SwiftUI update can rebuild the scroll view, so re-assert rather than trusting one pass.
@@ -51,9 +54,24 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
 
         private func apply() {
             guard let scroller = resolveScrollView() else { return }
-            if scroller.horizontalScrollElasticity != .none {
-                scroller.horizontalScrollElasticity = .none
+            // Elasticity stays ON; the clip view is what bounds it.
+            if scroller.horizontalScrollElasticity != .allowed {
+                scroller.horizontalScrollElasticity = .allowed
             }
+            guard !(scroller.contentView is BoundedElasticClipView) else { return }
+            let existing = scroller.contentView
+            let bounded = BoundedElasticClipView()
+            bounded.frame = existing.frame
+            bounded.autoresizingMask = existing.autoresizingMask
+            bounded.drawsBackground = existing.drawsBackground
+            bounded.backgroundColor = existing.backgroundColor
+            // Assigning `contentView` does NOT carry the document view across — it drops it, and
+            // the stack comes back with no columns at all. Caught by the mounted test, which found
+            // zero column lists after the swap. Re-attach it explicitly.
+            let document = scroller.documentView
+            scroller.contentView = bounded
+            scroller.documentView = document
+            scroller.reflectScrolledClipView(bounded)
         }
 
         private func resolveScrollView() -> NSScrollView? {
@@ -85,5 +103,36 @@ struct PaneColumnsScrollStyler: NSViewRepresentable {
         private static func hostsATable(_ scroller: NSScrollView) -> Bool {
             scroller.documentView is NSTableView
         }
+    }
+}
+
+/// A clip view whose overscroll is capped instead of open-ended.
+///
+/// `NSScrollElasticity` is all-or-nothing, so the cap has to be applied where AppKit asks what
+/// bounds a scroll is allowed to reach. `super` clamps hard to the document's own extent; this
+/// re-opens a fixed amount of travel past each edge and nothing beyond it, which is the difference
+/// between a stack that gives a little and one that scrolls into an empty pane.
+final class BoundedElasticClipView: NSClipView {
+
+    /// How far past the content the stack may travel, in points.
+    ///
+    /// Well under `PaneViewMode.minimumColumnWidth` (140) on purpose: the gap a bounce opens must
+    /// never be wide enough to read as a missing column, which is exactly how the unbounded version
+    /// was reported.
+    static let maximumOverscroll: CGFloat = 44
+
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard let documentView else { return rect }
+        let slack = Self.maximumOverscroll
+        // `super` has already clamped to the content; the proposed origin is what carries the
+        // overscroll, so the limits are measured against it rather than against the clamped rect.
+        let lowerX = -slack
+        let upperX = max(0, documentView.frame.width - rect.width) + slack
+        rect.origin.x = min(max(proposedBounds.origin.x, lowerX), upperX)
+        let lowerY = -slack
+        let upperY = max(0, documentView.frame.height - rect.height) + slack
+        rect.origin.y = min(max(proposedBounds.origin.y, lowerY), upperY)
+        return rect
     }
 }

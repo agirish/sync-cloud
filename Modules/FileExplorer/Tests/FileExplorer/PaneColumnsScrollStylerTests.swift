@@ -5,9 +5,10 @@ import SwiftUI
 import Sync
 @testable import FileExplorer
 
-/// The column stack must not rubber-band horizontally, and the styler must disarm the STACK's
-/// scroll view rather than one of the columns' lists — the two mistakes are indistinguishable from
-/// the outside, since both leave a scroll view somewhere with elasticity switched off.
+/// The column stack's overscroll must be CAPPED — not removed, which stops it dead at each edge,
+/// and not open-ended, which scrolls it into an empty pane. The styler must also target the STACK's
+/// scroll view rather than one of the columns' lists; those two mistakes look identical from the
+/// outside, since either way some scroll view ends up modified.
 @Suite struct PaneColumnsScrollStylerRuleTests {
 
     /// A column's scroll view (an `NSTableView` document) must be walked past; the stack's (anything
@@ -120,7 +121,7 @@ import Sync
         return found
     }
 
-    @Test func testTheMountedStackHasHorizontalElasticityOff() async throws {
+    @Test func testTheMountedStackKeepsItsBounceButBounded() async throws {
         let box = Box()
         let tree = Self.tree()
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
@@ -140,10 +141,67 @@ import Sync
         let columns = all.filter { $0.documentView is NSTableView }
         #expect(columns.count == 3, "expected three column lists, found \(columns.count)")
 
-        #expect(stack.horizontalScrollElasticity == .none,
-                "the column stack can still rubber-band past its edges")
-        // The columns' own vertical bounce is deliberately untouched.
+        // Elasticity stays ON — the give is wanted; it is the clip view that caps it.
+        #expect(stack.horizontalScrollElasticity == .allowed,
+                "the stack lost its bounce entirely, which stops it dead at each edge")
+        #expect(stack.contentView is BoundedElasticClipView,
+                "the stack's overscroll is unbounded — it can still scroll into an empty pane")
+        // The columns' own bounce is deliberately untouched, and their clip views must not have
+        // been swapped either: the styler has exactly one target.
         #expect(columns.allSatisfy { $0.verticalScrollElasticity != .none },
                 "a column list lost its vertical bounce — the styler disarmed the wrong scroll view")
+        #expect(columns.allSatisfy { !($0.contentView is BoundedElasticClipView) },
+                "a column list got the bounded clip view — the styler targeted the wrong scroll view")
+
+        // The stack still scrolls normally inside its content.
+        let extent = max(0, (stack.documentView?.frame.width ?? 0) - stack.contentSize.width)
+        #expect(extent > 0, "fixture does not overflow, so the overscroll assertions are vacuous")
+    }
+}
+
+/// The cap itself, driven directly over a clip view — the arithmetic that decides how far a bounce
+/// may travel, independent of whether SwiftUI hands us a scroll view to install it on.
+@MainActor
+@Suite struct BoundedElasticClipViewTests {
+
+    /// A clip view 200pt wide over 600pt of content: 400pt of real scrolling, plus the cap at each
+    /// end and nothing beyond.
+    private func clip() -> BoundedElasticClipView {
+        let view = BoundedElasticClipView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        view.documentView = document
+        return view
+    }
+
+    @Test func testOverscrollPastTheStartIsCapped() {
+        let slack = BoundedElasticClipView.maximumOverscroll
+        let proposed = NSRect(x: -5000, y: 0, width: 200, height: 100)
+        #expect(clip().constrainBoundsRect(proposed).origin.x == -slack)
+    }
+
+    @Test func testOverscrollPastTheEndIsCapped() {
+        let slack = BoundedElasticClipView.maximumOverscroll
+        let proposed = NSRect(x: 5000, y: 0, width: 200, height: 100)
+        // 600 content − 200 viewport = 400 of real travel, then the cap.
+        #expect(clip().constrainBoundsRect(proposed).origin.x == 400 + slack)
+    }
+
+    /// Some give must actually survive — a cap of zero is just the hard stop again.
+    @Test func testASmallOverscrollIsAllowedThrough() {
+        let proposed = NSRect(x: -12, y: 0, width: 200, height: 100)
+        #expect(clip().constrainBoundsRect(proposed).origin.x == -12)
+        #expect(BoundedElasticClipView.maximumOverscroll > 0)
+    }
+
+    /// Scrolling inside the content is untouched by the cap.
+    @Test func testOrdinaryScrollingIsUnaffected() {
+        let proposed = NSRect(x: 150, y: 0, width: 200, height: 100)
+        #expect(clip().constrainBoundsRect(proposed).origin.x == 150)
+    }
+
+    /// The bounce may never open a gap wide enough to read as a missing column — the report that
+    /// started this was "scrolling past left to emptiness", and a column is at least 140pt.
+    @Test func testTheCapIsNarrowerThanTheNarrowestColumn() {
+        #expect(BoundedElasticClipView.maximumOverscroll < PaneViewMode.minimumColumnWidth / 2)
     }
 }
