@@ -807,31 +807,36 @@ import Sync
         await pump(seconds: 0.3)
         try #require(watchdog.resolvedScroller != nil, "watchdog failed to arm")
 
-        // A vertical drag is delivering events right now.
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12)
+        // A vertical drag is delivering events right now — dated just AHEAD of the wall clock,
+        // so the lock reads "in flight" for this whole test however late enforcement lands.
+        // The revert is a runloop hop away by design (reverting synchronously inside the
+        // bounds notification is the recursion that crashed at level 1839), and under a loaded
+        // parallel run that hop lands whenever the starved main queue next drains — routinely
+        // past the lock's real 100ms recency window, where enforcement no-ops by design. The
+        // previous shape of this test raced that window in real time (re-ingest, re-strand,
+        // retry) and burned 8–18s of a 10s deadline on every loaded run, failing whenever no
+        // hop won the race in time. Recency decay is WheelGestureTrackerTests' subject, pinned
+        // there with the same explicit timestamps; this test's subject is the enforcement
+        // plumbing — notification → coalesced hop → revert to the held rest.
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
 
-        // Its leaked horizontal components nudge the stack sideways, continuously — a real
-        // gesture is a delta STREAM, so the loop keeps stranding and keeps feeding the lock.
-        // One-shot stranding is not faithful and flakes: the revert is a runloop hop away by
-        // design (reverting synchronously inside the bounds notification is the recursion that
-        // crashed at level 1839), and under a loaded parallel run a single hop can land after
-        // the lock's recency window, which is a graceful no-op, not a failure.
-        // Alternating drifts, because re-setting the CURRENT origin posts no bounds
-        // notification: after one late hop, a fixed drift value would never schedule another
-        // hold, and the test would report a working hold as broken.
-        let deadline = Date().addingTimeInterval(10)
-        var reverted = false
-        var flip = false
-        while !reverted, Date() < deadline {
-            lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -8)
-            clip.setBoundsOrigin(NSPoint(x: flip ? 12 : 9, y: 0))
-            flip.toggle()
+        // One leaked horizontal delta strands the stack sideways.
+        clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
+        try #require(clip.bounds.origin.x == 9, "fixture failed to strand the clip")
+
+        // Only the hold's enforcement can put the origin back to 0: 9 is inside the legal
+        // range, so the quiescence return never touches it. Poll the observable
+        // (`waitForOrigin`'s lesson) instead of holding any fixed window. The deadline only
+        // bounds a FAILING run — a pass exits on the observable — and loaded verification
+        // runs measured the enforcement hop draining up to 13s in, so 15s was no margin.
+        let deadline = Date().addingTimeInterval(60)
+        while clip.bounds.origin.x != 0, Date() < deadline {
             try? await Task.sleep(nanoseconds: 8_000_000)
-            reverted = clip.bounds.origin.x == 0
         }
-        #expect(reverted,
-                "a vertical gesture's leaked deltas moved the stack and the hold never reverted them")
+        #expect(clip.bounds.origin.x == 0,
+                "a vertical gesture's leaked delta moved the stack and the hold never reverted it")
     }
 
     /// The crash's shape, pinned: something keeps re-scrolling the stack against the hold — as
