@@ -103,9 +103,17 @@ struct PaneColumnsView: View {
             }
             .scrollDisabled(isSingleColumn)
             // Keep the deepest column in view as you drill, like Finder.
+            //
+            // Deferred a runloop turn: `onChange` fires while SwiftUI is applying the update that
+            // ADDS the new column, so scrolling to its id from here targets a column the stack has
+            // not laid out yet — the scroll lands short and the freshly opened column sits
+            // half-off the edge until something else moves it. A turn's delay costs nothing
+            // visually; the scroll has its own 0.18s animation either way.
             .onChange(of: browsePath) { _, path in
                 guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
-                withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
+                DispatchQueue.main.async {
+                    withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
+                }
             }
         }
     }
@@ -117,7 +125,7 @@ struct PaneColumnsView: View {
     @ViewBuilder
     private func column(directory: String, depth: Int) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []
-        List(selection: columnSelection(for: rows)) {
+        List(selection: columnSelection(for: rows, depth: depth)) {
             ForEach(rows) { row in
                 columnRow(row, depth: depth)
             }
@@ -199,13 +207,7 @@ struct PaneColumnsView: View {
             // Before navigating: a drill restructures the column stack, and the selection should be
             // committed against the stack the user clicked in, not the one they are about to get.
             if selection != [node.id] { selection = [node.id] }
-            var path = browsePath
-            if node.isDirectory {
-                path.drill(into: node.name, atDepth: depth)
-            } else {
-                path.truncate(toDepth: depth)
-            }
-            onNavigate(path)
+            onNavigate(navigation(for: row, depth: depth))
             // The click's cost, measured from mouse-UP.
             //
             // `[click]`'s own timing is taken from the selection commit, which happens on mouse-DOWN
@@ -238,7 +240,7 @@ struct PaneColumnsView: View {
     /// Selection is confined to one column (decision 5, matching Finder and the pane's flat
     /// `Set<String>`): each column reads the shared selection filtered to its own rows and writes
     /// it wholesale, so selecting here clears every other column by construction.
-    private func columnSelection(for rows: [PaneRow]) -> Binding<Set<String>> {
+    private func columnSelection(for rows: [PaneRow], depth: Int) -> Binding<Set<String>> {
         let ids = Set(rows.map(\.id))
         return Binding(
             get: { selection.intersection(ids) },
@@ -249,8 +251,44 @@ struct PaneColumnsView: View {
                 // exactly like one that never landed at all.
                 Logger.shared.debug("[sel] \(isLeft ? "left" : "right") list wrote \(newValue.count) item(s)")
                 selection = newValue
+                // The List committed this one, which means the tap gesture did NOT — the two never
+                // both drive a single click, and the log showed `[sel]` lines with no `[tap]`
+                // beside them. Those are the clicks that select a folder and leave its column
+                // shut: `TapGesture` fails outright if the pointer drifts even slightly, because
+                // the row is also `.draggable` and the drag claims the gesture, while
+                // `NSTableView` selects on mouse-down regardless.
+                //
+                // So navigation cannot hang off the gesture alone. Whichever source commits the
+                // selection navigates for it, and they agree by construction because both call
+                // `navigation(for:depth:)`. A tap that DOES fire drills synchronously and this one
+                // then computes the same path, which `setBrowsePath` discards as unchanged.
+                guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags),
+                      newValue.count == 1,
+                      let id = newValue.first,
+                      let row = rows.first(where: { $0.id == id })
+                else { return }
+                let path = navigation(for: row, depth: depth)
+                // Deferred a runloop turn: `browsePath` restructures the column stack, and writing
+                // it from inside the List's own selection commit is the mid-commit sibling write
+                // that drops clicks outright (`aa9d407`).
+                DispatchQueue.main.async { onNavigate(path) }
             }
         )
+    }
+
+    /// Where a click on `row` in the column at `depth` should leave the stack: a folder opens its
+    /// own column, a file closes any deeper ones without opening one.
+    ///
+    /// Shared by the tap gesture and the List's selection commit so the two can never disagree
+    /// about what a click means.
+    private func navigation(for row: PaneRow, depth: Int) -> PaneBrowsePath {
+        var path = browsePath
+        if row.node.isDirectory {
+            path.drill(into: row.node.name, atDepth: depth)
+        } else {
+            path.truncate(toDepth: depth)
+        }
+        return path
     }
 
     @ViewBuilder
