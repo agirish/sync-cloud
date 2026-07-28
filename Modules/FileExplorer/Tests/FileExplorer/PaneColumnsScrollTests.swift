@@ -104,7 +104,10 @@ import Sync
         return found
     }
 
-    @Test func testTheMountedStackScrollsNatively() async throws {
+    /// Mounts the pane with three columns open in a 520pt window — 630pt of content, so the
+    /// stack genuinely scrolls. Returns the window (kept alive by the caller), the stack's
+    /// scroll view and the columns' lists.
+    private func mountThreeColumns() async throws -> (window: NSWindow, stack: NSScrollView, columns: [NSScrollView]) {
         let box = Box()
         let tree = Self.tree()
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
@@ -115,13 +118,18 @@ import Sync
         window.contentView = host
         window.layoutIfNeeded()
 
-        // Three columns in a 520pt pane: 630pt of content, so the stack really scrolls.
         box.browsePath = PaneBrowsePath(components: ["a2", "b3"])
         await pump(window, seconds: 1.5)
 
         let all = scrollViews(window.contentView!)
         let stack = try #require(all.first { !($0.documentView is NSTableView) }, "no stack scroll view")
         let columns = all.filter { $0.documentView is NSTableView }
+        return (window, stack, columns)
+    }
+
+    @Test func testTheMountedStackScrollsNatively() async throws {
+        let (window, stack, columns) = try await mountThreeColumns()
+        defer { _ = window }
         #expect(columns.count == 3, "expected three column lists, found \(columns.count)")
 
         // The stack really scrolls, so none of the assertions below hold vacuously.
@@ -149,5 +157,192 @@ import Sync
         // expectation — the stack's plain `NSClipView` is the special case, not the rule.)
         #expect(columns.allSatisfy { $0.verticalScrollElasticity != .none },
                 "a column list lost its vertical bounce")
+    }
+
+    /// The watchdog must be guarding the STACK's scroll view — resolution is the one thing the
+    /// synthetic tests below cannot pin, and targeting a column's list instead would look
+    /// identical from the outside.
+    @Test func testTheMountedWatchdogGuardsTheStacksScrollView() async throws {
+        let (window, stack, _) = try await mountThreeColumns()
+        defer { _ = window }
+
+        var watchdogs: [PaneColumnsOverscrollReturn.WatchdogView] = []
+        func walk(_ v: NSView) {
+            if let w = v as? PaneColumnsOverscrollReturn.WatchdogView { watchdogs.append(w) }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(window.contentView!)
+        let watchdog = try #require(watchdogs.first, "no watchdog mounted in the columns stack")
+        #expect(watchdog.resolvedScroller === stack,
+                "the watchdog resolved the wrong scroll view — a column's list would now be fought over")
+    }
+
+    /// The watchdog must never disturb the mounted stack at rest. After the drill's own
+    /// auto-scroll settles, nothing may move the stack again — a watchdog that nudges legal
+    /// resting positions would fight every scroll the user makes.
+    ///
+    /// (The pull itself is driven synthetically in `PaneColumnsOverscrollReturnRuleTests`: the
+    /// mounted stack cannot be stranded from test code, because SwiftUI's own clip view clamps
+    /// programmatic `setBoundsOrigin` — only the lost-phase elastic gesture reaches the stranded
+    /// state, and no bounds-setting fixture reproduces that routing.)
+    @Test func testTheMountedStackAtRestIsLeftAlone() async throws {
+        let (window, stack, _) = try await mountThreeColumns()
+        defer { _ = window }
+        let clip = stack.contentView
+
+        let settled = clip.bounds.origin
+        await pump(window, seconds: 0.8)
+        #expect(clip.bounds.origin == settled,
+                "the watchdog moved a stack that was resting in range")
+    }
+}
+
+/// The watchdog's two pieces of pure logic, pinned directly: which scroll view is the stack's,
+/// and where "home" is for a stranded origin.
+@MainActor
+@Suite struct PaneColumnsOverscrollReturnRuleTests {
+
+    /// A column's scroll view (an `NSTableView` document) must be walked past; the stack's
+    /// (anything else) is the one to take.
+    @Test func testItSkipsAColumnsListAndTakesTheStacksScrollView() {
+        let stack = NSScrollView()
+        stack.documentView = NSView()          // the row of columns
+        let columnList = NSScrollView()
+        columnList.documentView = NSTableView() // one column's list
+        stack.documentView?.addSubview(columnList)
+        let probe = NSView()
+        columnList.documentView?.addSubview(probe)
+
+        let found = PaneColumnsOverscrollReturn.WatchdogView.findStackScrollView(from: probe)
+        #expect(found === stack, "the walk stopped at a column's own list instead of the stack")
+    }
+
+    /// Nothing to find is answered with nil rather than a guess.
+    @Test func testItRefusesWhenThereIsNoStackScroller() {
+        let columnList = NSScrollView()
+        columnList.documentView = NSTableView()
+        let probe = NSView()
+        columnList.documentView?.addSubview(probe)
+
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.findStackScrollView(from: probe) == nil)
+    }
+
+    /// A clip view 200pt wide over 600pt of content: home for any origin is inside [0, 400].
+    private func clip() -> NSClipView {
+        let view = NSClipView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        view.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        return view
+    }
+
+    @Test func testHomeForAnOriginPastTheStartIsTheStart() {
+        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: -40, y: 0), clip: clip())
+        #expect(home == NSPoint(x: 0, y: 0))
+    }
+
+    @Test func testHomeForAnOriginPastTheEndIsTheEnd() {
+        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: 5000, y: 0), clip: clip())
+        #expect(home == NSPoint(x: 400, y: 0))
+    }
+
+    @Test func testAVerticalDisplacementIsPulledFlat() {
+        // The document exactly fills the clip vertically, so any y offset is illegal.
+        let home = PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: NSPoint(x: 100, y: -30), clip: clip())
+        #expect(home == NSPoint(x: 100, y: 0))
+    }
+
+    @Test func testAnInRangeOriginIsItsOwnHome() {
+        let origin = NSPoint(x: 150, y: 0)
+        #expect(PaneColumnsOverscrollReturn.WatchdogView.legalOrigin(for: origin, clip: clip()) == origin)
+    }
+}
+
+/// The watchdog's full cycle — observe, wait for rest, pull home — driven over a synthetic
+/// scroll view whose clip can actually be stranded.
+///
+/// The real stranded state is reachable only through the lost-phase elastic gesture: SwiftUI's
+/// own clip view clamps programmatic `setBoundsOrigin`, so no bounds-setting fixture can strand
+/// the mounted stack (tried; the origin snapped straight back). This permissive clip view stands
+/// in for the elastic state — out-of-range bounds that nothing re-constrains — which is exactly
+/// the state the watchdog exists to notice.
+@MainActor
+@Suite struct PaneColumnsOverscrollReturnCycleTests {
+
+    /// Lets any proposed bounds through, the way the rubber band's in-flight state does.
+    private final class StrandableClipView: NSClipView {
+        override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect { proposedBounds }
+    }
+
+    /// A 200pt scroll view over 600pt of content, with the watchdog mounted inside the document
+    /// view — the same position the SwiftUI `.background` gives it in the real stack.
+    private func mount() -> (window: NSWindow, scroller: NSScrollView, clip: NSClipView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let clip = StrandableClipView()
+        scroller.contentView = clip
+        let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+        scroller.documentView = document
+        document.addSubview(PaneColumnsOverscrollReturn.WatchdogView())
+        window.contentView?.addSubview(scroller)
+        return (window, scroller, clip)
+    }
+
+    private func pump(seconds: Double) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+    }
+
+    /// Waits on the observable rather than sleeping a fixed interval and hoping: under a full
+    /// parallel test run, other main-actor work can starve the watchdog's 140ms timer well past
+    /// any polite fixed window — which is exactly how these tests first flaked.
+    private func waitForOrigin(_ clip: NSClipView, toBecome expected: NSPoint,
+                               timeout: Double = 5) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if clip.bounds.origin == expected { return true }
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        return clip.bounds.origin == expected
+    }
+
+    @Test func testAStrandedClipIsPulledHomeOnceAtRest() async {
+        let (window, _, clip) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)  // let the watchdog arm
+
+        // Stranded past the left edge and displaced vertically, as the lost-phase gesture leaves it.
+        clip.setBoundsOrigin(NSPoint(x: -40, y: 12))
+        #expect(clip.bounds.origin == NSPoint(x: -40, y: 12),
+                "fixture failed to strand the clip — the pull below is vacuous")
+
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 0, y: 0)),
+                "the watchdog left the clip stranded past the left edge, at \(clip.bounds.origin)")
+    }
+
+    @Test func testAClipStrandedPastTheEndIsPulledToTheEnd() async {
+        let (window, _, clip) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+
+        clip.setBoundsOrigin(NSPoint(x: 460, y: 0))  // 400 is the last legal origin
+        #expect(clip.bounds.origin.x == 460, "fixture failed to strand the clip")
+
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 400, y: 0)),
+                "the watchdog left the clip stranded past the right edge, at \(clip.bounds.origin)")
+    }
+
+    /// Absence has no observable to wait on, so this one holds the fixed window — but waits
+    /// FIRST for a full quiescence period to elapse, so the watchdog demonstrably had its chance.
+    @Test func testAnInRangeRestIsNeverTouched() async {
+        let (window, _, clip) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+
+        clip.setBoundsOrigin(NSPoint(x: 150, y: 0))
+        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        #expect(clip.bounds.origin == NSPoint(x: 150, y: 0),
+                "the watchdog moved a clip resting inside its legal range")
     }
 }
