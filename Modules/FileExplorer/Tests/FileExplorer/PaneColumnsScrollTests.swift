@@ -606,14 +606,14 @@ import Sync
         let tracker = WheelGestureTracker()
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 2, dy: -14, at: 0.01)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.02))
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.02))
     }
 
     @Test func testAHorizontalDragDoesNot() {
         let tracker = WheelGestureTracker()
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: -20, dy: 3, at: 0.01)
-        #expect(!tracker.isVerticalGestureInFlight(at: 0.02))
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.02))
     }
 
     /// The decision is made ONCE, from the first real deltas: a vertical drag that wobbles
@@ -623,7 +623,7 @@ import Sync
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -10, at: 0.01)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: -9, dy: 2, at: 0.02)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.03),
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "a mid-gesture wobble re-decided the axis")
     }
 
@@ -634,10 +634,10 @@ import Sync
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
         tracker.ingest(phase: [], momentumPhase: .changed, dx: -30, dy: -4, at: 0.05)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.06),
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.06),
                 "momentum's own deltas re-decided the axis — their direction is history, not intent")
         tracker.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0, at: 0.4)
-        #expect(!tracker.isVerticalGestureInFlight(at: 0.41))
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.41))
     }
 
     /// A gesture that ends with no momentum releases the lock by going quiet — otherwise a
@@ -647,18 +647,53 @@ import Sync
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.05), "still within the recency window")
-        #expect(!tracker.isVerticalGestureInFlight(at: 0.02 + WheelGestureTracker.staleness + 0.01),
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.05), "still within the recency window")
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.02 + WheelGestureTracker.staleness + 0.01),
                 "the lock outlived its events — the next programmatic scroll will be fought")
     }
 
-    @Test func testANewGestureStartsUndecided() {
+    /// A new gesture starts undecided — and an undecided opening HOLDS, so a vertical scroll
+    /// cannot leak its first frames while the verdict accumulates. The previous gesture's
+    /// decision must not carry over either way: here the old gesture was vertical, and the new
+    /// one earns a horizontal verdict that releases the hold.
+    @Test func testANewGestureStartsUndecidedAndHeld() {
         let tracker = WheelGestureTracker()
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12, at: 0.01)
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0.05)
-        #expect(!tracker.isVerticalGestureInFlight(at: 0.06),
-                "the previous gesture's decision leaked into the new one")
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.06),
+                "an undecided opening was not held — its first frames can leak")
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: -18, dy: 2, at: 0.07)
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.08),
+                "the previous gesture's vertical decision leaked into the new one")
+    }
+
+    /// The regression that shipped as "the 1st column flickers": a trackpad touch-down's first
+    /// samples are directionally noisy, and deciding on the very first delta misread a vertical
+    /// scroll as horizontal — unlocking the whole gesture. The verdict now needs accumulated
+    /// travel, and the noisy opening stays held until it arrives.
+    @Test func testANoisyOpeningCannotMisdecideTheAxis() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        // The misleading first sample: horizontally dominant, but only 2 points of it.
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: -2, dy: -1, at: 0.01)
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.02),
+                "two noisy points decided the gesture — the flicker regression is back")
+        // The drag's real direction arrives.
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -9, at: 0.03)
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.04),
+                "a vertical drag with a noisy opening was not held")
+    }
+
+    /// Phase-less devices (a mouse wheel) never send `.began`; a quiet gap starts their next
+    /// logical gesture, so an old verdict cannot govern a scroll made half a second later.
+    @Test func testAQuietGapStartsAFreshGestureForPhaselessDevices() {
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: [], momentumPhase: [], dx: 0, dy: -12, at: 0)
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.01), "a mouse's vertical scroll was not held")
+        tracker.ingest(phase: [], momentumPhase: [], dx: -12, dy: 0, at: 0.5)
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.51),
+                "a stale vertical verdict held the stack against a later horizontal mouse scroll")
     }
 
     // MARK: - Traditional (non-phased) scroll wheels
@@ -674,10 +709,10 @@ import Sync
     @Test func testAWheelMouseRedecidesEveryEvent() {
         let tracker = WheelGestureTracker()
         tracker.ingest(phase: [], momentumPhase: [], dx: 0, dy: -10, at: 0)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.01), "a vertical wheel click must engage the lock")
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.01), "a vertical wheel click must engage the lock")
 
         tracker.ingest(phase: [], momentumPhase: [], dx: -10, dy: 0, at: 0.02)
-        #expect(!tracker.isVerticalGestureInFlight(at: 0.03),
+        #expect(!tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "a ⇧-wheel horizontal scroll was held against the user by a lock still reading 'vertical'")
     }
 
@@ -686,7 +721,7 @@ import Sync
     @Test func testAWheelMouseLockDecaysOnQuiet() {
         let tracker = WheelGestureTracker()
         tracker.ingest(phase: [], momentumPhase: [], dx: 0, dy: -10, at: 0)
-        #expect(!tracker.isVerticalGestureInFlight(at: WheelGestureTracker.staleness + 0.01))
+        #expect(!tracker.shouldHoldHorizontalDrift(at: WheelGestureTracker.staleness + 0.01))
     }
 
     /// A trackpad gesture's own events must not be mistaken for ungrouped ones — `.ended` carries
@@ -696,7 +731,7 @@ import Sync
         tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
         tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: 0.01)
         tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0, at: 0.02)
-        #expect(tracker.isVerticalGestureInFlight(at: 0.03),
+        #expect(tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "`.ended` was read as an ungrouped event and cleared the decision early")
     }
 }

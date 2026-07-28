@@ -2,30 +2,8 @@ import AppKit
 import Events
 import SwiftUI
 
-/// Returns the column stack from an overscrolled position when the platform fails to.
-///
-/// The stack is a horizontal `ScrollView` whose children are `List`s — nested scroll views. Wheel
-/// events over a column are handled by the column's own (vertical) scroll view and forwarded up
-/// to the stack for the horizontal axis, and that forwarding loses the gesture's phase: the stack
-/// sees deltas but never a clean "gesture ended". AppKit's rubber band springs back on exactly
-/// that signal, so an overscrolled stack just stays stretched until some unrelated event — moving
-/// the mouse out of the pane, a hover change — happens to re-run the constraint. That is the
-/// reported "bounces back only after the mouse moves out of the pane", and it is also why the
-/// previous machinery (`63bb6cf`→`7021b28`, since removed) kept getting stuck: it keyed its
-/// spring on `didEndLiveScroll`, a signal from the same broken channel.
-///
-/// So this watches STATE, not signals. Every bounds change of the stack's clip view (its own,
-/// SwiftUI-configured clip view — nothing is swapped or overridden here) re-arms a short timer.
-/// While anything is actually moving — a drag, momentum, the native spring when it does work —
-/// the timer never fires. When the stack comes to rest, the timer fires once; if it is resting
-/// OUT of its legal range, it is animated home. A working native bounce settles in range and the
-/// check is a no-op, so the watchdog cannot fight the platform on the paths the platform handles.
-///
-/// Placed as a zero-size `.background` INSIDE the horizontal `ScrollView`, so the ancestor walk
-/// resolves that scroll view and not a column's list — a column's scroll view hosts an
-/// `NSTableView` as its document, the stack's does not.
-/// Which axis the current wheel gesture belongs to, decided once per gesture from its first
-/// real deltas — the axis lock Finder's column view applies.
+/// Which axis the current wheel gesture belongs to, decided once per gesture from accumulated
+/// early deltas — the axis lock Finder's column view applies.
 ///
 /// Why it exists: a "vertical" trackpad scroll is never purely vertical. Its small horizontal
 /// components leak through the column list to the stack (per-event responder forwarding, the
@@ -57,51 +35,116 @@ final class WheelGestureTracker {
     /// still delivering deltas" from "gesture over, nothing followed" — the `.ended` event
     /// itself cannot, because momentum may or may not arrive after it. Without this, a vertical
     /// flick that produced no momentum left the lock engaged and quietly defeated the next
-    /// programmatic scroll (the drill's own auto-scroll after a click).
+    /// programmatic scroll (the drill's own auto-scroll after a click). The same window also
+    /// SEGMENTS phase-less devices: a mouse wheel's events carry no `.began`, so a quiet gap
+    /// longer than this starts a fresh, undecided gesture.
     static let staleness: TimeInterval = 0.1
+
+    /// How much accumulated travel decides a gesture's axis. Deciding on the FIRST nonzero
+    /// delta shipped and misfired: a trackpad touch-down's opening samples are directionally
+    /// noisy (a vertical scroll can open with `dx:-2, dy:-1`), and one misread unlocked the
+    /// whole gesture — the stack drifted, parked, and got pulled back on every few scrolls,
+    /// reported as "the 1st column flickers". Eight points of evidence is a few events into a
+    /// real drag and far below anything that reads as scrolling distance.
+    static let decisionTravel: CGFloat = 8
 
     private var verticalDominant = false
     private var decided = false
+    /// Whether a gesture is genuinely OPEN — a `.began` arrived or drag deltas are
+    /// accumulating. Distinct from `!decided`, because "undecided" also describes the state
+    /// after momentum finished, and nothing must hold then: end-of-momentum is definitive.
+    private var holdEligible = false
+    private var travelX: CGFloat = 0
+    private var travelY: CGFloat = 0
     private var lastEventAt: TimeInterval = 0
 
-    /// True while a vertical-dominant gesture (or its momentum tail) is actively delivering
-    /// events.
-    func isVerticalGestureInFlight(at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
-        verticalDominant && now - lastEventAt < Self.staleness
+    /// True while an in-flight gesture requires the stack to hold its horizontal position:
+    /// the gesture is vertical-dominant, or it is open but has not yet earned a verdict — an
+    /// undecided opening is held too, so a vertical scroll cannot leak even its first frames.
+    /// The cost is a `decisionTravel`-sized dead zone at the start of a horizontal swipe, which
+    /// is how Finder's own axis lock feels.
+    func shouldHoldHorizontalDrift(at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
+        (verticalDominant || (!decided && holdEligible)) && now - lastEventAt < Self.staleness
     }
 
-    /// Feed one scroll-wheel event's fields. A `.began` phase starts a fresh, undecided gesture;
-    /// the first drag event with any real delta decides its axis; momentum events inherit the
-    /// decision (they never make one — their direction is history, not intent). The decision
-    /// clears when momentum finishes, the gesture cancels, or a new gesture begins.
+    /// Feed one scroll-wheel event's fields. A `.began` phase — or a quiet gap on phase-less
+    /// devices — starts a fresh, undecided gesture; drag deltas accumulate until
+    /// `decisionTravel` of evidence picks the axis; momentum events inherit the decision (they
+    /// never make one — their direction is history, not intent). The decision clears when
+    /// momentum finishes, the gesture cancels, or a new gesture begins.
     ///
     /// A traditional (non-Magic) mouse wheel groups nothing: its events carry no `.began`, no
-    /// momentum and no `.ended`, so none of those three clears would ever fire and the FIRST wheel
+    /// momentum and no `.ended`, so none of those clears would ever fire and the FIRST wheel
     /// click of the session would latch the axis for the rest of it. Latched vertical, the lock
     /// then reported "in flight" within its recency window of every later wheel event and
     /// `enforceHold` reverted the stack — so a ⇧-wheel horizontal scroll of the column stack was
-    /// held against the user, permanently, on any mouse without a touch surface. An ungrouped event
-    /// therefore decides for itself, which is the truthful reading: with no phase to group them,
-    /// each wheel click *is* its own gesture.
+    /// held against the user, permanently, on any mouse without a touch surface. An ungrouped
+    /// event therefore decides for ITSELF, from its own deltas alone: with no phase to group
+    /// them, each wheel click *is* its own gesture — and neither the accumulation nor the
+    /// undecided-hold applies to it, because a discrete click is deliberate where a touch-down
+    /// is noisy, and a sub-threshold hold would leave a slow precision wheel permanently held.
     func ingest(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, dx: CGFloat, dy: CGFloat,
                 at now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
-        lastEventAt = now
-        let isUngrouped = phase.isEmpty && momentumPhase.isEmpty
-        if phase.contains(.began) || isUngrouped {
-            decided = false
-            verticalDominant = false
+        if now - lastEventAt >= Self.staleness {
+            reset()
         }
-        if !decided, dx != 0 || dy != 0, momentumPhase.isEmpty {
-            decided = true
-            verticalDominant = abs(dy) > abs(dx)
+        lastEventAt = now
+        if phase.contains(.began) {
+            reset()
+            holdEligible = true
+        }
+        let isUngrouped = phase.isEmpty && momentumPhase.isEmpty
+        if isUngrouped {
+            reset()
+            if dx != 0 || dy != 0 {
+                decided = true
+                verticalDominant = abs(dy) > abs(dx)
+            }
+        } else if !decided, momentumPhase.isEmpty {
+            holdEligible = true
+            travelX += abs(dx)
+            travelY += abs(dy)
+            if max(travelX, travelY) >= Self.decisionTravel {
+                decided = true
+                verticalDominant = travelY > travelX
+            }
         }
         if momentumPhase.contains(.ended) || phase.contains(.cancelled) {
-            decided = false
-            verticalDominant = false
+            reset()
         }
+    }
+
+    private func reset() {
+        decided = false
+        verticalDominant = false
+        holdEligible = false
+        travelX = 0
+        travelY = 0
     }
 }
 
+/// Returns the column stack from an overscrolled position when the platform fails to.
+///
+/// The stack is a horizontal `ScrollView` whose children are `List`s — nested scroll views. Wheel
+/// events over a column are handled by the column's own (vertical) scroll view and forwarded up
+/// to the stack for the horizontal axis, and that forwarding loses the gesture's phase: the stack
+/// sees deltas but never a clean "gesture ended". AppKit's rubber band springs back on exactly
+/// that signal, so an overscrolled stack just stays stretched until some unrelated event — moving
+/// the mouse out of the pane, a hover change — happens to re-run the constraint. That is the
+/// reported "bounces back only after the mouse moves out of the pane", and it is also why the
+/// previous machinery (`63bb6cf`→`7021b28`, since removed) kept getting stuck: it keyed its
+/// spring on `didEndLiveScroll`, a signal from the same broken channel.
+///
+/// So this watches STATE, not signals. Every bounds change of the stack's clip view (its own,
+/// SwiftUI-configured clip view — nothing is swapped or overridden here) re-arms a short timer.
+/// While anything is actually moving — a drag, momentum, the native spring when it does work —
+/// the timer never fires. When the stack comes to rest, the timer fires once; if it is resting
+/// OUT of its legal range, it is animated home. A working native bounce settles in range and the
+/// check is a no-op, so the watchdog cannot fight the platform on the paths the platform handles.
+///
+/// Placed as a zero-size `.background` INSIDE the horizontal `ScrollView`, so the ancestor walk
+/// resolves that scroll view and not a column's list — a column's scroll view hosts an
+/// `NSTableView` as its document, the stack's does not.
 struct PaneColumnsOverscrollReturn: NSViewRepresentable {
     func makeNSView(context: Context) -> WatchdogView { WatchdogView() }
     /// A SwiftUI update can rebuild the scroll view under us, so re-resolve rather than trusting
@@ -220,7 +263,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// runloop turn, and the lock's 100ms recency ends even that.
         private func holdAgainstVerticalGestureLeak() {
             guard let scroller = observedScroller else { return }
-            guard axisLock.isVerticalGestureInFlight() else {
+            guard axisLock.shouldHoldHorizontalDrift() else {
                 restX = scroller.contentView.bounds.origin.x
                 return
             }
@@ -242,7 +285,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         private func enforceHold() {
             guard let scroller = observedScroller else { return }
             let clip = scroller.contentView
-            guard axisLock.isVerticalGestureInFlight() else { return }
+            guard axisLock.shouldHoldHorizontalDrift() else { return }
             guard clip.bounds.origin.x != restX else { return }
             clip.setBoundsOrigin(NSPoint(x: restX, y: clip.bounds.origin.y))
             scroller.reflectScrolledClipView(clip)
