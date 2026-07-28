@@ -1,4 +1,5 @@
 import AppKit
+import Events
 import SwiftUI
 
 /// Returns the column stack from an overscrolled position when the platform fails to.
@@ -115,6 +116,14 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             let clip = scroller.contentView
             let home = Self.legalOrigin(for: clip.bounds.origin, clip: clip)
             guard home != clip.bounds.origin else { return }
+            // Every pull is logged: a pull with a Y component would mean the stack was displaced
+            // on an axis nothing should move, which is exactly the kind of line the "first column
+            // moves up and down" report needs beside its timestamps.
+            Logger.shared.debug(String(
+                format: "[stack] pull (%.0f, %.0f) → (%.0f, %.0f), doc %.0f×%.0f clip %.0f×%.0f",
+                clip.bounds.origin.x, clip.bounds.origin.y, home.x, home.y,
+                clip.documentView?.frame.width ?? -1, clip.documentView?.frame.height ?? -1,
+                clip.bounds.width, clip.bounds.height))
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
                 context.allowsImplicitAnimation = true

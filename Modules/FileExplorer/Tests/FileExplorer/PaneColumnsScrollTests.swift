@@ -190,10 +190,61 @@ import Sync
         defer { _ = window }
         let clip = stack.contentView
 
-        let settled = clip.bounds.origin
+        // Wait for genuine rest first: the drill's own deferred auto-scroll can land late under a
+        // loaded parallel run, and a baseline read before it lands fails this test against the
+        // scroll, not the watchdog. Rest = the origin holding still for a full second.
+        var settled = clip.bounds.origin
+        var heldSince = Date()
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline, Date().timeIntervalSince(heldSince) < 1.0 {
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+            if clip.bounds.origin != settled {
+                settled = clip.bounds.origin
+                heldSince = Date()
+            }
+        }
+
         await pump(window, seconds: 0.8)
         #expect(clip.bounds.origin == settled,
                 "the watchdog moved a stack that was resting in range")
+    }
+
+    /// The jitter probe must observe its OWN column's scroll view and genuinely emit when that
+    /// column travels vertically — silent instrumentation would read as a healthy pane.
+    @Test func testTheJitterProbeReportsAColumnsVerticalTravel() async throws {
+        let (window, _, columns) = try await mountThreeColumns()
+        defer { _ = window }
+        // Shrink the window so a column's six rows genuinely overflow it and can scroll.
+        window.setContentSize(NSSize(width: 520, height: 100))
+        await pump(window, seconds: 0.5)
+
+        var probes: [PaneColumnJitterProbe.ProbeView] = []
+        func walk(_ v: NSView) {
+            if let p = v as? PaneColumnJitterProbe.ProbeView { probes.append(p) }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(window.contentView!)
+        #expect(probes.count == columns.count, "expected one probe per column")
+
+        let probe = try #require(probes.first { $0.resolvedClip != nil }, "no probe resolved a clip")
+        let clip = try #require(probe.resolvedClip)
+        #expect(clip.documentView is NSTableView, "the probe's clip does not host a table")
+        #expect(columns.contains { $0.contentView === clip },
+                "a probe observed something other than a column's own list")
+
+        let scrollable = (clip.documentView?.frame.height ?? 0) - clip.bounds.height
+        #expect(scrollable > 10, "fixture column does not overflow, so the emission check is vacuous")
+
+        let before = probe.linesLogged
+        clip.scroll(to: NSPoint(x: 0, y: min(30, scrollable)))
+        clip.enclosingScrollView?.reflectScrolledClipView(clip)
+        let deadline = Date().addingTimeInterval(5)
+        while probe.linesLogged == before, Date() < deadline {
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        #expect(probe.linesLogged > before, "the probe never reported the column's travel")
     }
 }
 

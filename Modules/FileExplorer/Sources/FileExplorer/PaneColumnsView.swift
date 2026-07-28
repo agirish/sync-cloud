@@ -136,6 +136,9 @@ struct PaneColumnsView: View {
         .listStyle(.sidebar)
         .tint(glassHue.accentColor)
         .background(PaneListSelectionStyler())
+        // Instrumentation for the open "first column moves up and down" report — see
+        // `PaneColumnJitterProbe`.
+        .background(PaneColumnJitterProbe(depth: depth, isLeft: isLeft))
         .scrollContentBackground(.hidden)
         .environment(\.defaultMinListRowHeight, density.metrics.treeIconSize + 6)
         .onDeleteCommand {
