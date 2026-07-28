@@ -18,13 +18,17 @@ import Testing
 /// `the toggle swapped the NSTableView`, and `togglingGroupingChangesTheRowShape` still passes —
 /// i.e. the suite fails for the identity reason it exists for, not because the toggle broke.
 ///
-/// Two things this harness learned the hard way, both worth keeping:
+/// Three things this harness learned the hard way, all worth keeping:
 /// - The tests are `async` and wait with `Task.sleep`, never by spinning `RunLoop.run`. The rows
 ///   arrive from a `.task(id:)` hop on the MainActor, and a synchronous runloop spin from a
 ///   `@MainActor` test starves the very task it is waiting for — the table sits at zero rows
 ///   until the timeout and every assertion downstream reads as a product failure.
 /// - The window is never ordered in. `.task` fires without it, and this machine's owner drives
 ///   the real app while these run.
+/// - Every wait is for the EXACT row count of the shape under test (see `waitForRows`), because a
+///   fresh mount can transiently draw the previous test's shape when the preference write races
+///   the view's first `@AppStorage` read — under full-suite load the flat 120-row fixture
+///   measured 140 rows off a wait that accepted "any rows".
 ///
 /// `.serialized`, and it drives `UserDefaults.standard` (what `@AppStorage` reads): the grouping
 /// preference is process-global, so two of these in flight would fight over it. That is the test
@@ -102,6 +106,33 @@ import Testing
         return condition()
     }
 
+    /// Waits until the table draws EXACTLY `expected` rows, and reports the count it last saw.
+    ///
+    /// Exact, not "> 0" or "different from before": under full-suite load a freshly mounted view
+    /// can come up drawing the PREVIOUS test's shape — `@AppStorage` serves the first read from a
+    /// process-shared cache that the mount's own preference write can race — and "some rows" is a
+    /// condition a stale render satisfies. That is precisely how the flat 120-row fixture once
+    /// measured 140 rows: the wait returned on the leftover grouped shape. The exact count is the
+    /// one observable that says the shape under test is actually on screen.
+    ///
+    /// While the shape is missing it re-asserts the preference about once a second — a view that
+    /// latched a stale value has no later change coming to correct it, so a passive poll would
+    /// run out its whole timeout against a shape that can never appear. See `reassertPreference`.
+    private func waitForRows(_ expected: Int, grouped: Bool, in host: NSView,
+                             timeout: TimeInterval = 15) async -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        var nextNudge = Date().addingTimeInterval(1)
+        while Date() < deadline {
+            if tableView(in: host)?.numberOfRows == expected { return expected }
+            if Date() >= nextNudge {
+                reassertPreference(grouped, forKey: "differencesGroupByFolder")
+                nextNudge = Date().addingTimeInterval(1)
+            }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return tableView(in: host)?.numberOfRows ?? 0
+    }
+
     private func tableView(in view: NSView) -> NSTableView? {
         if let table = view as? NSTableView { return table }
         for subview in view.subviews {
@@ -130,10 +161,12 @@ import Testing
         let (host, window) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > 0 }),
-                "flat table never produced rows — every later assertion would be vacuous")
+        // 12 = the fixture's 3 folders × 4 rows, with no section headers.
+        let flatRows = 12
+        let drewFlat = await waitForRows(flatRows, grouped: false, in: host)
+        #expect(drewFlat == flatRows,
+                "flat table drew \(drewFlat) rows, not \(flatRows) — every later assertion would be vacuous")
         let table = try #require(tableView(in: host))
-        let flatRows = table.numberOfRows
         let column = try #require(sizeColumn(of: table))
 
         // 213pt: not the ideal (90), not the min (70), not a round number the layout might land on
@@ -145,8 +178,10 @@ import Testing
         #expect(abs(column.width - dragged) < 0.5, "the fixture could not set the width it measures")
 
         UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) != flatRows }),
-                "grouping toggle never took effect — the toggle under test did not happen")
+        // 15 = the 12 data rows plus one section-header row per folder.
+        let drewGrouped = await waitForRows(15, grouped: true, in: host)
+        #expect(drewGrouped == 15,
+                "grouped table drew \(drewGrouped) rows, not 15 — the toggle under test did not happen")
 
         let after = try #require(tableView(in: host))
         #expect(after === table, "the toggle swapped the NSTableView — the Table was rebuilt")
@@ -169,12 +204,13 @@ import Testing
         let (host, window) = mount(grouped: false, rows: many)
         defer { window.contentView = nil }
 
-        #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > 0 }),
-                "flat table never produced rows")
-        let table = try #require(tableView(in: host))
+        // 120 = 20 folders × 6 rows, headerless. Settled on exactly, because this is the test
+        // that once drew 140 — the stale grouped shape, whose 20 header rows a "produced rows"
+        // wait cannot tell from the flat one.
+        let flatRows = 120
+        let drewFlat = await waitForRows(flatRows, grouped: false, in: host)
+        #expect(drewFlat == flatRows, "expected \(flatRows) fixture rows, drew \(drewFlat)")
         let scroller = try #require(scrollView(in: host))
-        let flatRows = table.numberOfRows
-        #expect(flatRows == 120, "expected 120 fixture rows, drew \(flatRows)")
 
         let offset: CGFloat = 400
         scroller.contentView.scroll(to: NSPoint(x: 0, y: offset))
@@ -184,8 +220,10 @@ import Testing
         #expect(scrolledTo > 100, "the fixture could not scroll (landed at \(scrolledTo)) — nothing to preserve")
 
         UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) != flatRows }),
-                "grouping toggle never took effect")
+        // 140 = the 120 data rows plus one header per folder.
+        let drewGrouped = await waitForRows(140, grouped: true, in: host)
+        #expect(drewGrouped == 140,
+                "grouped table drew \(drewGrouped) rows, not 140 — the grouping toggle never took effect")
 
         let after = try #require(scrollView(in: host))
         #expect(after === scroller, "the toggle swapped the NSScrollView — the Table was rebuilt")
@@ -200,14 +238,14 @@ import Testing
         let (host, window) = mount(grouped: false)
         defer { window.contentView = nil }
 
-        #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > 0 }))
-        let flatRows = try #require(tableView(in: host)).numberOfRows
+        let flatRows = await waitForRows(12, grouped: false, in: host)
         #expect(flatRows == 12, "expected the 12 fixture rows, drew \(flatRows)")
 
         UserDefaults.standard.set(true, forKey: "differencesGroupByFolder")
-        let grew = await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > flatRows })
-        let groupedRows = tableView(in: host)?.numberOfRows ?? -1
-        #expect(grew, "grouped drew \(groupedRows) rows vs flat \(flatRows) — fixture is not clearing isWorthGrouping")
+        // 15 = 12 data rows + one header per folder: the row shape the toggle must produce.
+        let groupedRows = await waitForRows(15, grouped: true, in: host)
+        #expect(groupedRows == 15,
+                "grouped drew \(groupedRows) rows vs flat \(flatRows) — fixture is not clearing isWorthGrouping")
     }
 
     /// Both row shapes must reach the same selection binding. `contextMenu(forSelectionType:)` and
@@ -219,8 +257,9 @@ import Testing
             let (host, window) = mount(grouped: grouped)
             defer { window.contentView = nil }
 
-            #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > 0 }),
-                    "grouped=\(grouped) produced no rows")
+            let expected = grouped ? 15 : 12
+            let drew = await waitForRows(expected, grouped: grouped, in: host)
+            #expect(drew == expected, "grouped=\(grouped) drew \(drew) rows, expected \(expected)")
             let table = try #require(tableView(in: host))
             #expect(table.selectionHighlightStyle != .none, "grouped=\(grouped): table is not selectable")
 
@@ -248,8 +287,9 @@ import Testing
             let (host, window) = mount(grouped: grouped)
             defer { window.contentView = nil }
 
-            #expect(await wait(for: { (self.tableView(in: host)?.numberOfRows ?? 0) > 0 }),
-                    "grouped=\(grouped) produced no rows")
+            let expected = grouped ? 15 : 12
+            let drew = await waitForRows(expected, grouped: grouped, in: host)
+            #expect(drew == expected, "grouped=\(grouped) drew \(drew) rows, expected \(expected)")
             seen.append(try #require(tableView(in: host)).tableColumns.map(\.title))
         }
         #expect(seen[0] == ["Name", "Change", "Size", "Copy to"], "flat columns were \(seen[0])")

@@ -120,11 +120,21 @@ import Testing
         defer { window.contentView = nil }
 
         let expected = grouped ? Self.groupedRowCount : Self.flatRowCount
+        // Generous because the full suite runs in parallel around this — and re-asserting the
+        // preference while the count is wrong, because time alone cannot fix a view whose first
+        // `@AppStorage` read raced the write in `mount` and latched the previous test's value;
+        // there is no later change coming to correct it. See `reassertPreference`.
+        let deadline = Date().addingTimeInterval(15)
+        var nextNudge = Date().addingTimeInterval(1)
         var rows: Int?
-        for _ in 0..<100 {                       // 100 × 50ms = 5s, ~50× the observed settle
+        while Date() < deadline {
             host.layoutSubtreeIfNeeded()
             rows = tableRowCount(host)
             if rows == expected { break }
+            if Date() >= nextNudge {
+                reassertPreference(grouped, forKey: "differencesGroupByFolder")
+                nextNudge = Date().addingTimeInterval(1)
+            }
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
         let drew = rows.map(String.init) ?? "no"

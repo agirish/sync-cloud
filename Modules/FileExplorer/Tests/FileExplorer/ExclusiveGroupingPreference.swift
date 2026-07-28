@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 /// Serializes every suite that mounts `DifferencesView` and drives the process-global
@@ -52,4 +53,27 @@ struct ExclusiveGroupingPreference: SuiteTrait, TestTrait, TestScoping {
 extension Trait where Self == ExclusiveGroupingPreference {
     /// Grants the suite exclusive use of `differencesGroupByFolder` for the duration of each test.
     static var exclusiveGroupingPreference: Self { Self() }
+}
+
+/// Re-writes a preference so a mounted view that latched a STALE value re-reads it.
+///
+/// The gate above stops two suites from fighting over `differencesGroupByFolder`; it cannot stop
+/// a race between one suite's write and its own view's first read. `@AppStorage` serves a view's
+/// initial value from a process-shared cache, and under full-suite parallel load that cache can
+/// still hold the PREVIOUS test's value when the freshly mounted view reads it — the flat mount in
+/// `DifferencesTableIdentityTests` came up drawing the grouped shape (140 rows for a 120-row
+/// fixture), and `SectionRowHeightTests` sat through its whole 15s poll without the header ever
+/// differentiating. The write itself landed; what raced was the refresh, and once the view has
+/// latched there is no LATER change left to correct it, so no passive wait — however generous —
+/// ever sees the intended shape.
+///
+/// The heal is a fresh write posted while the view is live and observing: that forces the
+/// re-read the mount-time write lost. Remove-then-set rather than a plain set, so the nudge is
+/// two real changes even if a same-value write gets coalesced anywhere between here and the
+/// view. Callers invoke this from inside their settle polls, about once a second, only while the
+/// expected shape has not appeared — a test that settles first never nudges at all.
+@MainActor
+func reassertPreference(_ value: Any, forKey key: String) {
+    UserDefaults.standard.removeObject(forKey: key)
+    UserDefaults.standard.set(value, forKey: key)
 }

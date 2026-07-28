@@ -77,14 +77,28 @@ import Testing
         // settled pair the assertions expect, `waitForOrigin`-style (PaneColumnsScrollTests),
         // and on timeout return the last measurement so a real regression fails with the
         // numbers actually on screen rather than hanging the assertions on a nil.
+        //
+        // Waiting alone was still not enough: this kept flaking on runs where the pair sat wrong
+        // for the ENTIRE 15s window, which is not starvation — the poll itself was iterating on
+        // the same MainActor that any pending refresh would run on. That is the stale-latch race
+        // `reassertPreference` documents: the view's first `@AppStorage` read raced the writes
+        // above, and a view showing the flat shape (or the wrong density's row height) has no
+        // later change coming to correct it. So while the pair is unsettled, re-post both
+        // preferences about once a second, and give the whole thing a longer leash.
         let settled = (header: Self.headerRowHeight, data: expectedData)
-        let deadline = Date().addingTimeInterval(15)
+        let deadline = Date().addingTimeInterval(30)
+        var nextNudge = Date().addingTimeInterval(1)
         var last: (header: CGFloat, data: CGFloat)?
         while Date() < deadline {
             host.layoutSubtreeIfNeeded()
             if let t = table(host), t.numberOfRows >= 2 {
                 last = (header: t.rect(ofRow: 0).height, data: t.rect(ofRow: 1).height)
                 if last! == settled { return last }
+            }
+            if Date() >= nextNudge {
+                reassertPreference(true, forKey: "differencesGroupByFolder")
+                reassertPreference(density.rawValue, forKey: ListDensity.defaultsKey)
+                nextNudge = Date().addingTimeInterval(1)
             }
             try? await Task.sleep(nanoseconds: 20_000_000)
         }
