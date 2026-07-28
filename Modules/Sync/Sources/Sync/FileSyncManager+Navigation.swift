@@ -111,16 +111,62 @@ extension FileSyncManager {
     /// columns deep would either do nothing or re-scan for a folder you were already looking at.
     @MainActor public func navigatePane(isLeft: Bool, toCombinedPath combined: String) {
         let focus = isLeft ? leftRelativePath : rightRelativePath
+        let side = isLeft ? "left" : "right"
+        // Logged because this whole routing was previously silent: a crumb click that navigated
+        // nowhere left not one line behind, which is what let a dead root crumb go unexplained.
+        let target = combined.isEmpty ? "root" : combined
         if focus.isEmpty {
+            Logger.shared.debug("[crumb] \(side) pane browses to \(target) (scope at root)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: combined))
         } else if combined == focus {
+            Logger.shared.debug("[crumb] \(side) pane returns to its scope \(target)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath())
         } else if combined.hasPrefix(focus + "/") {
+            Logger.shared.debug("[crumb] \(side) pane browses to \(target) inside scope \(focus)")
             setBrowsePath(isLeft: isLeft, PaneBrowsePath(relativePath: String(combined.dropFirst(focus.count + 1))))
         } else {
             // Above the comparison scope — genuinely a re-root, history and all.
+            Logger.shared.debug("[crumb] \(side) pane re-roots to \(target) from scope \(focus)")
             focusOn(relativePath: combined, isLeft: isLeft)
         }
+    }
+
+    /// The both-panes form of `navigatePane`: the ⌥-click, and every plain crumb click while the
+    /// seam link is on.
+    ///
+    /// It must route **each pane through its own halves**, which is precisely what `focusBoth` —
+    /// the call this replaced — could not do. `focusBoth` compares only the focus paths, so with
+    /// both panes scoped at their root (the normal state: you walk into folders by clicking
+    /// columns, which never re-roots) a click on the root crumb asked it to focus `""` while both
+    /// panes already *were* focused on `""`, and its guard returned. The crumb was dead: three
+    /// columns deep with the panes linked, the only way back out was `‹`, one column at a time.
+    /// Every other crumb "worked" by re-rooting both panes — a tree reload and a full rescan for a
+    /// folder the panes were already showing.
+    ///
+    /// Routing each side through `navigatePane` fixes both halves at once: a crumb inside a pane's
+    /// scope moves its columns, a crumb above it re-roots that pane, and the two decisions are made
+    /// independently because the panes' scopes need not agree.
+    ///
+    /// `otherIndex` prunes the sibling's new stack against the tree it actually has — the same
+    /// honesty a mirrored column drill applies (see `applyColumnNavigation`), since the two sides
+    /// are being compared precisely because they differ. It is an autoclosure so the common case
+    /// that lands both panes at their root never pays for building the index.
+    @MainActor public func navigateBothPanes(
+        toCombinedPath combined: String,
+        from isLeft: Bool,
+        otherIndex: @autoclosure () -> PaneChildrenIndex,
+        otherTreeRoot: String
+    ) {
+        let otherFocusBefore = isLeft ? rightRelativePath : leftRelativePath
+        navigatePane(isLeft: isLeft, toCombinedPath: combined)
+        navigatePane(isLeft: !isLeft, toCombinedPath: combined)
+
+        // Only a browse move can be pruned here. If the sibling re-rooted, its tree is being
+        // reloaded and `otherTreeRoot`/`otherIndex` describe the tree it just left — the prune that
+        // runs on the next republish is the one that applies.
+        guard (isLeft ? rightRelativePath : leftRelativePath) == otherFocusBefore,
+              !(isLeft ? rightBrowsePath : leftBrowsePath).isEmpty else { return }
+        pruneBrowsePath(isLeft: !isLeft, against: otherIndex(), treeRoot: otherTreeRoot)
     }
 
     /// Sets a pane's column stack outright. Public because the mirroring decision needs both

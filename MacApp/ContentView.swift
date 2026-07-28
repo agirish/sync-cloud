@@ -232,6 +232,24 @@ struct ContentView: View {
         )
     }
 
+    /// A crumb click that must move both panes: the ⌥-click, and every plain click while the seam
+    /// link is on. Hands the sibling's tree to the manager so the mirrored stack is pruned against
+    /// the folders that pane genuinely has — the same treatment a mirrored column drill gets above.
+    ///
+    /// The root captured here is the sibling's root *before* the navigation, which is the one its
+    /// current tree was loaded for; `navigateBothPanes` ignores it when that pane re-roots.
+    func navigateBothPanes(toCombinedPath combined: String, from isLeft: Bool) {
+        let otherRoot = isLeft ? currentRightPath : currentLeftPath
+        syncManager.navigateBothPanes(
+            toCombinedPath: combined,
+            from: isLeft,
+            otherIndex: isLeft
+                ? syncManager.rightChildrenIndex(treeRoot: otherRoot)
+                : syncManager.leftChildrenIndex(treeRoot: otherRoot),
+            otherTreeRoot: otherRoot
+        )
+    }
+
     /// Binding for the view switch in a pane's nav cluster.
     func paneViewModeBinding(isLeft: Bool) -> Binding<PaneViewMode> {
         Binding(
@@ -1265,7 +1283,7 @@ struct ContentView: View {
                 // must behave as plain navigation there, never drive the hidden right pane.
                 onNavigateBoth: layoutMode == .singleSource
                     ? { syncManager.navigatePane(isLeft: isLeft, toCombinedPath: $0) }
-                    : { syncManager.focusBoth(relativePath: $0) },
+                    : { navigateBothPanes(toCombinedPath: $0, from: isLeft) },
                 providers: settings.enabledProviders,
                 onSelectProvider: { id in
                     if isLeft { leftProviderId = id } else { rightProviderId = id }
