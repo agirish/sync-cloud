@@ -17,6 +17,15 @@ import Testing
         #expect(ChromeInk.label(.light, light: .secondary) == .secondary)
     }
 
+    /// The optional form hands dark back to the label hierarchy rather than to a flat colour, and
+    /// leaves light alone — including the no-provider case, where there was no tint to begin with.
+    @Test func tintDropsOnDarkAndSurvivesOnLight() {
+        #expect(ChromeInk.tint(.dark, light: .red) == nil)
+        #expect(ChromeInk.tint(.light, light: .red) == .red)
+        #expect(ChromeInk.tint(.light, light: nil) == nil)
+        #expect(ChromeInk.tint(.dark, light: nil) == nil)
+    }
+
     // MARK: What actually paints
 
     /// The two weights that changed, measured through the real button style. A filled-square glyph

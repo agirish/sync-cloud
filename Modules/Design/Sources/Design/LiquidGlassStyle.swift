@@ -257,6 +257,29 @@ public enum GlassLevel: String, CaseIterable, Identifiable {
     }
 }
 
+/// See `View.chromePillSurface(_:wash:)`. A modifier rather than a `@ViewBuilder` function because
+/// the appearance is the deciding input and only a view can read it.
+private struct ChromePillSurface: ViewModifier {
+    let level: GlassLevel
+    let wash: Color
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if level.needsChromeFrosting, colorScheme == .dark {
+            content.background(
+                Capsule()
+                    .fill(Color.primary.opacity(LiquidGlass.clearPillLift))
+                    .overlay(Capsule().fill(wash))
+                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
+            )
+        } else {
+            content.background(wash, in: Capsule())
+        }
+    }
+}
+
 // MARK: - Clear glass tuning
 //
 // Clear used to be hard to tell from Frosted, and measurement said why: what obscures the window at
@@ -488,18 +511,14 @@ public extension View {
     /// header around it. A thin film of `.primary` plus the brand wash and a hairline separates the
     /// pill from the surface *without* darkening it — and unlike glass it paints offscreen, so the
     /// ground is a testable fact rather than something only a screenshot can confirm.
-    @ViewBuilder
+    ///
+    /// **Dark only.** `41c4250` applied the film in both appearances, on the reasoning that
+    /// `.primary` self-corrects: it lifts on dark and settles on light. It does — and settling is
+    /// precisely what light did not need. A light appearance already supplies the page these marks
+    /// were drawn for, so the 13% black film bought no legibility and only made the capsule read as
+    /// a darker patch stamped on the header. Light is back to the bare wash it always had.
     func chromePillSurface(_ level: GlassLevel, wash: Color) -> some View {
-        if level.needsChromeFrosting {
-            self.background(
-                Capsule()
-                    .fill(Color.primary.opacity(LiquidGlass.clearPillLift))
-                    .overlay(Capsule().fill(wash))
-                    .overlay(Capsule().strokeBorder(Color.primary.opacity(0.10), lineWidth: 0.5))
-            )
-        } else {
-            self.background(wash, in: Capsule())
-        }
+        modifier(ChromePillSurface(level: level, wash: wash))
     }
 
     /// The material fill for one content surface. This is the single place the level → appearance

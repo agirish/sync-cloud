@@ -26,4 +26,12 @@ public enum ChromeInk {
     public static func label(_ scheme: ColorScheme, light: Color) -> Color {
         scheme == .dark ? .primary : light
     }
+
+    /// The optional-tint form, for a control whose dark treatment is not a flat colour but a
+    /// *fallback to the standard label hierarchy* — `PaneBreadcrumb`'s root crumb, which without a
+    /// tint distinguishes the current folder from its ancestors by `.primary` vs `.secondary`.
+    /// Returning nil hands it back to that hierarchy instead of flattening both to one white.
+    public static func tint(_ scheme: ColorScheme, light: Color?) -> Color? {
+        scheme == .dark ? nil : light
+    }
 }

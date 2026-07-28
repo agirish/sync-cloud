@@ -82,13 +82,18 @@ import Testing
         #expect(clear > frosted, "Clear's ground must lift off the surface, not sink into it")
     }
 
-    /// The mirror image: `.primary` settles on a light appearance, so the same film separates the
-    /// pill by going *down* against a light surface rather than up.
-    @Test func clearSettlesTheGroundInLight() {
+    /// And light gets NO ground at all — the property that was inverted here until the film was
+    /// scoped to dark. `41c4250` reasoned that `.primary` self-corrects, lifting on dark and
+    /// settling on light, and this test asserted the settling. It was real and it was unwanted: a
+    /// light appearance already supplies the page, so the film only darkened the capsule against
+    /// the header. Light must now measure exactly what a non-Clear level does.
+    @Test func lightGetsNoGroundAtAnyLevel() {
         let backdrop = Color(white: 0.80)
         let clear = groundLuminance(.clear, over: backdrop, appearance: .aqua)
-        let frosted = groundLuminance(.frosted, over: backdrop, appearance: .aqua)
-        #expect(clear < frosted, "Clear's ground must separate on a light appearance too")
+        for level in GlassLevel.allCases where !level.needsChromeFrosting {
+            #expect(abs(clear - groundLuminance(level, over: backdrop, appearance: .aqua)) < 0.01,
+                    "Clear must paint the same ground as \(level.rawValue) on a light appearance")
+        }
     }
 
     /// Every other level leaves the surface exactly as the wash alone would — the ground is

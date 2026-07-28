@@ -57,6 +57,8 @@ public struct PaneHeader: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// Only the dark appearance drops the provider name's brand tint — see `ChromeInk`.
+    @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
@@ -157,21 +159,23 @@ public struct PaneHeader: View {
         .contentSurface(hue: glassHue, tint: surfaceTint)
     }
 
-    /// The provider capsule. UX H2's hue still washes behind it (`hue.soft`) so the two panes are
-    /// distinguishable — and visibly matching — at a glance, but the NAME is the standard label
-    /// colour, not the brand tint.
+    /// The provider capsule. UX H2's hue washes behind it (`hue.soft`) in both appearances so the
+    /// two panes are distinguishable — and visibly matching — at a glance. The NAME wears the brand
+    /// tint on light and the standard label colour on dark.
     ///
-    /// H2 tinted the name, and `ProviderHue`'s dark variants were lifted to clear AA "on the app's
-    /// dark surfaces". Measured against the surface a hue wash actually produces, they do not:
+    /// H2 tinted the name in both, and `ProviderHue`'s dark variants were lifted to clear AA "on the
+    /// app's dark surfaces". Measured against the surface a hue wash actually produces, they do not:
     /// sampled from the running app at the green hue, the pane reads `#4d7f68` — a mid-tone, not a
     /// dark one — and on it iCloud's `#6FB6FF` is 2.16:1 and OneDrive's `#3E9BE0` is 1.53:1, against
     /// 4.5 for text. Plain white is 4.61:1, which is why the folder names in the list below read
     /// perfectly on the same pixels while the provider name above them did not. The wash was tuned
     /// as a background and then had text put on it.
     ///
-    /// So identity moves to the logo and the wash, and the name buys legibility with lightness
-    /// instead of chroma. `ProviderHue.tint` is still right for a hairline or a fill — this is only
-    /// about text on a washed surface, which is also true of `PaneBreadcrumb`'s root crumb.
+    /// Only on dark. The light hexes are the on-brand ones read against the light ground they were
+    /// picked for, so light keeps H2 whole; dark moves identity onto the logo and the wash and buys
+    /// the name legibility with lightness instead of chroma. `ProviderHue.tint` remains right for a
+    /// hairline or a fill in either appearance — this is only about text on a washed dark surface,
+    /// which is equally true of `PaneBreadcrumb`'s root crumb.
     ///
     /// The name + chevron is the menu trigger;
     /// the logo stays a plain image OUTSIDE the menu label (a resizable image inside one balloons
@@ -196,7 +200,7 @@ public struct PaneHeader: View {
                     // label, and AppKit renders it itself — a wrapped Text loses both the
                     // weight and the colour below.
                     .scaledFont(.headline.weight(.semibold), scale: appFontScale)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(ChromeInk.label(colorScheme, light: hue.tint))
                     // A long custom provider name must truncate, not wrap the
                     // header taller in a narrow pane. Middle truncation is the intent, but the
                     // menu style's AppKit-backed label ignores the preference and elides the

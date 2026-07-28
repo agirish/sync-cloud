@@ -27,13 +27,13 @@ struct PaneBreadcrumb: View {
     let rootPath: String
     /// The pane's provider display name.
     ///
-    /// It used to tint the root crumb with the provider's brand hue (UX H2). It no longer does, and
-    /// is kept because the crumb is still the provider-identity element of the trail and the next
-    /// treatment will want it. The tint had to go for contrast: on the surface a hue wash actually
-    /// produces — `#4d7f68` sampled from the running app at the green hue — the brand tints measure
-    /// 2.16:1 (iCloud) and 1.53:1 (OneDrive) against the 4.5 text needs, and this crumb is
-    /// `.caption`, the smallest text in the header. See `PaneHeader.providerCapsule` for the full
-    /// measurement; the name above it moved for the same reason.
+    /// It tints the root crumb with the provider's brand hue (UX H2) **on a light appearance only**.
+    /// Dark drops the tint for contrast: on the surface a hue wash actually produces there —
+    /// `#4d7f68`, sampled from the running app at the green hue — the brand tints measure 2.16:1
+    /// (iCloud) and 1.53:1 (OneDrive) against the 4.5 text needs, and this crumb is `.caption`, the
+    /// smallest text in the header. Light's surfaces are the ones those tints were drawn for and
+    /// read fine, so light keeps H2 intact. See `PaneHeader.providerCapsule` for the full
+    /// measurement; the name above it splits the same way.
     let providerName: String?
     let relativePath: String
     /// The pane's live show-hidden-files state, forwarded to the quick-jump menu so its sibling
@@ -45,6 +45,8 @@ struct PaneBreadcrumb: View {
     /// When on, a plain crumb click drives *both* panes — the sticky form of ⌥-click. Read-only
     /// here: the seam capsule owns the writing, and both breadcrumbs observe the same key.
     @AppStorage(PaneLinkPreference.defaultsKey) private var linkBothPanes = false
+    /// Only dark drops the root crumb's brand tint — see `providerName` and `ChromeInk`.
+    @Environment(\.colorScheme) private var colorScheme
     // Crumb hover washes in the user-selected glass hue, like the rest of the main window (C7).
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -57,7 +59,9 @@ struct PaneBreadcrumb: View {
                 name: BreadcrumbTrail.rootDisplayName(forRootPath: rootPath),
                 relativePath: "",
                 isCurrent: crumbs.isEmpty,
-                helpPath: rootPath
+                helpPath: rootPath,
+                tint: ChromeInk.tint(colorScheme,
+                                     light: providerName.map { ProviderHue.classify($0).tint })
             )
 
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
@@ -102,11 +106,13 @@ struct PaneBreadcrumb: View {
         .scaledFont(.caption)
     }
 
-    /// Every crumb takes the same treatment now: the current folder at `.primary`, its ancestors at
-    /// `.secondary`. The root crumb's provider tint — and the `tint:` parameter that carried it —
-    /// went with the contrast fix described on `providerName`.
+    /// `tint` carries the provider hue for the root crumb, and only on a light appearance — dark
+    /// passes nil (see `providerName`) and falls back to the standard hierarchy, the current folder
+    /// at `.primary` and its ancestors at `.secondary`. A tinted ancestor crumb fades slightly so
+    /// the current-folder emphasis still reads.
     @ViewBuilder
-    private func crumbButton(name: String, relativePath: String, isCurrent: Bool, helpPath: String) -> some View {
+    private func crumbButton(name: String, relativePath: String, isCurrent: Bool, helpPath: String,
+                             tint: Color? = nil) -> some View {
         Button {
             navigate(to: relativePath, isCurrent: isCurrent)
         } label: {
@@ -119,7 +125,7 @@ struct PaneBreadcrumb: View {
             .padding(.horizontal, -4)
             .padding(.vertical, -1)
             .fontWeight(isCurrent ? .medium : .regular)
-            .foregroundStyle(isCurrent ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .foregroundStyle(tint.map { isCurrent ? $0 : $0.opacity(0.75) } ?? (isCurrent ? .primary : .secondary))
             .lineLimit(1)
             .truncationMode(.middle)
             .help(crumbHelp(isCurrent: isCurrent, helpPath: helpPath))
