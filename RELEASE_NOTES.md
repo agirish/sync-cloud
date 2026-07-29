@@ -5,6 +5,61 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v2.7
+
+Browse your folders in columns.
+
+### Columns
+- **A new pane view mode, and the default** — panes render as columns, the way
+  Finder does, so you can see the path you took instead of just where you landed.
+- **Drilling into a folder mirrors onto the linked pane**, keeping both sides in
+  step.
+- The header shows **one location**, not two halves of one, and the pane arrows
+  understand columns before they consult the focus history.
+- A click on empty space **puts the selection down**, and a linked breadcrumb click
+  reaches the folder it names.
+
+### Scrolling that behaves
+- The column stack now scrolls **the way AppKit scrolls** — bounce is capped rather
+  than removed, and the stack is pulled home when the platform's bounce strands it.
+- A wheel gesture **locks to its dominant axis**, decided from accumulated travel,
+  so a vertical scroll stops nudging the stack sideways.
+
+### Clicks that land
+- Clicks are measured **from mouse-up**, a plain column click commits its own
+  selection, and a folder's column opens from whichever half of the click fires.
+- One pane's deferred clear no longer eats the other pane's next click, and the
+  action bar's buttons stop moving when the summary changes.
+
+### Data safety
+- **External-volume providers claim their own tree again.** A depth rule introduced
+  in v2.6 meant a provider mounted under `/Volumes` claimed nothing — so a
+  path-addressed CLI root inside it silently lost its destination-name guard and
+  date-noise filter. The test is now what the root *contains*, not how deep it sits.
+  *(Regression introduced in v2.6.)*
+- **`›` can no longer walk into a folder that no longer exists.** Stepping back out
+  of a folder that is then deleted left the forward arrow lit and pointing at a dead
+  path — where New Folder, paste, and background drops act.
+- A queued column navigation can no longer undo a newer one — the "Back doesn't
+  work" shape.
+
+### Tidy accounting
+- A group whose copies are all protected no longer **vanishes from the list with its
+  bytes credited as reclaimed** while every copy is still on disk.
+- Protected copies are no longer counted as reclaimable, so a group stops promising
+  bytes its own "Move to Trash" would never deliver — and its Trash button is no
+  longer enabled to do nothing.
+- A corrupt store stopped rewriting its whole backup on every read — tens of
+  thousands of writes per scan, exactly when the disk is least worth hammering.
+
+### Security
+- The copied API key is **marked concealed on the pasteboard**, so clipboard
+  managers know not to retain it.
+
+**Full changelog:** [`v2.6...v2.7`](https://github.com/agirish/sync-cloud/compare/v2.6...v2.7)
+
+---
+
 ## v2.6
 
 Comparisons you can fold up, and Settings you can read.
@@ -38,11 +93,26 @@ Comparisons you can fold up, and Settings you can read.
   the raw node graph, and the Details sidebar resolves its selection through an
   index rather than walking the tree.
 
+### Data safety
+- **A bulk sync could overwrite one file with another and report success.** Each
+  destination is now asked about its own volume, rather than every item inheriting
+  the answer from whichever happened to be first. When a batch mixed a
+  case-sensitive mount with the case-insensitive boot volume, two names differing
+  only by case both passed the uniqueness check, the workers wrote to the same file,
+  and with a Move both sources were consumed — one file's contents gone, a success
+  banner, nothing in the Trash. Which files it hit depended on the table's sort
+  order.
+
 ### Fixes
-- Each destination is asked about **its own volume**, not the first one's.
 - Three states stopped lying: a clipped tab, a deleted key, and a stale scan.
 - The transfer buttons spell out **Copy**, and the link-panes toggle folds into the
   swap chip's seam capsule.
+
+> **Known issue, fixed in v2.7:** a depth rule added in this release stopped
+> external-volume providers from claiming their own tree, so a path-addressed CLI
+> root under `/Volumes` lost its destination-name guard.
+
+**Full changelog:** [`v2.5...v2.6`](https://github.com/agirish/sync-cloud/compare/v2.5...v2.6)
 
 ---
 
@@ -94,6 +164,8 @@ A retuned palette and a hardening pass.
   app could not read is told apart from one holding nothing.
 - A duplicate batch keeps its hands off the folder it just called intact.
 
+**Full changelog:** [`v2.4...v2.5`](https://github.com/agirish/sync-cloud/compare/v2.4...v2.5)
+
 ---
 
 ## v2.4
@@ -115,6 +187,8 @@ Compare actions, and a quieter Activity Log.
 - A **new flat two-pane app icon**, a rewritten README, and a visual GitHub Pages
   feature site.
 
+**Full changelog:** [`v2.3...v2.4`](https://github.com/agirish/sync-cloud/compare/v2.3...v2.4)
+
 ---
 
 ## v2.3
@@ -133,6 +207,8 @@ Bold dark mode, and a true-neutral accent.
   when the source can't be restored, with a recovery story that survives contact
   with reality.
 - **Undo Last Run** is paired with its own run, not whatever name sits on the stack.
+
+**Full changelog:** [`v2.2...v2.3`](https://github.com/agirish/sync-cloud/compare/v2.2...v2.3)
 
 ---
 
@@ -171,6 +247,8 @@ One design system, and a Theme to switch it with.
 - Dataless oversize files are classified as **cloud-only**, not "too large".
 - A merge is refused when a source file's modification time changed under it.
 - The CLI lists each name-skip's reason inline.
+
+**Full changelog:** [`v2.1...v2.2`](https://github.com/agirish/sync-cloud/compare/v2.1...v2.2)
 
 ---
 
@@ -218,6 +296,8 @@ Search that understands what you mean, and scans that tell the truth.
 - Destination names are validated as the app does, and sync skips are reported by
   cause rather than assumed to be collisions.
 
+**Full changelog:** [`v2.0...v2.1`](https://github.com/agirish/sync-cloud/compare/v2.0...v2.1)
+
 ---
 
 ## v2.0
@@ -240,6 +320,8 @@ tab-driven workspace.
 - The comparison panes no longer re-walk their 40k-node trees on every selection,
   and the dead first click when selecting in a pane is fixed.
 
+**Full changelog:** [`v1.4...v2.0`](https://github.com/agirish/sync-cloud/compare/v1.4...v2.0)
+
 ---
 
 ## v1.4
@@ -259,6 +341,8 @@ Three new Tidy lenses, plus a durable history you can undo from.
 - A **per-tab toggle to hide the top file panes**.
 - Re-verification is instant: SHA-256 is cached by path + mtime + size.
 
+**Full changelog:** [`v1.3...v1.4`](https://github.com/agirish/sync-cloud/compare/v1.3...v1.4)
+
 ---
 
 ## v1.3
@@ -272,6 +356,8 @@ Onboarding and visual identity — the release that made SyncCloud explain itsel
 - **Provider brand hues** tint provider identity throughout, made appearance-adaptive
   by a dark-mode contrast audit.
 - **Unified empty states**, and comfortable / compact list density.
+
+**Full changelog:** [`v1.2...v1.3`](https://github.com/agirish/sync-cloud/compare/v1.2...v1.3)
 
 ---
 
@@ -292,6 +378,8 @@ AI-assisted filing — SyncCloud learns where your loose files belong.
 - **Settings ▸ Tidy** — a dedicated tab for Duplicates, Filing, and cloud spend, plus
   a header search that filters across all tabs.
 
+**Full changelog:** [`v1.1...v1.2`](https://github.com/agirish/sync-cloud/compare/v1.1...v1.2)
+
 ---
 
 ## v1.1
@@ -307,6 +395,8 @@ The Tidy tab arrives, alongside a broad UX polish wave.
   panes" toggle.
 - **One icon vocabulary** for copy/move, so three features stop sharing the same
   arrows.
+
+**Full changelog:** [`v1.0...v1.1`](https://github.com/agirish/sync-cloud/compare/v1.0...v1.1)
 
 ---
 
@@ -328,6 +418,8 @@ iCloud Drive, OneDrive, Dropbox, and Google Drive — a native macOS app plus a 
   and orphaned `.tmp_` files swept.
 - **Scan is ~8× faster** on large directories.
 
+**Full changelog:** [`v0.20...v1.0`](https://github.com/agirish/sync-cloud/compare/v0.20...v1.0)
+
 ---
 
 ## v0.20
@@ -343,6 +435,8 @@ The Differences table and a theming pass — the last stop before 1.0.
 - Appearance gains a content surface-style picker, a tint slider, and accent-aware
   toolbars.
 
+**Full changelog:** [`v0.19...v0.20`](https://github.com/agirish/sync-cloud/compare/v0.19...v0.20)
+
 ---
 
 ## v0.19
@@ -354,6 +448,8 @@ Sync-aware panes, and drag & drop.
 - **Drag & drop between panes**, double-click drill-down, and breadcrumb navigation.
 - Streaming checksums, plus symlink and case-variant fixes — including a false
   all-missing diff.
+
+**Full changelog:** [`v0.18...v0.19`](https://github.com/agirish/sync-cloud/compare/v0.18...v0.19)
 
 ---
 
@@ -367,6 +463,8 @@ End of the first development era (March 2026). Folder comparison and the CLI.
 - Provider-branded panes and the first Liquid Glass design pass.
 - A headless **SyncCloudCLI**.
 
+**Full changelog:** [`v0.17...v0.18`](https://github.com/agirish/sync-cloud/compare/v0.17...v0.18)
+
 ---
 
 ## v0.17
@@ -375,6 +473,8 @@ Multi-selection and bulk move.
 
 - Select many files at once and move them as a batch.
 - Details tab, Move-to-source / Move-to-destination, and the first app icon.
+
+**Full changelog:** [`v0.16...v0.17`](https://github.com/agirish/sync-cloud/compare/v0.16...v0.17)
 
 ---
 
@@ -391,3 +491,5 @@ self-versioning, one per minor.
   pass over comments.
 - **v0.12 – v0.16** — hidden-file toggle, Quick Look, the app icon, and the first
   real test suite.
+
+**Full changelog:** [`v0.1...v0.16`](https://github.com/agirish/sync-cloud/compare/v0.1...v0.16)

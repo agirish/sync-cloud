@@ -90,6 +90,11 @@
   .flist .ic{flex:0 0 22px;width:22px;height:22px;border-radius:7px;display:grid;place-items:center;
     background:var(--grad-soft);border:1px solid var(--stroke);margin-top:2px;font-size:11px}
   .flist b{font-weight:640}
+  .chlog{margin:22px 0 0;padding-top:16px;border-top:1px solid var(--stroke);font-size:13.5px;color:var(--ink-faint)}
+  .chlog a{color:var(--blue);font-weight:550}
+  .known{margin:20px 0 0;padding:14px 16px;border-radius:12px;font-size:14px;line-height:1.55;
+    border:1px solid rgba(242,177,60,.28);background:rgba(242,177,60,.08);color:var(--ink)}
+  .known b{color:var(--amber)}
   .flist .k{color:var(--ink-dim)}
 
   footer{border-top:1px solid var(--stroke);padding:48px 0 60px;margin-top:20px;color:var(--ink-faint);font-size:13.5px}
@@ -127,9 +132,55 @@
 
 <div class="timeline">
 
+  <!-- v2.7 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v2.7</span><span class="tag latest">Latest</span></div>
+    <p class="lede">Browse your folders in columns.</p>
+    <div class="grp">
+      <h3>Columns</h3>
+      <ul class="flist">
+        <li><span class="ic">▥</span><span><b>A new pane view mode, and the default</b> — panes render as columns, the way Finder does, so you can see the path you took instead of just where you landed.</span></li>
+        <li><span class="ic">⇄</span><span><b>Drilling into a folder mirrors onto the linked pane</b>, keeping both sides in step.</span></li>
+        <li><span class="ic">📍</span><span>The header shows <b>one location</b>, not two halves of one, and the pane arrows understand columns before they consult the focus history.</span></li>
+        <li><span class="ic">▢</span><span>A click on empty space <b>puts the selection down</b>, and a linked breadcrumb click reaches the folder it names.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Scrolling that behaves</h3>
+      <ul class="flist">
+        <li><span class="ic">↕</span><span>The column stack scrolls <b>the way AppKit scrolls</b> — bounce capped rather than removed, and the stack pulled home when the platform's bounce strands it.</span></li>
+        <li><span class="ic">🔒</span><span>A wheel gesture <b>locks to its dominant axis</b>, decided from accumulated travel, so a vertical scroll stops nudging the stack sideways.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Clicks that land</h3>
+      <ul class="flist">
+        <li><span class="ic">👆</span><span>Clicks are measured <b>from mouse-up</b>, a plain column click commits its own selection, and a folder's column opens from whichever half of the click fires.</span></li>
+        <li><span class="ic">✓</span><span>One pane's deferred clear no longer eats the other pane's next click, and the action bar's buttons stop moving when the summary changes.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Data safety</h3>
+      <ul class="flist">
+        <li><span class="ic">🛡</span><span><b>External-volume providers claim their own tree again.</b> A depth rule introduced in v2.6 meant a provider mounted under <code>/Volumes</code> claimed nothing — so a path-addressed CLI root inside it silently lost its destination-name guard and date-noise filter. <i>(Regression introduced in v2.6.)</i></span></li>
+        <li><span class="ic">⚠</span><span><b><code>›</code> can no longer walk into a folder that no longer exists.</b> Stepping back out of a folder that is then deleted left the forward arrow lit and pointing at a dead path — where New Folder, paste, and background drops act.</span></li>
+        <li><span class="ic">↩</span><span>A queued column navigation can no longer undo a newer one — the "Back doesn't work" shape.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Tidy accounting &amp; security</h3>
+      <ul class="flist">
+        <li><span class="ic">⧉</span><span>A group whose copies are all protected no longer <b>vanishes from the list with its bytes credited as reclaimed</b> while every copy is still on disk; protected copies stop being counted as reclaimable, and a Trash button that would do nothing is no longer enabled.</span></li>
+        <li><span class="ic">⚡</span><span>A corrupt store stopped rewriting its whole backup on every read — tens of thousands of writes per scan.</span></li>
+        <li><span class="ic">🔑</span><span>The copied API key is <b>marked concealed on the pasteboard</b>, so clipboard managers know not to retain it.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.6...v2.7">v2.6...v2.7</a></p>
+  </article>
+
   <!-- v2.6 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v2.6</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v2.6</span><span class="tag">Collapsible compare</span></div>
     <p class="lede">Comparisons you can fold up, and Settings you can read.</p>
     <div class="grp">
       <h3>Differences</h3>
@@ -155,12 +206,19 @@
       </ul>
     </div>
     <div class="grp">
+      <h3>Data safety</h3>
+      <ul class="flist">
+        <li><span class="ic">🛡</span><span><b>A bulk sync could overwrite one file with another and report success.</b> Each destination is now asked about its own volume, instead of every item inheriting the answer from whichever came first. When a batch mixed a case-sensitive mount with the case-insensitive boot volume, two names differing only by case both passed the uniqueness check, the workers wrote to the same file, and with a Move both sources were consumed — one file's contents gone, a success banner, nothing in the Trash.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
       <h3>Fixes</h3>
       <ul class="flist">
-        <li><span class="ic">🛡</span><span>Each destination is asked about <b>its own volume</b>, not the first one's.</span></li>
         <li><span class="ic">✓</span><span>Three states stopped lying: a clipped tab, a deleted key, and a stale scan. The transfer buttons spell out <b>Copy</b>.</span></li>
       </ul>
     </div>
+    <p class="known"><b>Known issue, fixed in v2.7:</b> a depth rule added in this release stopped external-volume providers from claiming their own tree, so a path-addressed CLI root under <code>/Volumes</code> lost its destination-name guard.</p>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.5...v2.6">v2.5...v2.6</a></p>
   </article>
 
   <!-- v2.5 -->
@@ -196,6 +254,7 @@
         <li><span class="ic">📜</span><span>Clearing the log clears the one you can see; a log the app could not read is told apart from one holding nothing.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.4...v2.5">v2.4...v2.5</a></p>
   </article>
 
   <!-- v2.4 -->
@@ -212,6 +271,7 @@
         <li><span class="ic">◧</span><span>A <b>new flat two-pane app icon</b>, a rewritten README, and a visual GitHub Pages feature site.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.3...v2.4">v2.3...v2.4</a></p>
   </article>
 
   <!-- v2.3 -->
@@ -227,6 +287,7 @@
         <li><span class="ic">⧉</span><span><b>Duplicates hardened again</b> — cross-folder version groups stop pooling unmarked originals, and merges refuse to aim through keeper hard links; v2.2’s unreadable-folder fix is widened to case- and near-name variants.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.2...v2.3">v2.2...v2.3</a></p>
   </article>
 
   <!-- v2.2 -->
@@ -251,6 +312,7 @@
         <li><span class="ic">🛡</span><span><b>Scans that tell the truth</b> — no phantom "Missing" rows when the scan root itself is unreadable, permission-denied directories treated as unexplored rather than empty, dataless oversize files classified cloud-only rather than "too large", and a merge refused when a source's mtime changed.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.1...v2.2">v2.1...v2.2</a></p>
   </article>
 
   <!-- v2.1 -->
@@ -268,6 +330,7 @@
         <li><span class="ic">↺</span><span><b>Undo covers everything</b> — a full move / copy / delete undo-then-redo matrix, plus Undo on completion banners.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.0...v2.1">v2.0...v2.1</a></p>
   </article>
 
   <!-- v2.0 -->
@@ -284,6 +347,7 @@
         <li><span class="ic">💡</span><span>After filing a loose file, SyncCloud <b>offers to learn an Automation rule</b> — and only asks when the file actually moved. The dead first click when selecting in a pane is fixed.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v1.4...v2.0">v1.4...v2.0</a></p>
   </article>
 
   <!-- v1.4 -->
@@ -300,6 +364,7 @@
         <li><span class="ic">⚡</span><span>Activity Log gained "Show older history" paging, and re-verification is instant — SHA-256 cached by path + mtime + size.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v1.3...v1.4">v1.3...v1.4</a></p>
   </article>
 
   <!-- v1.3 -->
@@ -314,6 +379,7 @@
         <li><span class="ic">◇</span><span><b>Unified empty states</b>, and comfortable / compact list density.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v1.2...v1.3">v1.2...v1.3</a></p>
   </article>
 
   <!-- v1.2 -->
@@ -329,6 +395,7 @@
         <li><span class="ic">⚙︎</span><span><b>Settings ▸ Tidy</b> — a dedicated tab for Duplicates, Filing, and cloud spend, plus a header search across all tabs.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v1.1...v1.2">v1.1...v1.2</a></p>
   </article>
 
   <!-- v1.1 -->
@@ -343,6 +410,7 @@
         <li><span class="ic">⇎</span><span><b>Differences polish</b> — an actionable "No Scan Performed" state, per-side totals, per-filter counts, directional keyboard copy/move, and a visible "navigate both panes" toggle.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v1.0...v1.1">v1.0...v1.1</a></p>
   </article>
 
   <!-- v1.0 -->
@@ -357,6 +425,7 @@
         <li><span class="ic">⚡</span><span><b>Scan is ~8× faster</b> on large directories.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.20...v1.0">v0.20...v1.0</a></p>
   </article>
 
   <!-- v0.20 -->
@@ -371,6 +440,7 @@
         <li><span class="ic">🎨</span><span>Appearance gains a content surface-style picker, a tint slider, and accent-aware toolbars.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.19...v0.20">v0.19...v0.20</a></p>
   </article>
 
   <!-- v0.19 -->
@@ -384,6 +454,7 @@
         <li><span class="ic">⚡</span><span>Streaming checksums, plus symlink and case-variant fixes — including a false all-missing diff.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.18...v0.19">v0.18...v0.19</a></p>
   </article>
 
   <!-- v0.18 -->
@@ -398,6 +469,7 @@
         <li><span class="ic">⌨︎</span><span>A headless <b>SyncCloudCLI</b>.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.17...v0.18">v0.17...v0.18</a></p>
   </article>
 
   <!-- v0.17 -->
@@ -410,6 +482,7 @@
         <li><span class="ic">ⓘ</span><span>Details tab, Move-to-source / Move-to-destination, and the first app icon.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.16...v0.17">v0.16...v0.17</a></p>
   </article>
 
   <!-- v0.1 - v0.16 -->
@@ -424,6 +497,7 @@
         <li><span class="ic">👁</span><span><b>v0.12 – v0.16</b> — hidden-file toggle, Quick Look, the app icon, and the first real test suite.</span></li>
       </ul>
     </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v0.1...v0.16">v0.1...v0.16</a></p>
   </article>
 
 </div>
