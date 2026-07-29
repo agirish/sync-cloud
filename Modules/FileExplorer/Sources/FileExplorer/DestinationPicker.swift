@@ -61,10 +61,19 @@ public struct PendingDestination: Identifiable {
 /// position — and cannot express "that folder, the one I'm looking at". This can, and does nothing
 /// else: it returns one folder for the whole selection.
 ///
-/// A sheet rather than a popover because four columns and a recents list need the room, and because
-/// a move deserves to be modal to the window it acts on.
+/// An in-window overlay card, **not** a sheet — the same shape Settings and the first-run card use.
+///
+/// It was a sheet first, and no amount of styling made it match: a sheet is its own window with an
+/// opaque backing, so the app's glass materials composite onto that white slab instead of onto live
+/// content and render flat. Glass needs something behind it. An overlay over a scrim has the whole
+/// window behind it, which is what lets `glassCardStyle` mean anything here.
+///
+/// The card supplies its own size and grip; the host supplies the scrim and the surface treatment,
+/// exactly as `settingsCard` does.
 public struct DestinationPicker: View {
     let request: DestinationRequest
+    /// The space the host has, so the card can clamp itself rather than hang off the window edge.
+    let availableSize: CGSize
     /// Recently used destinations for this provider, most recent first.
     let recents: [String]
     /// Whether the picker offers hidden folders, matching the pane's own setting.
@@ -89,16 +98,17 @@ public struct DestinationPicker: View {
         (GlassLevel(rawValue: glassLevelRaw) ?? .frosted).flooredForChrome
     }
 
-    /// The size the sheet opens at, remembered between uses. Folder names run long and trees run
+    /// The size the card opens at, remembered between uses. Folder names run long and trees run
     /// deep; a picker that reset to one shape every time would be re-dragged every time.
-    @AppStorage("destinationPickerWidth") private var storedWidth: Double = 640
-    @AppStorage("destinationPickerHeight") private var storedHeight: Double = 520
-    /// The live size, tracked in a reference box rather than `@State`.
+    @AppStorage("destinationPickerWidth") private var storedWidth: Double = 660
+    @AppStorage("destinationPickerHeight") private var storedHeight: Double = 540
+    /// The size mid-drag, and the size the drag started from.
     ///
-    /// Writing a geometry reading back into view state is the layout loop this project has already
-    /// paid for once. The box takes the value without invalidating anything, and `onDisappear`
-    /// persists it — by which point no layout depends on the write.
-    @State private var liveSize = SizeBox()
+    /// The anchor is captured at drag start rather than read live: `DragGesture.translation` is
+    /// cumulative from the start, so folding it into a size that already includes it compounds —
+    /// the same trap `PaneViewMode.draggedColumnWidth` documents for the column seams.
+    @State private var dragSize: CGSize?
+    @State private var dragAnchor: CGSize?
 
     /// Where the columns are, relative to the provider root.
     @State private var browsePath = PaneBrowsePath()
@@ -112,11 +122,13 @@ public struct DestinationPicker: View {
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
 
-    public init(request: DestinationRequest, recents: [String], showHidden: Bool = false,
+    public init(request: DestinationRequest, availableSize: CGSize, recents: [String],
+                showHidden: Bool = false,
                 onCommit: @escaping (String) -> Void,
                 onChooseOther: @escaping () -> Void,
                 onCancel: @escaping () -> Void) {
         self.request = request
+        self.availableSize = availableSize
         self.recents = recents
         self.showHidden = showHidden
         self.onCommit = onCommit
@@ -151,6 +163,20 @@ public struct DestinationPicker: View {
     private var canCommit: Bool { !highlighted.isEmpty && refusal == nil }
     private var verb: String { request.isMove ? "Move" : "Copy" }
 
+    /// Floors that still fit two columns and the footer's four controls; ceilings that leave the
+    /// scrim visible on every side, so the card always reads as floating over the window rather
+    /// than replacing it.
+    static let minSize = CGSize(width: 480, height: 400)
+    private var maxSize: CGSize {
+        CGSize(width: max(Self.minSize.width, availableSize.width - 80),
+               height: max(Self.minSize.height, availableSize.height - 80))
+    }
+    private var cardSize: CGSize {
+        let wanted = dragSize ?? CGSize(width: storedWidth, height: storedHeight)
+        return CGSize(width: min(max(wanted.width, Self.minSize.width), maxSize.width),
+                      height: min(max(wanted.height, Self.minSize.height), maxSize.height))
+    }
+
     // MARK: - Body
 
     public var body: some View {
@@ -161,22 +187,13 @@ public struct DestinationPicker: View {
             Divider().overlay(Color.primary.opacity(0.08))
             footer
         }
-        // Resizable: a floor that still fits two columns and the footer's buttons, an ideal taken
-        // from last time, and no ceiling — the sheet's own grip does the rest.
-        .frame(minWidth: 470, idealWidth: storedWidth, maxWidth: .infinity,
-               minHeight: 400, idealHeight: storedHeight, maxHeight: .infinity)
-        // The app's own two-part surface, in the app's own order: the accent wash from the Tint
-        // slider, then the level's material behind it. `cornerRadius: 0` because the sheet window
-        // already rounds and clips — a second radius here would leave the material's corners
-        // floating inside the sheet's.
-        .contentSurface(hue: glassHue, tint: surfaceTint)
-        .glassSurface(glassLevel, cornerRadius: 0)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { liveSize.size = $0 }
-        .onDisappear {
-            guard liveSize.size.width > 0, liveSize.size.height > 0 else { return }
-            storedWidth = liveSize.size.width
-            storedHeight = liveSize.size.height
-        }
+        .frame(width: cardSize.width, height: cardSize.height)
+        // The grip rides the corner INSIDE the card, so it lands on the card's own rounded edge
+        // rather than out on the scrim where there is nothing to grab.
+        .overlay(alignment: .bottomTrailing) { resizeGrip }
+        // No background here. The host wraps this in `contentSurface` + `glassCardStyle`, exactly
+        // as it wraps the Settings card — a background applied in here would sit on top of the
+        // material and flatten it back out.
         .onAppear {
             let opening = PaneBrowsePath.normalized(request.openAt)
             highlighted = opening.isEmpty ? root : opening
@@ -398,6 +415,38 @@ public struct DestinationPicker: View {
         .accessibilityLabel(highlighted.isEmpty ? "No folder chosen" : "Destination \(highlighted)")
     }
 
+    /// The corner grip. Reads a FIXED coordinate space (`.global`) for the same reason
+    /// `ResizeHandle` requires one: the grip moves as the card grows, so in its own space the
+    /// gesture's values feed back on themselves and the drag stutters toward zero.
+    private var resizeGrip: some View {
+        Image(systemName: "line.diagonal")
+            .scaledFont(.system(size: 11, weight: .semibold))
+            .rotationEffect(.degrees(90))
+            .foregroundStyle(.tertiary)
+            .frame(width: 18, height: 18)
+            .padding(3)
+            .contentShape(Rectangle())
+            .pointerStyle(.frameResize(position: .bottomTrailing))
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let anchor = dragAnchor ?? cardSize
+                        if dragAnchor == nil { dragAnchor = anchor }
+                        dragSize = CGSize(width: anchor.width + value.translation.width,
+                                          height: anchor.height + value.translation.height)
+                    }
+                    .onEnded { _ in
+                        // Persist the CLAMPED size, not the raw drag: releasing past the ceiling
+                        // would otherwise store a size the card can never open at.
+                        storedWidth = cardSize.width
+                        storedHeight = cardSize.height
+                        dragAnchor = nil
+                        dragSize = nil
+                    }
+            )
+            .accessibilityLabel("Resize")
+    }
+
     // MARK: - Loading
 
     /// Lists every open column that has not been listed yet.
@@ -563,14 +612,6 @@ private struct DestinationColumn: View {
     }
 }
 
-/// A reference cell for the sheet's live size.
-///
-/// Geometry readings written into `@State` re-enter layout, which is the loop this project has
-/// already debugged once. A class instance held by `@State` takes the value without invalidating
-/// anything, and the size is only read back at `onDisappear`.
-final class SizeBox {
-    var size: CGSize = .zero
-}
 
 // MARK: - Search result row
 

@@ -403,7 +403,11 @@ struct ContentView: View {
             .frame(minWidth: 600)
             .toolbar { mainToolbar }
         .overlay {
-            if showSettings {
+            // The picker wins the precedence: it is a direct answer to an action the user just
+            // took on a file, where Settings and Help are ambient panels they can reopen.
+            if pendingDestination != nil {
+                destinationOverlay
+            } else if showSettings {
                 settingsOverlay
             } else if showHelp {
                 helpOverlay
@@ -428,33 +432,7 @@ struct ContentView: View {
             if isOpen { showHelp = false }
         }
         .quickLookPreview($quickLookURL)
-        // One destination picker for the window. The Tidy rail and the Organize workspace are
-        // siblings and both raise it, so the state lives at their common host rather than in
-        // either — two sheets bound to two states would be two pickers to keep in step.
-        .sheet(item: $pendingDestination) { pending in
-            DestinationPicker(
-                request: pending.request,
-                recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
-                showHidden: syncManager.showHiddenFiles,
-                onCommit: { destination in
-                    DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
-                    pending.onCommit(destination)
-                    pendingDestination = nil
-                },
-                onChooseOther: {
-                    pendingDestination = nil
-                    // Deferred a runloop turn: `onOther` runs a modal NSOpenPanel, and raising a
-                    // modal while the sheet that launched it is still tearing down is the kind of
-                    // overlap AppKit handles unpredictably. Let the sheet go first.
-                    DispatchQueue.main.async {
-                        guard let chosen = pending.onOther() else { return }
-                        DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
-                        pending.onCommit(chosen)
-                    }
-                },
-                onCancel: { pendingDestination = nil }
-            )
-        }
+        .animation(.easeOut(duration: 0.15), value: pendingDestination?.id)
         // The theme is the one Appearance control no view can render on its own: it lives on
         // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
         // and the separate Activity Log / Sync History windows) follow it too. Applied from the
@@ -1028,6 +1006,67 @@ struct ContentView: View {
     /// The in-window settings overlay: a dimmed backdrop (click to dismiss) behind a centered
     /// card. Because it lives inside the main window it floats over the content even in full
     /// screen, and never kicks the user out to another Space the way a separate window would.
+    /// The destination picker, floated over the window on a scrim — the Settings overlay's shape,
+    /// for the same reason: a card that wants the app's glass needs the app behind it. As a sheet
+    /// it had its own opaque window backing, so every material composited onto white and rendered
+    /// flat no matter what was applied to it.
+    @ViewBuilder
+    private var destinationOverlay: some View {
+        if let pending = pendingDestination {
+            GeometryReader { proxy in
+                ZStack {
+                    Rectangle()
+                        .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                        .ignoresSafeArea()
+                        // Clicking away cancels, like every other overlay. Nothing has been moved
+                        // at this point, so there is nothing to lose by dismissing.
+                        .onTapGesture { pendingDestination = nil }
+
+                    destinationCard(pending, available: proxy.size)
+                        .contentShape(Rectangle())
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    /// The picker card, wearing the same surface treatment as `settingsCard` so the two in-window
+    /// panels read as one system.
+    @ViewBuilder
+    private func destinationCard(_ pending: PendingDestination, available: CGSize) -> some View {
+        DestinationPicker(
+            request: pending.request,
+            availableSize: available,
+            recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
+            showHidden: syncManager.showHiddenFiles,
+            onCommit: { destination in
+                DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
+                pending.onCommit(destination)
+                pendingDestination = nil
+            },
+            onChooseOther: {
+                pendingDestination = nil
+                // Deferred a runloop turn: `onOther` runs a modal NSOpenPanel, and raising a modal
+                // while the overlay that launched it is still animating out is the kind of overlap
+                // AppKit handles unpredictably. Let the card go first.
+                DispatchQueue.main.async {
+                    guard let chosen = pending.onOther() else { return }
+                    DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
+                    pending.onCommit(chosen)
+                }
+            },
+            onCancel: { pendingDestination = nil }
+        )
+        .contentSurface(hue: glassHue, tint: surfaceTint)
+        .glassCardStyle(level: glassLevel)
+        .overlay(
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
+        .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
+    }
+
     @ViewBuilder
     private var settingsOverlay: some View {
         // The card is sized in points and grows with the Text size setting, but the window's own
