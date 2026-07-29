@@ -127,9 +127,45 @@
 
 <div class="timeline">
 
+  <!-- v2.6 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v2.6</span><span class="tag latest">Latest</span></div>
+    <p class="lede">Comparisons you can fold up, and Settings you can read.</p>
+    <div class="grp">
+      <h3>Differences</h3>
+      <ul class="flist">
+        <li><span class="ic">▤</span><span><b>Grouped into top-level folder sections</b>, so a long comparison reads as a handful of folders instead of one flat wall of rows.</span></li>
+        <li><span class="ic">⇕</span><span><b>Sections are selectable and collapsible</b>, with <b>Collapse All</b> promoted onto the differences bar instead of hiding inside the filter menu.</span></li>
+        <li><span class="ic">⏱</span><span>Scan staleness moved off the whole count pill onto the age run, so only the part that goes stale looks stale.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Settings &amp; Appearance</h3>
+      <ul class="flist">
+        <li><span class="ic">▥</span><span><b>Settings stood on a left rail</b>, so a tab is never cut in half again — with more air between sections and room for a provider path to be read.</span></li>
+        <li><span class="ic">🔤</span><span>A <b>Text size</b> setting.</span></li>
+        <li><span class="ic">◇</span><span>The seam pill is quiet at rest and the accent means "linked"; on Clear glass the provider capsule gets a ground, and chrome ink is brighter in dark.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Keychain &amp; performance</h3>
+      <ul class="flist">
+        <li><span class="ic">🔑</span><span><b>Opening the Tidy tab no longer demands your Keychain password</b>, and the API key gains a reveal plus a replace that says so.</span></li>
+        <li><span class="ic">⚡</span><span>SwiftUI no longer <b>deep-compares 40,000 file nodes</b> on the main thread — folder subtrees stay out of row comparison, <code>OutlineGroup</code> is not handed the raw graph, and the Details sidebar resolves selection through an index.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Fixes</h3>
+      <ul class="flist">
+        <li><span class="ic">🛡</span><span>Each destination is asked about <b>its own volume</b>, not the first one's.</span></li>
+        <li><span class="ic">✓</span><span>Three states stopped lying: a clipped tab, a deleted key, and a stale scan. The transfer buttons spell out <b>Copy</b>.</span></li>
+      </ul>
+    </div>
+  </article>
+
   <!-- v2.5 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v2.5</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v2.5</span><span class="tag">Palette &amp; hardening</span></div>
     <p class="lede">A retuned palette and a hardening pass.</p>
     <div class="grp">
       <h3>Colour</h3>
@@ -172,6 +208,7 @@
         <li><span class="ic">⇕</span><span><b>Instant differences collapse</b> — the pane collapses without rebuilding, keeps the last file visible, and the collapsed diff bar is slimmer.</span></li>
         <li><span class="ic">📜</span><span><b>Activity Log chrome</b> — title bar hidden, search collapsed behind a magnifier, translucent Settings-style surfaces, and long messages wrap instead of being cut off.</span></li>
         <li><span class="ic">🎨</span><span>The <b>app accent carries through</b> the compare chrome and row selection, replacing the OS gray.</span></li>
+        <li><span class="ic">✕</span><span><b>New Folder is gone</b> from the Compare action bar, and the pane link toggle is hidden in Tidy's single-source rail.</span></li>
         <li><span class="ic">◧</span><span>A <b>new flat two-pane app icon</b>, a rewritten README, and a visual GitHub Pages feature site.</span></li>
       </ul>
     </div>
@@ -186,7 +223,8 @@
         <li><span class="ic">🌘</span><span><b>Dark mode reworked</b> — a deeper base, accent glow, specular-edged cards, and a bolder translucent veil on Clear glass.</span></li>
         <li><span class="ic">◼︎</span><span><b>Graphite accent</b> — a new hue for a genuinely neutral, monochrome look.</span></li>
         <li><span class="ic">♿︎</span><span><b>Accessibility</b> — a caution tier in the semantic colour table, a shared 3:1 contrast floor, and VoiceOver-proof compact fallbacks.</span></li>
-        <li><span class="ic">⧉</span><span><b>Duplicates hardened again</b> — cross-folder version groups stop pooling unmarked originals, merges refuse to aim through keeper hard links, and phantom "Missing" rows no longer appear under unreadable folders.</span></li>
+        <li><span class="ic">↺</span><span><b>A failed replace can no longer lose your file</b> — the staged temp is preserved when the source can't be restored, and <b>Undo Last Run</b> is paired with its own run rather than a name on the stack.</span></li>
+        <li><span class="ic">⧉</span><span><b>Duplicates hardened again</b> — cross-folder version groups stop pooling unmarked originals, and merges refuse to aim through keeper hard links; v2.2’s unreadable-folder fix is widened to case- and near-name variants.</span></li>
       </ul>
     </div>
   </article>
@@ -209,6 +247,8 @@
         <li><span class="ic">✓</span><span>Unified badge pills, one lens-card surface, one semantic severity table, a shared close button and search field, real empty states, and a canonical type ramp.</span></li>
         <li><span class="ic">☀</span><span>Accent, on-accent, and treemap label colours are derived from <b>actual luminance</b>, so text stays legible on any hue.</span></li>
         <li><span class="ic">▤</span><span><b>Comfortable / compact list density</b> extended to the file panes, Activity Log, Sync History, lens cards, and the differences table.</span></li>
+        <li><span class="ic">⛃</span><span><b>Clear Filters</b>, <code>kind:</code> made last-wins, and a chip's ✕ now removing every occurrence of its word; Automations gained <b>Preview / Reveal</b> inspection.</span></li>
+        <li><span class="ic">🛡</span><span><b>Scans that tell the truth</b> — no phantom "Missing" rows when the scan root itself is unreadable, permission-denied directories treated as unexplored rather than empty, dataless oversize files classified cloud-only rather than "too large", and a merge refused when a source's mtime changed.</span></li>
       </ul>
     </div>
   </article>
@@ -219,7 +259,7 @@
     <p class="lede">Search that understands what you mean, and scans that tell the truth.</p>
     <div class="grp">
       <ul class="flist">
-        <li><span class="ic">🔎</span><span><b>Token search everywhere</b> — Compare, the Activity Log, and Tidy duplicates gained a chip-based search with removable tokens, suggestions, <code>kind:</code> filters, size tokens, and Clear Filters.</span></li>
+        <li><span class="ic">🔎</span><span><b>Token search everywhere</b> — Compare, the Activity Log, and Tidy duplicates gained a chip-based search with removable tokens, suggestions, <code>kind:</code> filters, and size tokens.</span></li>
         <li><span class="ic">⏱</span><span><b>"Scanned N ago" freshness pill</b> on the pane header, plus selection size on the action bar and a folder quick-jump menu.</span></li>
         <li><span class="ic">🖼</span><span><b>Content thumbnails</b> in duplicate cards, and <b>"Compare copies"</b> hands a group straight to the Compare tab.</span></li>
         <li><span class="ic">🛡</span><span><b>Safer grouping</b> — symlinks and cloud-only placeholders are no longer mistaken for duplicates, skipped-file counts are surfaced instead of going silently blind, and a redundant copy is re-verified right before a merge trashes it.</span></li>
@@ -241,6 +281,7 @@
         <li><span class="ic">⇎</span><span><b>Differences is now Compare</b>, with Details folded into a dedicated inspector; Get Info routes there and the pane is resizable.</span></li>
         <li><span class="ic">✎</span><span>The <b>Name Normalizer</b> returns as its own <b>Rename</b> sub-tab, and Organize's loose-files scan defaults to a configurable TODO inbox.</span></li>
         <li><span class="ic">▶</span><span>Previewed automations are <b>filed for real</b>, one file at a time, anchored at the provider root.</span></li>
+        <li><span class="ic">💡</span><span>After filing a loose file, SyncCloud <b>offers to learn an Automation rule</b> — and only asks when the file actually moved. The dead first click when selecting in a pane is fixed.</span></li>
       </ul>
     </div>
   </article>
@@ -255,6 +296,7 @@
         <li><span class="ic">↺</span><span><b>Sync History</b> — durable and exportable, with <b>run-level undo</b>; "Undo Last Run" is scoped to the actual run and spells out what it will reverse.</span></li>
         <li><span class="ic">✎</span><span><b>Name normalizer</b> as a batch lens, with per-row Quick Look and Show in Finder.</span></li>
         <li><span class="ic">⚙︎</span><span><b>Automations</b> arrive as a preview-only lens — rich rule cards, grouped results, per-rule preview, and a Browse button for the destination.</span></li>
+        <li><span class="ic">$</span><span><b>Cloud spend guardrails</b> — a pre-flight estimate before a scan, a monthly cap, and a lifetime cap defaulting to $5; plus a per-tab toggle to hide the top file panes.</span></li>
         <li><span class="ic">⚡</span><span>Activity Log gained "Show older history" paging, and re-verification is instant — SHA-256 cached by path + mtime + size.</span></li>
       </ul>
     </div>
@@ -283,7 +325,7 @@
         <li><span class="ic">✨</span><span><b>The Filing lens</b> suggests a destination for every loose file, backed by on-device content signals.</span></li>
         <li><span class="ic">⚘</span><span><b>Two engines</b> — on-device Apple LLM first, with an <b>opt-in cloud (Claude) classifier</b> for the hard cases.</span></li>
         <li><span class="ic">📌</span><span><b>Remembered rules</b> — corrections stick, with a legible, editable home in plain words; "Try another" re-suggests with rejection learning.</span></li>
-        <li><span class="ic">$</span><span><b>Cost is visible and capped</b> — per-scan cost cut ~10–50×, spend surfaced in the UI, plus pre-flight estimates and a monthly cap. Defaults to Haiku.</span></li>
+        <li><span class="ic">$</span><span><b>Cost is cut and visible</b> — per-scan cost reduced ~10–50×, with spend surfaced as last-scan, total, and history. Defaults to Haiku. A confidence meter and legend, Quick Look on Filing cards, and rescan-after-navigate.</span></li>
         <li><span class="ic">⚙︎</span><span><b>Settings ▸ Tidy</b> — a dedicated tab for Duplicates, Filing, and cloud spend, plus a header search across all tabs.</span></li>
       </ul>
     </div>
@@ -310,7 +352,7 @@
     <div class="grp">
       <ul class="flist">
         <li><span class="ic">👁</span><span><b>Inline guided review</b> for working through differences one at a time.</span></li>
-        <li><span class="ic">▬</span><span>The action bar moved into the <b>native window toolbar</b>; invisible dividers, per-pane hide toggle, and expanded Settings — conflict policy, startup restore, notifications, shortcuts.</span></li>
+        <li><span class="ic">▬</span><span>The action bar moved into the <b>native window toolbar</b>; invisible dividers, a per-pane hidden-files toggle, and expanded Settings — conflict policy, startup restore, notifications, shortcuts. A “None” accent for the stock-macOS look, Reveal in Finder and Quick Look on tree rows, and a CLI that validates roots and exits nonzero on failure.</span></li>
         <li><span class="ic">🛡</span><span><b>Safety, which is what makes this 1.0</b> — atomic destination replacement, replaced files kept recoverable, permanent deletes gated on Trash-less volumes, and orphaned <code>.tmp_</code> files swept.</span></li>
         <li><span class="ic">⚡</span><span><b>Scan is ~8× faster</b> on large directories.</span></li>
       </ul>

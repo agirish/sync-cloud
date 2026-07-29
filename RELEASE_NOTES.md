@@ -5,6 +5,47 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v2.6
+
+Comparisons you can fold up, and Settings you can read.
+
+### Differences
+- **Grouped into top-level folder sections**, so a long comparison reads as a
+  handful of folders instead of one flat wall of rows.
+- **Sections are selectable and collapsible**, with **Collapse All** promoted onto
+  the differences bar instead of hiding inside the filter menu.
+- Scan staleness moved off the whole count pill onto the age run, so only the part
+  that goes stale looks stale.
+
+### Settings
+- **Stood on a left rail**, so a tab is never cut in half again.
+- More air between sections, a looser vertical rhythm, and room for a provider path
+  to actually be read.
+
+### Appearance
+- A **Text size** setting.
+- The seam pill is quiet at rest, and the accent is reserved for meaning "linked".
+- On Clear glass the provider capsule gets a ground to sit on, and chrome ink is
+  brighter on a dark appearance.
+
+### Keychain
+- **Opening the Tidy tab no longer demands your Keychain password.**
+- The API key gains a **reveal**, and a replace that tells you it replaced.
+
+### Performance
+- SwiftUI no longer deep-compares 40,000 file nodes on the main thread — a folder
+  row's subtree is kept out of row comparison, `OutlineGroup` is no longer handed
+  the raw node graph, and the Details sidebar resolves its selection through an
+  index rather than walking the tree.
+
+### Fixes
+- Each destination is asked about **its own volume**, not the first one's.
+- Three states stopped lying: a clipped tab, a deleted key, and a stale scan.
+- The transfer buttons spell out **Copy**, and the link-panes toggle folds into the
+  swap chip's seam capsule.
+
+---
+
 ## v2.5
 
 A retuned palette and a hardening pass.
@@ -69,6 +110,8 @@ Compare actions, and a quieter Activity Log.
   instead of being cut off.
 - **The app accent carries through** the compare chrome and row selection, replacing
   the OS gray.
+- **New Folder is gone from the Compare action bar**, and the pane link toggle is
+  hidden in Tidy's single-source rail where it had nothing to link.
 - A **new flat two-pane app icon**, a rewritten README, and a visual GitHub Pages
   feature site.
 
@@ -84,8 +127,12 @@ Bold dark mode, and a true-neutral accent.
 - **Accessibility** — a caution tier in the semantic colour table, a shared 3:1
   contrast floor, and VoiceOver-proof compact fallbacks.
 - **Duplicates hardened again** — cross-folder version groups stop pooling unmarked
-  originals, merges refuse to aim through keeper hard links, and phantom "Missing"
-  rows no longer appear under unreadable folders.
+  originals, and merges refuse to aim through keeper hard links.
+- The unreadable-folder fix from v2.2 is **widened to case- and near-name variants**.
+- **A failed replace can no longer lose your file** — the staged temp is preserved
+  when the source can't be restored, with a recovery story that survives contact
+  with reality.
+- **Undo Last Run** is paired with its own run, not whatever name sits on the stack.
 
 ---
 
@@ -112,6 +159,19 @@ One design system, and a Theme to switch it with.
 - **Comfortable / compact list density** extended to the file panes, Activity Log,
   Sync History, lens cards, and the Compare differences table.
 
+### Search & automations
+- **Clear Filters**, `kind:` made last-wins, and kind classes shared with Compare.
+- A chip's ✕ now removes **every** occurrence of its word.
+- Automations gained **Preview / Reveal** inspection.
+
+### Scans that tell the truth
+- Phantom "Missing" rows no longer appear when the scan **root itself** is
+  unreadable, and permission-denied directories are treated as unexplored rather
+  than empty.
+- Dataless oversize files are classified as **cloud-only**, not "too large".
+- A merge is refused when a source file's modification time changed under it.
+- The CLI lists each name-skip's reason inline.
+
 ---
 
 ## v2.1
@@ -121,7 +181,7 @@ Search that understands what you mean, and scans that tell the truth.
 ### Search
 - **Token search everywhere** — Compare, the Activity Log, and Tidy duplicates all
   gained a chip-based search with removable tokens and suggestions, `kind:` filters,
-  size tokens, and a Clear Filters affordance.
+  and size tokens.
 
 ### Compare
 - **"Scanned N ago" freshness pill** on the pane header.
@@ -144,7 +204,7 @@ Search that understands what you mean, and scans that tell the truth.
 
 ### Automations
 - **One rule system** — remembered rules and automations unified, with every newly
-  learned rule surfaced for review and Preview/Reveal inspection.
+  learned rule surfaced for review.
 
 ### Safety
 - **Undo covers everything** — a full move / copy / delete undo-then-redo matrix,
@@ -175,7 +235,10 @@ tab-driven workspace.
   loose-files scan defaults to a configurable TODO inbox.
 - Previewed automations are **filed for real**, one file at a time, anchored at the
   provider root.
-- The comparison panes no longer re-walk their 40k-node trees on every selection.
+- After filing a loose file, SyncCloud **offers to learn an Automation rule** — and
+  only asks when the file actually moved.
+- The comparison panes no longer re-walk their 40k-node trees on every selection,
+  and the dead first click when selecting in a pane is fixed.
 
 ---
 
@@ -191,6 +254,9 @@ Three new Tidy lenses, plus a durable history you can undo from.
 - **Automations** arrive as a preview-only lens — rich rule cards, grouped results,
   per-rule preview, and a Browse button for the destination.
 - **Activity Log** gained on-demand "Show older history" paging.
+- **Cloud spend guardrails** — a pre-flight estimate before a scan, a monthly cap,
+  and a lifetime cap defaulting to $5.
+- A **per-tab toggle to hide the top file panes**.
 - Re-verification is instant: SHA-256 is cached by path + mtime + size.
 
 ---
@@ -219,8 +285,10 @@ AI-assisted filing — SyncCloud learns where your loose files belong.
   classifier** for the hard cases.
 - **Remembered rules** — corrections stick, with a legible, editable home in plain
   words; "Try another" re-suggests with rejection learning.
-- **Cost is visible and capped** — per-scan cost cut ~10–50×, spend surfaced in the
-  UI, plus pre-flight estimates and a monthly cap. Defaults to Haiku.
+- **Cost is cut and visible** — per-scan cost reduced ~10–50×, with spend surfaced
+  in the UI as last-scan, total, and history. Defaults to Haiku.
+- A **confidence meter and legend**, Quick Look on Filing cards, and a rescan after
+  you navigate somewhere else.
 - **Settings ▸ Tidy** — a dedicated tab for Duplicates, Filing, and cloud spend, plus
   a header search that filters across all tabs.
 
@@ -248,9 +316,13 @@ The first complete release: comparing and reconciling the folders you keep acros
 iCloud Drive, OneDrive, Dropbox, and Google Drive — a native macOS app plus a CLI.
 
 - **Inline guided review** for working through differences one at a time.
-- The action bar moved into the **native window toolbar**; invisible dividers,
-  per-pane hide toggle, expanded Settings (conflict policy, startup restore,
+- The action bar moved into the **native window toolbar**; invisible dividers, a
+  per-pane hidden-files toggle, expanded Settings (conflict policy, startup restore,
   notifications, shortcuts).
+- A **"None" accent** option, for the stock-macOS neutral look.
+- **Reveal in Finder** and Quick Look on tree rows.
+- **CLI** — `--strategy` defaults to replace, skips are explained, roots are
+  validated, and a failure exits nonzero.
 - **Safety, which is what makes this 1.0** — atomic destination replacement,
   replaced files kept recoverable, permanent deletes gated on Trash-less volumes,
   and orphaned `.tmp_` files swept.
