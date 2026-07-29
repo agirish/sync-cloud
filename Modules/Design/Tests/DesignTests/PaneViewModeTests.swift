@@ -39,6 +39,25 @@ import SwiftUI
         #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns)
     }
 
+    /// The Tidy rail stores separately from both comparison panes. It shares the LEFT pane's
+    /// underlying state (focus, selection, history, browse path), so reading its presentation from
+    /// the left key would be the easy mistake — and would mean choosing Tree for a comparison
+    /// silently un-stacked the rail, and vice versa.
+    @Test func testTheRailStoresApartFromBothPanes() {
+        #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: true))
+        #expect(PaneViewMode.railDefaultsKey != PaneViewMode.defaultsKey(isLeft: false))
+
+        let d = defaults()
+        d.set(PaneViewMode.tree.rawValue, forKey: PaneViewMode.railDefaultsKey)
+        #expect(PaneViewMode.stored(isLeft: true, in: d) == .columns, "the left pane is unaffected")
+        #expect(PaneViewMode.stored(isLeft: false, in: d) == .columns, "the right pane is unaffected")
+
+        // …and the reverse: a comparison pane's choice must not reach the rail's key.
+        let e = defaults()
+        e.set(PaneViewMode.tree.rawValue, forKey: PaneViewMode.defaultsKey(isLeft: true))
+        #expect(e.string(forKey: PaneViewMode.railDefaultsKey) == nil)
+    }
+
     // MARK: - Layout rules
 
     /// The clamp exists so a row never loses its difference badge; assert the boundary itself,

@@ -46,19 +46,33 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
 
     // MARK: - Storage
 
-    /// UserDefaults key for one pane's mode.
+    /// UserDefaults key for one comparison pane's mode.
     ///
     /// Per-pane by decision, so one side can be a deep tree while the other is flat — hence a key
     /// per side rather than one shared setting.
-    ///
-    /// Deliberately reachable only through this function. The Tidy single-source rail renders
-    /// through the same `FileTreeView` as the comparison panes, and it has no "other pane" to
-    /// compare against, no seam link, and its own re-rooting behaviour per lens; letting it inherit
-    /// a comparison pane's mode would put a column stack on a surface none of the Columns
-    /// navigation rules were designed for. The rail passes no side and stays on `.tree`.
     public static func defaultsKey(isLeft: Bool) -> String {
         isLeft ? "paneViewModeLeft" : "paneViewModeRight"
     }
+
+    /// UserDefaults key for the Tidy rail's mode.
+    ///
+    /// The rail renders through the same `FileTreeView` as the comparison panes but is a different
+    /// surface — narrow, single-source, re-rooted per lens — so it gets a key of its own rather
+    /// than inheriting the left pane's. Choosing Columns for a comparison must not silently
+    /// restack the rail, or the reverse.
+    ///
+    /// This used to say the rail could never draw columns at all, on the grounds that the Columns
+    /// navigation rules assumed a sibling pane. They do not, as it turns out: the mirror in
+    /// `applyColumnNavigation` is already gated on the compare layout, a lens change re-roots
+    /// through `focusOn` which resets the browse path, and a rail too narrow for two columns falls
+    /// into push navigation — the same path a squeezed comparison pane takes. What the rail lacked
+    /// was any way to open a folder with one click, which is exactly what Columns is for.
+    ///
+    /// The rail does share `leftBrowsePath` with the left comparison pane, because it shares that
+    /// pane's focus, selection and history too — entering Tidy already re-roots the left pane. A
+    /// column stack left in the rail therefore survives into Compare's left pane, showing the
+    /// folder you were last in. That is the same continuity the shared focus already provides.
+    public static let railDefaultsKey = "paneViewModeRail"
 
     /// Reads a pane's stored mode, falling back to the default for an absent or unrecognised value.
     public static func stored(isLeft: Bool, in defaults: UserDefaults = .standard) -> PaneViewMode {

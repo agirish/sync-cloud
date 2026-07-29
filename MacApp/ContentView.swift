@@ -200,9 +200,20 @@ struct ContentView: View {
     /// exactly as it did before the setting existed.
     @AppStorage(PaneViewMode.defaultsKey(isLeft: true)) private var leftViewModeRaw = PaneViewMode.default.rawValue
     @AppStorage(PaneViewMode.defaultsKey(isLeft: false)) private var rightViewModeRaw = PaneViewMode.default.rawValue
+    /// The Tidy rail's own presentation, on its own key so switching a comparison pane never
+    /// restacks the rail. Columns by default for the same reason the panes are: a resting Columns
+    /// pane is one full-width column listing exactly what the tree listed, so this changes what a
+    /// click *does* — one click opens a folder instead of needing the row menu's Open.
+    @AppStorage(PaneViewMode.railDefaultsKey) private var railViewModeRaw = PaneViewMode.default.rawValue
 
     func paneViewMode(isLeft: Bool) -> PaneViewMode {
         PaneViewMode(rawValue: isLeft ? leftViewModeRaw : rightViewModeRaw) ?? .default
+    }
+
+    /// The rail is a single source, so it takes no side — reading it through `paneViewMode(isLeft:)`
+    /// would hand it the left comparison pane's setting.
+    var railViewMode: PaneViewMode {
+        PaneViewMode(rawValue: railViewModeRaw) ?? .default
     }
 
     /// Applies a column drill, mirroring it onto the sibling pane when the panes are linked (or ⌥
@@ -256,6 +267,11 @@ struct ContentView: View {
             get: { paneViewMode(isLeft: isLeft) },
             set: { if isLeft { leftViewModeRaw = $0.rawValue } else { rightViewModeRaw = $0.rawValue } }
         )
+    }
+
+    /// Binding for the same switch on the Tidy rail, writing the rail's own key.
+    var railViewModeBinding: Binding<PaneViewMode> {
+        Binding(get: { railViewMode }, set: { railViewModeRaw = $0.rawValue })
     }
 
     /// Everything the tree diff indices are derived from, as one Equatable value
@@ -1217,8 +1233,8 @@ struct ContentView: View {
         let diffIndex: DiffStatusIndex
         let otherPaneName: String?
         let hasOnlyHiddenEntries: Bool
-        /// How this pane presents its tree. Only the comparison panes reach Columns; the Tidy rail
-        /// renders through the same view and deliberately stays on `.tree`.
+        /// How this pane presents its tree. Comparison panes and the Tidy rail all reach Columns,
+        /// each from its own stored key.
         let viewMode: PaneViewMode
         /// Path → children for the columns presentation, cached per publish by the manager. `nil`
         /// in Tree mode: building it walks the whole tree, and a pane that will never draw a column
@@ -1227,9 +1243,9 @@ struct ContentView: View {
     }
 
     private func paneContext(isLeft: Bool) -> PaneContext {
-        // The Tidy rail shares this builder but never Columns: it has no sibling pane, no seam
-        // link, and re-roots per lens, so none of the Columns navigation rules apply to it.
-        let mode: PaneViewMode = layoutMode == .singleSource ? .tree : paneViewMode(isLeft: isLeft)
+        // The rail reads its OWN key, not the left pane's — it is the same underlying pane state
+        // but a different surface, and a comparison choice must not restack it.
+        let mode: PaneViewMode = layoutMode == .singleSource ? railViewMode : paneViewMode(isLeft: isLeft)
         return PaneContext(
             isLeft: isLeft,
             title: isLeft ? "Left" : "Right",
@@ -1300,8 +1316,8 @@ struct ContentView: View {
                 onRefresh: { forceRefreshAction() },
                 isRefreshing: isScanning,
                 showHiddenFiles: $syncManager.showHiddenFiles,
-                // The Tidy rail gets no switch: it has no Columns mode to switch to.
-                viewMode: layoutMode == .singleSource ? nil : paneViewModeBinding(isLeft: isLeft),
+                // The rail gets the switch too, bound to its own key.
+                viewMode: layoutMode == .singleSource ? railViewModeBinding : paneViewModeBinding(isLeft: isLeft),
                 // Targets the pane's current folder, which in Columns is the deepest open column.
                 onNewFolder: {
                     let target = pane.viewMode == .columns
