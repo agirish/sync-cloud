@@ -743,6 +743,26 @@ struct FileContextMenu: View {
                 Divider()
             }
 
+            // The absolute destination verbs, in the slot the comparison transfers occupy on the
+            // two-pane menu. Single-source only, and deliberately: over there they would sit beside
+            // "Move to <other pane>" — two entries opening with the same two words, one of which
+            // asks a question and one of which does not. Here there is nothing to confuse them
+            // with, because the rail drops every comparison item (see below), which is also why it
+            // had no way to send a file anywhere at all before this.
+            if isSingleSource {
+                Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
+                    Label(count > 1 ? "Move \(count) items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
+                }
+                .keyboardShortcut("m", modifiers: [.control, .command])
+
+                Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
+                    Label(count > 1 ? "Copy \(count) items to…" : "Copy to…", systemImage: TransferGlyph.copy)
+                }
+                .keyboardShortcut("m", modifiers: [.option, .control, .command])
+
+                Divider()
+            }
+
             if !isSingleSource {
                 // Copy/Move to the other pane share the toolbar/header vocabulary (TransferGlyph).
                 // Copy is non-directional (the target pane is named in the label); Move points its

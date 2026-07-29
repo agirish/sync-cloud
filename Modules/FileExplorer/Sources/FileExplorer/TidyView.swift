@@ -175,29 +175,12 @@ public struct TidyView: View {
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
     @State private var pendingRememberPrompt: PendingRememberPrompt?
-    /// A destination question in flight: what is being filed, plus what filing it means.
-    ///
-    /// The action travels with the request rather than being switched on afterwards, so adding a
-    /// caller cannot forget to teach the sheet what its Move button does. `onOther` returns the
-    /// system panel's choice (nil when cancelled), which the host then commits exactly as it would
-    /// the picker's own — one path through the transfer, whichever surface chose the folder.
-    struct PendingDestination: Identifiable {
-        let id = UUID()
-        let request: DestinationRequest
-        let onCommit: (String) -> Void
-        let onOther: () -> String?
-    }
-
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
     @State private var pendingRuleOffer: RuleOffer?
     /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
     @State private var ruleConditionChoice: AutomationCondition?
-    /// The destination question currently on screen, if any. Carries its own commit action so one
-    /// sheet can serve every surface that needs a folder — a filing card's "Choose folder…", and
-    /// the rail's "Move to…".
-    @State private var pendingDestination: PendingDestination?
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
     /// review pass (Cancel keeps it as created; it stays editable under Automations). Also backs
     /// the header card's "New rule", so a blank rule and a taught one share one editor.
@@ -240,6 +223,10 @@ public struct TidyView: View {
     private let currentProviderId: String
     private let onSelectProvider: (String) -> Void
     private let onManageProviders: () -> Void
+    /// Raises the destination picker. Owned by the window rather than by this view: the Tidy rail
+    /// asks for the same sheet, and two states bound to two sheets would be two pickers to keep in
+    /// step. Defaults to a no-op so previews and tests can build a lens without a host.
+    private let onRequestDestination: (PendingDestination) -> Void
     /// Opens two copies of a duplicate folder group in the Compare tab (keeper left, redundant right).
     private let onCompareCopies: (DuplicateCopy, DuplicateCopy) -> Void
 
@@ -261,7 +248,8 @@ public struct TidyView: View {
         currentProviderId: String = "",
         onSelectProvider: @escaping (String) -> Void = { _ in },
         onManageProviders: @escaping () -> Void = {},
-        onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in }
+        onCompareCopies: @escaping (DuplicateCopy, DuplicateCopy) -> Void = { _, _ in },
+        onRequestDestination: @escaping (PendingDestination) -> Void = { _ in }
     ) {
         self.syncManager = syncManager
         self._lens = lens
@@ -281,6 +269,7 @@ public struct TidyView: View {
         self.onSelectProvider = onSelectProvider
         self.onManageProviders = onManageProviders
         self.onCompareCopies = onCompareCopies
+        self.onRequestDestination = onRequestDestination
     }
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
@@ -417,33 +406,6 @@ public struct TidyView: View {
             lensBody(rows: rows)
         }
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
-        // One picker, however it was reached: a card's "Choose folder…" today, the rail's
-        // "Move to…" next. The request describes the items; the commit closure knows what filing
-        // them means for the surface that asked.
-        .sheet(item: $pendingDestination) { pending in
-            DestinationPicker(
-                request: pending.request,
-                recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
-                showHidden: syncManager.showHiddenFiles,
-                onCommit: { destination in
-                    DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
-                    pending.onCommit(destination)
-                    pendingDestination = nil
-                },
-                onChooseOther: {
-                    pendingDestination = nil
-                    // Deferred a runloop turn: `onOther` runs a modal `NSOpenPanel`, and putting a
-                    // modal up while the sheet it was launched from is still tearing down is the
-                    // kind of overlap AppKit handles unpredictably. Let the sheet go first.
-                    DispatchQueue.main.async {
-                        guard let chosen = pending.onOther() else { return }
-                        DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
-                        pending.onCommit(chosen)
-                    }
-                },
-                onCancel: { pendingDestination = nil }
-            )
-        }
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
@@ -1467,7 +1429,7 @@ public struct TidyView: View {
     /// survives as `Other…`, for a destination genuinely outside it.
     private func chooseFolder(for suggestion: FilingSuggestion) {
         let root = automationDestinationRoot ?? suggestion.providerRoot ?? ""
-        pendingDestination = PendingDestination(
+        onRequestDestination(PendingDestination(
             request: DestinationRequest(
                 sourcePaths: [suggestion.filePath],
                 firstItemName: suggestion.fileName,
@@ -1480,7 +1442,7 @@ public struct TidyView: View {
             ),
             onCommit: { destination in file(suggestion, into: destination) },
             onOther: { Self.runSystemFolderPanel(for: suggestion.fileName, startingAt: syncManager.filingScanFolder) }
-        )
+        ))
     }
 
     /// Files `suggestion` into `destination`, and — when this overrode the suggested home and the

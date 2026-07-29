@@ -216,6 +216,60 @@ struct ContentView: View {
         PaneViewMode(rawValue: railViewModeRaw) ?? .default
     }
 
+    /// The destination question on screen, if any. Held here because both surfaces that raise it —
+    /// the Tidy rail's row menu and an Organize card's "Choose folder…" — are children of this view.
+    @State var pendingDestination: PendingDestination?
+
+    /// Raises the picker for a rail selection, and runs the transfer into whatever it returns.
+    ///
+    /// Routes through `moveItems(_:toPath:)` / `pasteItems(_:toPath:isCut:)` — the same explicit
+    /// destination entry points drag-and-drop already uses — rather than the cross-pane transfer,
+    /// which derives its own destination and would ignore the folder just chosen. That distinction
+    /// is the entire point of this verb.
+    func requestDestination(for nodes: [FileNode], isMove: Bool) {
+        guard let first = nodes.first else { return }
+        let root = tidyProviderRootExpanded
+        pendingDestination = PendingDestination(
+            request: DestinationRequest(
+                sourcePaths: nodes.map(\.id),
+                firstItemName: first.name,
+                isMove: isMove,
+                providerRoot: root,
+                providerName: tidyProviderName ?? "this provider",
+                // The selection's own parent, NOT the rail's current directory. In Columns,
+                // clicking a folder drills into it, so the rail's current directory IS the folder
+                // being moved — opening there would land the picker inside the selection and greet
+                // it with the nesting refusal. The parent is where the item lives, is never inside
+                // the selection, and is one click from anywhere else.
+                openAt: (first.id as NSString).deletingLastPathComponent
+            ),
+            onCommit: { destination in
+                if isMove {
+                    actionHandler?.moveItems(nodes, toPath: destination)
+                } else {
+                    actionHandler?.pasteItems(nodes, toPath: destination, isCut: false)
+                }
+            },
+            onOther: { ContentView.runDestinationPanel(for: first.name, itemCount: nodes.count, startingAt: root) }
+        )
+    }
+
+    /// The system folder panel behind the picker's `Other…`, for a destination outside the
+    /// provider. Returns nil when cancelled.
+    static func runDestinationPanel(for firstItemName: String, itemCount: Int, startingAt folder: String?) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = itemCount == 1
+            ? "Choose a folder for “\(firstItemName)”"
+            : "Choose a folder for \(itemCount) items"
+        if let folder, !folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: folder) }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path
+    }
+
     /// Applies a column drill, mirroring it onto the sibling pane when the panes are linked (or ⌥
     /// is held) — the same rule the breadcrumb and the tree's drill-in already follow, so all three
     /// ways of walking into a folder move the panes together or not together as one setting says.
@@ -374,6 +428,33 @@ struct ContentView: View {
             if isOpen { showHelp = false }
         }
         .quickLookPreview($quickLookURL)
+        // One destination picker for the window. The Tidy rail and the Organize workspace are
+        // siblings and both raise it, so the state lives at their common host rather than in
+        // either — two sheets bound to two states would be two pickers to keep in step.
+        .sheet(item: $pendingDestination) { pending in
+            DestinationPicker(
+                request: pending.request,
+                recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
+                showHidden: syncManager.showHiddenFiles,
+                onCommit: { destination in
+                    DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
+                    pending.onCommit(destination)
+                    pendingDestination = nil
+                },
+                onChooseOther: {
+                    pendingDestination = nil
+                    // Deferred a runloop turn: `onOther` runs a modal NSOpenPanel, and raising a
+                    // modal while the sheet that launched it is still tearing down is the kind of
+                    // overlap AppKit handles unpredictably. Let the sheet go first.
+                    DispatchQueue.main.async {
+                        guard let chosen = pending.onOther() else { return }
+                        DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
+                        pending.onCommit(chosen)
+                    }
+                },
+                onCancel: { pendingDestination = nil }
+            )
+        }
         // The theme is the one Appearance control no view can render on its own: it lives on
         // NSApp, so that the AppKit surfaces (the NSAlert prompts, NSOpenPanel, the About panel,
         // and the separate Activity Log / Sync History windows) follow it too. Applied from the
@@ -1597,7 +1678,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
@@ -1756,7 +1837,8 @@ struct ContentView: View {
                 currentProviderId: leftProviderId,
                 onSelectProvider: { leftProviderId = $0 },
                 onManageProviders: openProviderSettings,
-                onCompareCopies: reviewCoordinator.compareCopies
+                onCompareCopies: reviewCoordinator.compareCopies,
+                onRequestDestination: { pendingDestination = $0 }
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in

@@ -20,6 +20,9 @@ struct PaneActionDelegate: FileActionDelegate {
     let forceRefreshAction: () -> Void
     /// Shows the in-app Info inspector for a path (replaces Finder's Get Info from the pane menu).
     let onGetInfo: (String) -> Void
+    /// Raises the window's destination picker. Only the single-source rail offers the menu item
+    /// that reaches this, so the comparison panes pass a no-op.
+    let onChooseDestination: ([FileNode], Bool) -> Void
 
     func handleRefresh() {
         forceRefreshAction()
@@ -32,6 +35,7 @@ struct PaneActionDelegate: FileActionDelegate {
         }
     }
     func handleDelete(_ nodes: [FileNode]) { handler?.confirmDelete(nodes) }
+    func handleChooseDestination(_ nodes: [FileNode], isMove: Bool) { onChooseDestination(nodes, isMove) }
     func handleCopyToClipboard(_ nodes: [FileNode], isCut: Bool) { 
         handler?.handleCopyToClipboard(nodes, isCut: isCut)
     }

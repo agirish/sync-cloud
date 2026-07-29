@@ -30,6 +30,30 @@ public struct DestinationRequest: Equatable, Sendable {
     }
 }
 
+/// A destination question in flight: what is being filed, plus what filing it means.
+///
+/// The action travels with the request rather than being switched on afterwards, so adding a caller
+/// cannot forget to teach the sheet what its Move button does. `onOther` returns the system panel's
+/// choice (nil when cancelled), which the host commits exactly as it would the picker's own — one
+/// path through the transfer, whichever surface chose the folder.
+///
+/// Held by the window rather than by either surface that raises it: the Tidy rail and the Organize
+/// workspace are siblings, and two sheets bound to two states would be two pickers to keep in step.
+public struct PendingDestination: Identifiable {
+    public let id = UUID()
+    public let request: DestinationRequest
+    public let onCommit: (String) -> Void
+    public let onOther: () -> String?
+
+    public init(request: DestinationRequest,
+                onCommit: @escaping (String) -> Void,
+                onOther: @escaping () -> String?) {
+        self.request = request
+        self.onCommit = onCommit
+        self.onOther = onOther
+    }
+}
+
 /// Choose a folder to move or copy items into.
 ///
 /// The absolute half of the app's two destination verbs. Compare's cross-pane transfer is
