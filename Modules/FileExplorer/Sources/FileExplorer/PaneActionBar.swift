@@ -38,6 +38,11 @@ public struct PaneActionBar: View {
     public let moveTitle: String
     public let copySymbol: String
     public let moveSymbol: String
+    /// What the transfer actually does with the destination, which the title cannot say: it names
+    /// a whole side ("iCloud (right)"), true of every folder over there, while the operation puts
+    /// each item at its own matching path. Nothing else on screen states that rule. Optional so a
+    /// caller with no sibling pane to describe simply omits it.
+    public let transferHelp: String?
 
     public let onCompare: () -> Void
     public let onCopy: () -> Void
@@ -56,7 +61,7 @@ public struct PaneActionBar: View {
     static let summaryWidthReference = "888 selected · 888.8 MB"
 
     public init(summaryText: String, showsCompare: Bool, copyTitle: String, moveTitle: String,
-                copySymbol: String, moveSymbol: String,
+                copySymbol: String, moveSymbol: String, transferHelp: String? = nil,
                 onCompare: @escaping () -> Void, onCopy: @escaping () -> Void,
                 onMove: @escaping () -> Void, onDelete: @escaping () -> Void,
                 onClear: @escaping () -> Void) {
@@ -66,6 +71,7 @@ public struct PaneActionBar: View {
         self.moveTitle = moveTitle
         self.copySymbol = copySymbol
         self.moveSymbol = moveSymbol
+        self.transferHelp = transferHelp
         self.onCompare = onCompare
         self.onCopy = onCopy
         self.onMove = onMove
@@ -109,8 +115,8 @@ public struct PaneActionBar: View {
             if showsCompare {
                 actionBarButton("Compare", systemImage: PaneGlyph.compare, accent: accent, action: onCompare)
             }
-            actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, action: onCopy)
-            actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, action: onMove)
+            actionBarButton(copyTitle, systemImage: copySymbol, accent: accent, help: transferHelp, action: onCopy)
+            actionBarButton(moveTitle, systemImage: moveSymbol, accent: accent, help: transferHelp, action: onMove)
 
             // New Folder is intentionally omitted here to keep the bar compact — it lives in the
             // pane's nav cluster and its right-click menu.
@@ -157,7 +163,7 @@ public struct PaneActionBar: View {
     /// The destructive red needs no deepening — it already carries white — but goes through the
     /// same call so there is one rule here instead of a special case.
     private func actionBarButton(_ title: String, systemImage: String, accent: Color,
-                                 role: ButtonRole? = nil,
+                                 role: ButtonRole? = nil, help: String? = nil,
                                  action: @escaping () -> Void) -> some View {
         let isDestructive = role == .destructive
         return Button(role: role, action: action) {
@@ -166,5 +172,27 @@ public struct PaneActionBar: View {
         .buttonStyle(.actionBar(.primary,
                                 tint: AccentFill.deepened(isDestructive ? .red : accent),
                                 onTint: isDestructive ? .onFillLabel(.red) : glassHue.onAccentLabelColor))
+        // `.help` takes a non-optional, and `.help("")` renders an empty tooltip box rather than
+        // none, so the presence check has to happen somewhere.
+        .modifier(OptionalHelp(text: help))
+    }
+}
+
+/// Applies `.help` only when a string is present.
+///
+/// This still branches, so the two arms are two structural identities — kept out of
+/// `actionBarButton`'s builder only so the button's own chain reads as one expression. Safe here
+/// because the buttons hold no state to lose, and because `transferHelp` changes only when the
+/// active pane does, which already rebuilds the bar. Do not reach for this pattern around
+/// anything stateful.
+private struct OptionalHelp: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text {
+            content.help(text)
+        } else {
+            content
+        }
     }
 }

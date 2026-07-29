@@ -72,6 +72,13 @@ extension ContentView {
             moveTitle: copyTarget.map { "Move to \($0)" } ?? "Move",
             copySymbol: actionSymbols.copy,
             moveSymbol: actionSymbols.move,
+            // The titles name a side, which is true of every folder over there. The rule that
+            // decides WHICH folder — each item's own path, re-rooted — appears nowhere else in
+            // the window, and not knowing it is what makes a transfer into an already-matching
+            // location look like a dead click.
+            transferHelp: copyTarget.map {
+                "Puts each item where its counterpart belongs in \($0), creating folders as needed"
+            },
             onCompare: {
                 guard let folder = selectionNodes.first else { return }
                 actionHandler?.focusFolder(folder, isLeft: isLeft,

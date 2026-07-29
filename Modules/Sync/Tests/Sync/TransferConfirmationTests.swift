@@ -774,4 +774,185 @@ import Foundation
         #expect(containers.from == "/left/root/deep")
         #expect(containers.to == "/right/root/deep")
     }
+
+    // MARK: - The prompt names the landing folder, not the destination root
+
+    /// A cross-pane transfer of a NESTED item must name the folder it lands in. The summary used
+    /// to carry the destination root, so copying `Reports/2025/Q3.xlsx` told the user `To: /dst`
+    /// while the file went to `/dst/Reports/2025` — wrong for every item below the root, which is
+    /// most of them.
+    @MainActor
+    @Test func testCrossPaneSummaryNamesTheDerivedTargetDirectory() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src/Reports/2025"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/Reports/2025/Q3.xlsx"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/Reports/2025/Q3.xlsx", name: "Q3.xlsx", isDirectory: false)],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(summary?.sourceDirectory == "/src/Reports/2025")
+        #expect(summary?.destinationDirectory == "/dst/Reports/2025")
+        // The landing path itself is unchanged by the wording fix — that is the whole point.
+        #expect(mockFM.virtualDisk["/dst/Reports/2025/Q3.xlsx"] != nil)
+    }
+
+    /// An item at the pane root still names the root, so the shallow case reads exactly as before.
+    @MainActor
+    @Test func testCrossPaneSummaryAtRootStillNamesTheRoot() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(summary?.destinationDirectory == "/dst")
+    }
+
+    /// The drop and paste routes derive `<dir>/<name>`, whose parent IS the directory they were
+    /// handed — so this fix must leave them reporting exactly what they reported before.
+    @MainActor
+    @Test func testToPathSummaryStillNamesTheGivenDirectory() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        var summary: TransferSummary?
+        manager.transferConfirmer = { s in
+            summary = s
+            return true
+        }
+
+        await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(summary?.destinationDirectory == "/dst")
+    }
+
+    // MARK: - A batch that moves nothing says so
+
+    /// Both panes on one provider at the same relative path: every derived target equals its
+    /// source, every item is skipped, and the window used to say nothing at all — no banner, no
+    /// alert, one debug line. Confirming the prompt and seeing no change was indistinguishable
+    /// from a dropped click, which is exactly how this was reported.
+    @MainActor
+    @Test func testMoveWhereEveryItemIsAlreadyThereReportsIt() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        manager.transferConfirmer = { _ in true }
+
+        let moved = await manager.moveItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/src",
+            fileManager: mockFM
+        )
+
+        #expect(moved.isEmpty)
+        #expect(manager.currentError == nil)
+        let banner = try #require(manager.banner)
+        #expect(banner.severity == .warning)
+        #expect(banner.message.contains("a.txt"))
+        #expect(banner.message.contains("already in"))
+        #expect(banner.message.contains("src"))
+    }
+
+    /// Plural wording, and the count comes from the pruned selection.
+    @MainActor
+    @Test func testMultipleItemsAlreadyThereReportsTheCount() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        manager.transferConfirmer = { _ in true }
+
+        await manager.moveItems(
+            nodes: [
+                FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false),
+                FileNode(id: "/src/b.txt", name: "b.txt", isDirectory: false),
+            ],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/src",
+            fileManager: mockFM
+        )
+
+        let banner = try #require(manager.banner)
+        #expect(banner.severity == .warning)
+        #expect(banner.message.contains("All 2 items"))
+    }
+
+    /// Skipping at a COLLISION prompt also transfers nothing, but that is a choice the user just
+    /// made and needs no restatement. Without this the new banner would fire on every declined
+    /// overwrite — a nag on the app's most common prompt.
+    @MainActor
+    @Test func testCollisionSkipDoesNotReportNothingToMove() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        mockFM.virtualDisk["/dst/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.transferConfirmer = { _ in true }
+        manager.collisionResolver = { _ in .skip }
+
+        let moved = await manager.moveItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(moved.isEmpty)
+        #expect(manager.banner == nil)
+    }
+
+    /// A move that actually happened must NOT raise the "already there" warning. The success
+    /// banner belongs to `FileActionHandler` (which skips it on an empty result, so the warning
+    /// set here survives) — the invariant this layer owns is that a real transfer stays quiet.
+    @MainActor
+    @Test func testARealMoveDoesNotReportNothingToMove() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        manager.transferConfirmer = { _ in true }
+
+        let moved = await manager.moveItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            fromLeft: true, leftRoot: "/src", rightRoot: "/dst",
+            fileManager: mockFM
+        )
+
+        #expect(moved.count == 1)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(manager.banner == nil)
+    }
+
+    /// A batch mixing one already-placed item with one that genuinely moves stays quiet: the
+    /// warning is for a batch that did nothing at all, not for any batch containing a skip.
+    ///
+    /// Uses the `toPath:` route deliberately — with a single pair of pane roots every item's
+    /// target is derived the same way, so a cross-pane batch either skips wholly or not at all.
+    /// An explicit destination is the only route that can produce a genuine partial.
+    @MainActor
+    @Test func testPartiallyAlreadyThereDoesNotReportNothingToMove() async throws {
+        let (manager, mockFM) = try makeTransferFixture()
+        mockFM.virtualDisk["/dst/settled.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+        manager.transferConfirmer = { _ in true }
+
+        let moved = await manager.moveItems(
+            nodes: [
+                FileNode(id: "/dst/settled.txt", name: "settled.txt", isDirectory: false),
+                FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false),
+            ],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+
+        // settled.txt is already at its target and skips; a.txt genuinely moves.
+        #expect(moved.count == 1)
+        #expect(mockFM.virtualDisk["/dst/a.txt"] != nil)
+        #expect(manager.banner == nil)
+    }
 }

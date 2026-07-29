@@ -89,7 +89,10 @@ public struct TransferSummary: Sendable {
     /// Absolute path of the folder the items come from (the first item's parent for
     /// mixed-folder selections — representative, not exhaustive).
     public let sourceDirectory: String
-    /// Absolute path of the folder the items land in.
+    /// Absolute path of the folder the items land in (the first item's derived target parent for
+    /// mixed-folder selections — representative, not exhaustive, exactly like `sourceDirectory`).
+    /// Deliberately NOT the destination root: a cross-pane transfer re-roots each item's relative
+    /// path, so the root is shallower than the folder anything nested actually lands in.
     public let destinationDirectory: String
 
     public init(isMove: Bool, itemCount: Int, firstItemName: String, sourceDirectory: String, destinationDirectory: String) {

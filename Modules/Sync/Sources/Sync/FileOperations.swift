@@ -155,12 +155,26 @@ extension FileSyncManager {
         // enqueue guard below turns it into the destinationRootUnavailable error directly.
         // (The on-disk existence stat deliberately stays on the operation queue.)
         if let first = prunedNodes.first, !destinationRootPath.isEmpty {
+            // Name the folder the item actually LANDS in, not the destination root. The
+            // cross-pane derivation re-roots each item's relative path under the far root and
+            // `ensureParentDirectoryExists` builds the intermediate folders, so for anything
+            // inside a subfolder the root is two or more levels shallow — the prompt read
+            // `To: ~/Dropbox` for a file bound for `~/Dropbox/Reports/2025`. The drop and paste
+            // routes derive `<dir>/<name>`, whose parent IS the root, so they are unaffected.
+            //
+            // Representative of the FIRST item, exactly like `sourceDirectory` beside it: a
+            // mixed-folder selection genuinely lands in several folders and no single line can
+            // say so. A derivation that throws (item outside the source root) falls back to the
+            // root — the enqueue below turns that same condition into a proper error, and the
+            // prompt must not be what reports it.
+            let firstTargetDirectory = (try? deriveTargetURL(first))
+                .map { $0.deletingLastPathComponent().path } ?? destinationRootPath
             let confirmed = transferConfirmer(TransferSummary(
                 isMove: isMove,
                 itemCount: prunedNodes.count,
                 firstItemName: first.name,
                 sourceDirectory: URL(fileURLWithPath: first.id).deletingLastPathComponent().path,
-                destinationDirectory: destinationRootPath
+                destinationDirectory: firstTargetDirectory
             ))
             guard confirmed else {
                 // The breadcrumb matters: callers log "User initiating move…" before this
@@ -177,12 +191,12 @@ extension FileSyncManager {
             progress.isCancellable = true
         }
 
-        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)]) in
-            guard self != nil else { return ([], []) }
+        let result = await enqueueFileOperation(alreadyCounted: true) { [weak self, progress] () -> (errors: [Error], transferred: [(from: URL, to: URL, overwritten: URL?)], alreadyThere: Int) in
+            guard self != nil else { return ([], [], 0) }
             // One stat, before any I/O: a missing destination root fails the whole operation
             // rather than being recreated by the per-item intermediate-directory pass below.
             guard !destinationRootPath.isEmpty, fm.fileExists(atPath: destinationRootPath) else {
-                return ([FileOperationError.destinationRootUnavailable], [])
+                return ([FileOperationError.destinationRootUnavailable], [], 0)
             }
             // Publish progress only once this operation actually starts; setting it at enqueue
             // time would clobber the progress of an operation still running ahead in the queue.
@@ -191,6 +205,10 @@ extension FileSyncManager {
             }
             var taskErrors: [Error] = []
             var targetItems: [(from: URL, to: URL, overwritten: URL?)] = []
+            // Items skipped because the move's target WAS its source. Counted rather than
+            // re-derived afterwards: the loop's target can be rewritten by the provider-name
+            // check, so only the loop knows which comparison actually decided the skip.
+            var alreadyThere = 0
 
             for (index, node) in prunedNodes.enumerated() {
                 if progress?.isCancelled == true { break }
@@ -227,6 +245,7 @@ extension FileSyncManager {
                     if isMove {
                         // A skipped item still counts as completed (like syncAll's skip
                         // accounting): a trailing skip must not strand the bar below 100%.
+                        alreadyThere += 1
                         _ = await MainActor.run {
                             Logger.shared.debug("Skipping move of \"\(node.name)\": source and destination are the same location.")
                             progress?.completedUnitCount = Int64(index + 1)
@@ -271,7 +290,7 @@ extension FileSyncManager {
                     progress?.completedUnitCount = Int64(index + 1)
                 }
             }
-            return (taskErrors, targetItems)
+            return (taskErrors, targetItems, alreadyThere)
         }
 
         let transferred = result.transferred
@@ -316,6 +335,27 @@ extension FileSyncManager {
                 Logger.shared.info("\(verb) \(transferredNodes.count) item(s) \(destinationDescription)")
             } else {
                 Logger.shared.info("\(verb) \(transferredNodes.count) of \(prunedNodes.count) item(s) \(destinationDescription)")
+            }
+            // Nothing moved, nothing failed, and every item was skipped for already sitting at
+            // its target. The operation genuinely did nothing and said so NOWHERE — no banner,
+            // no alert, one debug line — so confirming the prompt and watching the window not
+            // change was indistinguishable from a dropped click. That is the exact shape of the
+            // report that started this: both panes on one provider at the same relative path, so
+            // every derived target equalled its source.
+            //
+            // Deliberately scoped to this one cause. A collision Skip or a cancelled progress bar
+            // also transfers nothing, but both are choices the user made a moment ago and neither
+            // needs restating.
+            if transferred.isEmpty, result.alreadyThere == prunedNodes.count, let first = prunedNodes.first {
+                // The parent's own name, falling back to its full path: `lastPathComponent` of
+                // "/" is "/", and of "" is "" — either would leave the sentence dangling for an
+                // item sitting directly on a root-mounted provider.
+                let parent = (first.id as NSString).deletingLastPathComponent
+                let leaf = (parent as NSString).lastPathComponent
+                let folder = (leaf.isEmpty || leaf == "/") ? parent : leaf
+                banner = .warning(prunedNodes.count == 1
+                    ? "“\(first.name)” is already in \(folder)"
+                    : "All \(prunedNodes.count) items are already in \(folder)")
             }
         }
 
