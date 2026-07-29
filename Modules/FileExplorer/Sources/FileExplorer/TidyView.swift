@@ -175,12 +175,29 @@ public struct TidyView: View {
     /// other than the suggested home — the highest-value learning moment. Held (inline prompt shown)
     /// until they Remember it or dismiss it. Cleared when a new scan starts.
     @State private var pendingRememberPrompt: PendingRememberPrompt?
+    /// A destination question in flight: what is being filed, plus what filing it means.
+    ///
+    /// The action travels with the request rather than being switched on afterwards, so adding a
+    /// caller cannot forget to teach the sheet what its Move button does. `onOther` returns the
+    /// system panel's choice (nil when cancelled), which the host then commits exactly as it would
+    /// the picker's own — one path through the transfer, whichever surface chose the folder.
+    struct PendingDestination: Identifiable {
+        let id = UUID()
+        let request: DestinationRequest
+        let onCommit: (String) -> Void
+        let onOther: () -> String?
+    }
+
     /// A learn-by-example rule offered after the user files a loose file — turned into an editable
     /// Automation on Save. Deterministic complement to the AI backend. Held (inline prompt shown)
     /// until saved or dismissed; cleared when a new scan starts.
     @State private var pendingRuleOffer: RuleOffer?
     /// Which of the offered conditions (name / content / kind) the user has selected in the prompt.
     @State private var ruleConditionChoice: AutomationCondition?
+    /// The destination question currently on screen, if any. Carries its own commit action so one
+    /// sheet can serve every surface that needs a folder — a filing card's "Choose folder…", and
+    /// the rail's "Move to…".
+    @State private var pendingDestination: PendingDestination?
     /// The just-created rule ("Remember" or "Save rule"), opened in the editor right away for a
     /// review pass (Cancel keeps it as created; it stays editable under Automations). Also backs
     /// the header card's "New rule", so a blank rule and a taught one share one editor.
@@ -400,6 +417,33 @@ public struct TidyView: View {
             lensBody(rows: rows)
         }
         .sheet(isPresented: $showSpendHistory) { FilingSpendHistoryView() }
+        // One picker, however it was reached: a card's "Choose folder…" today, the rail's
+        // "Move to…" next. The request describes the items; the commit closure knows what filing
+        // them means for the surface that asked.
+        .sheet(item: $pendingDestination) { pending in
+            DestinationPicker(
+                request: pending.request,
+                recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
+                showHidden: syncManager.showHiddenFiles,
+                onCommit: { destination in
+                    DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
+                    pending.onCommit(destination)
+                    pendingDestination = nil
+                },
+                onChooseOther: {
+                    pendingDestination = nil
+                    // Deferred a runloop turn: `onOther` runs a modal `NSOpenPanel`, and putting a
+                    // modal up while the sheet it was launched from is still tearing down is the
+                    // kind of overlap AppKit handles unpredictably. Let the sheet go first.
+                    DispatchQueue.main.async {
+                        guard let chosen = pending.onOther() else { return }
+                        DestinationRecents.record(chosen, providerRoot: pending.request.providerRoot)
+                        pending.onCommit(chosen)
+                    }
+                },
+                onCancel: { pendingDestination = nil }
+            )
+        }
         // Review-after-create: the rule just learned from "Remember" (or saved from "Save rule")
         // opens in its editor so it can be checked and adjusted immediately. Cancel keeps the rule
         // exactly as created — the review is an offer, not a gate.
@@ -1415,24 +1459,40 @@ public struct TidyView: View {
         return (folder as NSString).lastPathComponent
     }
 
+    /// Asks where this suggestion should go, then files it there.
+    ///
+    /// The question used to be an `NSOpenPanel`, which knows nothing about the provider, nothing
+    /// about where you last filed, and opens on the scan folder — the one folder the file is
+    /// certainly leaving. The picker browses the provider the rail is already showing. The panel
+    /// survives as `Other…`, for a destination genuinely outside it.
     private func chooseFolder(for suggestion: FilingSuggestion) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "File Here"
-        panel.message = "Choose a folder for “\(suggestion.fileName)”"
-        if let scanFolder = syncManager.filingScanFolder {
-            panel.directoryURL = URL(fileURLWithPath: scanFolder)
-        }
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let dest = FilingDestination(path: url.path, confidence: .high, reasons: ["You chose this folder"], newSegments: [])
+        let root = automationDestinationRoot ?? suggestion.providerRoot ?? ""
+        pendingDestination = PendingDestination(
+            request: DestinationRequest(
+                sourcePaths: [suggestion.filePath],
+                firstItemName: suggestion.fileName,
+                isMove: true,
+                providerRoot: root,
+                providerName: providerName ?? "this provider",
+                // Opens where the rail is looking, not at the root — the folder you were just in is
+                // the best guess available, and it is one click from the root either way.
+                openAt: syncManager.filingScanFolder ?? root
+            ),
+            onCommit: { destination in file(suggestion, into: destination) },
+            onOther: { Self.runSystemFolderPanel(for: suggestion.fileName, startingAt: syncManager.filingScanFolder) }
+        )
+    }
+
+    /// Files `suggestion` into `destination`, and — when this overrode the suggested home and the
+    /// filename has something distinctive to key on — offers to remember it (G2).
+    ///
+    /// Shared by the picker and the system panel so one path reaches the transfer no matter which
+    /// surface answered the question.
+    private func file(_ suggestion: FilingSuggestion, into destination: String) {
+        let dest = FilingDestination(path: destination, confidence: .high,
+                                     reasons: ["You chose this folder"], newSegments: [])
         filedThisSession = true
-        // File immediately (no friction), then — if this was an *override* of the suggested home and
-        // the filename has something distinctive to key on — offer to remember it inline (G2). This
-        // replaces F3's easy-to-miss NSOpenPanel "Remember" checkbox with a visible one-tap prompt,
-        // so we no longer pass `remember:` here.
-        let teachable = FilingOverride.isOverride(suggestion, chosenPath: url.path)
+        let teachable = FilingOverride.isOverride(suggestion, chosenPath: destination)
             && FilingEngine.canRemember(fileName: suggestion.fileName)
         Task {
             // Only prompt to remember an override when the file actually MOVED — no point learning a
@@ -1440,9 +1500,23 @@ public struct TidyView: View {
             if await syncManager.applyFilingSuggestion(suggestion, to: dest) == .moved, teachable {
                 pendingRuleOffer = nil   // a stale offer would otherwise hide the fresh teach prompt
                 pendingRememberPrompt = PendingRememberPrompt(fileName: suggestion.fileName,
-                                                              destinationPath: url.path)
+                                                              destinationPath: destination)
             }
         }
+    }
+
+    /// The escape hatch the picker's `Other…` opens: the system folder panel, for a destination
+    /// outside the provider. Returns nil when cancelled.
+    private static func runSystemFolderPanel(for fileName: String, startingAt folder: String?) -> String? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "File Here"
+        panel.message = "Choose a folder for “\(fileName)”"
+        if let folder { panel.directoryURL = URL(fileURLWithPath: folder) }
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url.path
     }
 
     /// Files `batch` — the exact array `fileAllButton` counted. Never re-derived from

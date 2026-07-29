@@ -183,7 +183,11 @@ public struct PaneBrowsePath: Equatable, Sendable {
 
     /// Root with trailing slashes stripped, so joining with "/" never doubles a separator (a root
     /// of "/" becomes "" and joins back to "/<component>").
-    static func normalized(_ path: String) -> String {
+    ///
+    /// Public because everything that compares or joins absolute paths has to agree on this, and a
+    /// second copy in another module is how "/root" and "/root/" become two different folders.
+    /// `DestinationBrowser` and the destination picker both key on it.
+    public static func normalized(_ path: String) -> String {
         var root = path
         while root.hasSuffix("/") { root.removeLast() }
         return root
