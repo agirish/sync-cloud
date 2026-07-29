@@ -76,8 +76,29 @@ public struct DestinationPicker: View {
     let onCancel: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    // The whole Appearance model, read the same way every other surface reads it, so the picker
+    // follows Clear / Frosted / Solid, the hue, and the tint slider without a second opinion.
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
+    @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
+    private var accent: Color { glassHue.accentColor }
+    /// Floored like every other chrome surface: the sheet sits over live app content, and a truly
+    /// clear one would leave its own text competing with the panes behind it.
+    private var glassLevel: GlassLevel {
+        (GlassLevel(rawValue: glassLevelRaw) ?? .frosted).flooredForChrome
+    }
+
+    /// The size the sheet opens at, remembered between uses. Folder names run long and trees run
+    /// deep; a picker that reset to one shape every time would be re-dragged every time.
+    @AppStorage("destinationPickerWidth") private var storedWidth: Double = 640
+    @AppStorage("destinationPickerHeight") private var storedHeight: Double = 520
+    /// The live size, tracked in a reference box rather than `@State`.
+    ///
+    /// Writing a geometry reading back into view state is the layout loop this project has already
+    /// paid for once. The box takes the value without invalidating anything, and `onDisappear`
+    /// persists it — by which point no layout depends on the write.
+    @State private var liveSize = SizeBox()
 
     /// Where the columns are, relative to the provider root.
     @State private var browsePath = PaneBrowsePath()
@@ -135,13 +156,27 @@ public struct DestinationPicker: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            Divider().overlay(Color.primary.opacity(0.08))
             if isSearching { searchResults } else { browseColumns }
-            Divider()
+            Divider().overlay(Color.primary.opacity(0.08))
             footer
         }
-        .frame(width: 560, height: 460)
-        .background(Color(nsColor: .windowBackgroundColor))
+        // Resizable: a floor that still fits two columns and the footer's buttons, an ideal taken
+        // from last time, and no ceiling — the sheet's own grip does the rest.
+        .frame(minWidth: 470, idealWidth: storedWidth, maxWidth: .infinity,
+               minHeight: 400, idealHeight: storedHeight, maxHeight: .infinity)
+        // The app's own two-part surface, in the app's own order: the accent wash from the Tint
+        // slider, then the level's material behind it. `cornerRadius: 0` because the sheet window
+        // already rounds and clips — a second radius here would leave the material's corners
+        // floating inside the sheet's.
+        .contentSurface(hue: glassHue, tint: surfaceTint)
+        .glassSurface(glassLevel, cornerRadius: 0)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { liveSize.size = $0 }
+        .onDisappear {
+            guard liveSize.size.width > 0, liveSize.size.height > 0 else { return }
+            storedWidth = liveSize.size.width
+            storedHeight = liveSize.size.height
+        }
         .onAppear {
             let opening = PaneBrowsePath.normalized(request.openAt)
             highlighted = opening.isEmpty ? root : opening
@@ -187,20 +222,27 @@ public struct DestinationPicker: View {
 
     private var searchField: some View {
         HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            Image(systemName: "magnifyingglass").foregroundStyle(isSearching ? AnyShapeStyle(accent) : AnyShapeStyle(.secondary))
             TextField("Search folders in \(request.providerName)", text: $query)
                 .textFieldStyle(.plain)
             if isSearching {
-                Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Clear search")
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill").hoverInk()
+                }
+                .buttonStyle(.hoverAffordance(.inline, tint: accent))
+                .accessibilityLabel("Clear search")
             }
         }
         .scaledFont(.system(size: 12))
         .padding(.horizontal, 9)
         .padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 7).fill(.quaternary.opacity(0.5)))
+        // The app's one search-field recipe, so this reads as the same control as the lens
+        // headers' rather than a lookalike with its own radius and fill.
+        .searchFieldSurface()
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(isSearching ? accent.opacity(0.55) : .clear, lineWidth: 1)
+        )
     }
 
     // MARK: - Browse
@@ -218,9 +260,9 @@ public struct DestinationPicker: View {
                             accent: glassHue.accentColor,
                             onOpen: { folder in open(folder, atDepth: depth) }
                         )
-                        .frame(width: 186)
+                        .frame(width: 190)
                         .id(directory)
-                        Divider()
+                        Divider().overlay(Color.primary.opacity(0.06))
                     }
                 }
             }
@@ -280,15 +322,10 @@ public struct DestinationPicker: View {
                     .foregroundStyle(SemanticColor.warning)
                     .lineLimit(2)
             }
-            HStack(spacing: 8) {
-                Text(highlighted.isEmpty ? "No folder chosen"
-                     : (highlighted as NSString).abbreviatingWithTildeInPath)
-                    .scaledFont(.system(size: 11).monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Destination \(highlighted)")
+            destinationCrumbs
+
+            HStack(spacing: 7) {
+                Spacer(minLength: 0)
 
                 Button { newFolderName = ""; isCreatingFolder = true } label: {
                     Label("New folder", systemImage: "folder.badge.plus")
@@ -298,16 +335,23 @@ public struct DestinationPicker: View {
                 // then aim at it: the operation layer would refuse the move (nestingViolation), but
                 // only after leaving a stray empty folder behind on disk.
                 .disabled(!canCommit)
+                .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
                 .keyboardShortcut("n", modifiers: [.shift, .command])
 
                 Button("Other…") { onChooseOther(); dismiss() }
+                    .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
                     .help("Choose a folder outside \(request.providerName)")
 
                 Button("Cancel", role: .cancel) { onCancel(); dismiss() }
+                    .buttonStyle(.actionBar(.outline, tint: accent, onTint: glassHue.onAccentLabelColor))
                     .keyboardShortcut(.cancelAction)
 
+                // The one filled capsule in the sheet, on the DEEPENED accent: the raw hue leaves
+                // white sitting on the contrast floor, which is what `AccentFill` exists to fix.
                 Button(verb) { onCommit(highlighted); dismiss() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.actionBar(.primary,
+                                            tint: AccentFill.deepened(accent),
+                                            onTint: glassHue.onAccentLabelColor))
                     .disabled(!canCommit)
                     .keyboardShortcut(.defaultAction)
             }
@@ -315,6 +359,43 @@ public struct DestinationPicker: View {
         .scaledFont(.system(size: 12))
         .padding(.horizontal, 15)
         .padding(.vertical, 11)
+    }
+
+    /// The chosen folder as a breadcrumb, matching the pane headers rather than a raw path.
+    ///
+    /// A single truncated path line is what the first cut had, and head-truncation cut it
+    /// mid-component — "…ocuments/Family/Ajji & Tata" reads as a broken string, not a location.
+    /// Components let the leading ones drop out cleanly and keep the folder you actually chose,
+    /// which is the end, always visible.
+    private var destinationCrumbs: some View {
+        let components = highlighted.isEmpty
+            ? []
+            : [request.providerName] + DestinationBrowser.trail(of: highlighted, under: root).dropFirst()
+                                     + [(highlighted as NSString).lastPathComponent]
+        return HStack(spacing: 4) {
+            Image(systemName: "folder.fill")
+                .scaledFont(.system(size: 10))
+                .foregroundStyle(highlighted.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(accent))
+            if components.isEmpty {
+                Text("No folder chosen").foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(components.enumerated()), id: \.offset) { index, component in
+                    if index > 0 {
+                        Text("›").foregroundStyle(.tertiary)
+                    }
+                    Text(component)
+                        .foregroundStyle(index == components.count - 1
+                                         ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+                        .fontWeight(index == components.count - 1 ? .medium : .regular)
+                        .lineLimit(1)
+                        .layoutPriority(index == components.count - 1 ? 1 : 0)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .scaledFont(.system(size: 11))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(highlighted.isEmpty ? "No folder chosen" : "Destination \(highlighted)")
     }
 
     // MARK: - Loading
@@ -435,35 +516,60 @@ private struct DestinationColumn: View {
     private func row(_ folder: DestinationFolder) -> some View {
         let isChosen = folder.path == highlighted
         let isTrail = folder.name == onPathAt && !isChosen
-        return HStack(spacing: 6) {
-            Image(systemName: "folder.fill").foregroundStyle(isChosen ? accent : Color.accentColor.opacity(0.85))
-            Text(folder.name).lineLimit(1).truncationMode(.middle)
-            Spacer(minLength: 4)
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary).scaledFont(.system(size: 9))
+        // One click both chooses and opens, which is what makes a column stack a picker rather than
+        // a tree: there is no separate "open" gesture to discover. A Button rather than a tap
+        // gesture so it goes through `HoverAffordanceStyle` — the app's one hover choke point —
+        // instead of growing a private hover of its own.
+        return Button { onOpen(folder) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .foregroundStyle(isChosen ? AnyShapeStyle(accent) : AnyShapeStyle(accent.opacity(0.75)))
+                Text(folder.name).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.tertiary)
+                    .scaledFont(.system(size: 9))
+            }
+            .scaledFont(.system(size: 12))
+            .foregroundStyle(isChosen ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
+            .fontWeight(isChosen ? .medium : .regular)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(rowBackground(isChosen: isChosen, isTrail: isTrail))
+            .contentShape(Rectangle())
         }
-        .scaledFont(.system(size: 12))
-        .foregroundStyle(isChosen ? AnyShapeStyle(accent) : AnyShapeStyle(.primary))
-        .padding(.horizontal, 9)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isChosen: isChosen, isTrail: isTrail))
-        .contentShape(Rectangle())
-        // One click both chooses and opens, which is what makes a column stack a picker rather
-        // than a tree: there is no separate "open" gesture to discover.
-        .onTapGesture { onOpen(folder) }
+        .buttonStyle(.hoverAffordance(.inline, tint: accent))
         .accessibilityAddTraits(isChosen ? [.isButton, .isSelected] : .isButton)
     }
 
     @ViewBuilder
     private func rowBackground(isChosen: Bool, isTrail: Bool) -> some View {
         if isChosen {
-            RoundedRectangle(cornerRadius: 5).fill(accent.opacity(0.18)).padding(.horizontal, 4)
+            // The panes' own selection strength, so a chosen row here reads exactly as a selected
+            // row in the rail behind the sheet.
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent.opacity(PaneSelectionWash.active))
+                .padding(.horizontal, 4)
         } else if isTrail {
-            RoundedRectangle(cornerRadius: 5).fill(.quaternary.opacity(0.6)).padding(.horizontal, 4)
+            // Quieter than a selection: this row is the trail, not the target — the same
+            // distinction `PaneColumnsView` draws.
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(accent.opacity(PaneSelectionWash.inactive * 0.6))
+                .padding(.horizontal, 4)
         } else {
             Color.clear
         }
     }
+}
+
+/// A reference cell for the sheet's live size.
+///
+/// Geometry readings written into `@State` re-enter layout, which is the loop this project has
+/// already debugged once. A class instance held by `@State` takes the value without invalidating
+/// anything, and the size is only read back at `onDisappear`.
+final class SizeBox {
+    var size: CGSize = .zero
 }
 
 // MARK: - Search result row
