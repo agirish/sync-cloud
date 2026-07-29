@@ -219,6 +219,20 @@ struct ContentView: View {
     /// The destination question on screen, if any. Held here because both surfaces that raise it —
     /// the Tidy rail's row menu and an Organize card's "Choose folder…" — are children of this view.
     @State var pendingDestination: PendingDestination?
+    /// The recents the on-screen picker was opened with.
+    ///
+    /// Snapshotted when the card is raised, not read in the card's body: `DestinationRecents.load`
+    /// stats every stored path to prune the ones that no longer resolve, and a body reads on every
+    /// render. The list also must not shift under the user mid-decision — recording a destination
+    /// happens on commit, by which point the card is gone.
+    @State var pendingRecents: [String] = []
+
+    /// Raises the picker, whoever asked for it. The one place `pendingDestination` is set, so the
+    /// recents snapshot can never drift out of step with the request it belongs to.
+    func presentDestination(_ pending: PendingDestination) {
+        pendingRecents = DestinationRecents.load(providerRoot: pending.request.providerRoot)
+        pendingDestination = pending
+    }
 
     /// Raises the picker for a rail selection, and runs the transfer into whatever it returns.
     ///
@@ -229,13 +243,33 @@ struct ContentView: View {
     func requestDestination(for nodes: [FileNode], isMove: Bool) {
         guard let first = nodes.first else { return }
         let root = tidyProviderRootExpanded
-        pendingDestination = PendingDestination(
+        let commit: (String) -> Void = { destination in
+            if isMove {
+                actionHandler?.moveItems(nodes, toPath: destination)
+            } else {
+                actionHandler?.pasteItems(nodes, toPath: destination, isCut: false)
+            }
+        }
+        let panel = {
+            ContentView.runDestinationPanel(for: first.name, itemCount: nodes.count,
+                                            startingAt: root.isEmpty ? nil : root)
+        }
+        // No provider root — an unconfigured provider path — means there is nothing to browse.
+        // `subfolders` refuses an empty root, and the column stack resolves an empty root against
+        // "/", so the card would offer the whole filesystem drawn as a stack whose first column is
+        // permanently empty. The system panel is the honest surface for that, and it is the one
+        // this verb was built to replace, so falling back to it costs the user nothing.
+        guard !root.isEmpty else {
+            if let chosen = panel() { commit(chosen) }
+            return
+        }
+        presentDestination(PendingDestination(
             request: DestinationRequest(
                 sourcePaths: nodes.map(\.id),
                 firstItemName: first.name,
                 isMove: isMove,
                 providerRoot: root,
-                providerName: tidyProviderName ?? "this provider",
+                providerName: tidyProviderName.isEmpty ? "this provider" : tidyProviderName,
                 // The selection's own parent, NOT the rail's current directory. In Columns,
                 // clicking a folder drills into it, so the rail's current directory IS the folder
                 // being moved — opening there would land the picker inside the selection and greet
@@ -243,15 +277,9 @@ struct ContentView: View {
                 // the selection, and is one click from anywhere else.
                 openAt: (first.id as NSString).deletingLastPathComponent
             ),
-            onCommit: { destination in
-                if isMove {
-                    actionHandler?.moveItems(nodes, toPath: destination)
-                } else {
-                    actionHandler?.pasteItems(nodes, toPath: destination, isCut: false)
-                }
-            },
-            onOther: { ContentView.runDestinationPanel(for: first.name, itemCount: nodes.count, startingAt: root) }
-        )
+            onCommit: commit,
+            onOther: panel
+        ))
     }
 
     /// The system folder panel behind the picker's `Other…`, for a destination outside the
@@ -1043,7 +1071,7 @@ struct ContentView: View {
         DestinationPicker(
             request: pending.request,
             availableSize: available,
-            recents: DestinationRecents.load(providerRoot: pending.request.providerRoot),
+            recents: pendingRecents,
             showHidden: syncManager.showHiddenFiles,
             onCommit: { destination in
                 DestinationRecents.record(destination, providerRoot: pending.request.providerRoot)
@@ -1067,6 +1095,11 @@ struct ContentView: View {
         // The level at face value, with a ground under the content — see `groundedGlassCard`.
         // Flooring this to Frosted is what made Clear and Frosted indistinguishable.
         .groundedGlassCard(level: glassLevel)
+        // The same light-mode hairline the other three in-window panels carry.
+        .overlay(
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
@@ -1113,6 +1146,14 @@ struct ContentView: View {
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
         .groundedGlassCard(level: glassLevel)
+        // Kept alongside `groundedGlassCard`, exactly as the Help and Welcome cards keep it.
+        // `OverlayCardChrome` draws an edge in DARK only, so in light this hairline is the card's
+        // only boundary against the scrim — dropping it here left the three in-window panels with
+        // two different treatments in light mode.
+        .overlay(
+            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
+                .strokeBorder(.quaternary, lineWidth: 0.5)
+        )
         // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
         // read as lifted off the window, whatever material it resolved to.
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
@@ -1879,7 +1920,7 @@ struct ContentView: View {
                 onSelectProvider: { leftProviderId = $0 },
                 onManageProviders: openProviderSettings,
                 onCompareCopies: reviewCoordinator.compareCopies,
-                onRequestDestination: { pendingDestination = $0 }
+                onRequestDestination: { presentDestination($0) }
             )
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in

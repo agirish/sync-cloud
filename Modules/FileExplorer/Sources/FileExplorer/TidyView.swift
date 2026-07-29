@@ -1428,20 +1428,34 @@ public struct TidyView: View {
     /// certainly leaving. The picker browses the provider the rail is already showing. The panel
     /// survives as `Other…`, for a destination genuinely outside it.
     private func chooseFolder(for suggestion: FilingSuggestion) {
-        let root = automationDestinationRoot ?? suggestion.providerRoot ?? ""
+        // Both fallbacks have to test for EMPTY, not just nil. `automationDestinationRoot` is handed
+        // down as a non-optional String that is "" for an unconfigured provider, so `??` alone never
+        // reached the suggestion's own root — the chain read as three options and behaved as one.
+        let root = [automationDestinationRoot, suggestion.providerRoot]
+            .compactMap { $0 }
+            .first { !$0.isEmpty } ?? ""
+        let panel = { Self.runSystemFolderPanel(for: suggestion.fileName,
+                                                startingAt: syncManager.filingScanFolder) }
+        // Nothing to browse without a provider root: the card would draw a stack rooted at "/" whose
+        // first column is permanently empty, because `subfolders` refuses an empty root. Fall back
+        // to the panel this replaced rather than showing a picker that cannot pick.
+        guard !root.isEmpty else {
+            if let chosen = panel() { file(suggestion, into: chosen) }
+            return
+        }
         onRequestDestination(PendingDestination(
             request: DestinationRequest(
                 sourcePaths: [suggestion.filePath],
                 firstItemName: suggestion.fileName,
                 isMove: true,
                 providerRoot: root,
-                providerName: providerName ?? "this provider",
+                providerName: (providerName?.isEmpty == false) ? providerName! : "this provider",
                 // Opens where the rail is looking, not at the root — the folder you were just in is
                 // the best guess available, and it is one click from the root either way.
                 openAt: syncManager.filingScanFolder ?? root
             ),
             onCommit: { destination in file(suggestion, into: destination) },
-            onOther: { Self.runSystemFolderPanel(for: suggestion.fileName, startingAt: syncManager.filingScanFolder) }
+            onOther: panel
         ))
     }
 
