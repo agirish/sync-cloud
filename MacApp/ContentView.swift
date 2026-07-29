@@ -552,15 +552,17 @@ struct ContentView: View {
         // `currentDirectory` still names the dead folder, which is where New Folder and paste
         // would then act. `PaneTree` compares by publish stamp, so this fires once per publish.
         .onChange(of: syncManager.leftPaneTree) { _, _ in
-            // Skipped entirely when the pane has no column stack to prune — building the index to
-            // prune an empty path would be the whole-tree walk for nothing.
-            guard !syncManager.leftBrowsePath.isEmpty else { return }
+            // Skipped entirely when the pane has nothing to prune — building the index to prune an
+            // empty path would be the whole-tree walk for nothing. `canAdvance` counts: a pane
+            // resting at its root can still hold a `›` stack pointing at a folder that has just
+            // been deleted, and advancing into it is the same dead-path hazard.
+            guard !syncManager.leftBrowsePath.isEmpty || syncManager.leftBrowsePath.canAdvance else { return }
             syncManager.pruneBrowsePath(isLeft: true,
                                         against: syncManager.leftChildrenIndex(treeRoot: currentLeftPath),
                                         treeRoot: currentLeftPath)
         }
         .onChange(of: syncManager.rightPaneTree) { _, _ in
-            guard !syncManager.rightBrowsePath.isEmpty else { return }
+            guard !syncManager.rightBrowsePath.isEmpty || syncManager.rightBrowsePath.canAdvance else { return }
             syncManager.pruneBrowsePath(isLeft: false,
                                         against: syncManager.rightChildrenIndex(treeRoot: currentRightPath),
                                         treeRoot: currentRightPath)

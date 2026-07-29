@@ -66,10 +66,16 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
         // A provider's Location is user-settable to ANY folder, and a claim is not a harmless label:
         // it decides whether a path-addressed CLI root inherits that provider's name rules, which
         // decides whether files are silently skipped. Someone who points a provider at their home
-        // folder must not thereby give every local folder OneDrive's reserved-name rules — so a root
-        // that is too shallow to be a real provider folder claims nothing beyond itself. Three
-        // components is `/Users/<me>`; a genuine provider root is always deeper.
-        guard components.count > 3 else { return [] }
+        // folder must not thereby give every local folder OneDrive's reserved-name rules.
+        //
+        // The test is what the root CONTAINS, not how deep it is. A depth rule (`count > 3`) was
+        // both too broad and too narrow: it also silenced `/Volumes/<mount>` — a perfectly ordinary
+        // provider Location, and the shape Google Drive itself used to mount at — so that provider
+        // stopped claiming even its OWN tree, and a path-addressed CLI root inside it fell back to
+        // `.iCloud`'s empty rule set, losing exactly the name guard and date-noise filter the claim
+        // exists to carry. Meanwhile it let `~/Documents` through, which swallows just as much
+        // local ground as `~` does.
+        guard !isHomeOrAbove(components) else { return [] }
         var roots = [provider.path]
         // Widen to the CloudStorage ACCOUNT folder, so a sibling of the discovered root
         // (`.../OneDrive-X/Photos` next to `.../OneDrive-X/Documents`) resolves to the same account.
@@ -84,5 +90,26 @@ public struct CloudProvider: Identifiable, Hashable, Sendable {
             break
         }
         return roots
+    }
+
+    /// Whether these path components name a user's home directory or something above it — the
+    /// roots a provider must never claim, because claiming one types every unrelated local folder
+    /// beneath it.
+    ///
+    /// Structural rather than a comparison against `NSHomeDirectory()`, so it holds for any account
+    /// on the machine and stays a pure function (the fixtures that pin it use `/Users/u`, which is
+    /// nobody's real home). The real home is checked too, for the firmlinked spellings the shape
+    /// rule cannot see.
+    ///
+    /// `/Volumes/<mount>` deliberately does NOT match: an external volume's root is a legitimate
+    /// provider Location, and it contains only what the user put on that volume.
+    private static func isHomeOrAbove(_ components: [String]) -> Bool {
+        // "/", "/Users", "/Volumes" — a root this broad is never a provider folder.
+        if components.count <= 2 { return true }
+        // "/Users/<someone>" — a home directory. `/Volumes/<mount>` has the same depth and is fine.
+        if components.count == 3, components[1] == "Users" { return true }
+        let path = NSString.path(withComponents: components)
+        let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.path
+        return PathBoundary.contains(home, under: path)
     }
 }

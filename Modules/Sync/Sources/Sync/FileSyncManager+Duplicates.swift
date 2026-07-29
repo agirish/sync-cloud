@@ -249,7 +249,13 @@ extension FileSyncManager {
     /// and those groups must stay listed however the delete call accounted for them.
     private func dropFullyRemovedGroups(from groups: [DuplicateGroup]) -> [DuplicateGroup] {
         let done = groups.filter { group in
-            group.recommendedRemovalPaths.allSatisfy { !fileManager.fileExists(atPath: $0) }
+            // A group with nothing to remove is not resolved — `allSatisfy` on an empty list is
+            // vacuously true, which would drop it from the list as though its copies had been
+            // trashed AND credit its bytes to the reclaimed total. Reachable: re-aiming the keeper
+            // of a folder-protected group leaves every removal candidate protected, so
+            // `recommendedRemovalPaths` is empty while the copies are all still on disk.
+            let paths = group.recommendedRemovalPaths
+            return !paths.isEmpty && paths.allSatisfy { !fileManager.fileExists(atPath: $0) }
         }
         let doneIDs = Set(done.map { $0.id })
         duplicateGroups.removeAll { doneIDs.contains($0.id) }

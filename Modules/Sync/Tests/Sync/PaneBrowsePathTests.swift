@@ -160,4 +160,78 @@ import Events
         let path = PaneBrowsePath(components: ["Documents", "Gone"])
         #expect(path.pruned(against: index(), treeRoot: root) != path)
     }
+
+    // MARK: - Pruning the forward stack
+
+    /// The hole the live stack's prune left open. Walk into a folder, step back out with `‹`, then
+    /// have that folder deleted: the components are empty so the prune had nothing to drop, but
+    /// `›` stayed lit pointing at the dead folder — and advancing put `currentDirectory` (where
+    /// New Folder and paste act) on a path that no longer exists.
+    @Test func testPruneDropsAForwardEntryWhoseFolderIsGone() {
+        var path = PaneBrowsePath(components: ["Documents", "Gone"])
+        path.popLast()
+        #expect(path.canAdvance)
+
+        let pruned = path.pruned(against: index(), treeRoot: root)
+        #expect(pruned.canAdvance == false, "`›` must not offer a folder the tree no longer has")
+        #expect(pruned.components == ["Documents"])
+    }
+
+    /// A forward entry that still resolves is kept — the prune must not cost the user their
+    /// Forward button every time the tree republishes.
+    @Test func testPruneKeepsAForwardEntryThatStillResolves() {
+        var path = PaneBrowsePath(components: ["Documents", "Invoices"])
+        path.popLast()
+
+        var pruned = path.pruned(against: index(), treeRoot: root)
+        #expect(pruned == path, "nothing moved, so this must be the identical value")
+        pruned.advance()
+        #expect(pruned.components == ["Documents", "Invoices"])
+    }
+
+    /// Advancing past a surviving entry into a dead one must not be possible either: the walk
+    /// truncates at the first missing folder, keeping the shallower entries that still resolve.
+    @Test func testPruneTruncatesTheForwardStackAtTheFirstMissingFolder() {
+        var path = PaneBrowsePath(components: ["Documents", "Invoices", "Gone"])
+        path.popLast()
+        path.popLast()
+        path.popLast()
+        #expect(path.components.isEmpty)
+
+        var pruned = path.pruned(against: index(), treeRoot: root)
+        // "Documents" and "Invoices" survive; "Gone" does not.
+        pruned.advance()
+        pruned.advance()
+        #expect(pruned.components == ["Documents", "Invoices"])
+        #expect(pruned.canAdvance == false)
+        #expect(pruned.currentDirectory(treeRoot: root) == "/r/Documents/Invoices")
+    }
+
+    /// When the LIVE stack itself moved, the forward entries no longer join onto its end, so they
+    /// go — the same rule `drill` and `truncate` follow when a move branches.
+    @Test func testPruneDiscardsTheForwardStackWhenTheLiveStackMoves() {
+        // `Missing` is gone, so the live stack drops to the root — and `Deeper`, which only ever
+        // made sense hanging off `Missing`, has nothing left to hang from.
+        var path = PaneBrowsePath(components: ["Missing", "Deeper"])
+        path.popLast()
+        #expect(path.components == ["Missing"])
+        #expect(path.canAdvance)
+
+        let pruned = path.pruned(against: index(), treeRoot: root)
+        #expect(pruned.components.isEmpty)
+        #expect(pruned.canAdvance == false)
+    }
+
+    /// Mutation guard for the forward walk: a prune that simply cleared the forward stack would
+    /// pass every drop case above. Pin that a still-valid forward entry survives.
+    @Test func testPruneKeepsAValidForwardEntryEvenWhenTheStackIsAtRest() {
+        var path = PaneBrowsePath(components: ["Photos"])
+        path.popLast()
+        #expect(path.isEmpty)
+
+        var pruned = path.pruned(against: index(), treeRoot: root)
+        #expect(pruned.canAdvance)
+        pruned.advance()
+        #expect(pruned.currentDirectory(treeRoot: root) == "/r/Photos")
+    }
 }

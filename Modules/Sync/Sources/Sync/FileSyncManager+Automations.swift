@@ -44,13 +44,21 @@ extension FileSyncManager {
     ) -> PersistedStoreRead<T> {
         guard let data = defaults.data(forKey: key) else { return .absent }
         if let decoded = try? JSONDecoder().decode(type, from: data) { return .decoded(decoded) }
-        // Preserving is UNGATED: writing the same bytes to the same key again costs nothing, and
-        // anything clever here risks the one outcome that matters — the payload not being kept.
-        // (An earlier attempt gated this on a per-store claim keyed by `ObjectIdentifier`, which
-        // silently drops backups: a released `UserDefaults` can be reallocated at the same address,
-        // so a later store inherits an earlier one's claim. It surfaced only under the full suite.)
+        // Preserving is effectively ungated — no session-scoped claim, because an earlier attempt
+        // keyed one on `ObjectIdentifier` and silently dropped backups (a released `UserDefaults`
+        // can be reallocated at the same address, so a later store inherited an earlier one's
+        // claim; it surfaced only under the full suite). The only skip is the one that cannot lose
+        // anything: the backup key ALREADY holds these exact bytes.
+        //
+        // That skip is not cosmetic. These getters are hot — a scan reads them per file — so an
+        // unconditional `set` re-wrote the whole payload to `cfprefsd` tens of thousands of times
+        // per scan for as long as the store stayed corrupt, which is precisely when the disk is
+        // the thing least worth hammering. A read-and-compare is cheap and keeps the invariant
+        // intact: after this line the bytes are under `backupKey`, however they got there.
         let backupKey = key + ".unreadable"
-        defaults.set(data, forKey: backupKey)
+        if defaults.data(forKey: backupKey) != data {
+            defaults.set(data, forKey: backupKey)
+        }
         // Only the REPORT is rate-limited, since these getters are read repeatedly. Keyed by the key
         // name plus the payload, so two stores holding the same key can each still be reported, and
         // a store whose corruption CHANGES is reported again.

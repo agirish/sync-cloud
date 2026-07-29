@@ -322,11 +322,21 @@ struct PaneColumnsView: View {
                       let id = newValue.first,
                       let row = rows.first(where: { $0.id == id })
                 else { return }
+                // Both the target and the stack it was computed against are captured NOW. Deferred
+                // a runloop turn: `browsePath` restructures the column stack, and writing it from
+                // inside the List's own selection commit is the mid-commit sibling write that drops
+                // clicks outright (`aa9d407`).
+                let stackAtWrite = browsePath
                 let path = navigation(for: row, depth: depth)
-                // Deferred a runloop turn: `browsePath` restructures the column stack, and writing
-                // it from inside the List's own selection commit is the mid-commit sibling write
-                // that drops clicks outright (`aa9d407`).
-                DispatchQueue.main.async { onNavigate(path) }
+                DispatchQueue.main.async {
+                    guard DeferredColumnNavigation.isStillValid(
+                        current: browsePath, computedAgainst: stackAtWrite, target: path)
+                    else {
+                        Logger.shared.debug("[columns] dropped a stale deferred navigation to \(path.relativePath.isEmpty ? "root" : path.relativePath)")
+                        return
+                    }
+                    onNavigate(path)
+                }
             }
         )
     }
@@ -416,6 +426,31 @@ struct PaneColumnsView: View {
                             }
                     )
             }
+    }
+}
+
+/// Whether a column navigation queued a runloop turn ago still speaks for the stack.
+///
+/// The List's selection commit cannot navigate inline — writing `browsePath` from inside it is the
+/// mid-commit sibling write that drops clicks outright (`aa9d407`) — so it hands the move to the
+/// next runloop turn. That block then carries no memory of what happened in between, and "the main
+/// queue always drains between two user events" is exactly the assumption `applySelectionWrite`
+/// had to grow a sequencer token to stop relying on. Press `‹` (or let a mirrored drill, or a
+/// republish prune, land first) before it runs and the stale block re-applies the click's
+/// navigation on top of the newer move — the "Back doesn't work" shape.
+///
+/// Pure, because the rule reads obvious and has exactly one subtlety worth pinning: the tap
+/// gesture's own SYNCHRONOUS drill must not look stale to this test. It leaves `browsePath` equal
+/// to `target`, which is why `target` counts as current alongside the stack the block was computed
+/// against — a check of `computedAgainst` alone would drop every navigation the tap already made,
+/// i.e. all of them.
+enum DeferredColumnNavigation {
+    static func isStillValid(
+        current: PaneBrowsePath,
+        computedAgainst: PaneBrowsePath,
+        target: PaneBrowsePath
+    ) -> Bool {
+        current == computedAgainst || current == target
     }
 }
 

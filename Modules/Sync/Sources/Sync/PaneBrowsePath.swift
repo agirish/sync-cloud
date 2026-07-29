@@ -24,7 +24,8 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// Folder names from the tree root down, outermost first. Never contains an empty component.
     public private(set) var components: [String]
 
-    /// Components `popLast` has stepped out of, deepest last, so `›` can walk back in.
+    /// Components `popLast` has stepped out of, deepest FIRST — `popLast` appends as it unwinds, so
+    /// the shallowest folder is the last one in and the first one `advance` walks back into.
     ///
     /// Decision 10 named only `‹`, but the two arrows are one control in the user's head: drilling
     /// three columns, pressing Back twice and then Forward has to return you to where you were. If
@@ -131,6 +132,11 @@ public struct PaneBrowsePath: Equatable, Sendable {
     /// `currentDirectory(treeRoot:)` pointing at a path that no longer exists, which is what New
     /// Folder and paste would then target. Keeping the surviving prefix means a deleted leaf drops
     /// you into its parent instead of nowhere.
+    ///
+    /// The forward stack is pruned on the same walk. `‹` out of a folder that is then deleted left
+    /// `›` enabled pointing at it, and advancing put `currentDirectory(treeRoot:)` — where New
+    /// Folder and paste act — on a path that no longer exists. That is the very hazard the live
+    /// stack's prune closes, reached through the other arrow.
     public func pruned(against index: PaneChildrenIndex, treeRoot: String) -> PaneBrowsePath {
         var kept: [String] = []
         var directory = Self.normalized(treeRoot)
@@ -140,9 +146,35 @@ public struct PaneBrowsePath: Equatable, Sendable {
             kept.append(component)
             directory = candidate
         }
+        var keptForward = forwardComponents
+        if kept.count < components.count {
+            // The live stack itself moved, so the columns `‹` stepped out of no longer join onto
+            // its end — the same rule any branching move follows (see `drill`/`truncate`).
+            keptForward = []
+        } else {
+            // `forwardComponents` is deepest-first, so `advance` re-enters them from the back.
+            // Walk in that order and truncate at the first folder that is gone; surviving the
+            // first `survived` of the reversed walk means keeping the last `survived` entries.
+            var survived = 0
+            var forwardDirectory = directory
+            for component in forwardComponents.reversed() {
+                let candidate = forwardDirectory + "/" + component
+                guard index.isDirectory(atPath: candidate) else { break }
+                survived += 1
+                forwardDirectory = candidate
+            }
+            if survived < forwardComponents.count {
+                keptForward = Array(forwardComponents.suffix(survived))
+            }
+        }
         // Returning self when nothing was dropped keeps the common case free of an allocation and
         // lets callers compare cheaply to decide whether anything moved.
-        return kept.count == components.count ? self : PaneBrowsePath(components: kept)
+        guard kept.count != components.count || keptForward.count != forwardComponents.count else {
+            return self
+        }
+        var result = PaneBrowsePath(components: kept)
+        result.forwardComponents = keptForward
+        return result
     }
 
     private func clamped(_ depth: Int) -> Int {

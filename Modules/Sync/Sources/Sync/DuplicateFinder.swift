@@ -183,7 +183,11 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
         let relabelled = copies.map { Self.relabel($0, isKeeper: $0.id == copyID) }
         let newKeeper = relabelled.first { $0.id == copyID }!
         let rest = relabelled.filter { $0.id != copyID }.sorted { ($0.depth, $0.id) < ($1.depth, $1.id) }
-        let reclaim = rest.reduce(0) { $0 + $1.size }
+        // Protected copies are excluded, for the same reason `recommendedRemovalPaths` excludes
+        // them: re-aiming the keeper is exactly what puts a protected copy on the redundant side,
+        // and counting bytes that will never be trashed makes the card promise a reclaim the
+        // "Move to Trash" it sits beside cannot deliver.
+        let reclaim = rest.filter { !$0.isProtectedFromRemoval }.reduce(0) { $0 + $1.size }
         return DuplicateGroup(id: id, matchType: matchType, name: name, isDirectory: isDirectory,
                               copies: [newKeeper] + rest, reclaimableBytes: reclaim)
     }
@@ -233,7 +237,8 @@ public struct DuplicateGroup: Identifiable, Sendable, Equatable, Hashable {
                                 remaining: [DuplicateCopy], priorReclaim: Int) -> Int {
         switch matchType {
         case .identical, .versions:
-            return remaining.filter { !$0.isRecommendedKeeper }.reduce(0) { $0 + $1.size }
+            return remaining.filter { !$0.isRecommendedKeeper && !$0.isProtectedFromRemoval }
+                .reduce(0) { $0 + $1.size }
         case .overlapping(let fraction):
             return max(0, priorReclaim - Int(Double(removed.size) * fraction))
         case .nameOnly:
@@ -760,7 +765,10 @@ public enum DuplicateFinder {
                     copies: copies,
                     reclaimableBytes: reclaimable
                 ))
-                for c in copies { groupedFilePaths.insert(c.path) }
+                // Every member, not just the copies that survived protection — the same rule the
+                // identical pass follows. A protected file dropped from this group is still
+                // accounted for by it, and nothing downstream should be able to pick it up again.
+                for m in members { groupedFilePaths.insert(m.path) }
             }
         }
         return groups

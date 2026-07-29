@@ -338,7 +338,10 @@ struct TidyGroupCard: View {
                 .buttonStyle(.borderedProminent)
                 .chromeHover()
                 .controlSize(.small)
-                .disabled(isMerging)
+                // Nothing to remove means the button would open no dialog and do nothing at all —
+                // a dead control. Reachable by re-aiming the keeper of a group whose other copies
+                // all live inside a folder another group is keeping (see `isProtectedFromRemoval`).
+                .disabled(isMerging || group.recommendedRemovalPaths.isEmpty)
             } else if group.matchType.kind == .overlapping {
                 Button(action: onMerge) {
                     if isMerging {

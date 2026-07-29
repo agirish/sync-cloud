@@ -163,6 +163,40 @@ import Events
                                            among: providers) == .dropBox)
     }
 
+    @Test func aProviderOnAVolumeRootStillClaimsItsOwnTree() {
+        // The over-correction. The guard was a DEPTH rule ("more than three components"), which
+        // also caught `/Volumes/<mount>` — an ordinary provider Location, and the shape Google
+        // Drive itself used to mount at. That provider then claimed nothing, not even its own
+        // tree, so a path-addressed CLI root inside it fell back to `.iCloud`'s empty rule set and
+        // silently lost the destination-name guard the claim exists to carry.
+        let providers = [CloudProvider(id: "GoogleDrive", displayName: "Google Drive", imageName: "googledrive",
+                                       path: "/Volumes/GoogleDrive", type: .googleDrive)]
+        #expect(CloudProvider.inferredType(forPath: "/Volumes/GoogleDrive/Reports/q1.txt",
+                                           among: providers) == .googleDrive)
+        // A sibling volume is still nobody's business but its own.
+        #expect(CloudProvider.inferredType(forPath: "/Volumes/Backup/q1.txt", among: providers) == nil)
+    }
+
+    @Test func aProviderPointedAtASubfolderOfHomeClaimsOnlyThatSubfolder() {
+        // The under-correction, from the same depth rule: `~/Documents` is four components, so it
+        // sailed through — even though it swallows as much local ground as `~` does. What matters
+        // is what the root CONTAINS, so this claims its own tree and nothing beside it.
+        let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
+                                       path: "/Users/u/Documents", type: .oneDrive)]
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/Documents/deck.txt", among: providers) == .oneDrive)
+        #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil)
+    }
+
+    @Test func aProviderAtTheFilesystemRootClaimsNothing() {
+        // "/" and "/Users" are above every home directory; claiming one types the whole machine.
+        for broad in ["/", "/Users", "/Volumes"] {
+            let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
+                                           path: broad, type: .oneDrive)]
+            #expect(CloudProvider.inferredType(forPath: "/Users/u/scratch", among: providers) == nil,
+                    "a provider rooted at \(broad) must not type unrelated folders")
+        }
+    }
+
     @Test func theRealAccountFolderStillClaimsItsSiblings() {
         // The control: the case the widening exists for must keep working.
         let providers = [CloudProvider(id: "OneDrive-Personal", displayName: "OneDrive", imageName: "onedrive",
@@ -224,5 +258,46 @@ import Events
         #expect(a.data(forKey: key + ".unreadable") == Data("corrupt-A".utf8))
         #expect(b.data(forKey: key + ".unreadable") == Data("corrupt-B".utf8),
                 "the second store's corruption must be preserved too")
+    }
+
+    /// Counts every `set(_:forKey:)` so a re-write of an unchanged backup is visible.
+    private final class CountingDefaults: UserDefaults {
+        nonisolated(unsafe) static var writes = 0
+        override func set(_ value: Any?, forKey defaultName: String) {
+            Self.writes += 1
+            super.set(value, forKey: defaultName)
+        }
+    }
+
+    @MainActor @Test func rereadingACorruptStoreDoesNotRewriteItsBackupEveryTime() throws {
+        // These getters are hot — a scan reads them per file — so an unconditional backup `set`
+        // re-wrote the whole payload to cfprefsd tens of thousands of times per scan for as long
+        // as the store stayed corrupt, which is precisely when the disk is least worth hammering.
+        // The rate limit on the LOG line never covered this; the write was deliberately ungated.
+        let suiteName = "review-fixes-\(UUID().uuidString)"
+        let defaults = try #require(CountingDefaults(suiteName: suiteName))
+        defer { wipeDefaultsSuite(suiteName) }
+        let key = "automationRules"
+        defaults.set(Data("corrupt".utf8), forKey: key)
+
+        _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key, describing: "rules")
+        #expect(defaults.data(forKey: key + ".unreadable") == Data("corrupt".utf8),
+                "the first read must still preserve the payload")
+
+        CountingDefaults.writes = 0
+        for _ in 0..<50 {
+            _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key, describing: "rules")
+        }
+        #expect(CountingDefaults.writes == 0, "an unchanged backup must not be re-written per read")
+        // And the invariant the skip must not cost: the bytes are still there.
+        #expect(defaults.data(forKey: key + ".unreadable") == Data("corrupt".utf8))
+
+        // A store whose corruption CHANGES is backed up again — the skip is "same bytes", not
+        // "already backed up once".
+        defaults.set(Data("different-corruption".utf8), forKey: key)
+        CountingDefaults.writes = 0
+        _ = FileSyncManager.decodePersistedStore([AutomationRule].self, from: defaults, key: key, describing: "rules")
+        #expect(CountingDefaults.writes == 1)
+        #expect(defaults.data(forKey: key + ".unreadable") == Data("different-corruption".utf8))
     }
 }

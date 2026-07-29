@@ -853,10 +853,55 @@ import Testing
         #expect(!g(.nameOnly).isFullyResolvableByRemoval && !g(.nameOnly).isRecommendedForBatch)
     }
 
-    private func copy(_ id: String, size: Int, depth: Int, keeper: Bool, unique: Int = 0) -> DuplicateCopy {
+    private func copy(_ id: String, size: Int, depth: Int, keeper: Bool, unique: Int = 0,
+                      protected: Bool = false) -> DuplicateCopy {
         DuplicateCopy(id: id, name: (id as NSString).lastPathComponent, isDirectory: true, size: size,
                       itemCount: 1, modificationDate: nil, uniqueItemCount: unique, depth: depth,
-                      isRecommendedKeeper: keeper)
+                      isRecommendedKeeper: keeper, isProtectedFromRemoval: protected)
+    }
+
+    // MARK: Reclaimable bytes must match what removal will actually take
+
+    /// `recommendedRemovalPaths` filters protected copies; the reclaim figure did not. Re-aiming
+    /// the keeper is precisely the move that puts a protected copy on the redundant side, so the
+    /// card promised bytes back from a file its own "Move to Trash" would never touch.
+    @Test func choosingAKeeperDoesNotCountProtectedBytesAsReclaimable() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [copy("/kept/F1/x", size: 100, depth: 1, keeper: true, protected: true),
+                                        copy("/b/x", size: 100, depth: 1, keeper: false),
+                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 200)
+
+        let reAimed = g.choosingKeeper("/b/x")
+        #expect(reAimed.recommendedRemovalPaths == ["/c/x"],
+                "the protected copy stays off the removal list")
+        #expect(reAimed.reclaimableBytes == 100,
+                "so its bytes must stay out of the reclaim figure too")
+    }
+
+    /// The same rule on the out-of-band removal path, which recomputes from the survivors.
+    @Test func removingACopyDoesNotCountProtectedBytesAsReclaimable() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                        copy("/kept/F1/x", size: 100, depth: 1, keeper: false, protected: true),
+                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 100)
+
+        let g2 = g.removingRedundantCopy(atPath: "/c/x")!
+        #expect(g2.recommendedRemovalPaths.isEmpty)
+        #expect(g2.reclaimableBytes == 0)
+    }
+
+    /// Mutation guard for both of the above: an unprotected copy in the same position must still
+    /// count, or the fix would read as "reclaim is always zero".
+    @Test func anUnprotectedRedundantCopyStillCountsAsReclaimable() {
+        let g = DuplicateGroup(matchType: .identical, name: "x", isDirectory: false,
+                               copies: [copy("/a/x", size: 100, depth: 0, keeper: true),
+                                        copy("/b/x", size: 100, depth: 1, keeper: false),
+                                        copy("/c/x", size: 100, depth: 2, keeper: false)],
+                               reclaimableBytes: 200)
+        #expect(g.choosingKeeper("/b/x").reclaimableBytes == 200)
+        #expect(g.removingRedundantCopy(atPath: "/c/x")!.reclaimableBytes == 100)
     }
 
     @Test func removingLastRedundantResolvesGroupToNil() {

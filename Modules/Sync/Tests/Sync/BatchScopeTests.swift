@@ -61,6 +61,43 @@ import Foundation
         #expect(manager.duplicateGroups.count == 2)            // the other two stay listed
     }
 
+    /// A group with NOTHING to remove must not be counted as resolved.
+    ///
+    /// `dropFullyRemovedGroups` asked `recommendedRemovalPaths.allSatisfy { !exists }`, which is
+    /// vacuously true for an empty list — so a group whose only redundant copy is protected (it
+    /// lives inside a folder another group is keeping) was dropped from the list and its bytes
+    /// credited to the "reclaimed" total, with every one of its copies still on disk. Reachable by
+    /// re-aiming such a group's keeper, which is exactly the move that puts the protected copy on
+    /// the redundant side.
+    @MainActor
+    @Test func aGroupWithNothingToRemoveIsNotReportedAsResolved() async throws {
+        let mockFM = MockFileManager()
+        let manager = FileSyncManager(fileManager: mockFM)
+        let size: [FileAttributeKey: Any] = [.size: 1000]
+        for p in ["/a/x", "/b/x", "/a/y", "/kept/F1/y"] {
+            mockFM.virtualDisk[p] = MockFileManager.FileStub(isDirectory: false, attributes: size, contents: nil)
+        }
+        let protectedOnly = DuplicateGroup(
+            matchType: .identical, name: "y", isDirectory: false,
+            copies: [copy("/a/y", keeper: true),
+                     DuplicateCopy(id: "/kept/F1/y", name: "y", isDirectory: false, size: 1000,
+                                   itemCount: 1, modificationDate: nil, uniqueItemCount: 1, depth: 3,
+                                   isRecommendedKeeper: false, isProtectedFromRemoval: true)],
+            reclaimableBytes: 1000)
+        #expect(protectedOnly.recommendedRemovalPaths.isEmpty)
+        // Batched alongside a normal group, so the run gets past the "no paths at all" early exit.
+        let normal = grp("x", keeper: "/a/x", redundant: ["/b/x"])
+        manager.duplicateGroups = [normal, protectedOnly]
+
+        await manager.applyRecommendedDuplicates(manager.duplicateGroups)
+        await waitUntil("the removable copy is trashed") { mockFM.virtualDisk["/b/x"] == nil }
+
+        #expect(mockFM.trashedPaths.count == 1)
+        #expect(mockFM.virtualDisk["/kept/F1/y"] != nil, "the protected copy must still be on disk")
+        #expect(manager.duplicateGroups.map(\.name) == ["y"],
+                "and its group must stay listed rather than vanish as though it had been resolved")
+    }
+
     /// An empty filtered set touches nothing — a query that matches no rows must not fall back to
     /// "well, do all of them", which is exactly what a nil-defaulted scope parameter would invite.
     @MainActor
