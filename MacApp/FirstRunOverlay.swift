@@ -105,13 +105,14 @@ struct FirstRunOverlay: View {
     }
 
     /// The card, decorated the same way as the settings card so the in-window overlays read as one
-    /// system: the accent tint, then the glass material via `glassCardStyle` — which floors
-    /// `.clear` to `.frosted`, since this card sits over live app content.
+    /// system: the accent tint, then the glass material at the level's face value via
+    /// `groundedGlassCard`, which keeps Clear distinguishable from Frosted while still giving the
+    /// content a ground to sit on.
     @ViewBuilder
     private var card: some View {
         cardContent
             .contentSurface(hue: glassHue, tint: surfaceTint)
-            .glassCardStyle(level: glassLevel)
+            .groundedGlassCard(level: glassLevel)
             .overlay(
                 RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 0.5)

@@ -1064,14 +1064,9 @@ struct ContentView: View {
             onCancel: { pendingDestination = nil }
         )
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        // `glassCardStyle`'s recipe, but on the RAW level rather than `flooredForChrome`. The floor
-        // exists so a Clear card over dense content doesn't strand its own text at ~9% opacity —
-        // sound for Settings, which is a wall of controls. This card is mostly folder rows over a
-        // light scrim, and the whole point is that it reads at the same level as the panes behind
-        // it: flooring it made Clear indistinguishable from Frosted, which is exactly the
-        // complaint. The branch order is `glassCardStyle`'s: explicit chrome fills then clips,
-        // native glass clips then fills.
-        .modifier(RawLevelCard(level: glassLevel))
+        // The level at face value, with a ground under the content — see `groundedGlassCard`.
+        // Flooring this to Frosted is what made Clear and Frosted indistinguishable.
+        .groundedGlassCard(level: glassLevel)
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
@@ -1099,10 +1094,13 @@ struct ContentView: View {
     }
 
     /// The Settings card. It picks up the accent tint and the glass material like every other
-    /// surface, but `glassCardStyle` applies `flooredForChrome` — this is the one panel with the
-    /// whole app behind it rather than the window's gradient, and clear glass over content is two
-    /// layers of text competing (it rendered at ~9% opacity before the floor existed). Radius,
-    /// clip and shadow come from the shared LiquidGlass system rather than hardcoded values.
+    /// surface, at the level's FACE VALUE — `groundedGlassCard` rather than `glassCardStyle`.
+    ///
+    /// It used to floor Clear to Frosted, on the grounds that clear glass over live content is two
+    /// layers of text competing (it rendered at ~9% opacity before the floor existed). True, but
+    /// the cure removed the setting: Clear and Frosted drew the identical card, which reads as the
+    /// control being broken. The ground under the content solves the same legibility problem
+    /// without spending the level to do it.
     @ViewBuilder
     private func settingsCard(available: CGSize) -> some View {
         SettingsView(
@@ -1114,11 +1112,7 @@ struct ContentView: View {
         )
         .environmentObject(settings)
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        .glassCardStyle(level: glassLevel)
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
+        .groundedGlassCard(level: glassLevel)
         // The floating-modal drop shadow, deeper than a content card's: this panel is meant to
         // read as lifted off the window, whatever material it resolved to.
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
@@ -1932,53 +1926,3 @@ struct ContentView: View {
 
 }
 
-/// The floating-card chrome at a level's face value, without `glassCardStyle`'s `flooredForChrome`.
-///
-/// The floor is right for a card that must stay legible over dense content — Settings is a wall of
-/// controls, and clear glass there is two layers of text competing. It is wrong for a card whose
-/// whole job is to read at the same level as the window behind it: flooring Clear to Frosted makes
-/// the two settings indistinguishable, which is precisely what looked wrong.
-///
-/// Kept as two `@ViewBuilder` branches rather than an erased view for the reason `glassCardStyle`
-/// gives: an erased card re-renders whole on every parent update.
-private struct RawLevelCard: ViewModifier {
-    let level: GlassLevel
-
-    /// A neutral ground between the material and the card's own text.
-    ///
-    /// Taking the level at face value fixed Clear reading as Frosted, but at Clear it left the
-    /// rows competing with whatever the panes happened to show through — the level was right and
-    /// the legibility was not. This is the smaller knob: enough of a ground that folder names hold
-    /// against a busy window, far short of the floor to Frosted, which threw the level away
-    /// entirely. `controlBackgroundColor` rather than a hardcoded grey so it follows light/dark,
-    /// and the same colour `lensCard` fills with, so a card is a card everywhere.
-    ///
-    /// Tuned against the real window across three passes: 0 left the Organize panel's copy and its
-    /// blue "Suggest homes" button reading straight through; 0.45 and 0.62 both attenuated the
-    /// window without stopping it being *read* — folder names from the pane behind stayed legible
-    /// through the rail.
-    ///
-    /// The honest tension: "Clear, same level as the dashboard" cannot mean literally clear here.
-    /// The panes sit over the window's own gradient, where clear costs nothing; this card sits over
-    /// live content, where clear means two sets of folder names occupying the same pixels. So the
-    /// level keeps its *character* — the hue tint, the hairline, the shadow, the material's edge —
-    /// while the ground under the text stops being negotiable.
-    private static let backingOpacity: Double = 0.85
-
-    func body(content: Content) -> some View {
-        let radius = LiquidGlass.cardCornerRadius
-        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        // Drawn UNDER the content and OVER the material — a background applied first sits nearest
-        // the content, so the stack reads text → ground → glass → window.
-        let grounded = content
-            .background(shape.fill(Color(nsColor: .controlBackgroundColor).opacity(Self.backingOpacity)))
-        Group {
-            if level.needsExplicitChrome {
-                grounded.glassSurface(level, cornerRadius: radius).clipShape(shape)
-            } else {
-                grounded.clipShape(shape).glassSurface(level, cornerRadius: radius)
-            }
-        }
-        .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
-    }
-}

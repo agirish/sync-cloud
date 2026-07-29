@@ -567,6 +567,27 @@ public extension View {
         }
     }
 
+    /// `glassCardStyle`'s chrome at the level's **face value**, with a neutral ground under the
+    /// content instead of a floor over the level.
+    ///
+    /// `glassCardStyle` applies `flooredForChrome`, which turns Clear into Frosted for any card
+    /// sitting over live app content. That solves legibility by throwing the setting away: Clear
+    /// and Frosted render identically, which reads — correctly — as the control not working.
+    ///
+    /// This keeps the level and solves legibility the other way, with an opaque-ish ground between
+    /// the material and the card's own text. The window stays visibly *behind* the card at every
+    /// level, and the level still decides the material's character — its tint, its edge, how the
+    /// background reads through the margins — while the text always has something to sit on.
+    ///
+    /// `backingOpacity` is the one knob. It was walked from 0 up against a real window: below ~0.6
+    /// the content behind stays legible *through* the card, which is not glass character but two
+    /// screens occupying the same pixels. `controlBackgroundColor` rather than a hardcoded grey so
+    /// it follows light/dark, and the same colour `lensCard` fills with, so a card is a card
+    /// wherever it appears.
+    func groundedGlassCard(level: GlassLevel, backingOpacity: Double = 0.85) -> some View {
+        modifier(GroundedGlassCard(level: level, backingOpacity: backingOpacity))
+    }
+
     /// Lighter glass style for bars and inline panels. These sit over the window's own background
     /// rather than over content, so they take the level verbatim — no floor. Dark adds a top-lit
     /// specular hairline (via `GlassBarStyle`) so the bar reads as distinct glass chrome against
@@ -949,6 +970,31 @@ private struct DarkBoldCardChrome: ViewModifier {
             bordered.shadow(color: .black.opacity(0.12), radius: 7, x: 0, y: 3)
         } else {
             bordered
+        }
+    }
+}
+
+/// Backs `groundedGlassCard`. Mirrors `glassCardStyle`'s structure — same radius, same
+/// `OverlayCardChrome`, same two-branch clip order — differing only in taking the level unfloored
+/// and drawing a ground beneath the content.
+private struct GroundedGlassCard: ViewModifier {
+    let level: GlassLevel
+    let backingOpacity: Double
+
+    func body(content: Content) -> some View {
+        let radius = LiquidGlass.cardCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        let chrome = OverlayCardChrome(cornerRadius: radius, lightShadow: level.needsExplicitChrome)
+        // Drawn UNDER the content and OVER the material: a background applied first sits nearest
+        // the content, so the stack reads text → ground → glass → window.
+        let grounded = content
+            .background(shape.fill(Color(nsColor: .controlBackgroundColor).opacity(backingOpacity)))
+        // Same branch order as `glassCardStyle`, and kept as two `@ViewBuilder` arms rather than an
+        // erased view for the same reason: an erased card re-renders whole on every parent update.
+        if level.needsExplicitChrome {
+            grounded.glassSurface(level, cornerRadius: radius).clipShape(shape).modifier(chrome)
+        } else {
+            grounded.clipShape(shape).glassSurface(level, cornerRadius: radius).modifier(chrome)
         }
     }
 }

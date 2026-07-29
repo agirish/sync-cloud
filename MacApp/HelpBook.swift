@@ -424,13 +424,14 @@ struct HelpOverlay: View {
     }
 
     /// The card, decorated exactly like the Settings and Welcome cards: the accent tint, then the
-    /// glass material via `glassCardStyle` — which floors `.clear` to `.frosted`, since this card
-    /// sits over live app content rather than the window's gradient.
+    /// glass material at the level's face value via `groundedGlassCard`. It used to floor `.clear`
+    /// to `.frosted` because this card sits over live app content; the ground under the content
+    /// answers that without collapsing Clear and Frosted into the same card.
     @ViewBuilder
     private var card: some View {
         HelpView(onClose: onClose)
             .contentSurface(hue: glassHue, tint: surfaceTint)
-            .glassCardStyle(level: glassLevel)
+            .groundedGlassCard(level: glassLevel)
             .overlay(
                 RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 0.5)
