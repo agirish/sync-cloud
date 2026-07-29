@@ -1019,9 +1019,9 @@ struct ContentView: View {
                         // Much lighter than `overlayScrimOpacity`, which DEEPENS for Clear on the
                         // assumption the card above it is floored to frosted. This card is not:
                         // it takes the app's level verbatim, so at Clear a heavy scrim would leave
-                        // the clear material with nothing left to reveal. Enough to focus the card,
-                        // not enough to switch the window off.
-                        .fill(Color.black.opacity(0.14))
+                        // the clear material with nothing left to reveal. Enough to focus the card
+                        // and settle what shows through it, not enough to switch the window off.
+                        .fill(Color.black.opacity(0.20))
                         .ignoresSafeArea()
                         // Clicking away cancels, like every other overlay. Nothing has been moved
                         // at this point, so there is nothing to lose by dismissing.
@@ -1944,14 +1944,33 @@ struct ContentView: View {
 private struct RawLevelCard: ViewModifier {
     let level: GlassLevel
 
+    /// A neutral ground between the material and the card's own text.
+    ///
+    /// Taking the level at face value fixed Clear reading as Frosted, but at Clear it left the
+    /// rows competing with whatever the panes happened to show through — the level was right and
+    /// the legibility was not. This is the smaller knob: enough of a ground that folder names hold
+    /// against a busy window, far short of the floor to Frosted, which threw the level away
+    /// entirely. `controlBackgroundColor` rather than a hardcoded grey so it follows light/dark,
+    /// and the same colour `lensCard` fills with, so a card is a card everywhere.
+    ///
+    /// 0.45 rather than a token 0.2: with no ground at all the Organize panel's own empty-state
+    /// copy and its blue "Suggest homes" button read straight through the card, which is not glass
+    /// character but two screens on top of each other. At this value the window is still plainly
+    /// visible behind — the level still means what it says — and nothing behind it is legible.
+    private static let backingOpacity: Double = 0.45
+
     func body(content: Content) -> some View {
         let radius = LiquidGlass.cardCornerRadius
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        // Drawn UNDER the content and OVER the material — a background applied first sits nearest
+        // the content, so the stack reads text → ground → glass → window.
+        let grounded = content
+            .background(shape.fill(Color(nsColor: .controlBackgroundColor).opacity(Self.backingOpacity)))
         Group {
             if level.needsExplicitChrome {
-                content.glassSurface(level, cornerRadius: radius).clipShape(shape)
+                grounded.glassSurface(level, cornerRadius: radius).clipShape(shape)
             } else {
-                content.clipShape(shape).glassSurface(level, cornerRadius: radius)
+                grounded.clipShape(shape).glassSurface(level, cornerRadius: radius)
             }
         }
         .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
