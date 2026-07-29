@@ -197,4 +197,57 @@ import Foundation
     @Test func testOnlyTheImmediateParentCountsAsAlreadyThere() {
         #expect(!DestinationBrowser.allSourcesAlreadyIn("/p/Health", sources: ["/p/Health/Medical/x.pdf"]))
     }
+
+    // MARK: - Collision preview
+
+    /// A name already taken in the destination is reported, one that is free is not.
+    @Test func testCollidingNamesReportsOnlyTakenNames() throws {
+        let fm = try fixture()
+        fm.virtualDisk["/p/School/report.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let colliding = DestinationBrowser.collidingNames(
+            movingFrom: ["/p/Health/report.pdf", "/p/Health/notes.txt"],
+            into: "/p/School",
+            fileManager: fm
+        )
+        #expect(colliding == ["report.pdf"])
+    }
+
+    /// An item ALREADY in the destination is not colliding with itself. Without this, opening the
+    /// picker on a folder the file already sits in would report a collision AND the already-there
+    /// refusal — two contradictory statements about one file.
+    @Test func testAnItemAlreadyInTheDestinationIsNotACollision() throws {
+        let fm = try fixture()
+        fm.virtualDisk["/p/School/settled.pdf"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let colliding = DestinationBrowser.collidingNames(
+            movingFrom: ["/p/School/settled.pdf"], into: "/p/School", fileManager: fm
+        )
+        #expect(colliding.isEmpty)
+    }
+
+    /// A folder whose name is taken collides exactly as a file does — replacing a folder replaces
+    /// its whole contents, so this is the case most worth seeing before confirming.
+    @Test func testAFolderNameCollidesToo() throws {
+        let fm = try fixture()
+        let colliding = DestinationBrowser.collidingNames(
+            movingFrom: ["/p/School/Divit"], into: "/p/Health/Medical/Kaiser", fileManager: fm
+        )
+        #expect(colliding == ["Divit"])
+    }
+
+    /// Every name free means no preview to show.
+    @Test func testNoCollisionsWhenEveryNameIsFree() throws {
+        let fm = try fixture()
+        let colliding = DestinationBrowser.collidingNames(
+            movingFrom: ["/p/Health/a.pdf", "/p/Health/b.pdf"], into: "/p/School", fileManager: fm
+        )
+        #expect(colliding.isEmpty)
+    }
+
+    /// An empty destination is not a question yet.
+    @Test func testNoDestinationYieldsNoCollisions() throws {
+        let fm = try fixture()
+        #expect(DestinationBrowser.collidingNames(movingFrom: ["/p/Health/a.pdf"], into: "", fileManager: fm).isEmpty)
+    }
 }

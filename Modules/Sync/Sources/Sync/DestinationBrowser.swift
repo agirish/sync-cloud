@@ -189,6 +189,33 @@ public enum DestinationBrowser {
         }
     }
 
+    /// Names among `sources` that already exist in `destination`.
+    ///
+    /// The absolute move is flat — every selected item lands beside the others — so two files of
+    /// the same name from different folders collide with each other's target, and any of them can
+    /// collide with something already there. The collision prompt handles all of that at execution
+    /// time, one modal per item; surfacing the count beforehand is what turns "confirm, then answer
+    /// four questions you did not expect" into a decision made once, up front.
+    ///
+    /// An item already sitting in `destination` is NOT a collision with itself — it is the
+    /// already-there case, which `allSourcesAlreadyIn` answers and which a move skips rather than
+    /// prompts about.
+    public static func collidingNames(
+        movingFrom sources: [String],
+        into destination: String,
+        fileManager: FileManaging
+    ) -> [String] {
+        let target = PaneBrowsePath.normalized(destination)
+        guard !target.isEmpty else { return [] }
+        return sources.compactMap { source in
+            let normalized = PaneBrowsePath.normalized(source)
+            guard (normalized as NSString).deletingLastPathComponent != target else { return nil }
+            let name = (normalized as NSString).lastPathComponent
+            let candidate = (target as NSString).appendingPathComponent(name)
+            return fileManager.fileExists(atPath: candidate) ? name : nil
+        }
+    }
+
     /// Whether every one of `sources` already sits directly in `destination`, so a move would do
     /// nothing at all. The picker says so instead of offering a Move that silently no-ops — the
     /// same outcome the transfer layer now reports after the fact.

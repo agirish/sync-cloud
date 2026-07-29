@@ -113,6 +113,9 @@ public struct DestinationPicker: View {
     @State private var listings: [String: [DestinationFolder]] = [:]
     @State private var isCreatingFolder = false
     @State private var newFolderName = ""
+    /// Names among the selection that already exist in the highlighted folder. Recomputed whenever
+    /// the destination moves, so the count is never stale against the folder the footer names.
+    @State private var collidingNames: [String] = []
 
     public init(request: DestinationRequest, availableSize: CGSize, recents: [String],
                 showHidden: Bool = false,
@@ -207,6 +210,7 @@ public struct DestinationPicker: View {
         }
         .task(id: columnDirectories) { await loadVisibleColumns() }
         .task(id: query) { await runSearch() }
+        .task(id: highlighted) { await refreshCollisions() }
         .alert("New folder in “\(displayName(of: highlighted))”", isPresented: $isCreatingFolder) {
             TextField("Name", text: $newFolderName)
             Button("Cancel", role: .cancel) { newFolderName = "" }
@@ -422,11 +426,19 @@ public struct DestinationPicker: View {
 
     private var footerBar: some View {
         VStack(alignment: .leading, spacing: 10) {
+            // A refusal and a collision preview are never both worth saying: a refusal means the
+            // move cannot happen, which makes what it would have collided with beside the point.
             if let refusal {
                 Label(refusal, systemImage: "exclamationmark.triangle.fill")
                     .scaledFont(.system(size: 11.5))
                     .foregroundStyle(SemanticColor.warning)
                     .lineLimit(2)
+            } else if !collidingNames.isEmpty {
+                Label(collisionSummary, systemImage: "doc.on.doc")
+                    .scaledFont(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .help(collidingNames.joined(separator: ", "))
             }
             HStack(spacing: 8) {
                 destinationCrumbs
@@ -460,6 +472,17 @@ public struct DestinationPicker: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
         .background(Color.primary.opacity(0.035))
+    }
+
+    /// What the collision preview says. Names the file when there is one, because the name is the
+    /// whole question; counts when there are several, because a list of five would push the buttons
+    /// off the row. The full list is the tooltip either way.
+    private var collisionSummary: String {
+        let folder = displayName(of: highlighted)
+        if collidingNames.count == 1 {
+            return "“\(collidingNames[0])” already exists in \(folder) — you'll be asked what to do."
+        }
+        return "\(collidingNames.count) of \(request.sourcePaths.count) names already exist in \(folder) — you'll be asked about each."
     }
 
     /// The chosen folder as a breadcrumb, matching the pane headers rather than a raw path.
@@ -543,6 +566,25 @@ public struct DestinationPicker: View {
             guard !Task.isCancelled else { return }
             listings[directory] = folders
         }
+    }
+
+    /// Restats the selection against the highlighted folder.
+    ///
+    /// One `fileExists` per selected item, off the main actor like the listings — cheap for a
+    /// handful, and the picker's whole selection is a handful by construction. Clearing first
+    /// matters: without it the previous folder's count would sit under the new folder's name for
+    /// as long as the stat took, which is exactly long enough to be read.
+    private func refreshCollisions() async {
+        collidingNames = []
+        let destination = highlighted
+        guard !destination.isEmpty else { return }
+        let sources = request.sourcePaths
+        let found = await Task.detached {
+            DestinationBrowser.collidingNames(movingFrom: sources, into: destination,
+                                              fileManager: FileManager.default)
+        }.value
+        guard !Task.isCancelled else { return }
+        collidingNames = found
     }
 
     private func runSearch() async {
