@@ -1953,11 +1953,17 @@ private struct RawLevelCard: ViewModifier {
     /// entirely. `controlBackgroundColor` rather than a hardcoded grey so it follows light/dark,
     /// and the same colour `lensCard` fills with, so a card is a card everywhere.
     ///
-    /// Tuned against the real window rather than guessed: with no ground the Organize panel's
-    /// empty-state copy and its blue "Suggest homes" button read straight through the card, and at
-    /// 0.45 both were still faintly legible. 0.62 is where the window reads as *behind* the card —
-    /// still plainly there, so the level still means what it says — instead of through it.
-    private static let backingOpacity: Double = 0.62
+    /// Tuned against the real window across three passes: 0 left the Organize panel's copy and its
+    /// blue "Suggest homes" button reading straight through; 0.45 and 0.62 both attenuated the
+    /// window without stopping it being *read* — folder names from the pane behind stayed legible
+    /// through the rail.
+    ///
+    /// The honest tension: "Clear, same level as the dashboard" cannot mean literally clear here.
+    /// The panes sit over the window's own gradient, where clear costs nothing; this card sits over
+    /// live content, where clear means two sets of folder names occupying the same pixels. So the
+    /// level keeps its *character* — the hue tint, the hairline, the shadow, the material's edge —
+    /// while the ground under the text stops being negotiable.
+    private static let backingOpacity: Double = 0.85
 
     func body(content: Content) -> some View {
         let radius = LiquidGlass.cardCornerRadius
