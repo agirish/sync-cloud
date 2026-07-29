@@ -72,26 +72,43 @@ public enum DestinationBrowser {
     /// *shallowest* matches, which are also the ones a person filing a document is most likely to
     /// mean — and the caps turn an unbounded walk into a predictable one.
     ///
-    /// `limit` counts matches, `maxDepth` counts levels below `root`. Both are hit rather than
-    /// exceeded: the walk stops as soon as it has enough.
+    /// `limit` counts matches, `maxDepth` counts levels below `root`, and `maxListings` counts
+    /// directories actually read. All three are hit rather than exceeded: the walk stops as soon as
+    /// it has enough, or as soon as it has looked hard enough.
+    ///
+    /// `maxListings` is the one that makes the cost predictable, and it is not redundant with the
+    /// other two. `limit` only bites once matches are *found*, so the expensive case is the query
+    /// that matches nothing: without a listing cap, "zzz" reads every directory within six levels of
+    /// the root — tens of thousands of them on a real provider — before it can say "no matches".
+    /// The bound is on listings rather than on the frontier because a listing is the unit of cost.
+    ///
+    /// `isCancelled` is polled per directory. The caller runs this on a detached task, which does
+    /// **not** inherit cancellation, so without an explicit hook every superseded keystroke's walk
+    /// would run to completion behind the one the user is waiting on.
     public static func search(
         _ query: String,
         under root: String,
         showHidden: Bool = false,
         limit: Int = 60,
         maxDepth: Int = 6,
-        fileManager: FileManaging
+        maxListings: Int = 3000,
+        fileManager: FileManaging,
+        isCancelled: () -> Bool = { false }
     ) -> [DestinationFolder] {
         let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty, limit > 0, maxDepth > 0 else { return [] }
+        guard !needle.isEmpty, limit > 0, maxDepth > 0, maxListings > 0 else { return [] }
 
         var matches: [DestinationFolder] = []
         var frontier = [PaneBrowsePath.normalized(root)]
         var depth = 0
+        var listings = 0
 
         while !frontier.isEmpty, depth < maxDepth, matches.count < limit {
             var next: [String] = []
             for directory in frontier {
+                if isCancelled() { return matches }
+                if listings >= maxListings { return matches }
+                listings += 1
                 for folder in subfolders(of: directory, showHidden: showHidden, fileManager: fileManager) {
                     if folder.name.localizedCaseInsensitiveContains(needle) {
                         matches.append(folder)
@@ -154,9 +171,15 @@ public enum DestinationBrowser {
     ///
     /// A path that is not under `root` yields its own parent components, so a result from the
     /// system panel still reads sensibly rather than coming back empty.
+    ///
+    /// The root itself trails **nothing**: there is no level between a folder and itself. Handling
+    /// that explicitly rather than letting it fall through to the outside-the-root branch, which
+    /// answered with the root's own ancestors — `trail(of: "~/Dropbox", under: "~/Dropbox")` came
+    /// back as `["Users", "abhishek"]`, and `crumbs` then read "Dropbox › abhishek › Dropbox".
     public static func trail(of path: String, under root: String) -> [String] {
         let normalizedPath = PaneBrowsePath.normalized(path)
         let normalizedRoot = PaneBrowsePath.normalized(root)
+        if normalizedPath == normalizedRoot { return [] }
         let parent = (normalizedPath as NSString).deletingLastPathComponent
 
         guard !normalizedRoot.isEmpty else {
@@ -168,6 +191,30 @@ public enum DestinationBrowser {
         }
         let relative = String(parent.dropFirst(normalizedRoot.count + 1))
         return [(normalizedRoot as NSString).lastPathComponent] + relative.split(separator: "/").map(String.init)
+    }
+
+    /// The chosen folder as breadcrumb components, with `providerName` standing in for the root's
+    /// own folder name — the picker's footer line, and the one place that has to get the root case
+    /// right, because the rail's "Places" row selects exactly that folder in one click.
+    ///
+    /// Composed here rather than in the view because it is string arithmetic with a boundary case
+    /// at each end (the root itself, and a folder outside the root reached through `Other…`), and
+    /// arithmetic with boundary cases belongs somewhere it can be asserted.
+    public static func crumbs(for path: String, under root: String, providerName: String) -> [String] {
+        let normalizedPath = PaneBrowsePath.normalized(path)
+        guard !normalizedPath.isEmpty else { return [] }
+        let normalizedRoot = PaneBrowsePath.normalized(root)
+        // The root itself is one crumb: the provider. Anything else would repeat its name.
+        if normalizedPath == normalizedRoot { return [providerName] }
+
+        let leaf = (normalizedPath as NSString).lastPathComponent
+        let levels = trail(of: normalizedPath, under: normalizedRoot)
+        // Under the root, `trail` leads with the root's own folder name — drop it and let the
+        // provider's display name stand there instead. Outside it (the `Other…` escape) there is no
+        // such leading component to drop, and the provider's name would be a lie, so the path
+        // speaks for itself.
+        let isUnderRoot = !normalizedRoot.isEmpty && normalizedPath.hasPrefix(normalizedRoot + "/")
+        return isUnderRoot ? [providerName] + levels.dropFirst() + [leaf] : levels + [leaf]
     }
 
     // MARK: - Pre-flight refusals
@@ -189,17 +236,29 @@ public enum DestinationBrowser {
         }
     }
 
-    /// Names among `sources` that already exist in `destination`.
+    /// Names among `sources` that will raise a collision prompt when moved into `destination`.
     ///
-    /// The absolute move is flat — every selected item lands beside the others — so two files of
-    /// the same name from different folders collide with each other's target, and any of them can
-    /// collide with something already there. The collision prompt handles all of that at execution
-    /// time, one modal per item; surfacing the count beforehand is what turns "confirm, then answer
-    /// four questions you did not expect" into a decision made once, up front.
+    /// The absolute move is **flat** — every selected item lands beside the others — which makes two
+    /// separate causes of the same outcome:
+    ///
+    /// 1. The name is already taken in `destination`.
+    /// 2. Two selected items share a name. They derive the *same* target, so the first arrives and
+    ///    the second collides with it. Nothing on disk has to be in the way for this, which is why
+    ///    a pure existence check misses it entirely.
+    ///
+    /// The collision prompt handles both at execution time, one modal per item; surfacing the count
+    /// beforehand is what turns "confirm, then answer four questions you did not expect" into a
+    /// decision made once, up front. Reporting both together is right because the user-visible
+    /// consequence is identical — a prompt, per name — and a preview that covered only the first
+    /// cause would still leave the second arriving unannounced.
+    ///
+    /// De-duplicated and in selection order: the names are what the footer counts, and a name that
+    /// collides for both reasons at once is still one prompt.
     ///
     /// An item already sitting in `destination` is NOT a collision with itself — it is the
     /// already-there case, which `allSourcesAlreadyIn` answers and which a move skips rather than
-    /// prompts about.
+    /// prompts about. It can still be the thing a *different* selected item collides with, and the
+    /// existence check catches that on its own.
     public static func collidingNames(
         movingFrom sources: [String],
         into destination: String,
@@ -207,13 +266,25 @@ public enum DestinationBrowser {
     ) -> [String] {
         let target = PaneBrowsePath.normalized(destination)
         guard !target.isEmpty else { return [] }
-        return sources.compactMap { source in
-            let normalized = PaneBrowsePath.normalized(source)
-            guard (normalized as NSString).deletingLastPathComponent != target else { return nil }
-            let name = (normalized as NSString).lastPathComponent
-            let candidate = (target as NSString).appendingPathComponent(name)
-            return fileManager.fileExists(atPath: candidate) ? name : nil
+
+        let names = sources.map { (PaneBrowsePath.normalized($0) as NSString).lastPathComponent }
+        var seen: Set<String> = []
+        var sharedWithinSelection: Set<String> = []
+        for name in names where !seen.insert(name).inserted {
+            sharedWithinSelection.insert(name)
         }
+
+        var reported: Set<String> = []
+        var ordered: [String] = []
+        for (source, name) in zip(sources, names) {
+            let normalized = PaneBrowsePath.normalized(source)
+            let isAlreadyThere = (normalized as NSString).deletingLastPathComponent == target
+            let takenAtTarget = !isAlreadyThere
+                && fileManager.fileExists(atPath: (target as NSString).appendingPathComponent(name))
+            guard takenAtTarget || sharedWithinSelection.contains(name) else { continue }
+            if reported.insert(name).inserted { ordered.append(name) }
+        }
+        return ordered
     }
 
     /// Whether every one of `sources` already sits directly in `destination`, so a move would do

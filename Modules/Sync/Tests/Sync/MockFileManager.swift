@@ -35,6 +35,12 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     /// The returned existence reflects state *before* the callback runs, matching a real stat.
     public var onFileExists: ((String) -> Void)?
 
+    /// Invoked once per `enumerator(at:…)` call, with the directory being listed. A listing is the
+    /// unit of cost for a tree walk, so this is what a test asserting a walk's *budget* counts —
+    /// counting entries or `fileExists` calls instead would measure the fixture's shape rather than
+    /// how far the walk went.
+    public var onEnumerate: ((URL) -> Void)?
+
     public func fileExists(atPath path: String) -> Bool {
         sync {
             let exists = virtualDisk.keys.contains(path)
@@ -262,6 +268,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     }
 
     public func enumerator(at url: URL, includingPropertiesForKeys keys: [URLResourceKey]?, options mask: FileManager.DirectoryEnumerationOptions, errorHandler handler: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
+        onEnumerate?(url)
         if let gate = enumeratorGate {
             gateLock.lock(); let first = !gateFired; if first { gateFired = true }; gateLock.unlock()
             if first {

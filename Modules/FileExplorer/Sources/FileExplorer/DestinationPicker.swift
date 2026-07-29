@@ -108,6 +108,10 @@ public struct DestinationPicker: View {
     @State private var highlighted: String = ""
     @State private var query = ""
     @State private var matches: [DestinationFolder] = []
+    /// Whether a walk is in flight. Distinguishes "still looking" from "looked, found nothing" —
+    /// the same distinction the columns draw with their spinner. Without it the results pane
+    /// asserted "No folders match" from the first keystroke, before anything had been read.
+    @State private var isSearchRunning = false
     /// Per-directory listings. Absent means "not asked yet"; the column shows a spinner until it
     /// lands, which is what distinguishes loading from a genuinely empty folder.
     @State private var listings: [String: [DestinationFolder]] = [:]
@@ -398,10 +402,16 @@ public struct DestinationPicker: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 if ranked.isEmpty {
-                    Text("No folders match “\(query)”")
-                        .scaledFont(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .padding(20)
+                    // Only claim there is nothing once the walk has actually finished. Saying it
+                    // while still reading directories is a wrong answer that then corrects itself.
+                    if isSearchRunning {
+                        ProgressView().controlSize(.small).padding(20)
+                    } else {
+                        Text("No folders match “\(query)”")
+                            .scaledFont(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .padding(20)
+                    }
                 } else {
                     ForEach(ranked) { folder in
                         DestinationResultRow(
@@ -477,12 +487,17 @@ public struct DestinationPicker: View {
     /// What the collision preview says. Names the file when there is one, because the name is the
     /// whole question; counts when there are several, because a list of five would push the buttons
     /// off the row. The full list is the tooltip either way.
+    ///
+    /// "Conflicts", not "already exists": a name can collide because the destination holds it OR
+    /// because two selected items share it and land on the same flat target. Both end in the same
+    /// prompt, and one line that names the outcome covers both without asserting a cause that is
+    /// only half the time true.
     private var collisionSummary: String {
         let folder = displayName(of: highlighted)
         if collidingNames.count == 1 {
-            return "“\(collidingNames[0])” already exists in \(folder) — you'll be asked what to do."
+            return "“\(collidingNames[0])” conflicts in \(folder) — you'll be asked what to do."
         }
-        return "\(collidingNames.count) of \(request.sourcePaths.count) names already exist in \(folder) — you'll be asked about each."
+        return "\(collidingNames.count) of \(request.sourcePaths.count) names conflict in \(folder) — you'll be asked about each."
     }
 
     /// The chosen folder as a breadcrumb, matching the pane headers rather than a raw path.
@@ -491,10 +506,8 @@ public struct DestinationPicker: View {
     /// "…ocuments/Family/Ajji & Tata" reads as a broken string, not a location. Components let the
     /// leading ones drop cleanly and keep the folder you actually chose, which is the end.
     private var destinationCrumbs: some View {
-        let components = highlighted.isEmpty
-            ? []
-            : [request.providerName] + DestinationBrowser.trail(of: highlighted, under: root).dropFirst()
-                                     + [(highlighted as NSString).lastPathComponent]
+        let components = DestinationBrowser.crumbs(for: highlighted, under: root,
+                                                   providerName: request.providerName)
         return HStack(spacing: 4) {
             Image(systemName: "folder.fill")
                 .scaledFont(.system(size: 10))
@@ -591,18 +604,28 @@ public struct DestinationPicker: View {
         let needle = query
         guard !needle.trimmingCharacters(in: .whitespaces).isEmpty else {
             matches = []
+            isSearchRunning = false
             return
         }
         // Debounced: typing a folder name fires this per keystroke, and each run is a bounded but
-        // real directory walk. Cancellation alone is not enough — the walk is synchronous inside
-        // the detached task, so the cheapest fix is not to start it.
+        // real directory walk, so the cheapest saving is not to start most of them.
         try? await Task.sleep(for: .milliseconds(180))
         guard !Task.isCancelled else { return }
+        isSearchRunning = true
+        defer { isSearchRunning = false }
         let root = root
         let showHidden = showHidden
-        let found = await Task.detached {
-            DestinationBrowser.search(needle, under: root, showHidden: showHidden, fileManager: FileManager.default)
-        }.value
+        // `Task.detached` does NOT inherit cancellation, so a superseded keystroke's walk would
+        // otherwise run to completion behind the one the user is waiting on — six keystrokes into a
+        // folder name, six full walks of the provider, all but one discarded. Bridging this task's
+        // cancellation into the detached one, and polling it per directory inside `search`, is what
+        // makes typing cost one walk rather than one per character.
+        let work = Task.detached {
+            DestinationBrowser.search(needle, under: root, showHidden: showHidden,
+                                      fileManager: FileManager.default,
+                                      isCancelled: { Task.isCancelled })
+        }
+        let found = await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
         guard !Task.isCancelled else { return }
         matches = found
     }

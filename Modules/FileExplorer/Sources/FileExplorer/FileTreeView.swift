@@ -749,16 +749,23 @@ struct FileContextMenu: View {
             // asks a question and one of which does not. Here there is nothing to confuse them
             // with, because the rail drops every comparison item (see below), which is also why it
             // had no way to send a file anywhere at all before this.
+            //
+            // No `.keyboardShortcut` on either, deliberately. This menu is built PER ROW, and
+            // `selectedNodes` falls back to *this row's* node when the selection is empty or does
+            // not contain it — so a window-level key equivalent declared here is bound to whichever
+            // row's menu instance the framework happened to register, and would file a file the
+            // user never pointed at. It is also consulted before the first responder, the reason
+            // `ReviewCardView` and the Differences table both went to `.onKeyPress` instead. A
+            // shortcut for this verb belongs on the window's own command set, keyed off the live
+            // selection — not here.
             if isSingleSource {
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: true) }) {
                     Label(count > 1 ? "Move \(count) items to…" : "Move to…", systemImage: TransferGlyph.move(toRight: true))
                 }
-                .keyboardShortcut("m", modifiers: [.control, .command])
 
                 Button(action: { delegate.handleChooseDestination(selectedNodes, isMove: false) }) {
                     Label(count > 1 ? "Copy \(count) items to…" : "Copy to…", systemImage: TransferGlyph.copy)
                 }
-                .keyboardShortcut("m", modifiers: [.option, .control, .command])
 
                 Divider()
             }
