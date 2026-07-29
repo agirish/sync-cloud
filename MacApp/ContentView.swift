@@ -1016,7 +1016,12 @@ struct ContentView: View {
             GeometryReader { proxy in
                 ZStack {
                     Rectangle()
-                        .fill(Color.black.opacity(glassLevel.overlayScrimOpacity))
+                        // Much lighter than `overlayScrimOpacity`, which DEEPENS for Clear on the
+                        // assumption the card above it is floored to frosted. This card is not:
+                        // it takes the app's level verbatim, so at Clear a heavy scrim would leave
+                        // the clear material with nothing left to reveal. Enough to focus the card,
+                        // not enough to switch the window off.
+                        .fill(Color.black.opacity(0.14))
                         .ignoresSafeArea()
                         // Clicking away cancels, like every other overlay. Nothing has been moved
                         // at this point, so there is nothing to lose by dismissing.
@@ -1059,11 +1064,14 @@ struct ContentView: View {
             onCancel: { pendingDestination = nil }
         )
         .contentSurface(hue: glassHue, tint: surfaceTint)
-        .glassCardStyle(level: glassLevel)
-        .overlay(
-            RoundedRectangle(cornerRadius: LiquidGlass.cardCornerRadius, style: .continuous)
-                .strokeBorder(.quaternary, lineWidth: 0.5)
-        )
+        // `glassCardStyle`'s recipe, but on the RAW level rather than `flooredForChrome`. The floor
+        // exists so a Clear card over dense content doesn't strand its own text at ~9% opacity —
+        // sound for Settings, which is a wall of controls. This card is mostly folder rows over a
+        // light scrim, and the whole point is that it reads at the same level as the panes behind
+        // it: flooring it made Clear indistinguishable from Frosted, which is exactly the
+        // complaint. The branch order is `glassCardStyle`'s: explicit chrome fills then clips,
+        // native glass clips then fills.
+        .modifier(RawLevelCard(level: glassLevel))
         .shadow(color: .black.opacity(0.3), radius: 30, y: 8)
     }
 
@@ -1922,4 +1930,30 @@ struct ContentView: View {
         }
     }
 
+}
+
+/// The floating-card chrome at a level's face value, without `glassCardStyle`'s `flooredForChrome`.
+///
+/// The floor is right for a card that must stay legible over dense content — Settings is a wall of
+/// controls, and clear glass there is two layers of text competing. It is wrong for a card whose
+/// whole job is to read at the same level as the window behind it: flooring Clear to Frosted makes
+/// the two settings indistinguishable, which is precisely what looked wrong.
+///
+/// Kept as two `@ViewBuilder` branches rather than an erased view for the reason `glassCardStyle`
+/// gives: an erased card re-renders whole on every parent update.
+private struct RawLevelCard: ViewModifier {
+    let level: GlassLevel
+
+    func body(content: Content) -> some View {
+        let radius = LiquidGlass.cardCornerRadius
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        Group {
+            if level.needsExplicitChrome {
+                content.glassSurface(level, cornerRadius: radius).clipShape(shape)
+            } else {
+                content.clipShape(shape).glassSurface(level, cornerRadius: radius)
+            }
+        }
+        .overlay(shape.strokeBorder(.quaternary, lineWidth: 0.5))
+    }
 }
