@@ -1953,11 +1953,11 @@ private struct RawLevelCard: ViewModifier {
     /// entirely. `controlBackgroundColor` rather than a hardcoded grey so it follows light/dark,
     /// and the same colour `lensCard` fills with, so a card is a card everywhere.
     ///
-    /// 0.45 rather than a token 0.2: with no ground at all the Organize panel's own empty-state
-    /// copy and its blue "Suggest homes" button read straight through the card, which is not glass
-    /// character but two screens on top of each other. At this value the window is still plainly
-    /// visible behind — the level still means what it says — and nothing behind it is legible.
-    private static let backingOpacity: Double = 0.45
+    /// Tuned against the real window rather than guessed: with no ground the Organize panel's
+    /// empty-state copy and its blue "Suggest homes" button read straight through the card, and at
+    /// 0.45 both were still faintly legible. 0.62 is where the window reads as *behind* the card —
+    /// still plainly there, so the level still means what it says — instead of through it.
+    private static let backingOpacity: Double = 0.62
 
     func body(content: Content) -> some View {
         let radius = LiquidGlass.cardCornerRadius

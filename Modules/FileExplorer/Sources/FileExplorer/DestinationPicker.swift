@@ -348,20 +348,30 @@ public struct DestinationPicker: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(Array(columnDirectories.enumerated()), id: \.element) { depth, directory in
-                        DestinationColumn(
-                            directory: directory,
-                            folders: listings[directory],
-                            highlighted: highlighted,
-                            onPathAt: depth < browsePath.depth ? browsePath.components[depth] : nil,
-                            accent: accent,
-                            onOpen: { folder in open(folder, atDepth: depth) }
-                        )
-                        .frame(width: PaneViewMode.defaultColumnWidth)
+                        // Column and its divider travel as ONE scroll target. Left as siblings, the
+                        // dividers become targets too and the stack can rest a hairline against the
+                        // edge; grouped, every resting position is a column boundary.
+                        HStack(spacing: 0) {
+                            DestinationColumn(
+                                directory: directory,
+                                folders: listings[directory],
+                                highlighted: highlighted,
+                                onPathAt: depth < browsePath.depth ? browsePath.components[depth] : nil,
+                                accent: accent,
+                                onOpen: { folder in open(folder, atDepth: depth) }
+                            )
+                            .frame(width: PaneViewMode.defaultColumnWidth)
+                            Divider()
+                        }
                         .id(directory)
-                        Divider()
                     }
                 }
+                .scrollTargetLayout()
             }
+            // Snap to column boundaries. Without this the stack rests wherever the scroll-to-
+            // trailing left it, which for a card narrower than its columns means a half-column at
+            // the leading edge with every folder name sliced down its middle.
+            .scrollTargetBehavior(.viewAligned)
             .onChange(of: columnDirectories) { _, dirs in
                 guard let last = dirs.last else { return }
                 withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(last, anchor: .trailing) }
