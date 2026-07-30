@@ -37,7 +37,11 @@ public struct FileTreeView: View {
     /// Handles copy, move, delete, rename, focus, and other file actions.
     public let delegate: FileActionDelegate
 
-    /// Diff status per absolute node path for this pane (precomputed by the caller).
+    /// Diff status per absolute node path for this pane (precomputed by the caller), and the index
+    /// this pane actually renders from — `init` forces it to `.empty` on the single-source rail,
+    /// so this property is the one gate for every difference accessory the pane draws (the row's
+    /// own status badge and a folder's contained-difference pill), in both presentations. Reading
+    /// it back gives what will be drawn, not what was handed in.
     public let diffIndex: DiffStatusIndex
 
     /// Display name of the opposite pane's provider, used as the copy/move target in menu labels.
@@ -119,7 +123,12 @@ public struct FileTreeView: View {
         self.otherSelection = otherSelection
         self.isLeft = isLeft
         self.delegate = delegate
-        self.diffIndex = diffIndex
+        // A difference is a statement about the OTHER pane, and the rail has no other pane: Tidy
+        // scans one folder. The badges it drew came from whatever Compare last scanned, so Tidy
+        // showed counts against a provider it isn't looking at — and left them standing after the
+        // scan that produced them was long stale. Emptying the index here, rather than at each of
+        // the three render sites, means neither presentation can reintroduce the badge.
+        self.diffIndex = isSingleSource ? .empty : diffIndex
         self.otherPaneName = otherPaneName ?? (isLeft ? "Right" : "Left")
         self.rootPathIsValid = rootPathIsValid
         self.providerIsEnabled = providerIsEnabled
