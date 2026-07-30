@@ -106,12 +106,11 @@ import UniformTypeIdentifiers
     private func mount(
         _ fixture: Fixture, paneWidth: CGFloat, selection: Set<String>, previewEnabled: Bool,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
-        previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth
+        columnWidth: CGFloat = PaneViewMode.defaultColumnWidth
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
         defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
-        defaults.set(Double(PaneViewMode.defaultColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
-        defaults.set(Double(previewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
+        defaults.set(Double(columnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
         let box = Box()
         box.selection = selection
         box.browsePath = browsePath
@@ -188,24 +187,23 @@ import UniformTypeIdentifiers
     ///
     /// Measured off the stack's document view — the only place the preview's own width is visible,
     /// since the column contains no AppKit view of its own until Quick Look mounts. Two columns of
-    /// 210 in a 700pt pane leave 280, less than the stored width: a preview obeying only the slack
-    /// would give a document exactly as wide as the pane, and obeying the stored width makes it
-    /// wider. The pane is wide enough that the `room` cap is not what is being measured.
+    /// 260 in a 700pt pane leave 180, less than the 380 the preview asks for: a preview obeying only
+    /// the slack would give a document exactly as wide as the pane, and claiming its own width makes
+    /// it 900, i.e. 200pt of scroll. The pane is wide enough that the `room` cap is not what is being
+    /// measured.
     ///
-    /// The stored width is deliberately NOT `defaultPreviewColumnWidth`: with the default, a pane
-    /// that ignored the setting entirely and fell back to the constant would measure the same, and
-    /// the test would pass over exactly the bug it is here to catch.
+    /// The columns are widened to 260 rather than left at the default, so the numbers this asserts
+    /// cannot be produced by any rule that ignores the live column width.
     @Test func testASqueezedPreviewWidensTheStackRatherThanShrinking() async throws {
         let fixture = try Fixture()
-        let stored: CGFloat = 300
+        let columns: CGFloat = 260
         let mounted = mount(fixture, paneWidth: 700, selection: [fixture.nestedFile],
                             previewEnabled: true, browsePath: PaneBrowsePath(components: ["Folder"]),
-                            previewWidth: stored)
+                            columnWidth: columns)
         await pump(mounted.window, seconds: 0.3)
-        #expect(columnWidths(in: mounted.host)
-                == [PaneViewMode.defaultColumnWidth, PaneViewMode.defaultColumnWidth])
+        #expect(columnWidths(in: mounted.host) == [columns, columns])
         let document = try #require(stackDocumentWidth(in: mounted.host))
-        #expect(document == 2 * PaneViewMode.defaultColumnWidth + stored)
+        #expect(document == 2 * columns + PaneViewMode.defaultPreviewColumnWidth)
         #expect(document > 700)
         withExtendedLifetime((fixture, mounted)) {}
     }

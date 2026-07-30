@@ -255,6 +255,19 @@ import SwiftUI
         #expect(width == 780)
     }
 
+    /// Widening the preview is the columns' job — the preview owns no dragged width, because as the
+    /// last item in a scrolling stack it can only grow off the right edge (see `PaneViewMode`). So
+    /// narrowing the columns must hand their slack straight to the preview.
+    @Test func testNarrowingTheColumnsWidensThePreview() {
+        let wide = PaneViewMode.previewColumnWidth(paneWidth: 1590, columnWidth: 290, columnCount: 3,
+                                                  preferred: PaneViewMode.defaultPreviewColumnWidth)
+        let narrower = PaneViewMode.previewColumnWidth(paneWidth: 1590, columnWidth: 240, columnCount: 3,
+                                                      preferred: PaneViewMode.defaultPreviewColumnWidth)
+        #expect(wide == 720)
+        #expect(narrower == 870)
+        #expect(narrower > wide)
+    }
+
     @Test func testThePreferredWidthIsClampedToTheLegibleRange() {
         #expect(PaneViewMode.clampPreviewColumnWidth(10) == PaneViewMode.minimumPreviewColumnWidth)
         #expect(PaneViewMode.clampPreviewColumnWidth(5000) == PaneViewMode.maximumPreviewColumnWidth)
@@ -262,22 +275,6 @@ import SwiftUI
         // is what keeps the clamp and the gate consistent.
         #expect(PaneViewMode.minimumPreviewColumnWidth <= PaneViewMode.defaultPreviewColumnWidth)
         #expect(PaneViewMode.defaultPreviewColumnWidth <= PaneViewMode.maximumPreviewColumnWidth)
-    }
-
-    /// The preview's divider is on its LEADING edge, so the drag translation is subtracted: dragging
-    /// left widens it. Getting this sign wrong makes the seam run away from the cursor.
-    @Test func testDraggingThePreviewsDividerLeftWidensIt() {
-        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: -60) == 440)
-        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: 60) == 320)
-    }
-
-    /// Cumulative translation, fixed anchor — the same discipline `draggedColumnWidth` needed, where
-    /// folding the translation into the live width made a drag compound to the maximum immediately.
-    @Test func testThePreviewDragTracksTranslationFromAFixedAnchor() {
-        let steps = [-10, -20, -30].map {
-            PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: CGFloat($0))
-        }
-        #expect(steps == [390, 400, 410])
     }
 
     /// The preview and the trailing deselect filler claim the same slack, so they must never both
