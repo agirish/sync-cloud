@@ -157,35 +157,41 @@ struct PaneColumnsView: View {
         // Push mode shows only the deepest column; the rest of the stack is still in `browsePath`,
         // which is what lets `‹` walk back out and `›` walk back in.
         let visible = usesPush ? Array(directories.suffix(1)) : directories
-        // At rest a single column spans its area — this is the resting state that makes Columns safe
-        // to default to. It is also what push mode renders at every depth. With a preview beside it
-        // the column steps back to `columnWidth`, because a lone list of file names stretched across
-        // most of a window reads as a broken layout rather than a generous one.
-        let spansPane = visible.count == 1 && stackWidth == paneWidth
+        // A single column spans whatever area it has — the whole pane at rest, and the pane minus
+        // the preview once one is showing. This is the resting state that makes Columns safe to
+        // default to, and what push mode renders at every depth.
+        //
+        // It deliberately does NOT step back to `columnWidth` when a preview appears. That left a
+        // narrow column with a band of dead space beside it AND no divider to fix it with: dividers
+        // hang off a column's trailing edge and are only drawn *between* columns, so a lone column
+        // had none, and the seam at the preview belongs to the preview. A column that fills its area
+        // needs no resizing, which is the same reason the resting single column never had a divider
+        // either.
+        let spansStack = visible.count == 1
 
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: !spansPane) {
+            ScrollView(.horizontal, showsIndicators: !spansStack) {
                 HStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element) { offset, directory in
                         let depth = usesPush ? browsePath.depth : offset
                         column(directory: directory, depth: depth,
                                previewSupported: previewSupportable(paneWidth: paneWidth))
-                            .frame(width: spansPane ? stackWidth : columnWidth)
+                            .frame(width: spansStack ? stackWidth : columnWidth)
                             .id(directory)
                             .overlay(alignment: .trailing) {
-                                if !spansPane && offset < visible.count - 1 {
+                                if !spansStack && offset < visible.count - 1 {
                                     divider
                                 }
                             }
                     }
                     trailingDeselectFiller(paneWidth: stackWidth, columnCount: visible.count,
-                                           isSingleColumn: spansPane)
+                                           isSingleColumn: spansStack)
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
                 // rather than a column's own list. See `PaneColumnsOverscrollReturn`.
                 .background(PaneColumnsOverscrollReturn())
             }
-            .scrollDisabled(spansPane)
+            .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
             //
             // Deferred a runloop turn: `onChange` fires while SwiftUI is applying the update that

@@ -113,6 +113,29 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         min(max(width, minimumColumnWidth), maximumColumnWidth)
     }
 
+    /// Marks that `liftColumnWidthOffTheFloor` has run, so it can only ever run once.
+    static let columnWidthFloorLiftKey = "paneColumnWidthFloorLifted"
+
+    /// One-time repair for installs left pinned at `minimumColumnWidth`.
+    ///
+    /// For one build (`924c513`) the preview's width came from the columns' slack, so the only way
+    /// to enlarge a preview was to drag every column narrower — all the way to this floor. `44ffa41`
+    /// gave the preview a width of its own and took that reason away, but the stored 140 stayed
+    /// behind: columns too narrow to read, chosen for a rule that no longer exists.
+    ///
+    /// Deliberately narrow in what it touches. It fires only on a width sitting exactly AT the floor
+    /// — a deliberate 141 is left alone — and it records that it ran, so someone who genuinely wants
+    /// the minimum and drags back to it keeps it forever after. Rewriting a stored preference is not
+    /// something to do twice.
+    public static func liftColumnWidthOffTheFloor(_ defaults: UserDefaults = .standard) {
+        guard !defaults.bool(forKey: columnWidthFloorLiftKey) else { return }
+        defaults.set(true, forKey: columnWidthFloorLiftKey)
+        guard defaults.object(forKey: columnWidthDefaultsKey) != nil,
+              CGFloat(defaults.double(forKey: columnWidthDefaultsKey)) <= minimumColumnWidth
+        else { return }
+        defaults.set(Double(defaultColumnWidth), forKey: columnWidthDefaultsKey)
+    }
+
     /// The width a divider drag has reached, from the width it started at and the gesture's
     /// translation.
     ///

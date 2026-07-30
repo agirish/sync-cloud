@@ -73,6 +73,10 @@ struct SyncCloudApp: App {
             // calls noted above are harmless.
             LiquidGlass.migrateLegacyAppearance()
 
+            // Undo the one thing the preview's old sizing rule made people do to their columns.
+            // Idempotent by its own flag, so the repeat App.init calls noted above are harmless.
+            PaneViewMode.liftColumnWidthOffTheFloor()
+
             // Pin the app's light/dark theme before any window exists, so a pinned appearance is
             // what the first frame draws rather than a flash of the system one. Settings
             // re-applies on change; `.system` (the default) assigns nil — AppKit for "follow

@@ -171,9 +171,14 @@ import UniformTypeIdentifiers
         return found
     }
 
-    /// The load-bearing case: selecting a file must step the list column back to `columnWidth` and
-    /// hand the rest of the pane to the preview. A column still measuring the full pane width is the
-    /// bug this whole suite exists for — the preview would have nowhere to be laid out.
+    /// The load-bearing case: selecting a file must hand part of the pane to the preview. A column
+    /// still measuring the full pane width is the bug this whole suite exists for — the preview
+    /// would have nowhere to be laid out.
+    ///
+    /// The lone column fills what is LEFT rather than stepping back to `columnWidth`. It has no
+    /// divider — dividers are only drawn between columns, and the seam at the preview is the
+    /// preview's — so a column pinned to `columnWidth` here would be narrow, flanked by dead space,
+    /// and impossible to widen. Filling its area is what makes that unnecessary.
     ///
     /// The width is the assertion, and it is a synchronous one: the stack lays out from the
     /// selection, with nothing to wait for. Whether Quick Look has *finished* mounting inside that
@@ -181,9 +186,11 @@ import UniformTypeIdentifiers
     /// case's outcome depend on how busy the test host is.
     @Test func testSelectingAFileShrinksTheColumnToMakeRoomForThePreview() async throws {
         let fixture = try Fixture()
-        let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true)
+        let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                            previewWidth: 420)
         await pump(mounted.window, seconds: 0.3)
-        #expect(columnWidths(in: mounted.host) == [PaneViewMode.defaultColumnWidth])
+        #expect(columnWidths(in: mounted.host) == [570])
+        #expect(stackViewportWidth(in: mounted.host) == 570)
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`), and
         // releasing the window tears the hosted views down.
@@ -224,6 +231,10 @@ import UniformTypeIdentifiers
         await pump(narrow.window, seconds: 0.3)
         #expect(stackViewportWidth(in: wide.host) == 400)
         #expect(stackViewportWidth(in: narrow.host) == 400)
+        // A lone column takes the viewport whatever `columnWidth` says, so both fill it — the case
+        // that used to leave a 150pt column stranded beside a band of dead space.
+        #expect(columnWidths(in: wide.host) == [400])
+        #expect(columnWidths(in: narrow.host) == [400])
         withExtendedLifetime((fixture, wide, narrow)) {}
     }
 

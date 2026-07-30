@@ -117,6 +117,45 @@ import SwiftUI
         #expect(PaneViewMode.clickNavigates(modifiers: [.control, .option]) == false)
     }
 
+    // MARK: - Column-width floor lift
+
+    /// The repair: an install left pinned at the floor by the preview's old sizing rule comes back
+    /// to the default.
+    @Test func testAFlooredColumnWidthIsLiftedToTheDefault() {
+        let d = defaults()
+        d.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        PaneViewMode.liftColumnWidthOffTheFloor(d)
+        #expect(d.double(forKey: PaneViewMode.columnWidthDefaultsKey) == Double(PaneViewMode.defaultColumnWidth))
+    }
+
+    /// Once only. Someone who genuinely wants the minimum and drags back to it must keep it — a
+    /// repair that re-fires every launch is a preference the user cannot express.
+    @Test func testTheLiftNeverFiresTwice() {
+        let d = defaults()
+        d.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        PaneViewMode.liftColumnWidthOffTheFloor(d)
+        d.set(Double(PaneViewMode.minimumColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        PaneViewMode.liftColumnWidthOffTheFloor(d)
+        #expect(d.double(forKey: PaneViewMode.columnWidthDefaultsKey) == Double(PaneViewMode.minimumColumnWidth))
+    }
+
+    /// Only a width sitting exactly at the floor is touched. A deliberate 141 — or any other width a
+    /// user chose — is left exactly as it is.
+    @Test func testTheLiftLeavesEveryDeliberateWidthAlone() {
+        let d = defaults()
+        d.set(Double(PaneViewMode.minimumColumnWidth + 1), forKey: PaneViewMode.columnWidthDefaultsKey)
+        PaneViewMode.liftColumnWidthOffTheFloor(d)
+        #expect(d.double(forKey: PaneViewMode.columnWidthDefaultsKey) == Double(PaneViewMode.minimumColumnWidth + 1))
+    }
+
+    /// An install that never set a width has nothing to repair, and must not be given an explicit
+    /// one — that would freeze today's default into a stored value for good.
+    @Test func testTheLiftLeavesAnUnsetWidthUnset() {
+        let d = defaults()
+        PaneViewMode.liftColumnWidthOffTheFloor(d)
+        #expect(d.object(forKey: PaneViewMode.columnWidthDefaultsKey) == nil)
+    }
+
     // MARK: - Trailing deselect filler
 
     /// The load-bearing case. An overflowing stack must get a filler of exactly zero: the column
