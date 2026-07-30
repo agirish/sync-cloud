@@ -161,6 +161,88 @@ import SwiftUI
         #expect(width == 0)
     }
 
+    // MARK: - Preview column
+
+    /// The whole gate, at the width it turns on. A pane must fit one full column *beside* a minimum
+    /// preview: one point under and the preview would start the stack scrolling sideways because a
+    /// file was clicked, which is the resting-state contract Columns is built on.
+    @Test func testThePreviewNeedsRoomForAFullColumnBesideIt() {
+        let floorWidth = 210 + PaneViewMode.minimumPreviewColumnWidth
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: floorWidth, columnWidth: 210, isEnabled: true, hasPreviewTarget: true))
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: floorWidth - 1, columnWidth: 210, isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// A wider column raises the bar by exactly its own growth — the test that catches a rule
+    /// written against `defaultColumnWidth` instead of the pane's live column width.
+    @Test func testTheGateTracksTheLiveColumnWidth() {
+        let paneWidth = PaneViewMode.maximumColumnWidth + PaneViewMode.minimumPreviewColumnWidth
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: paneWidth, columnWidth: PaneViewMode.maximumColumnWidth,
+            isEnabled: true, hasPreviewTarget: true))
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: paneWidth - 1, columnWidth: PaneViewMode.maximumColumnWidth,
+            isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// Both switches are real switches: no selected file, or the setting off, and there is no
+    /// preview however wide the pane.
+    @Test func testThePreviewNeedsBothATargetAndTheSetting() {
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: 1200, columnWidth: 210, isEnabled: true, hasPreviewTarget: false) == false)
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: 1200, columnWidth: 210, isEnabled: false, hasPreviewTarget: true) == false)
+    }
+
+    /// A pane in push mode shows one pushing column and has no room for a preview beside it. The
+    /// width gate already subsumes this against today's constants; the assertion is here so that
+    /// retuning any of the three can't quietly put a preview into a push-mode pane.
+    @Test func testPushModeNeverShowsAPreview() {
+        let paneWidth = PaneViewMode.pushNavigationBelowWidth - 1
+        #expect(PaneViewMode.usesPushNavigation(paneWidth: paneWidth))
+        #expect(PaneViewMode.showsPreviewColumn(
+            paneWidth: paneWidth, columnWidth: PaneViewMode.minimumColumnWidth,
+            isEnabled: true, hasPreviewTarget: true) == false)
+    }
+
+    /// The common case — one column of files and a preview — fills the pane exactly, so there is
+    /// nothing to scroll. `990 - 210` is the arithmetic; the point is that it is the *whole*
+    /// remainder, not a fixed width.
+    @Test func testThePreviewTakesEveryPointTheColumnsLeave() {
+        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1) == 780)
+        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 3) == 360)
+    }
+
+    /// A fractional pane width must round DOWN. Rounding up puts the stack's content one point past
+    /// the pane and hangs a scrollbar under a stack that fits.
+    @Test func testThePreviewRoundsDownSoAnExactFitStaysAnExactFit() {
+        let width = PaneViewMode.previewColumnWidth(paneWidth: 990.7, columnWidth: 210, columnCount: 1)
+        #expect(width == 780)
+        #expect(width + 210 <= 990.7)
+    }
+
+    /// In a stack that already overflows, the remainder is negative — the preview falls back to its
+    /// legible minimum and joins the scrollable width like any other column.
+    @Test func testAnOverflowingStackStillGetsALegiblePreview() {
+        let width = PaneViewMode.previewColumnWidth(paneWidth: 500, columnWidth: 210, columnCount: 3)
+        #expect(width == PaneViewMode.minimumPreviewColumnWidth)
+    }
+
+    /// The preview and the trailing deselect filler claim the same slack, so they must never both
+    /// take it — a filler beside a preview would pad the stack's content past the pane.
+    @Test func testThePreviewAndTheFillerNeverBothTakeTheSlack() {
+        let filler = PaneViewMode.trailingFillerWidth(
+            paneWidth: 990, columnWidth: 210, columnCount: 1,
+            isSingleColumn: false, hasPreviewColumn: true)
+        #expect(filler == 0)
+        // Same geometry without the preview: the slack is the filler's, and it is exactly the width
+        // the preview would otherwise have taken.
+        #expect(PaneViewMode.trailingFillerWidth(
+            paneWidth: 990, columnWidth: 210, columnCount: 1,
+            isSingleColumn: false, hasPreviewColumn: false) == 780)
+    }
+
     @Test func testEveryModeHasDistinctChrome() {
         let symbols = Set(PaneViewMode.allCases.map(\.symbol))
         #expect(symbols.count == PaneViewMode.allCases.count)

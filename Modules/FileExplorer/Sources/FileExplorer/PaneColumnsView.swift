@@ -54,6 +54,10 @@ struct PaneColumnsView: View {
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
     @AppStorage(PaneViewMode.columnWidthDefaultsKey) private var storedColumnWidth: Double =
         Double(PaneViewMode.defaultColumnWidth)
+    /// Whether a selected file gets a preview column, as it does in Finder's column view. Toggled
+    /// from a column's empty-area context menu — the same place Finder keeps its view options.
+    @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
+        PaneViewMode.previewColumnDefault
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// Live width while a divider is being dragged, so the drag doesn't write defaults per frame.
@@ -68,6 +72,18 @@ struct PaneColumnsView: View {
     }
     /// The directories each open column lists, root first.
     private var directories: [String] { browsePath.columnDirectories(treeRoot: treeRoot) }
+
+    /// The file the preview column would show, or `nil` — see `ColumnPreview.item`.
+    ///
+    /// Only on the single-source Tidy rail. A comparison pane is half a window wide and its whole
+    /// job is to be read against the pane beside it; spending a third of it on a preview would take
+    /// that room from the columns doing the comparing. The setting and the layout math are
+    /// surface-agnostic, so this gate is the only thing to relax if the panes should have it too.
+    private var previewItem: ColumnPreviewItem? {
+        guard isSingleSource, previewEnabled, let deepest = directories.last else { return nil }
+        return ColumnPreview.item(selection: selection,
+                                  deepestRows: childrenIndex.children(atPath: deepest) ?? [])
+    }
 
     var body: some View {
         // The measured width feeds the layout directly. It used to be mirrored into @State and read
@@ -86,33 +102,54 @@ struct PaneColumnsView: View {
         // Push mode shows only the deepest column; the rest of the stack is still in `browsePath`,
         // which is what lets `‹` walk back out and `›` walk back in.
         let visible = usesPush ? Array(directories.suffix(1)) : directories
+        let previewTarget = previewItem
+        let showsPreview = PaneViewMode.showsPreviewColumn(
+            paneWidth: paneWidth, columnWidth: columnWidth,
+            isEnabled: previewEnabled, hasPreviewTarget: previewTarget != nil)
         // At rest a single column spans the pane — this is the resting state that makes Columns
         // safe to default to. It is also what push mode renders at every depth.
-        let isSingleColumn = visible.count == 1
+        //
+        // A preview column ends that: the two cannot both have the pane's whole width, and the
+        // preview is only ever shown where there is room for a full column beside it
+        // (`showsPreviewColumn`), so the list column steps back to `columnWidth` and the preview
+        // takes what is left. That is the one case where selecting a file changes the resting
+        // layout, and it is the point of the feature.
+        let spansPane = visible.count == 1 && !showsPreview
 
         ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: !isSingleColumn) {
+            ScrollView(.horizontal, showsIndicators: !spansPane) {
                 HStack(spacing: 0) {
                     ForEach(Array(visible.enumerated()), id: \.element) { offset, directory in
                         let depth = usesPush ? browsePath.depth : offset
-                        column(directory: directory, depth: depth)
-                            .frame(width: isSingleColumn ? paneWidth : columnWidth)
+                        column(directory: directory, depth: depth,
+                               previewSupported: previewSupportable(paneWidth: paneWidth))
+                            .frame(width: spansPane ? paneWidth : columnWidth)
                             .id(directory)
                             .overlay(alignment: .trailing) {
-                                if !isSingleColumn && offset < visible.count - 1 {
+                                // The last list column gets a divider too when the preview follows
+                                // it — dragging that seam resizes the columns and the preview
+                                // absorbs the difference, which is the behaviour you want from it.
+                                if !spansPane && (offset < visible.count - 1 || showsPreview) {
                                     divider
                                 }
                             }
                     }
+                    if showsPreview, let previewTarget {
+                        ColumnPreviewColumn(item: previewTarget)
+                            .frame(width: PaneViewMode.previewColumnWidth(
+                                paneWidth: paneWidth, columnWidth: columnWidth,
+                                columnCount: visible.count))
+                            .id(ColumnPreview.scrollID)
+                    }
                     trailingDeselectFiller(paneWidth: paneWidth, columnCount: visible.count,
-                                           isSingleColumn: isSingleColumn)
+                                           isSingleColumn: spansPane, hasPreviewColumn: showsPreview)
                 }
                 // Inside the ScrollView, so the ancestor walk resolves the STACK's scroll view
                 // rather than a column's own list. See `PaneColumnsOverscrollReturn`.
                 .background(PaneColumnsOverscrollReturn())
             }
-            .scrollDisabled(isSingleColumn)
-            // Keep the deepest column in view as you drill, like Finder.
+            .scrollDisabled(spansPane)
+            // Keep the trailing column in view as you drill, like Finder.
             //
             // Deferred a runloop turn: `onChange` fires while SwiftUI is applying the update that
             // ADDS the new column, so scrolling to its id from here targets a column the stack has
@@ -120,12 +157,41 @@ struct PaneColumnsView: View {
             // half-off the edge until something else moves it. A turn's delay costs nothing
             // visually; the scroll has its own 0.18s animation either way.
             .onChange(of: browsePath) { _, path in
-                guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
-                DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
-                }
+                revealTrailingColumn(proxy, browsePath: path, previewShown: showsPreview)
+            }
+            // A file click grows the stack by the preview column without changing `browsePath` at
+            // the last depth, so the drill handler above never fires and a preview appended to an
+            // already-overflowing stack would open off the right edge.
+            //
+            // Both handlers resolve the target through one function rather than each scrolling to
+            // its own column: a click that both truncates the stack AND shows a preview fires both
+            // in the same turn, and two different targets would be two animations fighting over the
+            // same scroll view — the shape `PaneColumnsOverscrollReturn` exists to clean up after.
+            .onChange(of: previewTarget?.path) { _, _ in
+                revealTrailingColumn(proxy, browsePath: browsePath, previewShown: showsPreview)
             }
         }
+    }
+
+    /// Scrolls the stack's trailing column into view: the preview when there is one, else the
+    /// deepest open column.
+    private func revealTrailingColumn(_ proxy: ScrollViewProxy, browsePath: PaneBrowsePath, previewShown: Bool) {
+        let target = previewShown
+            ? ColumnPreview.scrollID
+            : browsePath.columnDirectories(treeRoot: treeRoot).last
+        guard let target else { return }
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(target, anchor: .trailing) }
+        }
+    }
+
+    /// Whether this pane is wide enough to hold a preview column at all — the gate on *offering* the
+    /// setting. Distinct from `showsPreviewColumn`, which also asks whether a file is selected and
+    /// whether the setting is on: a menu item that vanished whenever the preview it toggles was not
+    /// currently on screen would be unreachable exactly when you wanted to switch it back on.
+    private func previewSupportable(paneWidth: CGFloat) -> Bool {
+        PaneViewMode.showsPreviewColumn(paneWidth: paneWidth, columnWidth: columnWidth,
+                                        isEnabled: true, hasPreviewTarget: true) && isSingleSource
     }
 
     /// The dead space to the right of the last column, made a deselect target so that clicking
@@ -139,10 +205,12 @@ struct PaneColumnsView: View {
     /// Width is zero whenever the stack overflows, so this cannot pad the scroll content — see
     /// `PaneViewMode.trailingFillerWidth`.
     @ViewBuilder
-    private func trailingDeselectFiller(paneWidth: CGFloat, columnCount: Int, isSingleColumn: Bool) -> some View {
+    private func trailingDeselectFiller(paneWidth: CGFloat, columnCount: Int, isSingleColumn: Bool,
+                                        hasPreviewColumn: Bool) -> some View {
         let width = PaneViewMode.trailingFillerWidth(
             paneWidth: paneWidth, columnWidth: columnWidth,
-            columnCount: columnCount, isSingleColumn: isSingleColumn)
+            columnCount: columnCount, isSingleColumn: isSingleColumn,
+            hasPreviewColumn: hasPreviewColumn)
         if width > 0 {
             Color.clear
                 .frame(width: width)
@@ -162,7 +230,7 @@ struct PaneColumnsView: View {
     /// A `List` per column rather than a `LazyVStack`, so `onDeleteCommand`, the selection binding
     /// and `PaneListSelectionStyler` keep working instead of being reimplemented three times over.
     @ViewBuilder
-    private func column(directory: String, depth: Int) -> some View {
+    private func column(directory: String, depth: Int, previewSupported: Bool) -> some View {
         let rows = childrenIndex.children(atPath: directory) ?? []
         List(selection: columnSelection(for: rows, depth: depth)) {
             ForEach(rows) { row in
@@ -210,6 +278,15 @@ struct PaneColumnsView: View {
             }
             Divider()
             SharedFileMenuItems.getInfo(for: directory, delegate: delegate)
+            // The pane's view options live where Finder keeps its own — the empty-area menu of the
+            // very columns they restack. Deliberately NOT in `FileContextMenu`: that menu is built
+            // per row, so anything in it exists once per visible file.
+            if previewSupported {
+                Divider()
+                Toggle(isOn: $previewEnabled) {
+                    Label("Show Preview", systemImage: "sidebar.right")
+                }
+            }
         }
     }
 

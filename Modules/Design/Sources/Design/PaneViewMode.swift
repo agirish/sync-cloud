@@ -136,14 +136,71 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     ///
     /// A single column is framed to the full pane width rather than `columnWidth`, so it leaves no
     /// slack either — which also covers push mode, where exactly one column is ever visible.
+    ///
+    /// A preview column takes the same slack (`previewColumnWidth`), so the two must never both
+    /// claim it: `hasPreviewColumn` zeroes this outright rather than sharing what is left.
     public static func trailingFillerWidth(
         paneWidth: CGFloat,
         columnWidth: CGFloat,
         columnCount: Int,
-        isSingleColumn: Bool
+        isSingleColumn: Bool,
+        hasPreviewColumn: Bool = false
     ) -> CGFloat {
-        guard !isSingleColumn else { return 0 }
+        guard !isSingleColumn, !hasPreviewColumn else { return 0 }
         return max(0, paneWidth - CGFloat(columnCount) * columnWidth)
+    }
+
+    // MARK: - Preview column
+
+    /// Whether a Columns pane appends a Quick Look preview column for a selected file, as Finder's
+    /// column view does. On by default; toggled from a column's empty-area context menu.
+    ///
+    /// Shared by both panes and the Tidy rail, like `columnWidthDefaultsKey`: this is a reading
+    /// preference ("do I want to see file contents while I browse"), not a per-surface layout choice.
+    public static let previewColumnDefaultsKey = "paneColumnShowsPreview"
+    public static let previewColumnDefault = true
+
+    /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
+    /// content and the identity lines below it (`kind · size`, the dates) start truncating.
+    public static let minimumPreviewColumnWidth: CGFloat = 220
+
+    /// Whether a pane this wide will show the preview column for a selected file.
+    ///
+    /// The width test is the whole rule: a preview may only ever take slack the list columns are not
+    /// using, so the pane must fit one full column *beside* a minimum preview. Without it, selecting
+    /// a file in a pane 300pt wide would start the stack scrolling horizontally — a resting pane that
+    /// jumps sideways because you clicked a file, which is exactly what Columns' resting-state
+    /// contract is about not doing.
+    ///
+    /// The push-mode test is redundant against today's constants (`minimumColumnWidth` + a minimum
+    /// preview is well past `pushNavigationBelowWidth`) and is stated anyway, so that retuning any
+    /// one of the three can't quietly put a preview into a pane that shows one pushing column.
+    public static func showsPreviewColumn(
+        paneWidth: CGFloat,
+        columnWidth: CGFloat,
+        isEnabled: Bool,
+        hasPreviewTarget: Bool
+    ) -> Bool {
+        guard isEnabled, hasPreviewTarget, !usesPushNavigation(paneWidth: paneWidth) else { return false }
+        return paneWidth >= columnWidth + minimumPreviewColumnWidth
+    }
+
+    /// Width of the preview column: every point the list columns leave unused, floored at the
+    /// legible minimum.
+    ///
+    /// Taking the slack (rather than a fixed width) is what Finder does, and it is what keeps the
+    /// common case — one column of files and a preview — filling the pane with nothing to scroll.
+    /// `floor` matters: at the exact fit the stack's content width must not round *past* the pane
+    /// and put a scrollbar under a stack that fits.
+    ///
+    /// The floor can exceed the slack in a deep stack, where the whole stack already scrolls; the
+    /// preview then adds to the scrollable width like any other column.
+    public static func previewColumnWidth(
+        paneWidth: CGFloat,
+        columnWidth: CGFloat,
+        columnCount: Int
+    ) -> CGFloat {
+        max(minimumPreviewColumnWidth, (paneWidth - CGFloat(columnCount) * columnWidth).rounded(.down))
     }
 
     /// Whether a click on a column row (or on a pane's empty space) should navigate, or be left
