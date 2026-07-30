@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import Sync
+import UniformTypeIdentifiers
 @testable import FileExplorer
 
 /// The two rules behind the Columns preview column: *which* file it shows, and *whether* that file
@@ -20,7 +21,7 @@ import Sync
             FileNode(id: "\(dir)/School", name: "School", isDirectory: true, children: []),
             FileNode(id: "\(dir)/scan.pdf", name: "scan.pdf", isDirectory: false,
                      modificationDate: Date(timeIntervalSince1970: 1_700_000_000),
-                     fileSize: 37_000, kind: "PDF document"),
+                     fileSize: 37_000, kind: "com.adobe.pdf"),
             FileNode(id: "\(dir)/notes.txt", name: "notes.txt", isDirectory: false),
         ]
         return PaneRow.project(nodes, side: .left, version: 1)
@@ -35,7 +36,7 @@ import Sync
         #expect(item.name == "scan.pdf")
         // The scalars the identity block renders come across intact — a preview whose caption says
         // nothing is most of the feature missing.
-        #expect(item.kind == "PDF document")
+        #expect(item.kind == UTType.pdf.localizedDescription)
         #expect(item.fileSize == 37_000)
         #expect(item.modified == Date(timeIntervalSince1970: 1_700_000_000))
     }
@@ -76,6 +77,23 @@ import Sync
     @Test func testThePreviewScrollIDCannotBeAPath() {
         #expect(ColumnPreview.scrollID.hasPrefix("/") == false)
         #expect(ColumnPreview.scrollID.contains("\u{0}"))
+    }
+
+    /// `FileNode.kind` holds a raw UTI, because that is what the Kind sort and the `kind:` search
+    /// filter compare. A caption saying `com.adobe.pdf` — which is what shipped — is the identifier
+    /// leaking through to a human.
+    @Test func testTheKindReadsAsATypeRatherThanAnIdentifier() throws {
+        let described = try #require(ColumnPreviewItem.describe(uti: "com.adobe.pdf"))
+        #expect(described == UTType.pdf.localizedDescription)
+        #expect(described.contains("com.adobe") == false)
+    }
+
+    /// An unrecognised or dynamic type yields nothing at all. Falling back to the raw identifier
+    /// would put `dyn.ah62d4rv4ge8086p` under the preview, which says less than an empty line.
+    @Test func testAnUnknownTypeIsOmittedRatherThanShownRaw() {
+        #expect(ColumnPreviewItem.describe(uti: nil) == nil)
+        #expect(ColumnPreviewItem.describe(uti: "") == nil)
+        #expect(ColumnPreviewItem.describe(uti: "not a uti at all") == nil)
     }
 
     // MARK: - Whether Quick Look may see it

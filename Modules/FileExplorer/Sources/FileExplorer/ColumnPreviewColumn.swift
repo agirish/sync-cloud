@@ -4,6 +4,7 @@ import Events
 import Quartz
 import SwiftUI
 import Sync
+import UniformTypeIdentifiers
 
 /// The file a Columns pane's preview column is showing, reduced to scalars.
 ///
@@ -13,7 +14,7 @@ import Sync
 struct ColumnPreviewItem: Equatable {
     let path: String
     let name: String
-    /// The system's human-readable type ("PDF document"), when the walk resolved one.
+    /// The file's type, ready to read: "PDF document", not `com.adobe.pdf`.
     let kind: String?
     let fileSize: Int?
     let modified: Date?
@@ -21,9 +22,24 @@ struct ColumnPreviewItem: Equatable {
     init(row: PaneRow) {
         self.path = row.node.id
         self.name = row.node.name
-        self.kind = row.node.kind
+        self.kind = Self.describe(uti: row.node.kind)
         self.fileSize = row.node.fileSize
         self.modified = row.node.modificationDate
+    }
+
+    /// Turns the walk's raw type identifier into the description Finder shows.
+    ///
+    /// `FileNode.kind` holds `URLResourceValues.typeIdentifier` — a UTI — because that is what the
+    /// Kind *sort* compares and what `kind:` search filters match; localizing it at the source would
+    /// change both, and reorder every pane. So the translation happens here, at the one place a human
+    /// reads it.
+    ///
+    /// An unrecognised type yields nothing rather than the raw identifier: `com.adobe.pdf` in a
+    /// caption is worse than no caption, and a `dyn.…` placeholder says nothing at all.
+    static func describe(uti: String?) -> String? {
+        guard let uti, let type = UTType(uti), let description = type.localizedDescription
+        else { return nil }
+        return description
     }
 }
 
@@ -145,10 +161,11 @@ struct ColumnPreviewColumn: View {
             identity
         }
         .padding(16)
-        // The column takes every point the list columns leave (as Finder's does), but its CONTENT
-        // stops widening: a name and four metadata rows stretched across 700pt read as a form, not
-        // as a caption under a preview.
-        .frame(maxWidth: 460)
+        // The content fills the column rather than capping at a "readable" width. The column's width
+        // is now a deliberate choice — dragged from its divider and remembered — so capping the
+        // content would mean widening the preview did nothing but add margins, which is precisely
+        // what someone dragging it wider is asking not to happen. The metadata rows below spread
+        // label-left / value-right, as Finder's do at any width.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // No click catcher of its own, deliberately. The pane's deselect recognizers hang off each
         // column's own table view, so a click here cannot reach one — and a SwiftUI tap gesture

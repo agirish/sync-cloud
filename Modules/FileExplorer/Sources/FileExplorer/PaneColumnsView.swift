@@ -58,6 +58,10 @@ struct PaneColumnsView: View {
     /// from a column's empty-area context menu — the same place Finder keeps its view options.
     @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
         PaneViewMode.previewColumnDefault
+    /// The preview's own width — its divider drags this, not the columns'. See
+    /// `PaneViewMode.previewColumnWidthDefaultsKey`.
+    @AppStorage(PaneViewMode.previewColumnWidthDefaultsKey) private var storedPreviewWidth: Double =
+        Double(PaneViewMode.defaultPreviewColumnWidth)
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
 
     /// Live width while a divider is being dragged, so the drag doesn't write defaults per frame.
@@ -65,10 +69,18 @@ struct PaneColumnsView: View {
     /// The column width the current divider drag started from. `DragGesture.translation` is
     /// cumulative, so the anchor must not move while the drag runs.
     @State private var dragAnchorWidth: CGFloat?
+    /// The same two, for the preview's divider. Kept apart from the columns' pair rather than shared:
+    /// one set of scratch state for two dividers that resize different things is a drag on one
+    /// silently continuing from the other's anchor.
+    @State private var dragPreviewWidth: CGFloat?
+    @State private var dragPreviewAnchor: CGFloat?
 
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var columnWidth: CGFloat {
         PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
+    }
+    private var preferredPreviewWidth: CGFloat {
+        PaneViewMode.clampPreviewColumnWidth(dragPreviewWidth ?? CGFloat(storedPreviewWidth))
     }
     /// The directories each open column lists, root first.
     private var directories: [String] { browsePath.columnDirectories(treeRoot: treeRoot) }
@@ -127,18 +139,21 @@ struct PaneColumnsView: View {
                             .id(directory)
                             .overlay(alignment: .trailing) {
                                 // The last list column gets a divider too when the preview follows
-                                // it — dragging that seam resizes the columns and the preview
-                                // absorbs the difference, which is the behaviour you want from it.
-                                if !spansPane && (offset < visible.count - 1 || showsPreview) {
+                                // it — and that one is the PREVIEW's, because the preview is what
+                                // you want to resize there. Every other divider still resizes the
+                                // columns, so both widths stay reachable in any stack that has a
+                                // second column to drag.
+                                if !spansPane && offset < visible.count - 1 {
                                     divider
+                                } else if !spansPane && showsPreview {
+                                    previewDivider(rendered: previewWidth(paneWidth: paneWidth,
+                                                                         columnCount: visible.count))
                                 }
                             }
                     }
                     if showsPreview, let previewTarget {
                         ColumnPreviewColumn(item: previewTarget)
-                            .frame(width: PaneViewMode.previewColumnWidth(
-                                paneWidth: paneWidth, columnWidth: columnWidth,
-                                columnCount: visible.count))
+                            .frame(width: previewWidth(paneWidth: paneWidth, columnCount: visible.count))
                             .id(ColumnPreview.scrollID)
                     }
                     trailingDeselectFiller(paneWidth: paneWidth, columnCount: visible.count,
@@ -171,6 +186,13 @@ struct PaneColumnsView: View {
                 revealTrailingColumn(proxy, browsePath: browsePath, previewShown: showsPreview)
             }
         }
+    }
+
+    /// The preview column's laid-out width, from the pane's geometry and the width the user has
+    /// dragged it to.
+    private func previewWidth(paneWidth: CGFloat, columnCount: Int) -> CGFloat {
+        PaneViewMode.previewColumnWidth(paneWidth: paneWidth, columnWidth: columnWidth,
+                                        columnCount: columnCount, preferred: preferredPreviewWidth)
     }
 
     /// Scrolls the stack's trailing column into view: the preview when there is one, else the
@@ -477,6 +499,51 @@ struct PaneColumnsView: View {
     /// The draggable seam between two columns. Writes defaults only when the drag ends, so a drag
     /// doesn't churn UserDefaults every frame.
     private var divider: some View {
+        dividerChrome {
+            DragGesture(coordinateSpace: .global)
+                .onChanged { value in
+                    // Capture the starting width once; `translation` is cumulative, so
+                    // folding it into the live width compounds every frame.
+                    let anchor = dragAnchorWidth ?? columnWidth
+                    if dragAnchorWidth == nil { dragAnchorWidth = anchor }
+                    dragWidth = PaneViewMode.draggedColumnWidth(anchor: anchor,
+                                                                translation: value.translation.width)
+                }
+                .onEnded { _ in
+                    if let dragWidth { storedColumnWidth = Double(dragWidth) }
+                    dragWidth = nil
+                    dragAnchorWidth = nil
+                }
+        }
+    }
+
+    /// The seam between the last column and the preview, which resizes the PREVIEW: dragging it left
+    /// widens the preview, as it does in Finder.
+    ///
+    /// - Parameter rendered: the preview's current laid-out width, which is what the drag starts
+    ///   from. Not the stored preference: while the preview is absorbing slack it is wider than the
+    ///   stored number, and anchoring on the stored one would make the first pixel of a drag jump the
+    ///   seam by the difference.
+    private func previewDivider(rendered: CGFloat) -> some View {
+        dividerChrome {
+            DragGesture(coordinateSpace: .global)
+                .onChanged { value in
+                    let anchor = dragPreviewAnchor ?? rendered
+                    if dragPreviewAnchor == nil { dragPreviewAnchor = anchor }
+                    dragPreviewWidth = PaneViewMode.draggedPreviewColumnWidth(
+                        anchor: anchor, translation: value.translation.width)
+                }
+                .onEnded { _ in
+                    if let dragPreviewWidth { storedPreviewWidth = Double(dragPreviewWidth) }
+                    dragPreviewWidth = nil
+                    dragPreviewAnchor = nil
+                }
+        }
+    }
+
+    /// The seam both dividers are drawn as — one hairline and a 9pt grab strip. Shared so the two
+    /// cannot drift apart visually; only the gesture differs.
+    private func dividerChrome<G: Gesture>(gesture: () -> G) -> some View {
         Rectangle()
             .fill(Color.primary.opacity(0.08))
             .frame(width: 1)
@@ -486,22 +553,7 @@ struct PaneColumnsView: View {
                     .frame(width: 9)
                     .contentShape(Rectangle())
                     .onHover { NSCursor.resizeLeftRight.set(); if !$0 { NSCursor.arrow.set() } }
-                    .gesture(
-                        DragGesture(coordinateSpace: .global)
-                            .onChanged { value in
-                                // Capture the starting width once; `translation` is cumulative, so
-                                // folding it into the live width compounds every frame.
-                                let anchor = dragAnchorWidth ?? columnWidth
-                                if dragAnchorWidth == nil { dragAnchorWidth = anchor }
-                                dragWidth = PaneViewMode.draggedColumnWidth(anchor: anchor,
-                                                                            translation: value.translation.width)
-                            }
-                            .onEnded { _ in
-                                if let dragWidth { storedColumnWidth = Double(dragWidth) }
-                                dragWidth = nil
-                                dragAnchorWidth = nil
-                            }
-                    )
+                    .gesture(gesture())
             }
     }
 }

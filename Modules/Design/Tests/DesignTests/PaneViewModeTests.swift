@@ -210,23 +210,74 @@ import SwiftUI
     /// nothing to scroll. `990 - 210` is the arithmetic; the point is that it is the *whole*
     /// remainder, not a fixed width.
     @Test func testThePreviewTakesEveryPointTheColumnsLeave() {
-        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1) == 780)
-        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 3) == 360)
+        let preferred = PaneViewMode.defaultPreviewColumnWidth
+        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1,
+                                                preferred: preferred) == 780)
+        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 2,
+                                                preferred: preferred) == 570)
     }
 
     /// A fractional pane width must round DOWN. Rounding up puts the stack's content one point past
     /// the pane and hangs a scrollbar under a stack that fits.
     @Test func testThePreviewRoundsDownSoAnExactFitStaysAnExactFit() {
-        let width = PaneViewMode.previewColumnWidth(paneWidth: 990.7, columnWidth: 210, columnCount: 1)
+        let width = PaneViewMode.previewColumnWidth(
+            paneWidth: 990.7, columnWidth: 210, columnCount: 1,
+            preferred: PaneViewMode.defaultPreviewColumnWidth)
         #expect(width == 780)
         #expect(width + 210 <= 990.7)
     }
 
-    /// In a stack that already overflows, the remainder is negative — the preview falls back to its
-    /// legible minimum and joins the scrollable width like any other column.
-    @Test func testAnOverflowingStackStillGetsALegiblePreview() {
-        let width = PaneViewMode.previewColumnWidth(paneWidth: 500, columnWidth: 210, columnCount: 3)
-        #expect(width == PaneViewMode.minimumPreviewColumnWidth)
+    /// The case that sent this back for a second round: four columns in a 910pt pane leave 270pt,
+    /// which is a strip too narrow to read a page in. Below its preferred width the preview stops
+    /// taking what's left over and claims its own, and the stack scrolls — as it already does when
+    /// the columns alone overflow.
+    @Test func testASqueezedPreviewClaimsItsPreferredWidthInstead() {
+        let width = PaneViewMode.previewColumnWidth(paneWidth: 910, columnWidth: 160, columnCount: 4,
+                                                    preferred: 380)
+        #expect(width == 380)
+        #expect(width > 910 - 4 * 160)
+    }
+
+    /// …but never past the pane minus one column. A preview wider than that pushes the column it
+    /// belongs to off the left edge, so you can no longer see what is selected.
+    @Test func testThePreviewNeverPushesItsOwnColumnOffScreen() {
+        let width = PaneViewMode.previewColumnWidth(paneWidth: 500, columnWidth: 210, columnCount: 3,
+                                                    preferred: PaneViewMode.maximumPreviewColumnWidth)
+        #expect(width == 290)
+        #expect(width + 210 <= 500)
+    }
+
+    /// Slack still wins when there is more of it than asked for: a lone column in a wide pane leaves
+    /// the preview the rest, so the common case has nothing to scroll and no dead strip on the right.
+    @Test func testAmpleSlackStillBeatsThePreferredWidth() {
+        let width = PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1,
+                                                    preferred: 380)
+        #expect(width == 780)
+    }
+
+    @Test func testThePreferredWidthIsClampedToTheLegibleRange() {
+        #expect(PaneViewMode.clampPreviewColumnWidth(10) == PaneViewMode.minimumPreviewColumnWidth)
+        #expect(PaneViewMode.clampPreviewColumnWidth(5000) == PaneViewMode.maximumPreviewColumnWidth)
+        // A pane too narrow to honour even the clamped minimum never shows a preview at all, which
+        // is what keeps the clamp and the gate consistent.
+        #expect(PaneViewMode.minimumPreviewColumnWidth <= PaneViewMode.defaultPreviewColumnWidth)
+        #expect(PaneViewMode.defaultPreviewColumnWidth <= PaneViewMode.maximumPreviewColumnWidth)
+    }
+
+    /// The preview's divider is on its LEADING edge, so the drag translation is subtracted: dragging
+    /// left widens it. Getting this sign wrong makes the seam run away from the cursor.
+    @Test func testDraggingThePreviewsDividerLeftWidensIt() {
+        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: -60) == 440)
+        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: 60) == 320)
+    }
+
+    /// Cumulative translation, fixed anchor — the same discipline `draggedColumnWidth` needed, where
+    /// folding the translation into the live width made a drag compound to the maximum immediately.
+    @Test func testThePreviewDragTracksTranslationFromAFixedAnchor() {
+        let steps = [-10, -20, -30].map {
+            PaneViewMode.draggedPreviewColumnWidth(anchor: 380, translation: CGFloat($0))
+        }
+        #expect(steps == [390, 400, 410])
     }
 
     /// The preview and the trailing deselect filler claim the same slack, so they must never both

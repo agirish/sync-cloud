@@ -4,6 +4,7 @@ import Design
 import Quartz
 import SwiftUI
 import Sync
+import UniformTypeIdentifiers
 @testable import FileExplorer
 
 /// The preview column's *layout*, mounted — the half `ColumnPreviewTests` cannot see.
@@ -47,6 +48,8 @@ import Sync
     private final class Fixture {
         let root: String
         let file: String
+        /// A file one level down, for the stacks that need two columns open.
+        let nestedFile: String
         init() throws {
             let dir = URL(fileURLWithPath: NSTemporaryDirectory())
                 .appendingPathComponent("ColumnPreviewLayoutTests-\(UUID().uuidString)")
@@ -55,15 +58,22 @@ import Sync
             let note = dir.appendingPathComponent("note.txt")
             try Data("hello".utf8).write(to: note)
             file = note.path
-            try FileManager.default.createDirectory(
-                at: dir.appendingPathComponent("Folder"), withIntermediateDirectories: true)
+            let sub = dir.appendingPathComponent("Folder")
+            try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+            let nested = sub.appendingPathComponent("nested.txt")
+            try Data("nested".utf8).write(to: nested)
+            nestedFile = nested.path
         }
         deinit { try? FileManager.default.removeItem(atPath: root) }
 
         func tree() -> PaneTree {
             PaneTree(side: .left, version: 1, nodes: [
-                FileNode(id: "\(root)/Folder", name: "Folder", isDirectory: true, children: []),
-                FileNode(id: file, name: "note.txt", isDirectory: false, fileSize: 5, kind: "Plain text"),
+                FileNode(id: "\(root)/Folder", name: "Folder", isDirectory: true, children: [
+                    FileNode(id: nestedFile, name: "nested.txt", isDirectory: false, fileSize: 6,
+                             kind: UTType.plainText.identifier),
+                ]),
+                FileNode(id: file, name: "note.txt", isDirectory: false, fileSize: 5,
+                         kind: UTType.plainText.identifier),
             ])
         }
     }
@@ -94,13 +104,17 @@ import Sync
 
     /// Mounts the pane at `paneWidth` with `selection` already committed.
     private func mount(
-        _ fixture: Fixture, paneWidth: CGFloat, selection: Set<String>, previewEnabled: Bool
+        _ fixture: Fixture, paneWidth: CGFloat, selection: Set<String>, previewEnabled: Bool,
+        browsePath: PaneBrowsePath = PaneBrowsePath(),
+        previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
         defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(PaneViewMode.defaultColumnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        defaults.set(Double(previewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let box = Box()
         box.selection = selection
+        box.browsePath = browsePath
         let tree = fixture.tree()
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree,
@@ -134,6 +148,12 @@ import Sync
             .compactMap { ($0 as? NSTableView)?.enclosingScrollView?.frame.width }
     }
 
+    /// The column stack's own scroll view is the outermost one; its document view is the `HStack` of
+    /// columns, so this is the stack's full content width — preview included.
+    private func stackDocumentWidth(in view: NSView) -> CGFloat? {
+        descendants(of: view).lazy.compactMap { ($0 as? NSScrollView)?.documentView?.frame.width }.first
+    }
+
     private func descendants(of view: NSView) -> [NSView] {
         var found: [NSView] = []
         func walk(_ v: NSView) {
@@ -160,6 +180,33 @@ import Sync
         // Both must outlive the assertions: releasing `fixture` runs its `deinit`, which DELETES the
         // directory the preview's probe reads (a released fixture classifies as `.missing`), and
         // releasing the window tears the hosted views down.
+        withExtendedLifetime((fixture, mounted)) {}
+    }
+
+    /// The squeezed case, mounted: with the columns filling the pane the preview must claim its
+    /// preferred width and let the stack scroll, rather than taking whatever strip is left.
+    ///
+    /// Measured off the stack's document view — the only place the preview's own width is visible,
+    /// since the column contains no AppKit view of its own until Quick Look mounts. Two columns of
+    /// 210 in a 700pt pane leave 280, less than the stored width: a preview obeying only the slack
+    /// would give a document exactly as wide as the pane, and obeying the stored width makes it
+    /// wider. The pane is wide enough that the `room` cap is not what is being measured.
+    ///
+    /// The stored width is deliberately NOT `defaultPreviewColumnWidth`: with the default, a pane
+    /// that ignored the setting entirely and fell back to the constant would measure the same, and
+    /// the test would pass over exactly the bug it is here to catch.
+    @Test func testASqueezedPreviewWidensTheStackRatherThanShrinking() async throws {
+        let fixture = try Fixture()
+        let stored: CGFloat = 300
+        let mounted = mount(fixture, paneWidth: 700, selection: [fixture.nestedFile],
+                            previewEnabled: true, browsePath: PaneBrowsePath(components: ["Folder"]),
+                            previewWidth: stored)
+        await pump(mounted.window, seconds: 0.3)
+        #expect(columnWidths(in: mounted.host)
+                == [PaneViewMode.defaultColumnWidth, PaneViewMode.defaultColumnWidth])
+        let document = try #require(stackDocumentWidth(in: mounted.host))
+        #expect(document == 2 * PaneViewMode.defaultColumnWidth + stored)
+        #expect(document > 700)
         withExtendedLifetime((fixture, mounted)) {}
     }
 
