@@ -169,8 +169,23 @@ public struct FileTreeView: View {
         DispatchQueue.main.async { onBarEdgeFlip() }
     }
     
-    private func isPathIgnored(_ node: FileNode) -> Bool {
+    /// Whether a pane row should carry the ignored treatment (struck-through name, secondary
+    /// foreground). The single choke point for that decision — both the tree presentation and
+    /// `PaneColumnsView` route through it, so the two can't drift.
+    ///
+    /// Comparison-only, deliberately. `ignoredPaths` means "exclude from the Left↔Right diff": it
+    /// is set and cleared through the row menu's "Ignore in comparison", which `FileContextMenu`
+    /// already drops on the single-source rail because there is nothing over there to compare
+    /// against. Striking the rows anyway told a Tidy user their folders were excluded from
+    /// something Tidy does not do, and offered no way to undo it — so the rail renders every row
+    /// plain. The stored ignores are untouched; Compare still honors them.
+    static func rowIsIgnored(_ node: FileNode, currentPath: String, delegate: FileActionDelegate, isSingleSource: Bool) -> Bool {
+        guard !isSingleSource else { return false }
         return delegate.isNodeIgnored(node, currentPath: currentPath)
+    }
+
+    private func isPathIgnored(_ node: FileNode) -> Bool {
+        Self.rowIsIgnored(node, currentPath: currentPath, delegate: delegate, isSingleSource: isSingleSource)
     }
     
     /// The placeholder to show when the tree has no rows (see `PaneEmptyState.classify`).

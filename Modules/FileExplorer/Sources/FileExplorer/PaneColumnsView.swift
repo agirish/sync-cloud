@@ -222,7 +222,7 @@ struct PaneColumnsView: View {
 
         ColumnRowView(
             row: row,
-            isIgnored: delegate.isNodeIgnored(node, currentPath: treeRoot),
+            isIgnored: FileTreeView.rowIsIgnored(node, currentPath: treeRoot, delegate: delegate, isSingleSource: isSingleSource),
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
