@@ -117,6 +117,21 @@ import SwiftUI
         #expect(PaneViewMode.clickNavigates(modifiers: [.control, .option]) == false)
     }
 
+    // MARK: - Preview toggle
+
+    /// The toggle is offered only where flipping it does something: the single-source rail, in
+    /// Columns. A switch wired to nothing is worse than no switch.
+    @Test func testThePreviewToggleIsOfferedOnlyWhereAPreviewCanAppear() {
+        #expect(PaneViewMode.showsPreviewToggle(mode: .columns, isSingleSource: true))
+        // Tree mode has no preview to show…
+        #expect(PaneViewMode.showsPreviewToggle(mode: .tree, isSingleSource: true) == false)
+        // …and a comparison pane does not get one either, which is the same gate
+        // `PaneColumnsView.previewItem` applies. The two must agree, or the header offers a control
+        // the pane ignores.
+        #expect(PaneViewMode.showsPreviewToggle(mode: .columns, isSingleSource: false) == false)
+        #expect(PaneViewMode.showsPreviewToggle(mode: .tree, isSingleSource: false) == false)
+    }
+
     // MARK: - Column-width floor lift
 
     /// The repair: an install left pinned at the floor by the preview's old sizing rule comes back

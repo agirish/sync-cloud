@@ -183,6 +183,17 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     public static let previewColumnDefaultsKey = "paneColumnShowsPreview"
     public static let previewColumnDefault = true
 
+    /// Whether a pane's header offers the preview toggle.
+    ///
+    /// Two conditions, and both are about the control being honest rather than about taste. Tree
+    /// mode has no preview to show, so a toggle there would be a switch wired to nothing; and the
+    /// preview is the single-source rail's (see `PaneColumnsView.previewItem`), so a comparison
+    /// pane's header must not offer it either. A control that can be flipped without anything
+    /// happening is worse than no control.
+    public static func showsPreviewToggle(mode: PaneViewMode, isSingleSource: Bool) -> Bool {
+        mode == .columns && isSingleSource
+    }
+
     /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
     /// content and the identity lines below it (`kind · size`, the dates) start truncating.
     public static let minimumPreviewColumnWidth: CGFloat = 220

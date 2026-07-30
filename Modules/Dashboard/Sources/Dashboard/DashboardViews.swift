@@ -49,6 +49,9 @@ public struct PaneHeader: View {
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
+    /// True on the surface whose Columns pane can show a Quick Look preview — the single-source Tidy
+    /// rail. Gates the preview toggle; see `PaneViewMode.showsPreviewToggle`.
+    public let isSingleSource: Bool
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint. It does read the level back, though — the nav
     // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
@@ -57,6 +60,10 @@ public struct PaneHeader: View {
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     @AppStorage(LiquidGlass.tintKey) private var surfaceTint: Double = 0
     @AppStorage(LiquidGlass.levelKey) private var glassLevelRaw: String = GlassLevel.frosted.rawValue
+    /// The preview toggle's state. Read here rather than threaded in as a binding: it is one shared
+    /// preference with one key, and a binding would make every call site restate it.
+    @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
+        PaneViewMode.previewColumnDefault
     /// Only the dark appearance drops the provider name's brand tint — see `ChromeInk`.
     @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
@@ -86,7 +93,8 @@ public struct PaneHeader: View {
         isRefreshing: Bool = false,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
-        onNewFolder: (() -> Void)? = nil
+        onNewFolder: (() -> Void)? = nil,
+        isSingleSource: Bool = false
     ) {
         self.title = title
         self.provider = provider
@@ -108,6 +116,7 @@ public struct PaneHeader: View {
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
+        self.isSingleSource = isSingleSource
     }
 
     public var body: some View {
@@ -367,6 +376,10 @@ public struct PaneHeader: View {
             .help(showHiddenFiles
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
+
+            if showsPreviewToggle {
+                previewTogglePill(controlSize: controlSize)
+            }
             }
 
             if fold != .none {
@@ -439,6 +452,11 @@ public struct PaneHeader: View {
             Toggle(isOn: $showHiddenFiles) {
                 Label("Show Hidden Files", systemImage: showHiddenFiles ? "eye" : "eye.slash")
             }
+            if showsPreviewToggle {
+                Toggle(isOn: $previewEnabled) {
+                    Label("Show Preview", systemImage: previewSymbol)
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
@@ -448,6 +466,43 @@ public struct PaneHeader: View {
         .buttonStyle(navButtonStyle)
         .fixedSize()
         .help("View options")
+    }
+
+    /// Whether this header offers the preview toggle at all.
+    private var showsPreviewToggle: Bool {
+        guard let viewMode else { return false }
+        return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue, isSingleSource: isSingleSource)
+    }
+
+    private var previewSymbol: String { "rectangle.righthalf.inset.filled" }
+
+    /// The preview toggle: one pill that wears the accent while the preview is showing.
+    ///
+    /// Styled as the view switch's SELECTED segment rather than as a plain nav button, because that
+    /// is this header's existing vocabulary for "this view option is on" — and unlike the
+    /// hidden-files eye there is no honest second glyph for "no preview" to swap to. `HoverAffordanceStyle`
+    /// stays the one hover path; only the resting fill differs by state.
+    private func previewTogglePill(controlSize: ControlSize) -> some View {
+        let pill = PaneNavMetrics.pill(controlSize)
+        return Button {
+            previewEnabled.toggle()
+        } label: {
+            Image(systemName: previewSymbol)
+                .scaledFont(PaneNavMetrics.glyphFont(controlSize))
+                .foregroundStyle(previewEnabled
+                                 ? AnyShapeStyle(glassHue.onAccentLabelColor)
+                                 : AnyShapeStyle(Color.primary.opacity(0.75)))
+                .frame(width: pill.width - 4, height: pill.height)
+                .background(previewEnabled ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
+                            in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.hoverAffordance(previewEnabled ? .filled : .segment, tint: glassHue.accentFillColor))
+        .accessibilityAddTraits(previewEnabled ? [.isButton, .isSelected] : .isButton)
+        .accessibilityLabel("Preview pane")
+        .help(previewEnabled
+              ? "The preview pane is showing — click to hide it"
+              : "Show a preview of the selected file")
     }
 
     /// Shared by every nav control. `.filled` contributes the press scale and the hover phase
