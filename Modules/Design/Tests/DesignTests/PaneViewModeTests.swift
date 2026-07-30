@@ -209,86 +209,64 @@ import SwiftUI
     /// The common case — one column of files and a preview — fills the pane exactly, so there is
     /// nothing to scroll. `990 - 210` is the arithmetic; the point is that it is the *whole*
     /// remainder, not a fixed width.
-    @Test func testThePreviewTakesEveryPointTheColumnsLeave() {
-        let preferred = PaneViewMode.defaultPreviewColumnWidth
-        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1,
-                                                preferred: preferred) == 780)
-        #expect(PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 2,
-                                                preferred: preferred) == 570)
+    /// The preview is pinned to the pane's trailing edge and gets exactly the width it was dragged
+    /// to. Two earlier rules derived it from the columns instead, and both failed in use: as the last
+    /// item inside the scrolling stack it grew off the right edge, and taken from the columns' slack
+    /// it could only be enlarged by narrowing every column until the stack stopped scrolling.
+    @Test func testThePreviewGetsExactlyTheWidthItWasDraggedTo() {
+        #expect(PaneViewMode.previewPaneWidth(paneWidth: 1590, columnWidth: 290, preferred: 900) == 900)
+        #expect(PaneViewMode.previewPaneWidth(paneWidth: 1590, columnWidth: 290, preferred: 420) == 420)
     }
 
-    /// A fractional pane width must round DOWN. Rounding up puts the stack's content one point past
-    /// the pane and hangs a scrollbar under a stack that fits.
-    @Test func testThePreviewRoundsDownSoAnExactFitStaysAnExactFit() {
-        let width = PaneViewMode.previewColumnWidth(
-            paneWidth: 990.7, columnWidth: 210, columnCount: 1,
-            preferred: PaneViewMode.defaultPreviewColumnWidth)
-        #expect(width == 780)
-        #expect(width + 210 <= 990.7)
+    /// The point of pinning it: the width is independent of how many columns are open and how wide
+    /// they are, so the columns keep their own width and keep scrolling beside it.
+    @Test func testThePreviewsWidthIgnoresTheColumnsBesideIt() {
+        let wideColumns = PaneViewMode.previewPaneWidth(paneWidth: 1590, columnWidth: 340, preferred: 900)
+        let narrowColumns = PaneViewMode.previewPaneWidth(paneWidth: 1590, columnWidth: 140, preferred: 900)
+        #expect(wideColumns == narrowColumns)
     }
 
-    /// The case that sent this back for a second round: four columns in a 910pt pane leave 270pt,
-    /// which is a strip too narrow to read a page in. Below its preferred width the preview stops
-    /// taking what's left over and claims its own, and the stack scrolls — as it already does when
-    /// the columns alone overflow.
-    @Test func testASqueezedPreviewClaimsItsPreferredWidthInstead() {
-        let width = PaneViewMode.previewColumnWidth(paneWidth: 910, columnWidth: 160, columnCount: 4,
-                                                    preferred: 380)
-        #expect(width == 380)
-        #expect(width > 910 - 4 * 160)
-    }
-
-    /// …but never past the pane minus one column. A preview wider than that pushes the column it
-    /// belongs to off the left edge, so you can no longer see what is selected.
-    @Test func testThePreviewNeverPushesItsOwnColumnOffScreen() {
-        let width = PaneViewMode.previewColumnWidth(paneWidth: 500, columnWidth: 210, columnCount: 3,
-                                                    preferred: PaneViewMode.maximumPreviewColumnWidth)
+    /// …capped so one full column always survives beside it. Otherwise a preview dragged wide would
+    /// squeeze out the very column holding the file it describes.
+    @Test func testThePreviewNeverSqueezesOutTheLastColumn() {
+        let width = PaneViewMode.previewPaneWidth(paneWidth: 500, columnWidth: 210,
+                                                  preferred: PaneViewMode.maximumPreviewColumnWidth)
         #expect(width == 290)
-        #expect(width + 210 <= 500)
+        #expect(width + 210 == 500)
     }
 
-    /// Slack still wins when there is more of it than asked for: a lone column in a wide pane leaves
-    /// the preview the rest, so the common case has nothing to scroll and no dead strip on the right.
-    @Test func testAmpleSlackStillBeatsThePreferredWidth() {
-        let width = PaneViewMode.previewColumnWidth(paneWidth: 990, columnWidth: 210, columnCount: 1,
-                                                    preferred: 380)
-        #expect(width == 780)
-    }
-
-    /// Widening the preview is the columns' job — the preview owns no dragged width, because as the
-    /// last item in a scrolling stack it can only grow off the right edge (see `PaneViewMode`). So
-    /// narrowing the columns must hand their slack straight to the preview.
-    @Test func testNarrowingTheColumnsWidensThePreview() {
-        let wide = PaneViewMode.previewColumnWidth(paneWidth: 1590, columnWidth: 290, columnCount: 3,
-                                                  preferred: PaneViewMode.defaultPreviewColumnWidth)
-        let narrower = PaneViewMode.previewColumnWidth(paneWidth: 1590, columnWidth: 240, columnCount: 3,
-                                                      preferred: PaneViewMode.defaultPreviewColumnWidth)
-        #expect(wide == 720)
-        #expect(narrower == 870)
-        #expect(narrower > wide)
-    }
-
-    @Test func testThePreferredWidthIsClampedToTheLegibleRange() {
+    @Test func testThePreviewWidthIsClampedToTheLegibleRange() {
         #expect(PaneViewMode.clampPreviewColumnWidth(10) == PaneViewMode.minimumPreviewColumnWidth)
         #expect(PaneViewMode.clampPreviewColumnWidth(5000) == PaneViewMode.maximumPreviewColumnWidth)
-        // A pane too narrow to honour even the clamped minimum never shows a preview at all, which
-        // is what keeps the clamp and the gate consistent.
         #expect(PaneViewMode.minimumPreviewColumnWidth <= PaneViewMode.defaultPreviewColumnWidth)
         #expect(PaneViewMode.defaultPreviewColumnWidth <= PaneViewMode.maximumPreviewColumnWidth)
     }
 
-    /// The preview and the trailing deselect filler claim the same slack, so they must never both
-    /// take it — a filler beside a preview would pad the stack's content past the pane.
-    @Test func testThePreviewAndTheFillerNeverBothTakeTheSlack() {
-        let filler = PaneViewMode.trailingFillerWidth(
-            paneWidth: 990, columnWidth: 210, columnCount: 1,
-            isSingleColumn: false, hasPreviewColumn: true)
-        #expect(filler == 0)
-        // Same geometry without the preview: the slack is the filler's, and it is exactly the width
-        // the preview would otherwise have taken.
+    /// The preview's divider is on its LEADING edge and the preview is pinned to the trailing edge,
+    /// so the drag translation is subtracted: dragging left widens it. This is the sign that made the
+    /// in-stack version look broken, and the geometry that now makes it work.
+    @Test func testDraggingThePreviewsDividerLeftWidensIt() {
+        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 420, translation: -60) == 480)
+        #expect(PaneViewMode.draggedPreviewColumnWidth(anchor: 420, translation: 60) == 360)
+    }
+
+    /// Cumulative translation, fixed anchor — the discipline `draggedColumnWidth` needed, where
+    /// folding the translation into the live width compounded a drag to the maximum immediately.
+    @Test func testThePreviewDragTracksTranslationFromAFixedAnchor() {
+        let steps = [-10, -20, -30].map {
+            PaneViewMode.draggedPreviewColumnWidth(anchor: 420, translation: CGFloat($0))
+        }
+        #expect(steps == [430, 440, 450])
+    }
+
+    /// The filler measures the COLUMNS' area, which is the pane minus the pinned preview. The two
+    /// can no longer claim the same points — the preview isn't in the scroll content at all — so the
+    /// filler simply takes whatever slack the columns leave inside their own area.
+    @Test func testTheFillerTakesTheSlackInsideTheColumnsOwnArea() {
         #expect(PaneViewMode.trailingFillerWidth(
-            paneWidth: 990, columnWidth: 210, columnCount: 1,
-            isSingleColumn: false, hasPreviewColumn: false) == 780)
+            paneWidth: 690, columnWidth: 210, columnCount: 1, isSingleColumn: false) == 480)
+        #expect(PaneViewMode.trailingFillerWidth(
+            paneWidth: 690, columnWidth: 210, columnCount: 4, isSingleColumn: false) == 0)
     }
 
     @Test func testEveryModeHasDistinctChrome() {

@@ -106,11 +106,13 @@ import UniformTypeIdentifiers
     private func mount(
         _ fixture: Fixture, paneWidth: CGFloat, selection: Set<String>, previewEnabled: Bool,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
-        columnWidth: CGFloat = PaneViewMode.defaultColumnWidth
+        columnWidth: CGFloat = PaneViewMode.defaultColumnWidth,
+        previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
         defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
         defaults.set(Double(columnWidth), forKey: PaneViewMode.columnWidthDefaultsKey)
+        defaults.set(Double(previewWidth), forKey: PaneViewMode.previewColumnWidthDefaultsKey)
         let box = Box()
         box.selection = selection
         box.browsePath = browsePath
@@ -147,8 +149,14 @@ import UniformTypeIdentifiers
             .compactMap { ($0 as? NSTableView)?.enclosingScrollView?.frame.width }
     }
 
-    /// The column stack's own scroll view is the outermost one; its document view is the `HStack` of
-    /// columns, so this is the stack's full content width — preview included.
+    /// The column stack's own scroll view is the outermost one. Its FRAME is the area the columns
+    /// were given — the pane minus the pinned preview — which is the only place the preview's width
+    /// is observable, since the preview holds no AppKit view of its own until Quick Look mounts.
+    private func stackViewportWidth(in view: NSView) -> CGFloat? {
+        descendants(of: view).lazy.compactMap { ($0 as? NSScrollView)?.frame.width }.first
+    }
+
+    /// The scrolling content's width — the columns alone, now that the preview is not in it.
     private func stackDocumentWidth(in view: NSView) -> CGFloat? {
         descendants(of: view).lazy.compactMap { ($0 as? NSScrollView)?.documentView?.frame.width }.first
     }
@@ -165,7 +173,7 @@ import UniformTypeIdentifiers
 
     /// The load-bearing case: selecting a file must step the list column back to `columnWidth` and
     /// hand the rest of the pane to the preview. A column still measuring the full pane width is the
-    /// bug this whole suite exists for — the preview would be laid out off the right edge.
+    /// bug this whole suite exists for — the preview would have nowhere to be laid out.
     ///
     /// The width is the assertion, and it is a synchronous one: the stack lays out from the
     /// selection, with nothing to wait for. Whether Quick Look has *finished* mounting inside that
@@ -182,30 +190,41 @@ import UniformTypeIdentifiers
         withExtendedLifetime((fixture, mounted)) {}
     }
 
-    /// The squeezed case, mounted: with the columns filling the pane the preview must claim its
-    /// preferred width and let the stack scroll, rather than taking whatever strip is left.
+    /// The point of the whole reshape, mounted: a wide preview must take its width from the SCROLL
+    /// VIEW, leaving the columns their own width and their scrolling intact.
     ///
-    /// Measured off the stack's document view — the only place the preview's own width is visible,
-    /// since the column contains no AppKit view of its own until Quick Look mounts. Two columns of
-    /// 260 in a 700pt pane leave 180, less than the 380 the preview asks for: a preview obeying only
-    /// the slack would give a document exactly as wide as the pane, and claiming its own width makes
-    /// it 900, i.e. 200pt of scroll. The pane is wide enough that the `room` cap is not what is being
-    /// measured.
-    ///
-    /// The columns are widened to 260 rather than left at the default, so the numbers this asserts
-    /// cannot be produced by any rule that ignores the live column width.
-    @Test func testASqueezedPreviewWidensTheStackRatherThanShrinking() async throws {
+    /// Two columns of 260 need 520; the preview takes 600 of a 900pt pane, so the columns are left a
+    /// 300pt viewport holding 520pt of content — narrower than what it holds, which is exactly the
+    /// scrollbar that used to disappear when the preview grew. A layout that still derived the
+    /// preview from the columns' slack could not produce these numbers: it would have given the
+    /// columns the whole pane and the preview 380.
+    @Test func testAWidePreviewLeavesTheColumnsScrolling() async throws {
         let fixture = try Fixture()
-        let columns: CGFloat = 260
-        let mounted = mount(fixture, paneWidth: 700, selection: [fixture.nestedFile],
+        let mounted = mount(fixture, paneWidth: 900, selection: [fixture.nestedFile],
                             previewEnabled: true, browsePath: PaneBrowsePath(components: ["Folder"]),
-                            columnWidth: columns)
+                            columnWidth: 260, previewWidth: 600)
         await pump(mounted.window, seconds: 0.3)
-        #expect(columnWidths(in: mounted.host) == [columns, columns])
+        #expect(columnWidths(in: mounted.host) == [260, 260])
+        #expect(stackViewportWidth(in: mounted.host) == 300)
         let document = try #require(stackDocumentWidth(in: mounted.host))
-        #expect(document == 2 * columns + PaneViewMode.defaultPreviewColumnWidth)
-        #expect(document > 700)
+        #expect(document == 520)
+        #expect(document > 300, "the columns must still overflow their viewport, i.e. still scroll")
         withExtendedLifetime((fixture, mounted)) {}
+    }
+
+    /// The preview's width is its own: the same drag gives the same preview whether the columns
+    /// beside it are wide or narrow. Under the old rule the columns' width decided it entirely.
+    @Test func testThePreviewKeepsItsWidthWhateverTheColumnsDo() async throws {
+        let fixture = try Fixture()
+        let wide = mount(fixture, paneWidth: 900, selection: [fixture.file],
+                         previewEnabled: true, columnWidth: 320, previewWidth: 500)
+        let narrow = mount(fixture, paneWidth: 900, selection: [fixture.file],
+                           previewEnabled: true, columnWidth: 150, previewWidth: 500)
+        await pump(wide.window, seconds: 0.3)
+        await pump(narrow.window, seconds: 0.3)
+        #expect(stackViewportWidth(in: wide.host) == 400)
+        #expect(stackViewportWidth(in: narrow.host) == 400)
+        withExtendedLifetime((fixture, wide, narrow)) {}
     }
 
     /// The Quick Look mount itself, tested where it is deterministic: `makeNSView` runs during the

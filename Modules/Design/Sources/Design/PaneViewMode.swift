@@ -137,16 +137,16 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// A single column is framed to the full pane width rather than `columnWidth`, so it leaves no
     /// slack either — which also covers push mode, where exactly one column is ever visible.
     ///
-    /// A preview column takes the same slack (`previewColumnWidth`), so the two must never both
-    /// claim it: `hasPreviewColumn` zeroes this outright rather than sharing what is left.
+    /// `paneWidth` here is the width available to the COLUMNS, which is the pane minus the preview
+    /// pane when one is showing. The preview is not part of the scrolling stack, so it never competes
+    /// with this filler for the same points.
     public static func trailingFillerWidth(
         paneWidth: CGFloat,
         columnWidth: CGFloat,
         columnCount: Int,
-        isSingleColumn: Bool,
-        hasPreviewColumn: Bool = false
+        isSingleColumn: Bool
     ) -> CGFloat {
-        guard !isSingleColumn, !hasPreviewColumn else { return 0 }
+        guard !isSingleColumn else { return 0 }
         return max(0, paneWidth - CGFloat(columnCount) * columnWidth)
     }
 
@@ -163,33 +163,31 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
     /// content and the identity lines below it (`kind · size`, the dates) start truncating.
     public static let minimumPreviewColumnWidth: CGFloat = 220
-    /// The width a preview asks for when the list columns don't leave it that much on their own.
+    /// The width a fresh preview opens at, before anyone drags it.
+    public static let defaultPreviewColumnWidth: CGFloat = 420
+    /// Past this a preview stops being a pane and starts being the window. The `room` cap in
+    /// `previewPaneWidth` binds first in any pane narrow enough for it to matter.
+    public static let maximumPreviewColumnWidth: CGFloat = 1200
+
+    /// The preview's own width, dragged from the divider on its leading edge and remembered.
     ///
-    /// Not a minimum and not a maximum: with slack to spare the preview takes the slack (see
-    /// `previewColumnWidth`), and this is what it claims once the columns have filled the pane. A
-    /// deep stack squeezing the preview down to `minimumPreviewColumnWidth` was the first thing the
-    /// feature got wrong in use — four open columns left a strip too narrow to read a page in, in a
-    /// pane with room for far more.
-    public static let defaultPreviewColumnWidth: CGFloat = 380
-    /// Past this a preview stops being a column and starts being the pane.
-    public static let maximumPreviewColumnWidth: CGFloat = 900
+    /// Separate from `columnWidthDefaultsKey`, because the two answer different questions: how much
+    /// room the file names need, versus how much the content does.
+    public static let previewColumnWidthDefaultsKey = "paneColumnPreviewWidth"
 
     /// Clamps a preview width into the legible range.
     public static func clampPreviewColumnWidth(_ width: CGFloat) -> CGFloat {
         min(max(width, minimumPreviewColumnWidth), maximumPreviewColumnWidth)
     }
 
-    // The preview deliberately has NO width of its own to drag. It briefly did (`38aca86`,
-    // `paneColumnPreviewWidth`) and the geometry does not permit it: the preview is the LAST item in
-    // a horizontally scrolling stack, so widening it extends the stack's content to the right, past
-    // the pane's edge. The divider — pinned to the trailing edge of a column that has not moved —
-    // stays exactly where it is, the visible width never changes, and `QLPreviewView` rescales its
-    // content to a frame that is now mostly off screen: the drag reads as an inexplicable zoom, and
-    // the metadata values, being trailing-aligned, disappear off the edge with it.
-    //
-    // Widening the preview is therefore the columns' job: narrow them and the preview takes the slack
-    // live, with the divider moving under the cursor as it should. Which also returns that divider to
-    // resizing the columns, the thing it was expected to do.
+    /// The width a drag on the preview's divider has reached.
+    ///
+    /// The divider is on the preview's LEADING edge and the preview is pinned to the pane's trailing
+    /// edge, so the translation is *subtracted*: dragging left grows the preview. Same anchor
+    /// discipline as `draggedColumnWidth` — `translation` is cumulative from the drag's start.
+    public static func draggedPreviewColumnWidth(anchor: CGFloat, translation: CGFloat) -> CGFloat {
+        clampPreviewColumnWidth(anchor - translation)
+    }
 
     /// Whether a pane this wide will show the preview column for a selected file.
     ///
@@ -212,37 +210,33 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
         return paneWidth >= columnWidth + minimumPreviewColumnWidth
     }
 
-    /// Width of the preview column: the slack the list columns leave, or `preferred` when that slack
-    /// is less — whichever is larger, and never more than the pane has beside one column.
+    /// Width of the preview pane: exactly what it was dragged to, capped so one full column still
+    /// fits beside it.
     ///
-    /// Three rules, in that order, each answering a case the others got wrong:
+    /// The preview is NOT part of the scrolling column stack — it is pinned to the pane's trailing
+    /// edge, and the columns scroll in what is left. That structure is the whole point, and it is
+    /// what two earlier attempts got wrong:
     ///
-    /// 1. **Take the slack.** With one column open in a wide pane the preview fills the rest, so the
-    ///    common case has nothing to scroll — the same reason `trailingFillerWidth` exists. `floor`
-    ///    matters here: at the exact fit the content width must not round *past* the pane and put a
-    ///    scrollbar under a stack that fits.
+    /// - With the preview as the last item INSIDE the stack (`38aca86`), widening it extended the
+    ///   stack's content past the pane's right edge: the divider never moved, the visible width never
+    ///   changed, and `QLPreviewView` rescaled into a frame that was mostly off screen — the drag read
+    ///   as an inexplicable zoom.
+    /// - Deriving the width from the columns' slack instead (`924c513`) meant the only way to enlarge
+    ///   the preview was to narrow every column until they all fit the pane — at which point the
+    ///   stack stopped scrolling and the columns became unreadable, while the preview still could not
+    ///   exceed what was left over.
     ///
-    ///    This is also the only way the preview is *made* wider: narrow the columns and their slack
-    ///    becomes the preview's, live, with the divider tracking the cursor. See the note above for
-    ///    why the preview cannot own a dragged width of its own.
-    /// 2. **Never below `preferred`.** Once the columns have taken the pane, the slack is whatever
-    ///    happens to be left over — four columns left a 270pt strip in a 910pt pane, too narrow to
-    ///    read a page in. The preview claims its own width there and the stack scrolls, exactly as it
-    ///    already does when the columns alone overflow.
-    /// 3. **Never past `room`** — the pane minus one column. A preview wider than that would push the
-    ///    column it belongs to off the left edge, so you could no longer see what is selected.
-    public static func previewColumnWidth(
+    /// Pinned, both problems go away at once: growing the preview takes width from the SCROLL VIEW,
+    /// so the divider tracks the cursor, the columns keep their own width, and they keep scrolling.
+    ///
+    /// The cap is the pane minus one column — the columns must never be squeezed out of existence by
+    /// the preview describing the file selected in them.
+    public static func previewPaneWidth(
         paneWidth: CGFloat,
         columnWidth: CGFloat,
-        columnCount: Int,
-        /// What the preview asks for when the slack is short. A parameter rather than a direct read of
-        /// `defaultPreviewColumnWidth` so the three rules can be tested against each other at widths
-        /// the shipped constant doesn't happen to sit at.
         preferred: CGFloat
     ) -> CGFloat {
-        let room = paneWidth - columnWidth
-        let slack = (paneWidth - CGFloat(columnCount) * columnWidth).rounded(.down)
-        return max(min(clampPreviewColumnWidth(preferred), room), slack)
+        min(clampPreviewColumnWidth(preferred), paneWidth - columnWidth)
     }
 
     /// Whether a click on a column row (or on a pane's empty space) should navigate, or be left
