@@ -81,11 +81,34 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
         private weak var installedOn: NSTableView?
         private var recognizer: NSClickGestureRecognizer?
 
-        /// Same budget as `PaneListSelectionStyler`: the walk scans up to six ancestor subtrees and
-        /// `layout()` runs it every pass, so an unresolvable hierarchy would otherwise burn a full
-        /// scan per layout forever.
+        /// Same budget as `PaneListSelectionStyler`, and re-armed by the same two signals for the
+        /// same reason: an anchor that moved, or a table that stopped being ours. Re-arming on a
+        /// SwiftUI update instead meant "constantly" only for as long as the pane re-rendered on
+        /// everything; once `FileTreeView` became `Equatable` a spent budget was never refilled and
+        /// the recognizer silently stopped being installed — which, unlike the styler's blue
+        /// highlight, has no visible symptom at all. It just quietly stops deselecting.
         private var searchBudget = CatcherView.searchesPerChange
         private static let searchesPerChange = 6
+        /// The anchor's window rect at the last search. A moved or resized anchor sits over a
+        /// different list than it did — see `PaneListResolver`, where the frame IS the identity.
+        private var lastSearchedTarget: CGRect = .null
+        /// Layout passes since the burst budget ran dry with nothing found.
+        ///
+        /// The budget bounds a BURST; this bounds the STEADY STATE. Together they mean an
+        /// unresolvable hierarchy costs one ancestor scan per thirty layout passes instead of one
+        /// per pass, while a list that only appears later — or is swapped in place while this
+        /// anchor sits perfectly still, which no change signal can see — is still picked up within
+        /// a few frames. "Gave up permanently" is the defect all of this exists to prevent, so it
+        /// must not be reachable by any path.
+        private var passesSinceExhausted = 0
+        private static let retryEveryNPasses = 30
+
+        /// Test seam: how many ancestor scans have actually run. The re-arm rules are only
+        /// meaningful if the STEADY state stays rare, and a suite with no way to count scans could
+        /// not tell "recovers" from "scans on every single pass", which is the cost the budget
+        /// exists to prevent.
+        private(set) var searchesPerformed = 0
+
 
         init(onDeselect: @escaping () -> Void) {
             self.onDeselect = onDeselect
@@ -165,14 +188,34 @@ struct PaneBackgroundDeselect: NSViewRepresentable {
 
         /// Same rule as `PaneListSelectionStyler`: the frame identifies the list, and a cached
         /// answer is re-validated against it because a drill rebuilds the stack underneath.
-        private func resolveTableView() -> NSTableView? {
+        /// Internal, not private: this is the test seam. The re-arm rules above are the whole
+        /// correctness story and a suite that could not drive them would be asserting nothing.
+        func resolveTableView() -> NSTableView? {
             guard window != nil else { return nil }
             let target = convert(bounds, to: nil)
             guard !target.isEmpty else { return nil }
             if let cached = cachedTable, cached.window === window,
                PaneListResolver.matches(cached, target: target) { return cached }
+            let anchorMoved = !target.equalTo(lastSearchedTarget)
+            let lostItsTable = cachedTable != nil
+            lastSearchedTarget = target
+            // Cleared before the checks below, so `lostItsTable` reads true exactly once per
+            // invalidation rather than on every later pass — otherwise a table that vanished for
+            // good would refill the budget forever and reinstate the per-layout scan.
+            cachedTable = nil
+            if anchorMoved || lostItsTable {
+                searchBudget = Self.searchesPerChange
+                passesSinceExhausted = 0
+            } else if searchBudget == 0 {
+                passesSinceExhausted += 1
+                if passesSinceExhausted >= Self.retryEveryNPasses {
+                    passesSinceExhausted = 0
+                    searchBudget = 1
+                }
+            }
             guard searchBudget > 0 else { return nil }
             searchBudget -= 1
+            searchesPerformed += 1
             cachedTable = PaneListResolver.table(matching: self)
             return cachedTable
         }
