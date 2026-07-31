@@ -71,11 +71,24 @@ struct PaneBarCustomizeSheet: View {
     // scroll for the arrangements that still do not (nothing stops someone adding six spacers).
 
     private static let sheetWidth: CGFloat = 600
+    /// The sheet's own inset, and the track card's. Named because `trackRowWidth` is derived from
+    /// both: as three unrelated literals — 600 here, `.padding(22)` on the body, `.padding(9)` on the
+    /// track — a later tweak to either padding would leave the derived width quietly wrong, and the
+    /// symptom would be a track that scrolls a few points when it should not, or dead space where a
+    /// drop target was meant to be. Change the padding and the width follows.
+    private static let sheetPadding: CGFloat = 22
+    private static let trackPadding: CGFloat = 9
     /// Width available to the track's row: the sheet, less its own padding, less the track's.
+    ///
     /// A constant rather than a measurement, so the row inside the scroll view can be told to fill
     /// the viewport without a `GeometryReader` — which is what keeps the trailing slot greedy when
     /// the bar is short and scrollable when it is long.
-    private static let trackRowWidth: CGFloat = sheetWidth - 44 - 18
+    ///
+    /// It assumes the body pads *before* it fixes the width (`.padding` then `.frame`). Swapped, the
+    /// content box would be the full 600 and this would be 44pt short. The customize-sheet snapshot
+    /// is what catches that: a track whose last pill is clipped is visible in the image and in
+    /// nothing else the suite measures.
+    private static let trackRowWidth: CGFloat = sheetWidth - 2 * sheetPadding - 2 * trackPadding
     private static let pillHeight: CGFloat = 26
     /// The default-set strip is a picture of the bar, not another bar — it is drawn smaller and
     /// quieter on purpose, because two rows of identical pills read as two editable bars.
@@ -94,7 +107,7 @@ struct PaneBarCustomizeSheet: View {
             Divider().padding(.top, 18)
             footer
         }
-        .padding(22)
+        .padding(Self.sheetPadding)
         .frame(width: Self.sheetWidth)
         // Escape closes it. There is nothing to cancel — every edit is applied to the shared
         // arrangement as it is made, so Done and Escape mean the same thing, and a sheet that
@@ -168,10 +181,13 @@ struct PaneBarCustomizeSheet: View {
     /// appended and the gaps would have been decoration. Leaf targets that do not overlap do not need
     /// the assumption to be true.
     private var track: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        // Indicators ON. macOS overlay scrollers stay invisible until the pointer or a scroll asks
+        // for them, so they cost nothing when the bar fits — and when it does not, they are the only
+        // thing telling you the row continues. Hidden, a clipped pill reads as a broken sheet.
+        ScrollView(.horizontal, showsIndicators: true) {
             trackRow.frame(minWidth: Self.trackRowWidth, alignment: .leading)
         }
-        .padding(9)
+        .padding(Self.trackPadding)
         .frame(minHeight: 50)
         .background(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
