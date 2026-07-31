@@ -279,7 +279,8 @@ import UniformTypeIdentifiers
     private func lowestInk(in host: NSHostingView<Harness>, xRange: Range<CGFloat>) throws -> CGFloat {
         let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: rep)
-        return lowestPaintedRow(in: rep, pointHeight: host.bounds.height, pointXRange: xRange)
+        return try #require(PaintedInk.lowestRow(in: rep, pointHeight: host.bounds.height,
+                                                 pointXRange: xRange))
     }
 
     /// Flipping the setting re-lays a pane that is ALREADY on screen — which is the toggle's entire

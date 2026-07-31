@@ -157,10 +157,10 @@ struct PaneColumnsView: View {
                 // of "a bar will actually be drawn here": the bar shows on the active side only, so an
                 // inactive pane holding a single-file selection reserves a band nothing occupies. The
                 // cost of precision is a jump — clicking into that pane would raise the bar and lift
-                // the identity rows 64pt in the same instant. A little dead space on the pane you are
-                // not reading beats geometry that moves under the one you just clicked, which is the
-                // same resting-state rule `showsPreviewColumn` follows when it refuses to let a file
-                // click start the stack scrolling.
+                // the identity rows a whole band in the same instant. A little dead space on the pane
+                // you are not reading beats geometry that moves under the one you just clicked, which
+                // is the same resting-state rule `showsPreviewColumn` follows when it refuses to let
+                // a file click start the stack scrolling.
                 ColumnPreviewColumn(
                     item: previewTarget,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance)

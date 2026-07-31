@@ -131,7 +131,13 @@ struct ColumnPreviewColumn: View {
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
     /// near its column's bottom, and there it covers the Quick Look area instead — an image that
     /// scales into whatever it is given, so it degrades where the identity rows could not. Reserving
-    /// both edges would cost this column ~128pt to protect the half that tolerates the loss.
+    /// both edges would cost this column ~144pt to protect the half that tolerates the loss.
+    ///
+    /// This lands the identity block 16pt higher than it strictly needs to be, since the column's own
+    /// `.padding(16)` already sits below it and the bar's *visible* top edge is 54pt up. The slack is
+    /// deliberate: it keeps this number meaning exactly "the band the bar occupies", which is the
+    /// thing `ColumnPreviewClearanceTests` can measure. Netting the padding off would couple the
+    /// constant to a layout value in another expression for 16pt.
     ///
     /// A constant rather than a live read of `PaneBarPlacement.coverage`: writes to that class
     /// deliberately do not invalidate any view, so a body that read it would render from whatever the
