@@ -77,3 +77,53 @@ Every check below is here because it failed once and reported success anyway —
    ```
    This check passes on a wedged app too — a process that hangs during launch still started after the binary was written — so it confirms *which build* is running, never *that the app works*. Step 7 is what establishes the latter.
 10. Report both timestamps **and the new log lines from step 7** as the evidence the app is running. If step 8 ran, report the blocking frame instead and say plainly that the install did not come up.
+
+## Cleanup sweep
+
+Steps 5–6 only clean the bundle this install produced. Everything below is debris that accumulates *between* installs — every session's worktree leaves a ~470 MB DerivedData dir behind, and worktree removal does not touch it (41 GB had piled up by 2026-07-28; 3.7 GB again two days later). Run this after the install is confirmed, not before — a sweep that runs first can delete the build you were about to install.
+
+**Total, but never blind. Four things must never be deleted, each because it looks exactly like debris:**
+
+- **`~/actions-runner-synccloud-x64/_work/…`** — the self-hosted CI runner builds SyncCloud there, with SwiftPM `.build` dirs and module caches indistinguishable from a stale worktree's. It is usually *mid-job*. Never match build dirs by name; always resolve ownership first.
+- **Anything owned by a live worktree.** Other sessions run concurrently — there were three, on four worktrees, during this sweep. `git worktree list` is the authority.
+- **Unmerged branches.** Use `git branch -d`, **never `-D`**: `-d` refuses to delete unmerged work, and that refusal is the whole safety mechanism. One branch was unmerged at sweep time.
+- **Stashes.** They live in the shared repo and survive both worktree removal and `git branch -d`, so a stash is often the *only* copy of an abandoned experiment. Never `git stash clear`.
+
+11. **Orphaned DerivedData.** Resolve each dir's owner from its own `info.plist` and delete only those whose project path is gone — never by name, never by age:
+    ```bash
+    for d in ~/Library/Developer/Xcode/DerivedData/*/; do
+      wp=$(plutil -extract WorkspacePath raw "$d/info.plist" 2>/dev/null) || continue
+      case "$wp" in */actions-runner-*) continue;; esac      # never the CI runner's tree
+      [ -e "$wp" ] || { echo "orphan: $d <- $wp"; rm -rf "$d"; }
+    done
+    ```
+12. **Stale test artifacts inside *live* DerivedData.** `Logs/Test` holds `.xcresult` bundles that are never reused and regenerate on the next `test` run — one session's dir held 2.0 GB of them. Step 11 already takes these for orphaned dirs, so what is left belongs to a *live* workspace. **Clear them only for the primary checkout, and only when no build is in flight.** For another session's worktree, report the size and leave it: "no build running" does not mean idle — a session can be reading an `.xcresult` it just produced, and deleting it destroys work in progress that no `git status` would show.
+    ```bash
+    pgrep -fl 'xcodebuild|swift-frontend|xctest' | grep -v actions-runner || echo "no local build in flight"
+    du -sh ~/Library/Developer/Xcode/DerivedData/*/Logs/Test 2>/dev/null | sort -rh | head
+    # safe to clear: only the dir whose WorkspacePath is the primary checkout. Report the rest.
+    ```
+13. **Leaked test-suite preference plists.** Test suites leave `<SuiteOrTestName>-<UUID>.plist` in `~/Library/Preferences` (42–102 bytes, never `com.*`); 332 had accumulated here. Sweep the debris — but **do not try to "fix" the mechanism.** It is *bounded*: cfprefsd rewrites a plist after the process exits and the next run's own sweep takes it, so the count oscillates (measured 6 → 0 → 32 → 32 → 16 → 16) and never grows. What accumulates is only from suites that were never re-run. Measure across 4+ runs before concluding anything is broken.
+    ```bash
+    ls ~/Library/Preferences/*.plist | grep -vi '/com\.' | grep -Ei -- '-[0-9A-F]{8}-[0-9A-F]{4}-' | tr '\n' '\0' | xargs -0 rm -f
+    ```
+14. **Stale LaunchServices registrations.** Step 5 unregisters the bundle it just installed, but earlier sessions' bundles stay registered after their DerivedData is gone, which is what puts duplicate SyncCloud entries in Spotlight and Launchpad. Unregister every registered path that no longer exists on disk:
+    ```bash
+    mdfind "kMDItemFSName == 'SyncCloud.app'" | while read -r p; do
+      [ -e "$p" ] || lsregister -u "$p"      # lsregister path is in step 5
+    done
+    mdfind "kMDItemFSName == 'SyncCloud.app'"   # expect only /Applications/SyncCloud.app + live worktree builds
+    ```
+15. **Merged branches and dead worktrees.** A branch is a candidate only if it has **no worktree** and is **merged into `main`**; `git branch -d` then enforces the second condition itself. Before removing a worktree, check it for uncommitted work (`git -C <wt> status --short`) and for a process sitting in it (`lsof -a -d cwd +D <wt>`), and `git stash push` anything dirty rather than discarding it — an abandoned experiment has turned out to be the only copy before.
+    ```bash
+    WT=$(git worktree list --porcelain | awk '/^branch /{sub("refs/heads/","",$2); print $2}')
+    for b in $(git for-each-ref --format='%(refname:short)' refs/heads); do
+      echo "$WT" | grep -qx "$b" || git branch -d "$b"     # -d, never -D: it refuses unmerged work
+    done
+    git worktree prune
+    git gc                  # NOT --prune=now while other sessions are live (see below)
+    ```
+    `git gc --prune=now` immediately discards unreachable objects. That is fine when you are the only session, but with concurrent worktrees another session may have just written objects that are not referenced yet — a commit being built, a stash mid-write — and `--prune=now` can take them. Plain `git gc` keeps the default two-week grace period, which is the whole safety margin. Only reach for `--prune=now` when `git worktree list` shows nothing but the primary.
+    `origin` has only ever held `main`, so there is nothing to prune remotely — don't go looking for stale remote branches.
+
+    Note for macOS: `xargs -a` is GNU-only, so read a branch list with `git branch -d $(cat file | tr '\n' ' ')` instead; and `rm -rf` on a path beginning with `-` (the Claude scratchpad dirs are named `-Users-abhishek-…`) needs a `./` prefix.
