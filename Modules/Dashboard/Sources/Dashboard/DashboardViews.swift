@@ -61,6 +61,16 @@ public struct PaneHeader: View {
     /// preference with one key, and a binding would make every call site restate it.
     @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
         PaneViewMode.previewColumnDefault
+    /// The bar's arrangement and icon size. App-wide keys, not per-pane: one arrangement is shared by
+    /// both Compare panes and the Tidy rail, so that the two panes stay the same instrument pointed
+    /// at two providers. Every header reads the same string, so customizing from either pane moves
+    /// both — including live, while the sheet is open.
+    @AppStorage(PaneBar.arrangementKey) private var arrangementRaw: String =
+        PaneBarArrangement.default.encoded
+    @AppStorage(PaneBar.iconSizeKey) private var iconSizeRaw: String = PaneBarIconSize.regular.rawValue
+    /// Whether this header is showing the customize sheet. Per-header on purpose: the sheet edits
+    /// shared state, but only the pane you invoked it from should sprout a sheet.
+    @State private var isCustomizing = false
     /// Only the dark appearance drops the provider name's brand tint — see `ChromeInk`.
     @Environment(\.colorScheme) private var colorScheme
     private var glassHue: LiquidGlassHue {
@@ -136,9 +146,29 @@ public struct PaneHeader: View {
                         .scaledFont(.headline)
                         .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
+                // There was a `Spacer` here, and it was what welded the bar to the trailing edge:
+                // while it existed, no arrangement could put a control next to the provider name.
+                // The job moved *into* the arrangement as `PaneBarItem.flexibleSpace`, which the
+                // default arrangement carries at its head — so an untouched bar looks exactly as it
+                // did, and a customized one can pack left.
+                //
+                // `.leading`, so a bar with no flexible space hugs the capsule; when the arrangement
+                // does carry one, the inner `Spacer` is greedy, fills the offered width, and the
+                // alignment never comes into it.
+                //
+                // The 12pt replaces the `HStack` gap the removed `Spacer` used to contribute. Without
+                // it the row is 12pt richer, and that is not free at the narrowest rung: the extra
+                // width re-crosses a threshold in the *capsule's* own ladder, which starts choosing
+                // its logo variant again and renders the provider name as a bare ellipsis where it
+                // used to manage a letter. The header's rule is that the name is the identity anchor
+                // and the logo yields first, so the row keeps the width it was tuned at — and the
+                // default arrangement stays pixel-identical to the bar it replaces.
                 navCluster
+                    .padding(.leading, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .contextMenu { barContextMenu() }
+            .sheet(isPresented: $isCustomizing) { PaneBarCustomizeSheet() }
             PaneBreadcrumb(
                 rootPath: rootPath,
                 providerName: provider?.displayName,
@@ -222,43 +252,117 @@ public struct PaneHeader: View {
         .chromePillSurface(glassLevel, wash: hue.soft)
     }
 
-    /// This pane's navigation/action buttons. Rendered through ViewThatFits so that at the
-    /// narrowest pane widths (the split clamps panes at 250 pt, where small-size controls plus
-    /// the provider capsule physically exceed the row) the cluster steps down to `.mini`
-    /// controls instead of overflowing the pane's trailing edge — every control stays present
-    /// and clickable, nothing is pushed out of view.
+    /// This pane's bar: the track running from the provider capsule to the pane's trailing edge.
+    ///
+    /// Rendered through `ViewThatFits` so that at the narrowest pane widths (the split clamps panes
+    /// at 250 pt, where small-size controls plus the provider capsule physically exceed the row) the
+    /// bar steps down to `.mini` controls and then sheds pills into ⋯ instead of overflowing the
+    /// trailing edge — every control stays reachable, nothing is pushed out of view.
+    ///
+    /// The rungs are declared one per line rather than generated, because `ViewThatFits` takes a
+    /// `ViewBuilder`: ten literal children are a tuple it can walk, whereas a `ForEach` over depths
+    /// is a single child and the ladder silently collapses to one rung.
     private var navCluster: some View {
         ViewThatFits(in: .horizontal) {
-            navClusterContent(.small, fold: .none)
-            navClusterContent(.mini, fold: .none)
-            navClusterContent(.mini, fold: .viewOptions)
-            navClusterContent(.mini, fold: .all)
+            barVariant(0)
+            barVariant(1)
+            barVariant(2)
+            barVariant(3)
+            barVariant(4)
+            barVariant(5)
+            barVariant(6)
+            barVariant(7)
+            barVariant(8)
+            barVariant(9)
         }
     }
 
-    /// How much of the cluster has collapsed into the ⋯ menu at this rung.
+    /// Rung `rung` of the ladder: rung 0 is the chosen icon size unfolded, rung 1 drops to `.mini`,
+    /// and every rung after that sheds one more item into ⋯.
     ///
-    /// The cluster was already at the edge of what a 250pt pane can hold — 159pt of controls in a
-    /// 222pt content box, leaving 51pt for a provider name that is already an ellipsis. Adding a
-    /// view switch and New Folder inline costs 255pt, which overruns the box by 33pt before the
-    /// capsule gets a point. So the extra controls arrive by folding the *rarely-pressed* ones
-    /// away as the pane narrows — sort and hidden-files first, which is where Finder keeps them
-    /// anyway — and at the floor the cluster is back to five pills, exactly today's geometry.
-    ///
-    /// Refresh never folds: it is the pane's scan control, not a view preference.
-    private enum ClusterFold {
-        case none
-        /// Sort and hidden-files move into ⋯.
-        case viewOptions
-        /// The view switch becomes a single menu and New Folder joins ⋯ as well.
-        case all
+    /// The icon-size preference is a **ceiling**: choosing Small starts at rung 1's size, but the
+    /// shedding rungs still apply, because a bar that overflows the pane is worse than small glyphs.
+    /// The last rung sheds everything sheddable, so an arrangement longer than the ladder still has
+    /// a variant that fits rather than falling off the end.
+    private func barVariant(_ rung: Int) -> some View {
+        let ceiling = iconSize.ceiling
+        let controlSize: ControlSize = rung == 0 ? ceiling : .mini
+        let depth = rung == 0 ? 0 : (rung == 9 ? Int.max : rung - 1)
+        return barContent(controlSize, depth: depth)
     }
 
-    private func navClusterContent(_ controlSize: ControlSize, fold: ClusterFold) -> some View {
-        HStack(spacing: 6) {
+    /// Which items this particular header can offer at all. A header with no view-mode binding has
+    /// no View control to place; the Tidy rail has no Columns mode, so no preview to toggle.
+    private var availableItems: [PaneBarItem] {
+        var available: [PaneBarItem] = [.backForward, .sort, .hiddenFiles]
+        if viewMode != nil { available.append(.viewMode) }
+        if onCollapse != nil { available.append(.collapse) }
+        if onRefresh != nil { available.append(.scan) }
+        if onNewFolder != nil { available.append(.newFolder) }
+        if showsPreviewToggle { available.append(.preview) }
+        return available
+    }
+
+    private var arrangement: PaneBarArrangement {
+        PaneBarArrangement(encoded: arrangementRaw)
+    }
+
+    private var iconSize: PaneBarIconSize {
+        PaneBarIconSize(rawValue: iconSizeRaw) ?? .regular
+    }
+
+    private func barContent(_ controlSize: ControlSize, depth: Int) -> some View {
+        let plan = PaneBarLayout.plan(arrangement: arrangement, available: availableItems, depth: depth)
+        // Gaps are placed by hand rather than by `HStack(spacing:)`, because a flexible space must
+        // cost *nothing*. As a stack child it would otherwise earn a 6pt gap of its own, the bar's
+        // minimum width would grow by that much for every bar carrying one — which is every default
+        // bar — and the provider capsule would lose the 6pt at the narrowest rung. Measured: it
+        // shaved a character off the name in the 250pt snapshot.
+        return HStack(spacing: 0) {
+            ForEach(Array(plan.visible.enumerated()), id: \.offset) { index, item in
+                if Self.needsGap(before: index, in: plan.visible) {
+                    Color.clear.frame(width: 6, height: 1)
+                }
+                barItem(item, controlSize: controlSize, compactViewMode: plan.compactsViewMode)
+            }
+            if !plan.overflow.isEmpty {
+                if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false {
+                    Color.clear.frame(width: 6, height: 1)
+                }
+                viewOptionsMenu(controlSize: controlSize, overflow: plan.overflow)
+            }
+        }
+        .controlSize(controlSize)
+    }
+
+    /// Whether a 6pt gap belongs before `index`. Not before the first item, and never on either side
+    /// of a flexible space — the space is already the separation, and charging for a gap next to it
+    /// is what made the bar wider than the one it replaced.
+    private static func needsGap(before index: Int, in items: [PaneBarItem]) -> Bool {
+        guard index > 0 else { return false }
+        return items[index] != .flexibleSpace && items[index - 1] != .flexibleSpace
+    }
+
+    /// One item of the arrangement, drawn.
+    ///
+    /// Every branch here existed before as a line in one long `HStack`; what changed is that the
+    /// order comes from the arrangement rather than from this function's shape.
+    @ViewBuilder
+    private func barItem(_ item: PaneBarItem, controlSize: ControlSize, compactViewMode: Bool) -> some View {
+        switch item {
+        case .flexibleSpace:
+            // What used to be the `Spacer` that welded the cluster to the trailing edge. It is an
+            // item now, so it can sit anywhere — or nowhere, which is how a bar packs left.
+            Spacer(minLength: 0)
+
+        case .space:
+            Color.clear.frame(width: PaneNavMetrics.pill(controlSize).width, height: 1)
+
+        case .viewMode:
             if let viewMode {
-                if fold == .all {
-                    // One pill showing the current mode; the alternatives live in its menu.
+                if compactViewMode {
+                    // One pill showing the current mode; the alternatives live in its menu. This is
+                    // the deepest rung's economy — two pills' worth of ability in one pill's width.
                     Menu {
                         Picker("View", selection: viewMode) {
                             ForEach(PaneViewMode.allCases) { mode in
@@ -281,6 +385,7 @@ public struct PaneHeader: View {
                 }
             }
 
+        case .collapse:
             if let onCollapse {
                 Button(action: onCollapse) {
                     Image(systemName: "sidebar.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
@@ -289,26 +394,33 @@ public struct PaneHeader: View {
                 .help("Collapse the source pane")
             }
 
-            Button(action: onBack) {
-                Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
-            }
-            .buttonStyle(navButtonStyle)
-            .disabled(!canGoBack)
-            .help("Go back to this pane's previous folder")
+        case .backForward:
+            // One arrangement item, two pills — they move and fold together, as they do in Finder.
+            // The stack restates the 6pt the bar's outer spacing no longer supplies.
+            HStack(spacing: 6) {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                }
+                .buttonStyle(navButtonStyle)
+                .disabled(!canGoBack)
+                .help("Go back to this pane's previous folder")
 
-            Button(action: onForward) {
-                Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                Button(action: onForward) {
+                    Image(systemName: "chevron.right").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
+                }
+                .buttonStyle(navButtonStyle)
+                .disabled(!canGoForward)
+                .help("Go forward to this pane's next folder")
             }
-            .buttonStyle(navButtonStyle)
-            .disabled(!canGoForward)
-            .help("Go forward to this pane's next folder")
 
+        case .scan:
             // Scan/refresh used to live INSIDE the pane's freshness badge, pairing the action
             // with the state it acted on, and this standalone button existed only for the
             // pre-scan window where that badge had no date to show. Freshness has since moved to
             // the differences count pill — a toggle, so it cannot also be the scan button — which
-            // makes this the pane's one scan control at every point in the lifecycle. Ungated
-            // accordingly: a gate here now means a pane that can never be scanned.
+            // makes this the pane's one scan control at every point in the lifecycle. That is also
+            // why `PaneBarItem.pinned` refuses to remove or fold it: a gate here means a pane that
+            // can never be scanned.
             if let onRefresh {
                 // The arrow spins while a scan runs (reduced-motion is honored automatically).
                 Button(action: onRefresh) {
@@ -321,9 +433,10 @@ public struct PaneHeader: View {
                 .help("Scan for changes")
             }
 
+        case .newFolder:
             // New Folder. In Columns its target is unambiguous — the deepest open column — which
             // is why it graduates from the right-click menu to the chrome here.
-            if let onNewFolder, fold != .all {
+            if let onNewFolder {
                 Button(action: onNewFolder) {
                     Image(systemName: "folder.badge.plus")
                         .paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
@@ -332,9 +445,9 @@ public struct PaneHeader: View {
                 .help("New folder in this pane's current folder")
             }
 
+        case .sort:
             // Sort moved out of the titlebar (its file-action neighbors are now the pane's
             // contextual action bar); it lives per-pane, driving the shared sort order.
-            if fold == .none {
             Menu {
                 Picker("Sort By", selection: $sortOption) {
                     ForEach(SortOption.allCases, id: \.self) { option in
@@ -360,8 +473,9 @@ public struct PaneHeader: View {
             .fixedSize()
             .help("Choose how items are sorted")
 
-            // Hidden-files toggle, icon-only, sitting beside the nav buttons. The eye
-            // mirrors the state: open when hidden files are shown, slashed when filtered.
+        case .hiddenFiles:
+            // Hidden-files toggle, icon-only. The eye mirrors the state: open when hidden files are
+            // shown, slashed when filtered.
             Button {
                 showHiddenFiles.toggle()
             } label: {
@@ -372,16 +486,11 @@ public struct PaneHeader: View {
                   ? "Hidden files are visible — click to hide them"
                   : "Hidden files are hidden — click to show them")
 
+        case .preview:
             if showsPreviewToggle {
                 previewTogglePill(controlSize: controlSize)
             }
-            }
-
-            if fold != .none {
-                viewOptionsMenu(controlSize: controlSize, fold: fold)
-            }
         }
-        .controlSize(controlSize)
     }
 
     /// Tree | Columns as a two-segment control, built from the same plain buttons as the window's
@@ -418,39 +527,19 @@ public struct PaneHeader: View {
         .accessibilityLabel("Pane view")
     }
 
-    /// The ⋯ overflow. Holds whatever the current rung folded away, so nothing is ever merely
-    /// dropped — a narrow pane loses the pill, not the ability.
-    private func viewOptionsMenu(controlSize: ControlSize, fold: ClusterFold) -> some View {
+    /// The ⋯ overflow. Holds whatever this rung folded away **and** whatever was removed from the
+    /// bar in the customize sheet, so nothing is ever merely dropped — you lose a pill, never an
+    /// ability. Absent entirely when it would be empty.
+    private func viewOptionsMenu(controlSize: ControlSize, overflow: [PaneBarItem]) -> some View {
         Menu {
-            if fold == .all, let viewMode {
-                Picker("View", selection: viewMode) {
-                    ForEach(PaneViewMode.allCases) { mode in
-                        Label(mode.displayName, systemImage: mode.symbol).tag(mode)
-                    }
-                }
-                .pickerStyle(.inline)
+            ForEach(overflow) { item in
+                overflowEntry(item)
                 Divider()
             }
-            if fold == .all, let onNewFolder {
-                Button(action: onNewFolder) {
-                    Label("New Folder", systemImage: "folder.badge.plus")
-                }
-                Divider()
-            }
-            Picker("Sort By", selection: $sortOption) {
-                ForEach(SortOption.allCases, id: \.self) { option in
-                    Text(option.rawValue).tag(option)
-                }
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Toggle(isOn: $showHiddenFiles) {
-                Label("Show Hidden Files", systemImage: showHiddenFiles ? "eye" : "eye.slash")
-            }
-            if showsPreviewToggle {
-                Toggle(isOn: $previewEnabled) {
-                    Label("Show Preview", systemImage: previewSymbol)
-                }
+            Button {
+                isCustomizing = true
+            } label: {
+                Label("Customize Pane Bar…", systemImage: "gearshape")
             }
         } label: {
             Image(systemName: "ellipsis")
@@ -460,7 +549,64 @@ public struct PaneHeader: View {
         .menuStyle(.button)
         .buttonStyle(navButtonStyle)
         .fixedSize()
-        .help("View options")
+        .help("More pane options")
+    }
+
+    /// One folded-or-removed control, as a menu item. Deliberately the same verbs as the pill: the
+    /// menu is the same control wearing different clothes, not a second, subtly different one.
+    @ViewBuilder
+    private func overflowEntry(_ item: PaneBarItem) -> some View {
+        switch item {
+        case .viewMode:
+            if let viewMode {
+                Picker("View", selection: viewMode) {
+                    ForEach(PaneViewMode.allCases) { mode in
+                        Label(mode.displayName, systemImage: mode.symbol).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+        case .collapse:
+            if let onCollapse {
+                Button(action: onCollapse) { Label("Collapse Pane", systemImage: "sidebar.left") }
+            }
+        case .backForward:
+            Button(action: onBack) { Label("Back", systemImage: "chevron.left") }
+                .disabled(!canGoBack)
+            Button(action: onForward) { Label("Forward", systemImage: "chevron.right") }
+                .disabled(!canGoForward)
+        case .scan:
+            // Unreachable: `PaneBarItem.pinned` is never folded and never absent. Handled rather
+            // than defaulted so that adding a case to the enum fails the build here instead of
+            // silently dropping the new control out of the menu.
+            if let onRefresh {
+                Button(action: onRefresh) { Label("Scan for Changes", systemImage: "arrow.clockwise") }
+                    .disabled(isRefreshing)
+            }
+        case .newFolder:
+            if let onNewFolder {
+                Button(action: onNewFolder) { Label("New Folder", systemImage: "folder.badge.plus") }
+            }
+        case .sort:
+            Picker("Sort By", selection: $sortOption) {
+                ForEach(SortOption.allCases, id: \.self) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.inline)
+        case .hiddenFiles:
+            Toggle(isOn: $showHiddenFiles) {
+                Label("Show Hidden Files", systemImage: showHiddenFiles ? "eye" : "eye.slash")
+            }
+        case .preview:
+            if showsPreviewToggle {
+                Toggle(isOn: $previewEnabled) {
+                    Label("Show Preview", systemImage: previewSymbol)
+                }
+            }
+        case .space, .flexibleSpace:
+            EmptyView()
+        }
     }
 
     /// Whether this header offers the preview toggle at all.
@@ -503,6 +649,24 @@ public struct PaneHeader: View {
               : "Show a preview of the selected file")
     }
 
+    /// Right-clicking the bar itself, which is where anyone who has customized Finder's toolbar will
+    /// try first. The ⋯ menu carries the same Customize entry for anyone who doesn't think to.
+    @ViewBuilder
+    private func barContextMenu() -> some View {
+        Picker("Icon Size", selection: $iconSizeRaw) {
+            ForEach(PaneBarIconSize.allCases, id: \.rawValue) { size in
+                Text(size.displayName).tag(size.rawValue)
+            }
+        }
+        .pickerStyle(.inline)
+        Divider()
+        Button {
+            isCustomizing = true
+        } label: {
+            Label("Customize Pane Bar…", systemImage: "gearshape")
+        }
+    }
+
     /// Shared by every nav control. `.filled` contributes the press scale and the hover phase
     /// `PaneNavChrome` reads, and paints no wash of its own — the capsule's fill is the wash.
     private var navButtonStyle: HoverAffordanceStyle {
@@ -536,21 +700,21 @@ enum PaneNavMetrics {
         .system(size: controlSize == .mini ? 10 : 12, weight: .medium)
     }
 
-    /// Laid-out width of the whole cluster, for the narrow-pane ladder. Six controls plus the
-    /// HStack's five 6pt gaps.
-    ///
-    /// Deliberately matched to what the system chrome used to take — 226.5pt at `.small`, 188.5
-    /// at `.mini` — rather than made as small as possible. Uniform pills cannot land on both
-    /// numbers exactly (the old widths ranged 22.5–30.5 within a single rung), and `.mini` comes
-    /// out 3.5pt over, which costs the provider name one character in a 250pt pane.
-    ///
-    /// Do not try to tune that back by shrinking the pill: the header's own degradation ladder is
-    /// not monotonic in this width. 25pt collapsed the provider capsule to "..." — worse than the
-    /// 27pt this settles on — and 33 vs 36 at `.small` changed nothing at all, because a 250pt
-    /// pane is already on the `.mini` rung.
-    static func clusterWidth(_ controlSize: ControlSize) -> CGFloat {
-        pill(controlSize).width * 6 + 6 * 5
-    }
+    // `clusterWidth(_:)` used to live here: six pills plus five 6pt gaps, pinned at 226.5 / 188.5 to
+    // match what the system chrome took before the bar drew its own. It went with the bar's fixed
+    // shape — a bar whose length is now whatever someone arranged has no single width to pin, and a
+    // constant that says "six controls" is a false description rather than a loose one.
+    //
+    // Nothing regressed by removing it. It was never read outside its own two tests, and both of the
+    // properties it stood in for are asserted more directly elsewhere: the pill's painted size by
+    // `PaneNavMetricsTests.glyphPillsAreIdentical`, and which rung a 250pt pane actually picks by the
+    // narrow snapshots in `DashboardSnapshotTests` — which caught two real geometry shifts while this
+    // change was being written, so they are known to be sensitive rather than merely present.
+    //
+    // The tuning note it carried is still worth keeping: do not shrink the pill to buy width. The
+    // header's degradation ladder is not monotonic in it. 25pt collapsed the provider capsule to
+    // "..." — worse than the 27pt this settles on — and 33 vs 36 at `.small` changed nothing at all,
+    // because a 250pt pane is already on the `.mini` rung.
 }
 
 /// The chrome for one pane-header nav control: a fixed capsule the app draws itself.

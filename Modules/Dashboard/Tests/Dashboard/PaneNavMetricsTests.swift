@@ -132,30 +132,12 @@ import Design
         #expect(mini.height < small.height)
     }
 
-    @Test("The cluster keeps the width the system chrome used to take")
-    func clusterMatchesTheHistoricalLadder() {
-        // Both bounds matter, and the lower one is the non-obvious half. `ViewThatFits` chooses a
-        // rung purely on width, so making the cluster *smaller* is not free: at 210pt the 250pt
-        // pane started picking `.small` instead of stepping down, and the 22pt it saved came out
-        // of the provider name, which truncated from "Ma..." to "M.".
-        //
-        // A few points of slack is fine — what actually has to hold is *which* rung a 250pt pane
-        // picks, and `paneHeaderNarrow250LongProviderName` is what pins that. This is the cheap
-        // guard that catches a drift big enough to flip it.
-        #expect(abs(PaneNavMetrics.clusterWidth(.small) - 226.5) <= 5,
-                "small rung moved to \(PaneNavMetrics.clusterWidth(.small)); the ladder may step differently")
-        #expect(abs(PaneNavMetrics.clusterWidth(.mini) - 188.5) <= 5,
-                "mini rung moved to \(PaneNavMetrics.clusterWidth(.mini))")
-    }
-
-    @Test("clusterWidth agrees with what a pill actually paints")
-    func clusterWidthIsHonest() {
-        for controlSize in [ControlSize.small, .mini] {
-            let painted = paintedSize(navButton("chevron.left", controlSize)).width
-            #expect(PaneNavMetrics.clusterWidth(controlSize) == painted * 6 + 30,
-                    "clusterWidth(\(controlSize)) disagrees with the \(painted)pt pill it describes")
-        }
-    }
+    // Two tests lived here — `clusterMatchesTheHistoricalLadder` and `clusterWidthIsHonest` — and
+    // both asked about `PaneNavMetrics.clusterWidth`, a constant describing a bar of exactly six
+    // controls. The bar's length is now whatever the user arranged, so that constant went, and these
+    // went with it. What they were really guarding is asserted closer to the thing itself: the pill's
+    // painted size directly above, and which rung a 250pt pane picks by the narrow snapshots in
+    // `DashboardSnapshotTests`.
 
     // MARK: - Hover
 
