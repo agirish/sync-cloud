@@ -33,10 +33,13 @@ Check items off as you verify them, and note anything that misbehaves.
 
 ## Context menus (Wave 2C)
 
-- [ ] **No drag & drop between panes.** Cross-pane drag was removed after it turned out
-  never to have worked outside one dev-build verification; dragging a pane row does
-  nothing, and no drop highlight appears anywhere. Copy/move is the action bar, the
-  context menus, and `⌘→ / ⌘←`.
+- [ ] **No drag & drop between panes.** Cross-pane drag was removed (`4d55246`) after it
+  turned out never to have worked outside one dev-build verification. Press and drag a row
+  across to the other pane: **no drag image lifts, no row or pane highlights as a drop
+  target, and no file is copied or moved.** Copy/move is the action bar, the context menus,
+  and `⌘→ / ⌘←`. Whatever the press-drag now does *within* the source list — most likely
+  extending the selection, which is what an AppKit table does once nothing claims the
+  gesture — is fine; only the three negatives above are the check.
 - [ ] **Tree-row Reveal / Quick Look.** Right-click a pane row → "Reveal in Finder" and
   "Quick Look" work; Quick Look coexists with the spacebar previewer.
 - [ ] **Paste-here dims when empty.** With nothing on the internal clipboard,

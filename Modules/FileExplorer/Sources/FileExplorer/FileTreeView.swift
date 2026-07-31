@@ -26,7 +26,7 @@ extension Notification.Name {
 /// `PaneActionDelegate` (an existential holding closures), four freshly-built callback closures and
 /// two freshly-built `Binding`s, and SwiftUI's memberwise comparison treats every one of those as
 /// different. So every pane compared unequal on every render, and with the delegate threaded into
-/// each row's context menu and drop target, so did every visible row.
+/// each row's context menu, so did every visible row.
 ///
 /// The `==` below therefore compares what the pane RENDERS FROM — all of it, by value — and asks
 /// the delegate to vouch for itself (`FileActionDelegate.isEquivalent(to:)`). The callbacks are
@@ -335,7 +335,7 @@ public struct FileTreeView: View, Equatable {
                     layout: .compact
                 )
                 // Hug the content so clicks around the placeholder still reach the pane
-                // list underneath (empty-area context menu, background drop target).
+                // list underneath (the empty-area context menu).
                 .frame(maxWidth: 360)
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -374,7 +374,7 @@ public struct FileTreeView: View, Equatable {
             layout: .compact
         )
         // Hug the content so clicks around the placeholder still reach the pane list
-        // underneath (empty-area context menu, background drop target).
+        // underneath (the empty-area context menu).
         .frame(maxWidth: 360)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -417,8 +417,8 @@ public struct FileTreeView: View, Equatable {
         }
     }
 
-    /// The pane's List plus its list-level chrome: empty-area context menu, background drop
-    /// target (drop into the pane's current folder), and the drop highlight.
+    /// The pane's List plus its list-level chrome: the empty-area context menu and the pane's own
+    /// Quick Look presenter.
     @ViewBuilder
     private var paneList: some View {
         List(selection: $selection) {
@@ -473,8 +473,8 @@ public struct FileTreeView: View, Equatable {
         // whose body resolve is the ONE place the edge (and its hysteresis anchor) commits. A second
         // committer racing it from this side was part of the old flip-flop.
         .onDeleteCommand {
-            // Pruned, exactly like the context-menu and drag paths (see
-            // `FileContextMenu.resolvedSelection`): selecting a folder AND something inside it and
+            // Pruned, exactly like the context-menu path (see `FileContextMenu.resolvedSelection`,
+            // which applies the same rule): selecting a folder AND something inside it and
             // pressing ⌫ otherwise handed the superset to the handler, so the confirmation named
             // and counted children that the single trash of their parent already covers. The disk
             // outcome was always right — `deleteItems` prunes before trashing — but the dialog the
@@ -657,8 +657,11 @@ struct FileContextMenu: View {
         }
         // Prune nested nodes (a folder and its descendant never travel together), so a
         // context-menu Copy/Move/Delete on a selection spanning a folder AND an item inside it
-        // can't pass the superset to a handler — matching the downstream copy/move prune, and
-        // matching `onDeleteCommand`, which resolves through this same helper.
+        // can't pass the superset to a handler — matching the downstream copy/move prune.
+        //
+        // `onDeleteCommand` applies the SAME rule through a DIFFERENT helper
+        // (`PaneTree.selectedNodes(at:)`), so the two must not drift. Each is pinned separately:
+        // `ContextMenuSelectionTests` here, `PaneTreeSelectedNodesTests` in Sync.
         return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
 

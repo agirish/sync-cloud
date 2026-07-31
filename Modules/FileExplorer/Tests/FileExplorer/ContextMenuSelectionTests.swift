@@ -37,4 +37,31 @@ import Sync
         let nodes = FileContextMenu.resolvedSelection(node: nested, selection: [], tree: tree)
         #expect(nodes.map(\.id) == ["/root/dir/c.txt"])
     }
+
+    /// A selection spanning a folder AND something inside it resolves to the folder alone.
+    ///
+    /// This is the assertion the whole trailing `.pruneNestedNodes()` exists for: without it a
+    /// context-menu Copy/Move/Delete hands the handler a superset, so the confirmation names and
+    /// counts children that the single operation on their parent already covers.
+    ///
+    /// It lived in `PaneDropLogicTests` (via `PaneDropLogic.dragNodes`, which wrapped this call)
+    /// until cross-pane drag & drop was removed in `4d55246` — and every other test here uses a
+    /// FLAT selection, so deleting that suite left the prune on this still-live path unpinned.
+    /// Its sibling on the delete path is `PaneTreeSelectedNodesTests` over in Sync: two separate
+    /// helpers applying the same prune, and neither may drift.
+    @Test func testFolderAndDescendantPruneToTheFolder() {
+        let dir = tree[2]
+        let nodes = FileContextMenu.resolvedSelection(
+            node: dir, selection: ["/root/dir", "/root/dir/c.txt"], tree: tree)
+        #expect(nodes.map(\.id) == ["/root/dir"])
+    }
+
+    /// The prune is about ancestry, not path-prefix spelling: a sibling whose path merely starts
+    /// with the folder's characters is NOT inside it and must survive.
+    @Test func testPrefixTwinIsNotTreatedAsNested() {
+        let twin = FileNode(id: "/root/dir2", name: "dir2", isDirectory: true)
+        let nodes = FileContextMenu.resolvedSelection(
+            node: tree[2], selection: ["/root/dir", "/root/dir2"], tree: tree + [twin])
+        #expect(Set(nodes.map(\.id)) == ["/root/dir", "/root/dir2"])
+    }
 }
