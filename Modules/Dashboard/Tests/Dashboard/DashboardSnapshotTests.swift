@@ -170,7 +170,7 @@ import Events
             of: PaneBarCustomizeSheet(
                 availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview])
                 .defaultAppStorage(defaults),
-            size: CGSize(width: 700, height: 560),
+            size: CGSize(width: 600, height: 545),
             named: "customize-sheet")
     }
 

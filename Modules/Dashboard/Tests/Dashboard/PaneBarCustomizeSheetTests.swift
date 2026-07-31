@@ -47,7 +47,10 @@ import Testing
 
     @Test func testTheSheetLaysOutAtAWorkableSize() {
         let size = laidOut(PaneBarCustomizeSheet())
-        #expect(size.width == 700, "the sheet should hold its declared width, got \(size.width)")
+        // 600 is not a taste call: `ContentView` sets `minWidth: 600`, so anything wider is a sheet
+        // wider than the window it belongs to at the size a user can actually drag theirs down to.
+        #expect(size.width == 600, "the sheet should hold its declared width, got \(size.width)")
+        #expect(size.width <= 600, "the sheet is wider than the window's own minimum width")
         // Tall enough to be a real sheet, short enough not to run off a laptop screen.
         #expect(size.height > 300 && size.height < 760, "sheet height \(size.height) is out of range")
     }

@@ -56,17 +56,31 @@ struct PaneBarCustomizeSheet: View {
 
     // MARK: Metrics
     //
-    // The width is set by the *track*, not by taste. A full bar is ten items, and at the first
-    // draft's 560pt they did not fit: the row overflowed, and the thing that gave way was the
-    // provider capsule's label — the sheet shipped showing a bare cloud glyph where "iCloud" should
-    // have been, which is precisely the leading edge the whole arrangement is measured against.
+    // The width is set by two things, neither of them taste.
+    //
+    // The floor is the *track*: a full bar is ten items, and at the first draft's 560pt they did not
+    // fit — the row overflowed and what gave way was the provider capsule's label, so the sheet
+    // shipped showing a bare cloud glyph where "iCloud" should have been. That is precisely the
+    // leading edge the whole arrangement is measured against.
+    //
+    // The ceiling is the *window*: `ContentView` sets `minWidth: 600`, and the fix for the first
+    // problem was a 700pt sheet — wider than the window it belongs to, at the size a real user can
+    // drag theirs down to. Fixing an overflow by overflowing something bigger is not a fix.
+    //
+    // So: 600, with the row's own metrics tightened until ten items fit inside it, and a horizontal
+    // scroll for the arrangements that still do not (nothing stops someone adding six spacers).
 
-    private static let sheetWidth: CGFloat = 700
+    private static let sheetWidth: CGFloat = 600
+    /// Width available to the track's row: the sheet, less its own padding, less the track's.
+    /// A constant rather than a measurement, so the row inside the scroll view can be told to fill
+    /// the viewport without a `GeometryReader` — which is what keeps the trailing slot greedy when
+    /// the bar is short and scrollable when it is long.
+    private static let trackRowWidth: CGFloat = sheetWidth - 44 - 18
     private static let pillHeight: CGFloat = 26
     /// The default-set strip is a picture of the bar, not another bar — it is drawn smaller and
     /// quieter on purpose, because two rows of identical pills read as two editable bars.
     private static let samplePillHeight: CGFloat = 19
-    private static let slotWidth: CGFloat = 10
+    private static let slotWidth: CGFloat = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -94,17 +108,17 @@ struct PaneBarCustomizeSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("Customize Pane Bar")
-                .font(.system(size: 15, weight: .semibold))
+                .scaledFont(.system(size: 15, weight: .semibold))
             Text("Drop items anywhere from the provider name to the trailing edge, and drag them "
                  + "off to remove them. Both panes share one arrangement.")
-                .font(.callout)
+                .scaledFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             if explainsItemsFromElsewhere {
                 Label("Dimmed items don't apply to this pane. They stay in the arrangement and "
                       + "appear on the panes that use them.",
                       systemImage: "info.circle")
-                    .font(.caption)
+                    .scaledFont(.caption)
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -115,7 +129,7 @@ struct PaneBarCustomizeSheet: View {
     /// together with nothing but spacing, and the result read as one undifferentiated grid of grey.
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .scaledFont(.system(.caption, weight: .semibold))
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
             .kerning(0.4)
@@ -154,19 +168,8 @@ struct PaneBarCustomizeSheet: View {
     /// appended and the gaps would have been decoration. Leaf targets that do not overlap do not need
     /// the assumption to be true.
     private var track: some View {
-        let items = arrangement.items
-        return HStack(spacing: 0) {
-            providerGhost
-            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                slot(index)
-                trackItem(item, at: index)
-            }
-            // The trailing slot is what you aim at to append, so it takes the whole rest of the row
-            // rather than another sliver. The width has to be applied INSIDE the slot, ahead of its
-            // `contentShape` and drop destination: an outer `.frame(maxWidth: .infinity)` only grows
-            // an empty box around the original hit area, centred, which is what this did at first —
-            // the target claimed the row's leftovers in a comment and covered none of it.
-            slot(items.count, flexible: true)
+        ScrollView(.horizontal, showsIndicators: false) {
+            trackRow.frame(minWidth: Self.trackRowWidth, alignment: .leading)
         }
         .padding(9)
         .frame(minHeight: 50)
@@ -183,6 +186,23 @@ struct PaneBarCustomizeSheet: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane bar arrangement")
+    }
+
+    private var trackRow: some View {
+        let items = arrangement.items
+        return HStack(spacing: 0) {
+            providerGhost
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                slot(index)
+                trackItem(item, at: index)
+            }
+            // The trailing slot is what you aim at to append, so it takes the whole rest of the row
+            // rather than another sliver. The width has to be applied INSIDE the slot, ahead of its
+            // `contentShape` and drop destination: an outer `.frame(maxWidth: .infinity)` only grows
+            // an empty box around the original hit area, centred, which is what this did at first —
+            // the target claimed the row's leftovers in a comment and covered none of it.
+            slot(items.count, flexible: true)
+        }
     }
 
     /// Marks `index` as where a drop would land, and clears it on the way out.
@@ -203,10 +223,10 @@ struct PaneBarCustomizeSheet: View {
     private var providerGhost: some View {
         HStack(spacing: 5) {
             Image(systemName: "cloud.fill")
-                .font(.system(size: 12))
+                .scaledFont(.system(size: 12))
                 .foregroundStyle(.tertiary)
             Text("iCloud")
-                .font(.system(size: 12, weight: .semibold))
+                .scaledFont(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
         }
         .fixedSize()
@@ -285,11 +305,11 @@ struct PaneBarCustomizeSheet: View {
                 if item == .backForward { Image(systemName: "chevron.right") }
                 if item == .viewMode { Image(systemName: "list.bullet") }
             }
-            .font(.system(size: style == .sample ? 9.5 : 11.5, weight: .medium))
+            .scaledFont(.system(size: style == .sample ? 9.5 : 11.5, weight: .medium))
             .foregroundStyle(style == .sample ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
-            .frame(minWidth: style == .sample ? 24 : 30)
+            .frame(minWidth: style == .sample ? 24 : 28)
             .frame(height: style == .sample ? Self.samplePillHeight : Self.pillHeight)
-            .padding(.horizontal, style == .sample ? 5 : 7)
+            .padding(.horizontal, style == .sample ? 5 : 6)
             .background(
                 Capsule().fill(style == .sample
                                ? AnyShapeStyle(.quaternary.opacity(0.4))
@@ -314,7 +334,7 @@ struct PaneBarCustomizeSheet: View {
             .overlay {
                 if flexible {
                     Image(systemName: item.paletteSymbol)
-                        .font(.system(size: 10, weight: .semibold))
+                        .scaledFont(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
             }
@@ -364,7 +384,7 @@ struct PaneBarCustomizeSheet: View {
     // MARK: Palette
 
     private var paletteGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 96), spacing: 10)], spacing: 12) {
             ForEach(Self.palette) { item in
                 paletteTile(item)
             }
@@ -405,7 +425,7 @@ struct PaneBarCustomizeSheet: View {
                     .overlay(alignment: .topTrailing) {
                         if onBar {
                             Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 9))
+                                .scaledFont(.system(size: 9))
                                 .foregroundStyle(glassHue.accentColor)
                                 .background(Circle().fill(Color(nsColor: .windowBackgroundColor)))
                                 .offset(x: 4, y: -4)
@@ -413,7 +433,7 @@ struct PaneBarCustomizeSheet: View {
                     }
                 VStack(spacing: 1) {
                     Text(item.displayName)
-                        .font(.caption)
+                        .scaledFont(.caption)
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
@@ -421,12 +441,11 @@ struct PaneBarCustomizeSheet: View {
                     // under some tiles, which made the grid's rows different heights and clipped the
                     // longest of them against the row below.
                     Text(captionFor(item, onBar: onBar))
-                        .font(.caption2)
+                        .scaledFont(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
-                .frame(height: 26)
             }
             .frame(maxWidth: .infinity)
             .opacity(appliesHere(item) ? 1 : 0.5)
@@ -482,6 +501,9 @@ struct PaneBarCustomizeSheet: View {
             }
             Spacer(minLength: 12)
             Button("Restore") { arrangementRaw = PaneBarArrangement.default.encoded }
+                // Same lesson as the provider ghost: the thing that must never be squeezed says so
+                // itself rather than trusting the row to have room.
+                .fixedSize()
                 .disabled(arrangement == .default)
                 .help(arrangement == .default
                       ? "The bar is already the default arrangement"
@@ -505,7 +527,7 @@ struct PaneBarCustomizeSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Text("Icon size")
-                .font(.callout)
+                .scaledFont(.callout)
             Picker("Icon size", selection: $iconSizeRaw) {
                 ForEach(PaneBarIconSize.allCases, id: \.rawValue) { size in
                     Text(size.displayName).tag(size.rawValue)
