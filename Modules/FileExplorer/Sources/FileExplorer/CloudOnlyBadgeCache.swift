@@ -25,6 +25,20 @@ import Sync
 enum CloudOnlyBadgeCache {
     private static var known: [String: Bool] = [:]
 
+    /// Bumped by every invalidation (`clear` and `forget`). A stat that was already in flight when
+    /// one happened returns its answer to the caller but does NOT write it to the memo.
+    ///
+    /// Without this the memo re-adopted answers the invalidation had just thrown away: the stat
+    /// runs off the main actor, so a pane republish landing mid-stat cleared the table and the
+    /// resuming stat wrote its pre-republish answer straight back into the fresh one, where it
+    /// served every later realization of that row until the NEXT republish. `forget(_:)` is the
+    /// sharper case — it is called precisely because a download was requested, so the in-flight
+    /// answer it races is the stale "still cloud-only" one it exists to discard.
+    ///
+    /// This is the same guard `DetailsMetadataCache` carries for the same reason ("last REQUESTED
+    /// wins, not last to come back"); this cache simply never grew one.
+    private static var generation = 0
+
     /// Bound on the memo. Cleared wholesale at the cap rather than evicted one entry at a time:
     /// that is O(1) and costs at most one repeated `lstat` per path afterwards, which is the same
     /// trade `DetailsMetadataCache.warnedPaths` makes. Sized well above any plausible number of
@@ -41,16 +55,34 @@ enum CloudOnlyBadgeCache {
 
     /// Drops one path's answer — used when a download the app requested has landed, so the next
     /// realization of that row asks the filesystem again instead of serving the pre-download answer.
-    static func forget(_ path: String) { known[path] = nil }
+    static func forget(_ path: String) {
+        known[path] = nil
+        generation &+= 1
+    }
 
     /// Drops everything. Called when a pane republishes its tree.
-    static func clear() { known.removeAll(keepingCapacity: true) }
+    static func clear() {
+        known.removeAll(keepingCapacity: true)
+        generation &+= 1
+    }
 
     /// The stat itself, memoized. Runs off the main actor: `lstat` is cheap but it is still I/O, and
     /// against an unmounted or slow provider "cheap" is not a promise the main thread can rely on.
-    static func isCloudOnly(atPath path: String) async -> Bool {
+    ///
+    /// `stat` is injectable so the invalidation race has a seam to be tested through — the real one
+    /// is a detached `lstat`, and a test cannot otherwise land a `clear()` inside that window.
+    static func isCloudOnly(
+        atPath path: String,
+        stat: @MainActor (String) async -> Bool = { p in
+            await Task.detached { MaterializationStatus.isCloudOnly(atPath: p) }.value
+        }
+    ) async -> Bool {
         if let hit = cached(path) { return hit }
-        let answer = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        let started = generation
+        let answer = await stat(path)
+        // Superseded while we were out: hand the answer back (it is this caller's best available
+        // truth) but leave the memo alone — see `generation`.
+        guard generation == started else { return answer }
         record(path, isCloudOnly: answer)
         return answer
     }

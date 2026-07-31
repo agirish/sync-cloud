@@ -78,12 +78,17 @@ extension FileSyncManager {
     /// `maxBytesToHash` and `isCloudOnly` are injectable for tests only (a real >100 MB fixture
     /// per run would be wasteful, and a real dataless file can't be fabricated); production
     /// callers use the verifier's defaults.
+    ///
+    /// `cache` is the session hash cache, shared with Verify so a rescan of an unchanged tree costs
+    /// no re-reads. A test that varies `maxBytesToHash` or `isCloudOnly` across scans of the SAME
+    /// files must pass `nil` — see ``hashFilesCounting`` for why a hit bypasses both knobs.
     public func findDuplicates(
         root: URL,
         options: DuplicateFinderOptions = .init(),
         fileManager fm: FileManaging? = nil,
         maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
-        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) }
+        isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+        cache: ContentHashCache? = .shared
     ) async {
         guard !isFindingDuplicates else { return }
         let fileManager = fm ?? self.fileManager
@@ -120,7 +125,7 @@ extension FileSyncManager {
         duplicateScanProgress = total > 0 ? (completed: 0, total: total) : nil
         let hashOutcome = await Self.hashFilesCounting(
             candidatePaths, fileManager: fileManager, maxBytesToHash: maxBytesToHash,
-            isCloudOnly: isCloudOnly
+            isCloudOnly: isCloudOnly, cache: cache
         ) { [weak self] done in
             if done % 50 == 0 || done == total {
                 Task { @MainActor in
@@ -573,7 +578,8 @@ extension FileSyncManager {
     /// Relative paths come from the tree walk (not string prefix math), so path canonicalization
     /// quirks — e.g. `/var` vs `/private/var` symlinks — can't mangle the destinations.
     nonisolated static func planMerge(
-        from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging
+        from rURL: URL, into kURL: URL, caseSensitiveVolume: Bool = true, fileManager fm: FileManaging,
+        cache: ContentHashCache? = .shared
     ) async -> (steps: [(src: URL, dst: URL)], sourceSnapshot: [String: MergeFileSnapshot], blockedLinkedDirs: [String]) {
         let kTree = await buildTree(url: kURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         // Keeper content hash keyed by RELATIVE path — so "already have it" means the keeper has
@@ -638,7 +644,7 @@ extension FileSyncManager {
             return nil
         }
 
-        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm)
+        let kHashesByPath = await hashFiles(kItems.map { $0.id }, fileManager: fm, cache: cache)
         var keeperHashByRel: [String: String] = [:]
         var keeperHashesByParent: [String: Set<String>] = [:]
         for k in kItems {
@@ -650,7 +656,7 @@ extension FileSyncManager {
 
         let rTree = await buildTree(url: rURL, sortOption: .name, fileManager: fm, maxDepth: nil)
         let rItems = flattenFilesWithRelativePaths(rTree)
-        let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm)
+        let rHashes = await hashFiles(rItems.map { $0.id }, fileManager: fm, cache: cache)
 
         var steps: [(src: URL, dst: URL)] = []
         var blockedLinkedDirs = Set<String>()
@@ -797,20 +803,35 @@ extension FileSyncManager {
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
+        cache: ContentHashCache?,
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> [String: String] {
         await hashFilesCounting(paths, fileManager: fileManager, maxConcurrent: maxConcurrent,
-                                onProgress: onProgress).hashes
+                                cache: cache, onProgress: onProgress).hashes
     }
 
     /// ``hashFiles`` plus per-reason skip counts. `maxBytesToHash` and `isCloudOnly` are
     /// injectable for tests (a real dataless file can't be fabricated — the flag is provider-set).
+    ///
+    /// `cache` is REQUIRED rather than defaulted, because the right answer differs per caller and a
+    /// default would pick one silently. The entry points (``findDuplicates`` and ``planMerge``) pass
+    /// the session cache Verify already uses, so the two features stop paying for each other's work:
+    /// a Tidy scan after a Verify — or a second Tidy scan, or the keeper tree re-walked once per
+    /// redundant copy during a merge — re-read and re-hashed gigabytes that had not changed.
+    ///
+    /// Note what a hit deliberately bypasses: the cache holds DIGESTS, while `maxBytesToHash` and
+    /// `isCloudOnly` only decide whether computing one is worth it. A file whose digest is already
+    /// known is therefore hashed-and-grouped even if it now exceeds the cap — which is the better
+    /// answer (the duplicate really is detectable) but means a caller VARYING those knobs across
+    /// calls must not share a cache, or the second call inherits the first's willingness. Only
+    /// tests vary them; production holds them constant.
     nonisolated static func hashFilesCounting(
         _ paths: [String],
         fileManager: FileManaging,
         maxConcurrent: Int = 6,
         maxBytesToHash: Int = FileContentVerifier.maxBytesToHash,
         isCloudOnly: @escaping @Sendable (String) -> Bool = { MaterializationStatus.isCloudOnly(atPath: $0) },
+        cache: ContentHashCache?,
         onProgress: (@Sendable (Int) -> Void)? = nil
     ) async -> HashBatchOutcome {
         guard !paths.isEmpty else { return HashBatchOutcome() }
@@ -822,6 +843,7 @@ extension FileSyncManager {
             func schedule(_ path: String) {
                 group.addTask {
                     (path, await FileContentVerifier.hashOutcome(filePath: path, fileManager: fileManager,
+                                                                 cache: cache,
                                                                  maxBytes: maxBytesToHash,
                                                                  isCloudOnly: isCloudOnly))
                 }

@@ -90,7 +90,12 @@ import Combine
         try write(root.appendingPathComponent("B/movie.mp4"), bytes: 5000, fill: 0x41)
 
         let manager = FileSyncManager()
-        await manager.findDuplicates(root: root, maxBytesToHash: 1000)
+        // `cache: nil` throughout. This test scans the SAME files at two different caps, and a
+        // cache hit deliberately bypasses the cap — the cache holds digests, while the cap only
+        // decides whether computing one is worth it. Sharing one across these scans would let the
+        // real-cap run at line 3 answer for the capped run below it, which is correct behavior and
+        // the wrong thing to measure here: what is under test is the SKIP classification.
+        await manager.findDuplicates(root: root, maxBytesToHash: 1000, cache: nil)
 
         #expect(manager.hasFoundDuplicates)
         #expect(manager.duplicateGroups.isEmpty)                      // identity unknown → no claim
@@ -99,12 +104,12 @@ import Combine
         #expect(manager.duplicateScanSkips.total == 2)
 
         // A rescan with the real cap hashes them — and resets the skip figure with the results.
-        await manager.findDuplicates(root: root)
+        await manager.findDuplicates(root: root, cache: nil)
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())
         #expect(manager.duplicateGroups.count == 1)
 
         // clearDuplicates resets it alongside the rest of the results state.
-        await manager.findDuplicates(root: root, maxBytesToHash: 1000)
+        await manager.findDuplicates(root: root, maxBytesToHash: 1000, cache: nil)
         #expect(manager.duplicateScanSkips.total == 2)
         manager.clearDuplicates()
         #expect(manager.duplicateScanSkips == FileSyncManager.DuplicateScanSkips())

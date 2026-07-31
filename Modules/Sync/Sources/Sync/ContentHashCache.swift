@@ -40,8 +40,20 @@ public actor ContentHashCache {
     private let maxEntries: Int
 
     private var entries: [ContentHashKey: String] = [:]
-    /// Insertion order for FIFO eviction; front is the oldest surviving entry.
+    /// Insertion order for FIFO eviction. `insertionOrder[evictedPrefix...]` are the live keys,
+    /// oldest first; everything before `evictedPrefix` is already gone from `entries` and is
+    /// waiting to be compacted away.
     private var insertionOrder: [ContentHashKey] = []
+    /// How much of `insertionOrder`'s front has already been evicted.
+    ///
+    /// Eviction used to be `insertionOrder.removeFirst()`, which shifts the whole array — O(n) per
+    /// eviction on a 20 000-element array of 32-byte keys. That costs nothing until the cap is
+    /// reached and then costs it on EVERY subsequent store, which is exactly the sustained-load
+    /// case the cap exists for: hashing a large tree past 20 000 files turned each store into a
+    /// ~640 KB memmove. Advancing an index instead makes eviction O(1); the dead prefix is
+    /// compacted away in one shot once it reaches half the array, so the array cannot grow without
+    /// bound and each compaction drops at least half of it — amortized O(1) per store.
+    private var evictedPrefix = 0
 
     public init(maxEntries: Int = 20_000) {
         self.maxEntries = max(1, maxEntries)
@@ -60,9 +72,21 @@ public actor ContentHashCache {
         }
         entries[key] = hex
 
-        while entries.count > maxEntries, let oldest = insertionOrder.first {
-            insertionOrder.removeFirst()
-            entries[oldest] = nil
+        // A key is appended only when it is ABSENT from `entries`, and it can only become absent by
+        // being evicted — which advances `evictedPrefix` past its slot. So a key never appears twice
+        // in the live region, and `entries.count == insertionOrder.count - evictedPrefix` always
+        // holds; that invariant is what lets this loop trust the index it is walking.
+        while entries.count > maxEntries, evictedPrefix < insertionOrder.count {
+            entries[insertionOrder[evictedPrefix]] = nil
+            evictedPrefix += 1
+        }
+
+        // Reclaim the dead prefix once it dominates the array. Deferring to the halfway mark is
+        // what makes the amortization work: each compaction is O(n) but drops at least half the
+        // storage, so the per-store cost stays constant.
+        if evictedPrefix > 0, evictedPrefix * 2 >= insertionOrder.count {
+            insertionOrder.removeFirst(evictedPrefix)
+            evictedPrefix = 0
         }
     }
 }

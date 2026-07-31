@@ -206,11 +206,16 @@ import Testing
         try Data(repeating: 0x42, count: 5000).write(to: big)        // over the injected 1000-byte cap
         try Data(repeating: 0x43, count: 100).write(to: cloud)       // flagged cloud-only via the seam
 
+        // No cache: this pins the SKIP classification, and both knobs it varies are ones a cache
+        // hit deliberately bypasses (the cache holds digests; the caps only decide whether
+        // computing one is worth it). Sharing the session cache here would let a digest recorded
+        // by another test's real-cap run answer for a file this test wants reported as too large.
         let outcome = await FileSyncManager.hashFilesCounting(
             [small1.path, small2.path, big.path, cloud.path],
             fileManager: FileManager.default,
             maxBytesToHash: 1000,
-            isCloudOnly: { $0.hasSuffix("cloud.txt") }
+            isCloudOnly: { $0.hasSuffix("cloud.txt") },
+            cache: nil
         )
 
         #expect(outcome.skippedTooLarge == 1)
