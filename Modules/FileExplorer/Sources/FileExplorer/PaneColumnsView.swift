@@ -49,6 +49,10 @@ struct PaneColumnsView: View {
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
     /// holding it may not be this one) and only the host can see both sides.
     let onBackgroundDeselect: (Int?) -> Void
+    /// Path of the file a Download was requested for, so that one row polls for its content
+    /// landing. Owned by the hosting `FileTreeView`, which holds the pane's single subscription —
+    /// see `FileRowView.isAwaitingDownload`.
+    var awaitingDownloadPath: String?
 
     /// One width shared by both panes, so the two sides stay symmetric while you read them against
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
@@ -329,7 +333,8 @@ struct PaneColumnsView: View {
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
-            showsChevron: node.isDirectory
+            showsChevron: node.isDirectory,
+            isAwaitingDownload: awaitingDownloadPath == node.id
         )
         .tag(node.id)
         // Single click opens a folder's column, per the decision — the one real change to the
@@ -618,11 +623,15 @@ struct ColumnRowView: View {
     let containedDiffCount: Int
     let density: ListDensity
     let showsChevron: Bool
+    /// See `FileRowView.isAwaitingDownload`. Threaded through rather than observed here for the
+    /// same reason: a per-row subscription for a per-session event.
+    var isAwaitingDownload: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
-                        containedDiffCount: containedDiffCount, density: density)
+                        containedDiffCount: containedDiffCount, density: density,
+                        isAwaitingDownload: isAwaitingDownload)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .scaledFont(.caption2.weight(.semibold))

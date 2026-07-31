@@ -133,6 +133,14 @@ public struct FileTreeView: View, Equatable {
     /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
+    /// The path of the file a Download was last requested for, so that row — and only that row —
+    /// polls for its content landing.
+    ///
+    /// One subscription here rather than one per row. `FileRowView` used to observe
+    /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
+    /// churned as the list recycled them, to deliver a notice that at most one row per session
+    /// ever acts on.
+    @State private var awaitingDownloadPath: String?
 
     public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil) {
         self.tree = tree
@@ -285,6 +293,14 @@ public struct FileTreeView: View, Equatable {
     public var body: some View {
         ZStack {
             presentation
+                // The pane's single subscription for the whole list — see `awaitingDownloadPath`.
+                .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
+                    awaitingDownloadPath = note.object as? String
+                }
+                // A republish is the moment every other fact on a row is refreshed, so it is the
+                // moment the cloud-only memo stops being allowed to speak for them too. `PaneTree`
+                // compares by publish stamp, so this fires once per publish rather than per render.
+                .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear() }
 
             switch emptyState {
             case .none:
@@ -381,7 +397,8 @@ public struct FileTreeView: View, Equatable {
                 isSingleSource: isSingleSource, density: density, isActivePane: isActivePane,
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { quickLookItem = $0 },
-                onBackgroundDeselect: onBackgroundDeselect ?? { _ in }
+                onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
+                awaitingDownloadPath: awaitingDownloadPath
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
@@ -501,7 +518,8 @@ public struct FileTreeView: View, Equatable {
             isIgnored: isPathIgnored(node),
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
-            density: density
+            density: density,
+            isAwaitingDownload: awaitingDownloadPath == node.id
         )
         .tag(node.id)
         .contextMenu {
@@ -935,15 +953,21 @@ struct FileRowView: View {
     /// Number of differences beneath this node (directories only; 0 elsewhere).
     let containedDiffCount: Int
     /// Whether this file is a cloud-only placeholder (content not on disk). Detected lazily per row
-    /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears.
+    /// via one `lstat` — off the scan, so a big tree pays nothing until a row actually appears —
+    /// and memoized by `CloudOnlyBadgeCache`, so a row scrolling back in does not re-stat.
     @State private var isCloudOnly = false
     /// List-density setting (H7), injected by `FileTreeView` (which reads the @AppStorage once
     /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
     /// the row and drops the secondary size/date detail.
     let density: ListDensity
-    /// Bumped when a Download is requested for this file (see `.cloudDownloadRequested`), keying
-    /// the short poll that clears the badge once the content lands.
-    @State private var downloadWatchToken = 0
+    /// True while the pane is watching a download this row requested.
+    ///
+    /// Supplied by the pane rather than discovered here. Every row used to hold its own
+    /// `.onReceive(NotificationCenter…)` subscription for the download notice — one live Combine
+    /// subscription per visible row, created and torn down as the list recycles them, so that at
+    /// most one row per session could ever receive anything. The pane holds the single
+    /// subscription now and hands the answer down as a `Bool`.
+    var isAwaitingDownload: Bool = false
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
@@ -995,30 +1019,34 @@ struct FileRowView: View {
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
         .contentShape(Rectangle())
+        // One keyed task for the badge, and it consults the memo first — so the syscall happens
+        // once per path per republish rather than once per realization. `List` realizes and
+        // discards rows continuously while scrolling, which is what made "once per realization"
+        // expensive.
         .task(id: node.id) {
             guard !node.isDirectory else { isCloudOnly = false; return }
-            let path = node.id
-            // lstat off the main actor; it's cheap but there's no reason to do syscalls on it.
-            isCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+            isCloudOnly = await CloudOnlyBadgeCache.isCloudOnly(atPath: node.id)
         }
-        // After a Download request for THIS file, re-check the badge as the content arrives.
-        .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
-            guard note.object as? String == node.id else { return }
-            downloadWatchToken &+= 1
-        }
-        // Polls the lstat once a second for ~10 s: materialization is asynchronous and has no
-        // public completion callback, so a short bounded poll is the cheap honest option. The
-        // badge clears the moment the check says the content is local; if it never does (the
-        // download stalled or failed), the badge correctly stays. Cancel-safe: keyed .task is
-        // cancelled when the row disappears, and Task.sleep throws on cancellation.
-        .task(id: downloadWatchToken) {
-            guard downloadWatchToken > 0, isCloudOnly, !node.isDirectory else { return }
+        // Polls the lstat once a second for ~10 s after the pane says a download was requested for
+        // this row: materialization is asynchronous and has no public completion callback, so a
+        // short bounded poll is the cheap honest option. The badge clears the moment the check says
+        // the content is local; if it never does (the download stalled or failed), the badge
+        // correctly stays. Cancel-safe: the keyed `.task` is cancelled when the row disappears, and
+        // `Task.sleep` throws on cancellation.
+        //
+        // The memo is forgotten on the way in, not on the way out: the answer it holds is the
+        // pre-download one, and leaving it there would let the row re-read "cloud-only" from cache
+        // the moment it recycled, undoing the poll's result.
+        .task(id: isAwaitingDownload) {
+            guard isAwaitingDownload, isCloudOnly, !node.isDirectory else { return }
             let path = node.id
+            CloudOnlyBadgeCache.forget(path)
             for _ in 0..<10 {
                 guard (try? await Task.sleep(nanoseconds: 1_000_000_000)) != nil else { return }
                 let stillCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
                 if Task.isCancelled { return }
                 if !stillCloudOnly {
+                    CloudOnlyBadgeCache.record(path, isCloudOnly: false)
                     isCloudOnly = false
                     return
                 }

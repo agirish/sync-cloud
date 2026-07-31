@@ -82,7 +82,11 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         private var windowMax: CGFloat?
         private var windowStart: CGFloat?
         private var pendingFlush: DispatchWorkItem?
-        private var pendingReturn: DispatchWorkItem?
+        /// Coalesces the quiescence re-arm — one timer per rest window instead of a fresh
+        /// `DispatchWorkItem` per bounds-change notification. There is one of these probes per open
+        /// column, so the old cost was multiplied by the whole stack. See `QuiescenceTimer`.
+        private lazy var pullCheck = QuiescenceTimer(
+            quiescence: PaneColumnsOverscrollReturn.WatchdogView.quiescence)
         private static let coalesce: TimeInterval = 0.25
 
         override func viewDidMoveToWindow() {
@@ -93,8 +97,7 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
                 observedClip = nil
                 pendingFlush?.cancel()
                 pendingFlush = nil
-                pendingReturn?.cancel()
-                pendingReturn = nil
+                pullCheck.cancel()
                 return
             }
             rearm()
@@ -157,12 +160,7 @@ struct PaneColumnJitterProbe: NSViewRepresentable {
         /// genuinely moving — a drag, momentum, a native spring that works — the check never
         /// runs. It fires only once the list has come to rest.
         private func scheduleReturn() {
-            pendingReturn?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.returnHomeIfParked() }
-            pendingReturn = work
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + PaneColumnsOverscrollReturn.WatchdogView.quiescence,
-                execute: work)
+            pullCheck.noteActivity { [weak self] in self?.returnHomeIfParked() }
         }
 
         private func returnHomeIfParked() {

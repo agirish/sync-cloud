@@ -164,7 +164,10 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// assert the ancestor walk resolved the STACK's scroll view and not a column's list.
         var resolvedScroller: NSScrollView? { observedScroller }
         private var observers: [NSObjectProtocol] = []
-        private var pendingCheck: DispatchWorkItem?
+        /// Coalesces the quiescence re-arm. This used to cancel and allocate a fresh
+        /// `DispatchWorkItem` on every bounds-change notification — i.e. at frame cadence for the
+        /// whole length of a scroll — to answer one question at the end of it. See `QuiescenceTimer`.
+        private lazy var quiesce = QuiescenceTimer(quiescence: Self.quiescence)
         private var pendingHold: DispatchWorkItem?
         /// Bounds the ancestor walk: `layout()` runs on every pass, and a hierarchy this can never
         /// resolve would otherwise re-walk the ancestry forever.
@@ -200,8 +203,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             observers.forEach(NotificationCenter.default.removeObserver)
             observers = []
             observedScroller = nil
-            pendingCheck?.cancel()
-            pendingCheck = nil
+            quiesce.cancel()
             pendingHold?.cancel()
             pendingHold = nil
         }
@@ -291,14 +293,13 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
             scroller.reflectScrolledClipView(clip)
         }
 
-        /// Re-arms the quiescence timer. Called on every bounds change, so the check only ever
-        /// runs once the stack has actually stopped moving.
+        /// Re-arms the quiescence timer. Called on every bounds change AND on every layout pass, so
+        /// the check only ever runs once the stack has actually stopped moving — and so it must be
+        /// cheap to call. `QuiescenceTimer` makes it a timestamp write while a timer is already in
+        /// flight, instead of the cancel-and-reallocate this used to do per notification.
         private func scheduleCheck() {
             guard observedScroller != nil else { return }
-            pendingCheck?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.returnHomeIfStranded() }
-            pendingCheck = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.quiescence, execute: work)
+            quiesce.noteActivity { [weak self] in self?.returnHomeIfStranded() }
         }
 
         private func returnHomeIfStranded() {
