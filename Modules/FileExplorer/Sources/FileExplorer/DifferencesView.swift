@@ -1189,12 +1189,41 @@ public struct DifferencesView: View {
             keyboardCopy(direction: intent.direction, isMove: intent.isMove, in: sorted)
             return .handled
         }
-        // Quick Look the topmost selected row's source side — matches the pane/review Space loop.
-        .onKeyPress(.space) {
-            guard let onQuickLook, let primary = sorted.first(where: { selection.contains($0.id) }) else {
-                return .ignored
+        // Marks this table as the surface the user means, so Space can tell a Differences
+        // selection from a pane one. Only a non-empty selection claims it: a clear (the ✕ chip,
+        // a rescan dropping the row) says "not this any more", and letting it claim the token
+        // would point Space at a table holding nothing.
+        .onChange(of: selection) { _, newSelection in
+            guard !newSelection.isEmpty else { return }
+            if syncManager.lastSelectionSurface != .differences {
+                syncManager.lastSelectionSurface = .differences
             }
-            onQuickLook(URL(fileURLWithPath: primary.reviewSourcePath))
+        }
+        // Quick Look on plain Space — and the one handler that has to arbitrate.
+        //
+        // `.onKeyPress` is strictly focus-scoped (measured): only the handler in the subtree
+        // holding the first responder runs, siblings never both see the event, and `.ignored`
+        // does not fall through to a sibling. This table keeps key focus while it is on screen —
+        // a pane row click does not take it away — so with the bottom pane open, Space arrives
+        // HERE even when the user is working in a pane and the panes' own handler is never
+        // consulted. That is why "Space previewed the Differences row while the Info inspector
+        // showed the pane file": the panes' handler was correct and simply starved.
+        //
+        // So this asks `CurrentSelection` rather than assuming the answer is its own row.
+        // `singleSource: false` unconditionally: `compareBottomListActive` gates this whole view
+        // to Compare, and Tidy shows `TidyView` instead, so the rail's hidden-right-pane case
+        // cannot reach here.
+        .onKeyPress(.space) {
+            guard let onQuickLook else { return .ignored }
+            guard let targetPath = CurrentSelection.quickLookPath(
+                lastInteracted: syncManager.lastSelectionSurface,
+                panePath: CurrentSelection.primaryPanePath(
+                    left: syncManager.selectedLeftPaths,
+                    right: syncManager.selectedRightPaths
+                ),
+                differencesPath: sorted.first(where: { selection.contains($0.id) })?.reviewSourcePath
+            ) else { return .ignored }
+            onQuickLook(URL(fileURLWithPath: targetPath))
             return .handled
         }
     }

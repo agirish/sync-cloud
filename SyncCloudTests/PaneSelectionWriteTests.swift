@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Sync
 @testable import SyncCloud
 
 /// The ORDER of a pane click's two halves.
@@ -15,10 +16,11 @@ import Foundation
 @MainActor
 @Suite struct PaneSelectionWriteTests {
 
-    /// Stands in for `FileSyncManager`'s two selection properties.
+    /// Stands in for `FileSyncManager`'s selection properties.
     private final class State: PaneSelectionState {
         var selectedLeftPaths: Set<String> = []
         var selectedRightPaths: Set<String> = []
+        var lastSelectionSurface: SelectionSurface? = nil
     }
 
     /// Collects the deferred blocks instead of running them, so a test decides when — and whether —
@@ -152,5 +154,65 @@ import Foundation
         let second = sequencer.commit()
         #expect(!sequencer.isNewest(first))
         #expect(sequencer.isNewest(second))
+    }
+}
+
+/// The pane half of the Space → Quick Look tie-break: a pane click has to CLAIM the surface token,
+/// or the Differences table keeps priority and Space goes on previewing its row while the user is
+/// working in a pane. Driven through `applySelectionWrite` because that is the one choke point
+/// every pane selection write passes through.
+@MainActor
+@Suite struct PaneSelectionSurfaceTokenTests {
+
+    private final class State: PaneSelectionState {
+        var selectedLeftPaths: Set<String> = []
+        var selectedRightPaths: Set<String> = []
+        /// Counts writes, not just the final value: the token is `@Published` on the real manager
+        /// and the panes re-render off it, so a redundant write per click is a cost, not a detail.
+        private(set) var surfaceWrites = 0
+        var lastSelectionSurface: SelectionSurface? = nil {
+            didSet { surfaceWrites += 1 }
+        }
+    }
+
+    private func write(_ selection: Set<String>, isLeft: Bool, _ state: State,
+                       _ sequencer: PaneSelectionSequencer) {
+        PaneLogic.applySelectionWrite(selection, isLeft: isLeft, state: state,
+                                      sequencer: sequencer, schedule: { _ in })
+    }
+
+    @Test func aPaneSelectionClaimsTheSurfaceToken() {
+        let state = State()
+        state.lastSelectionSurface = .differences
+        write(["/left/a"], isLeft: true, state, PaneSelectionSequencer())
+        #expect(state.lastSelectionSurface == .pane)
+    }
+
+    @Test func theRightPaneClaimsItToo() {
+        let state = State()
+        state.lastSelectionSurface = .differences
+        write(["/right/b"], isLeft: false, state, PaneSelectionSequencer())
+        #expect(state.lastSelectionSurface == .pane)
+    }
+
+    /// A clear says "not this any more", not "the panes are what I mean now". Handing the token to
+    /// a surface holding nothing would point Space at an empty pane and make it dead.
+    @Test func anEmptyWriteDoesNotClaimTheToken() {
+        let state = State()
+        state.lastSelectionSurface = .differences
+        write([], isLeft: true, state, PaneSelectionSequencer())
+        #expect(state.lastSelectionSurface == .differences)
+    }
+}
+
+extension PaneSelectionSurfaceTokenTests {
+    /// The guard that keeps a run of pane clicks from republishing the token on every one.
+    @Test func repeatedPaneClicksWriteTheTokenOnlyOnce() {
+        let state = State(), sequencer = PaneSelectionSequencer()
+        write(["/left/a"], isLeft: true, state, sequencer)
+        let afterFirst = state.surfaceWrites
+        write(["/left/b"], isLeft: true, state, sequencer)
+        write(["/left/c"], isLeft: true, state, sequencer)
+        #expect(state.surfaceWrites == afterFirst, "the token was republished on an unchanged value")
     }
 }

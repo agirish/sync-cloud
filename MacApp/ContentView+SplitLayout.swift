@@ -1,6 +1,7 @@
 import SwiftUI
 import Dashboard
 import Design
+import Sync
 
 /// The custom pane split layout, extracted from ContentView.swift for size: the horizontal
 /// two-pane split, the vertical panes-over-bottom-workspace split, and their invisible
@@ -57,12 +58,19 @@ extension ContentView {
         // spaces typed in the Differences search field and Settings-overlay fields. onKeyPress
         // only fires while key focus is inside this subtree (the pane Lists; rename/new-folder
         // prompts are separate NSAlert panels), so text fields elsewhere get Space normally.
+        //
+        // That focus scoping is strict, and measured: only the handler in the subtree holding the
+        // window's first responder ever runs. This one and the Differences table's are SIBLINGS —
+        // they never both see a Space, `.ignored` from one never reaches the other, and with
+        // nothing focused neither fires. So this handler does not need to defer to the Differences
+        // selection: if it is running at all, focus is in a pane. The reverse is not true, which is
+        // why the Differences handler is the one that consults `CurrentSelection`.
         .onKeyPress(.space) {
-            guard let targetPath = PaneLogic.primarySelectionPath(
-                leftSelection: syncManager.selectedLeftPaths,
-                rightSelection: syncManager.selectedRightPaths
+            guard let targetPath = CurrentSelection.primaryPanePath(
+                left: syncManager.selectedLeftPaths,
+                right: syncManager.selectedRightPaths
             ) else { return .ignored }
-            quickLookURL = URL(fileURLWithPath: targetPath)
+            toggleQuickLook(URL(fileURLWithPath: targetPath))
             return .handled
         }
     }
@@ -168,15 +176,19 @@ extension ContentView {
                     .frame(width: railWidth)
                     // The same Space → Quick Look the comparison panes get (ShortcutsReference
                     // promises it "in the panes", and the rail IS a pane) — scoped to the rail
-                    // column so the workspace's own Space handlers are untouched. The right
-                    // selection is explicitly empty: the hidden Compare pane's leftover
-                    // selection must not hijack the preview.
+                    // column so the workspace's own Space handlers are untouched.
+                    //
+                    // `singleSource: true` is the rail's one difference, and it is now the shared
+                    // resolver's flag rather than a hand-passed empty set: the hidden Compare
+                    // pane's leftover right-hand selection must not hijack the preview. The Info
+                    // inspector spells out the identical rule, and now spells it via the same call.
                     .onKeyPress(.space) {
-                        guard let targetPath = PaneLogic.primarySelectionPath(
-                            leftSelection: syncManager.selectedLeftPaths,
-                            rightSelection: []
+                        guard let targetPath = CurrentSelection.primaryPanePath(
+                            left: syncManager.selectedLeftPaths,
+                            right: syncManager.selectedRightPaths,
+                            singleSource: true
                         ) else { return .ignored }
-                        quickLookURL = URL(fileURLWithPath: targetPath)
+                        toggleQuickLook(URL(fileURLWithPath: targetPath))
                         return .handled
                     }
                 bottomPaneView

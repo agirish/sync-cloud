@@ -8,10 +8,11 @@ import Sync
 @MainActor
 @Suite struct PaneBackgroundDeselectLogicTests {
 
-    /// Stands in for `FileSyncManager`'s two selection properties.
+    /// Stands in for `FileSyncManager`'s selection properties.
     private final class State: PaneSelectionState {
         var selectedLeftPaths: Set<String> = []
         var selectedRightPaths: Set<String> = []
+        var lastSelectionSurface: SelectionSurface? = nil
     }
 
     // MARK: Letting the selection go

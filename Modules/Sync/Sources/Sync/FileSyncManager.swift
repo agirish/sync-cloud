@@ -981,6 +981,16 @@ public class FileSyncManager: ObservableObject {
     /// Paths currently selected in the right pane. See `selectedLeftPaths` for
     /// the one-pane-selected invariant (enforced in MacApp/ContentView.swift).
     @Published public var selectedRightPaths: Set<String> = []
+    /// Which surface the user last selected something in — the tie-break `CurrentSelection` needs
+    /// when a pane and the Differences table both hold a selection, which they legitimately can.
+    ///
+    /// Written only when it actually changes, and only on a *non-empty* selection: a clear says
+    /// "not this any more", not "this surface is now what I mean", and letting a clear claim the
+    /// token would hand priority to a surface holding nothing.
+    ///
+    /// `nil` until the first selection of the session, which `CurrentSelection.quickLookPath`
+    /// treats as pane-first — the panes are what a fresh window is looking at.
+    @Published public var lastSelectionSurface: SelectionSurface? = nil
     /// Tracks the number of currently active file operations (Sync, Move, Delete, etc.).
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.

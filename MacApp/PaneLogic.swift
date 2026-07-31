@@ -11,6 +11,8 @@ import Sync
 protocol PaneSelectionState: AnyObject {
     var selectedLeftPaths: Set<String> { get set }
     var selectedRightPaths: Set<String> { get set }
+    /// Claimed by a non-empty pane write, so Space can tell a pane selection from a Differences one.
+    var lastSelectionSurface: SelectionSurface? { get set }
 }
 
 extension FileSyncManager: PaneSelectionState {}
@@ -190,6 +192,10 @@ enum PaneLogic {
         // queues no deferral, so it has no newer-click race to lose, and letting it bump the counter
         // would cancel a live deferral without replacing it.
         guard !newSelection.isEmpty else { return }
+        // The user just picked something in a pane, so the panes are what "the current file" means
+        // until they pick something elsewhere. Guarded so a run of pane clicks publishes once
+        // rather than per click — this is observed state, and the panes re-render off it.
+        if state.lastSelectionSurface != .pane { state.lastSelectionSurface = .pane }
         let token = sequencer.commit()
         // Timing from here spans the button HOLD, not just work.
         //
@@ -272,13 +278,15 @@ enum PaneLogic {
         return nil
     }
 
-    /// The path Quick Look (and similar single-item consumers) should target for the current
-    /// selection: alphabetically first path, left pane taking priority — the same ordering
-    /// DetailsSidebar uses. `Set.first` is arbitrary per hash seed, so a multi-item selection
-    /// would otherwise preview a different file on every launch. `min()` is the allocation-free
-    /// equivalent of `sorted().first` (both take the least element by `<`).
+    /// The path Quick Look (and similar single-item consumers) should target for the current pane
+    /// selection.
+    ///
+    /// Now a forwarder: the rule moved to `CurrentSelection.primaryPanePath` in `Sync` so the
+    /// Differences table and the Info inspector — neither of which can see `MacApp` — resolve the
+    /// pane selection through the same code instead of re-deriving it. Kept as a name because the
+    /// pane call sites and their tests read better with it.
     static func primarySelectionPath(leftSelection: Set<String>, rightSelection: Set<String>) -> String? {
-        leftSelection.min() ?? rightSelection.min()
+        CurrentSelection.primaryPanePath(left: leftSelection, right: rightSelection)
     }
 
     /// Whether Escape, pressed over a pane, should clear that pane's selection (and so swallow the

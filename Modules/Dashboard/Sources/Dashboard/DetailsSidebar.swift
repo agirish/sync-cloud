@@ -88,14 +88,17 @@ public struct DetailsSidebar: View {
         // A "Get Info" target wins over the pane selection (a differences-table row has no pane
         // selection of its own).
         if let overridePath, !overridePath.isEmpty { return overridePath }
-        // `min()` is the allocation-free equivalent of `sorted().first` — the alphabetically
-        // first selected path (left pane first), matching `PaneLogic.primarySelectionPath`.
-        if let leftSelection = syncManager.selectedLeftPaths.min() {
-            return leftSelection
-        } else if let rightSelection = rightSelectionPaths.min() {
-            return rightSelection
+        // Was a hand-written copy of the left-first `min()` rule, under a comment claiming it
+        // matched `PaneLogic.primarySelectionPath` — it re-derived it instead, which is how the
+        // inspector and Space came to disagree about which file was current. Both now call this.
+        if let selected = CurrentSelection.primaryPanePath(
+            left: syncManager.selectedLeftPaths,
+            right: syncManager.selectedRightPaths,
+            singleSource: singleSource
+        ) {
+            return selected
         }
-        
+
         // Fallback to navigated folders
         return leftPath.isEmpty ? rightPath : leftPath
     }
