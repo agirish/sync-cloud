@@ -15,7 +15,27 @@ extension Notification.Name {
 }
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
-public struct FileTreeView: View {
+///
+/// **`Equatable`, and wrapped in `.equatable()` by its host.** Not decoration — it is the boundary
+/// that stops the pane re-rendering on things that have nothing to do with it.
+///
+/// `ContentView` is a single `View` observing a manager with ~56 `@Published` properties, so a
+/// write to *any* of them — a scan progress tick, a banner, a bulk-copy counter — re-evaluates its
+/// whole body, which builds both panes. That is survivable only if SwiftUI can then say "this pane
+/// is unchanged" and stop. It could not: the host hands each pane a freshly-built
+/// `PaneActionDelegate` (an existential holding closures), four freshly-built callback closures and
+/// two freshly-built `Binding`s, and SwiftUI's memberwise comparison treats every one of those as
+/// different. So every pane compared unequal on every render, and with the delegate threaded into
+/// each row's context menu and drop target, so did every visible row.
+///
+/// The `==` below therefore compares what the pane RENDERS FROM — all of it, by value — and asks
+/// the delegate to vouch for itself (`FileActionDelegate.isEquivalent(to:)`). The callbacks are
+/// compared only for presence, because presence is the only thing about them the pane's layout
+/// depends on: each one dispatches through the host's reference types and property wrappers, so a
+/// closure captured on an earlier render reads exactly the same live state as a fresh one would.
+/// Anything added to this view later must be added to `==` as well — a stored property left out of
+/// it is a value the pane will stop noticing.
+public struct FileTreeView: View, Equatable {
     /// File tree for this pane. Boxed rather than a bare `[FileNode]` so SwiftUI compares one
     /// `Int` instead of recursing through ~40,000 nodes on the main thread — see `PaneTree`.
     public let tree: PaneTree
@@ -144,6 +164,46 @@ public struct FileTreeView: View {
         self._browsePath = browsePath
         self.onColumnNavigate = onColumnNavigate
         self.onBackgroundDeselect = onBackgroundDeselect
+    }
+
+    /// See the note on the type. Every stored property is accounted for here: the value ones by
+    /// `==`, the two `Binding`s by their wrapped values (so a selection or a column stack changing
+    /// still re-renders), the shared placement box by identity, the delegate by its own
+    /// equivalence, and the four host callbacks by presence alone.
+    ///
+    /// `nonisolated` because `Equatable` is, and `assumeIsolated` because this view — and the
+    /// `@MainActor` delegate it compares — are not. The assumption is the one SwiftUI already
+    /// guarantees: view-tree diffing, which is the only thing that calls this, runs on the main
+    /// actor. Same reasoning (and same call) as the pane's AppKit bounds observers.
+    nonisolated public static func == (lhs: FileTreeView, rhs: FileTreeView) -> Bool {
+        MainActor.assumeIsolated { isEqualOnMainActor(lhs, rhs) }
+    }
+
+    private static func isEqualOnMainActor(_ lhs: FileTreeView, _ rhs: FileTreeView) -> Bool {
+        lhs.tree == rhs.tree
+            && lhs.otherTree == rhs.otherTree
+            && lhs.isLoading == rhs.isLoading
+            && lhs.currentPath == rhs.currentPath
+            && lhs.selection == rhs.selection
+            && lhs.otherSelection == rhs.otherSelection
+            && lhs.isLeft == rhs.isLeft
+            && lhs.diffIndex == rhs.diffIndex
+            && lhs.otherPaneName == rhs.otherPaneName
+            && lhs.rootPathIsValid == rhs.rootPathIsValid
+            && lhs.providerIsEnabled == rhs.providerIsEnabled
+            && lhs.hasOnlyHiddenEntries == rhs.hasOnlyHiddenEntries
+            && lhs.rootPath == rhs.rootPath
+            && lhs.isSingleSource == rhs.isSingleSource
+            && lhs.isActivePane == rhs.isActivePane
+            && lhs.viewMode == rhs.viewMode
+            && lhs.childrenIndex == rhs.childrenIndex
+            && lhs.browsePath == rhs.browsePath
+            && lhs.placement === rhs.placement
+            && (lhs.onOpenSettings == nil) == (rhs.onOpenSettings == nil)
+            && (lhs.onBarEdgeFlip == nil) == (rhs.onBarEdgeFlip == nil)
+            && (lhs.onColumnNavigate == nil) == (rhs.onColumnNavigate == nil)
+            && (lhs.onBackgroundDeselect == nil) == (rhs.onBackgroundDeselect == nil)
+            && lhs.delegate.isEquivalent(to: rhs.delegate)
     }
 
     /// The list viewport's global frame (height + window-space top edge).
@@ -464,7 +524,8 @@ public struct FileTreeView: View {
             rowPath: node.id,
             rowIsDirectory: node.isDirectory,
             paneIsLeft: isLeft,
-            delegate: delegate
+            delegate: delegate,
+            accent: glassHue.accentColor
         ))
         // Every visible row reports its bottom edge so the clicked row's position is already known
         // the instant it becomes selected (placement can then resolve synchronously). Only visible
@@ -610,25 +671,38 @@ enum SharedFileMenuItems {
 /// highlight while a valid drop hovers; file rows route the drop to their enclosing folder,
 /// like Finder, and never highlight — a highlight on the file row itself would misread as
 /// dropping "into" the file.
+/// This modifier exists once per VISIBLE ROW, which is the whole reason it holds neither an
+/// `@AppStorage` nor an `@ObservedObject`. Both were here and both were per-row costs the pane
+/// deliberately refuses to pay elsewhere: `FileTreeView` already reads the density default once for
+/// the whole pane precisely because "a per-row @AppStorage would register a defaults observer per
+/// visible row" — and this modifier then registered one anyway, for the hue. The observed drag
+/// session was worse: it invalidated *every* visible row of both panes the instant a drag began or
+/// ended, in a modifier whose entire visible output is a highlight on the one row being hovered.
+///
+/// So the accent arrives as a resolved `Color` from the pane (which reads the hue once), and the
+/// drag payload is read straight off the shared session at the moment it is needed. That read needs
+/// no observation to be correct: the highlight is gated on `isTargeted`, which is this row's own
+/// `@State` and re-renders it on both edges of the hover — and a target cannot be hovered without a
+/// drag in flight, which is the same invariant `PaneDragSession` already documents ("only read
+/// while a target is actively hovered").
 struct PaneDropTarget: ViewModifier {
     /// Absolute path of the node this row represents.
     let rowPath: String
     let rowIsDirectory: Bool
     let paneIsLeft: Bool
     let delegate: FileActionDelegate
+    /// Drop-highlight color — the user-selected glass hue's accent (C7), resolved once per pane
+    /// and handed down rather than read from defaults per row.
+    let accent: Color
 
-    @ObservedObject private var dragSession = PaneDragSession.shared
     @State private var isTargeted = false
-    // Drop highlight reads the user-selected glass hue, like the rest of the main window (C7).
-    @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
-    private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
 
     func body(content: Content) -> some View {
         let targetDirectoryPath = PaneDropLogic.dropTargetDirectory(forRowId: rowPath, isDirectory: rowIsDirectory)
         content
             .background {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(hueAccent.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
+                    .fill(accent.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
             }
             .dropDestination(for: PaneDragPayload.self) { payloads, _ in
                 guard let payload = payloads.first else { return false }
@@ -639,7 +713,7 @@ struct PaneDropTarget: ViewModifier {
     }
 
     private func dropAllowed(into directoryPath: String) -> Bool {
-        guard let payload = dragSession.active else { return false }
+        guard let payload = PaneDragSession.shared.active else { return false }
         return PaneDropLogic.canDrop(
             draggedIds: payload.nodes.map(\.id),
             sourceIsLeft: payload.sourceIsLeft,

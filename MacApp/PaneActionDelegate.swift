@@ -24,6 +24,51 @@ struct PaneActionDelegate: FileActionDelegate {
     /// that reaches this, so the comparison panes pass a no-op.
     let onChooseDestination: ([FileNode], Bool) -> Void
 
+    /// A snapshot of the ignore set, carried purely so `isEquivalent` can notice it changing.
+    ///
+    /// It is never read by `isNodeIgnored`, which still asks the manager for the live answer. It
+    /// exists because the pane's ignored-row treatment — the struck-through name — is rendered
+    /// eagerly, unlike everything else the delegate answers (the context menu is built when it
+    /// opens, so it always sees live state). Ignoring a row publishes `ignoredPaths`, which
+    /// re-renders the host but need not change ANY of the values `FileTreeView.==` compares: the
+    /// row is still in the tree, at the same path, in the same selection. Without a token here the
+    /// pane would skip the re-render and the strikethrough would not appear until something
+    /// unrelated moved.
+    ///
+    /// A snapshot rather than a counter because the inputs are plural — the session set, the
+    /// durable store, and the remember-ignores switch all feed `effectiveIgnoredPaths` — and a
+    /// hand-maintained generation bumped at three call sites is one forgotten `didSet` away from
+    /// exactly the silent staleness this is here to prevent. Comparing the set costs one pass over
+    /// a handful of entries.
+    let ignoreStateToken: Set<String>
+
+    /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
+    /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
+    /// thing that moved was some unrelated corner of the manager.
+    ///
+    /// Every stored property is accounted for. The six values are compared outright; the three
+    /// references are compared by identity; and the three closures are ignored, which is the one
+    /// claim here that needs justifying.
+    ///
+    /// They are safe to ignore because none of them captures a decision. `forceRefreshAction`,
+    /// `onGetInfo` and `onChooseDestination` are all built by `ContentView` and read their state
+    /// back through property wrappers (`@State`, `@AppStorage`, `@ObservedObject`,
+    /// `@EnvironmentObject`) whose storage outlives any single render — so a closure captured three
+    /// renders ago sees exactly what one built this instant would. What they must never do is read
+    /// a plain `let` snapshot off the captured view; if one ever does, it belongs in the comparison
+    /// below rather than outside it.
+    func isEquivalent(to other: FileActionDelegate) -> Bool {
+        guard let other = other as? PaneActionDelegate else { return false }
+        return handler === other.handler
+            && syncManager === other.syncManager
+            && settings === other.settings
+            && isLeft == other.isLeft
+            && leftProviderId == other.leftProviderId
+            && rightProviderId == other.rightProviderId
+            && isSingleSource == other.isSingleSource
+            && ignoreStateToken == other.ignoreStateToken
+    }
+
     func handleRefresh() {
         forceRefreshAction()
     }

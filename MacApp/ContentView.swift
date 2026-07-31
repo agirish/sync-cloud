@@ -1763,7 +1763,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
@@ -1795,6 +1795,11 @@ struct ContentView: View {
             onColumnNavigate: { applyColumnNavigation($0, isLeft: pane.isLeft) },
             onBackgroundDeselect: { handleBackgroundDeselect(depth: $0, isLeft: pane.isLeft) }
         )
+        // The whole point of `FileTreeView: Equatable`. Without this the conformance is inert —
+        // SwiftUI only consults a view's `==` through `EquatableView` — and this view is built
+        // fresh on every one of `ContentView`'s renders, which any of the manager's ~56 published
+        // properties can trigger. See the note on `FileTreeView`.
+        .equatable()
     }
 
     /// A plain click on a pane's empty space: let the selection go, and — in Columns — close the

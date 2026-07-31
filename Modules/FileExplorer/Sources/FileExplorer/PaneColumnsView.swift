@@ -387,7 +387,8 @@ struct PaneColumnsView: View {
         }
         .draggable(makeDragPayload(for: node))
         .modifier(PaneDropTarget(rowPath: node.id, rowIsDirectory: node.isDirectory,
-                                 paneIsLeft: isLeft, delegate: delegate))
+                                 paneIsLeft: isLeft, delegate: delegate,
+                                 accent: glassHue.accentColor))
         .background(rowPositionProbe(for: node))
         .listRowBackground(rowBackground(for: node, isOnPath: isOnPath))
     }
@@ -396,9 +397,17 @@ struct PaneColumnsView: View {
     /// `Set<String>`): each column reads the shared selection filtered to its own rows and writes
     /// it wholesale, so selecting here clears every other column by construction.
     private func columnSelection(for rows: [PaneRow], depth: Int) -> Binding<Set<String>> {
-        let ids = Set(rows.map(\.id))
-        return Binding(
-            get: { selection.intersection(ids) },
+        // The membership set used to be built HERE — `Set(rows.map(\.id))` — which meant hashing
+        // every row of every open column on every render of the pane, purely to answer an
+        // intersection that is empty most of the time. Same answer, computed in the getter and
+        // short-circuited when there is nothing to intersect: the common case (no selection, which
+        // is every frame of a scroll) now costs nothing at all, and the populated case allocates
+        // only the handful of ids that actually match instead of one entry per row.
+        Binding(
+            get: {
+                guard !selection.isEmpty else { return [] }
+                return Set(rows.lazy.map(\.id).filter(selection.contains))
+            },
             set: { newValue in
                 // Logged including the EMPTY writes, which are the interesting ones: an empty write
                 // is silent everywhere else (it enforces nothing and takes no token in
