@@ -28,10 +28,29 @@ import Foundation
 /// turn would bury the log the way the scroll trace nearly did.
 @MainActor
 public enum MainThreadHitchMonitor {
-    /// Turns longer than this are worth a line. 50 ms is three dropped frames at 60 Hz — past the
-    /// point where a click stops feeling attached to the pointer, and far enough above routine
-    /// layout that the log stays readable.
-    static let threshold: CFTimeInterval = 0.050
+    /// Turns longer than this earn their own line. One frame at 60 Hz.
+    ///
+    /// It started at 50ms — three dropped frames — on the reasoning that a hitch is what the user
+    /// feels. That reasoning was wrong in a way worth recording: a spike threshold is **blind to
+    /// sustained load**. Switching tabs, opening the customize sheet and opening Settings were all
+    /// reported as slow while this logged *nothing at all*, because forty consecutive 40ms turns
+    /// look exactly like an idle app to a 50ms trigger, and feel exactly like a 1.6s stall to a
+    /// person. `busyReportInterval` below is what actually catches that shape; this now only names
+    /// the individual offenders within it.
+    static let threshold: CFTimeInterval = 0.016
+
+    /// How often the duty-cycle line is emitted while the main thread is doing anything.
+    ///
+    /// This is the measurement that matters for "everything is mostly slow": not how long the
+    /// worst turn was, but what FRACTION of wall-clock time the main thread spent busy. An idle app
+    /// reports nothing; a responsive one a few percent; an app that feels sluggish will sit high
+    /// for the whole length of a transition, which is precisely the signature no single-turn
+    /// threshold can see.
+    static let busyReportInterval: CFTimeInterval = 1.0
+
+    /// Below this duty cycle the second is not worth a line — normal idling and the odd stray
+    /// timer, which would otherwise emit one line per second forever.
+    static let busyReportFloor: Double = 0.10
 
     private static var observer: CFRunLoopObserver?
     /// When the current turn started. `nil` while the run loop is asleep, which is the state that
@@ -44,6 +63,13 @@ public enum MainThreadHitchMonitor {
     private(set) static var worst: CFTimeInterval = 0
     private(set) static var hitchCount = 0
     private(set) static var totalHitchTime: CFTimeInterval = 0
+
+    /// The open duty-cycle window: when it started, how much of it the main thread has been busy,
+    /// how many turns that took, and the worst single one.
+    private static var windowBegan: CFTimeInterval?
+    private static var windowBusy: CFTimeInterval = 0
+    private static var windowTurns = 0
+    private static var windowWorst: CFTimeInterval = 0
 
     /// Arms the monitor when the diagnostic flag is set, and does nothing otherwise.
     ///
@@ -96,6 +122,7 @@ public enum MainThreadHitchMonitor {
             guard let began = turnBegan else { return nil }
             turnBegan = nil
             let elapsed = now - began
+            accumulate(elapsed, at: now)
             guard elapsed >= threshold else { return nil }
             hitchCount += 1
             totalHitchTime += elapsed
@@ -107,11 +134,48 @@ public enum MainThreadHitchMonitor {
         }
     }
 
+    /// Folds one finished turn into the duty-cycle window, and closes the window when it is full.
+    ///
+    /// EVERY turn is counted here, including the sub-threshold ones — they are the whole point.
+    /// The window is closed on the first turn to finish after the interval elapses rather than on a
+    /// timer, so the reporting itself never wakes an idle main thread: an app doing nothing emits
+    /// nothing, and the last partial window before a quiet spell is simply carried into the next
+    /// busy one.
+    private static func accumulate(_ elapsed: CFTimeInterval, at now: CFTimeInterval) {
+        guard let started = windowBegan else {
+            windowBegan = now - elapsed
+            windowBusy = elapsed
+            windowTurns = 1
+            windowWorst = elapsed
+            return
+        }
+        windowBusy += elapsed
+        windowTurns += 1
+        windowWorst = max(windowWorst, elapsed)
+
+        let span = now - started
+        guard span >= busyReportInterval else { return }
+        let duty = windowBusy / span
+        if duty >= busyReportFloor {
+            Logger.shared.debug(String(
+                format: "[busy] main thread %.0f%% busy — %.0fms of %.0fms over %d turns, worst %.1fms",
+                duty * 100, windowBusy * 1000, span * 1000, windowTurns, windowWorst * 1000))
+        }
+        windowBegan = nil
+        windowBusy = 0
+        windowTurns = 0
+        windowWorst = 0
+    }
+
     static func reset() {
         worst = 0
         hitchCount = 0
         totalHitchTime = 0
         turnBegan = nil
+        windowBegan = nil
+        windowBusy = 0
+        windowTurns = 0
+        windowWorst = 0
     }
 }
 

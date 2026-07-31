@@ -75,11 +75,14 @@ import Testing
     @Test("Worst and total accumulate across turns, and short turns don't pollute them")
     func accumulatesAcrossTurns() {
         fresh()
-        for (start, end) in [(500.0, 500.2), (501.0, 501.9), (502.0, 502.01), (503.0, 503.3)] {
+        // The third turn is deliberately under `threshold`; expressed relative to the constant so
+        // that retuning the threshold cannot silently turn this into a four-hitch expectation.
+        let short = MainThreadHitchMonitor.threshold / 2
+        for (start, end) in [(500.0, 500.2), (501.0, 501.9), (502.0, 502.0 + short), (503.0, 503.3)] {
             MainThreadHitchMonitor.note(.afterWaiting, at: start)
             MainThreadHitchMonitor.note(.beforeWaiting, at: end)
         }
-        // 0.2, 0.9 and 0.3 clear the 50ms threshold; the 10ms turn does not.
+        // 0.2, 0.9 and 0.3 clear the threshold; the deliberately short one does not.
         #expect(MainThreadHitchMonitor.hitchCount == 3)
         #expect(abs(MainThreadHitchMonitor.worst - 0.9) < 0.001)
         #expect(abs(MainThreadHitchMonitor.totalHitchTime - 1.4) < 0.001)
