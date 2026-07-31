@@ -125,10 +125,6 @@ public struct FileTreeView: View, Equatable {
     /// Defaults true — the Tidy rail is the only pane on screen.
     public let isActivePane: Bool
 
-    /// In-flight drag payload, observed so drop highlights only appear on valid targets.
-    @ObservedObject private var dragSession = PaneDragSession.shared
-    /// Whether a drag is hovering the pane background (drop = copy/move into `currentPath`).
-    @State private var isBackgroundDropTargeted = false
     /// Item previewed via the row context menu's Quick Look. Presented by this pane's own
     /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
@@ -490,26 +486,10 @@ public struct FileTreeView: View, Equatable {
         }
         .contextMenu { emptyAreaContextMenu }
         .quickLookPreview($quickLookItem)
-        .dropDestination(for: PaneDragPayload.self) { payloads, _ in
-            guard let payload = payloads.first else { return false }
-            return Self.performPaneDrop(payload, toPath: currentPath, targetIsLeft: isLeft, delegate: delegate)
-        } isTargeted: { targeting in
-            isBackgroundDropTargeted = targeting
-        }
-        .overlay {
-            if isBackgroundDropTargeted && backgroundDropAllowed {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(glassHue.accentColor, lineWidth: 2)
-                    .padding(2)
-                    .allowsHitTesting(false)
-            }
-        }
     }
 
-    /// One tree row: content, its context menu, draggable payload, and a drop target
-    /// (directories accept into themselves, files into their enclosing folder). Single-click
-    /// selection is left entirely to the List; drilling into a folder is via the Compare
-    /// button / context menu.
+    /// One tree row: content and its context menu. Single-click selection is left entirely to
+    /// the List; drilling into a folder is via the Compare button / context menu.
     @ViewBuilder
     private func treeRow(for row: PaneRow) -> some View {
         let node = row.node
@@ -537,14 +517,6 @@ public struct FileTreeView: View, Equatable {
                 onQuickLook: { quickLookItem = $0 }
             )
         }
-        .draggable(makeDragPayload(for: node))
-        .modifier(PaneDropTarget(
-            rowPath: node.id,
-            rowIsDirectory: node.isDirectory,
-            paneIsLeft: isLeft,
-            delegate: delegate,
-            accent: glassHue.accentColor
-        ))
         // Every visible row reports its bottom edge so the clicked row's position is already known
         // the instant it becomes selected (placement can then resolve synchronously). Only visible
         // rows lay out, and the reports mutate the reference probe rather than any @State, so this
@@ -590,44 +562,6 @@ public struct FileTreeView: View, Equatable {
                 )
             }
         }
-    }
-
-    /// Built lazily when a drag actually starts (`.draggable` takes an autoclosure); also
-    /// records the payload in the shared session so drop targets can validate while hovering.
-    private func makeDragPayload(for node: FileNode) -> PaneDragPayload {
-        let payload = PaneDragPayload(
-            sourceIsLeft: isLeft,
-            nodes: PaneDropLogic.dragNodes(for: node, selection: selection, tree: tree.nodes)
-        )
-        PaneDragSession.shared.active = payload
-        return payload
-    }
-
-    /// Whether the drag currently in flight may be dropped on this pane's background
-    /// (i.e. into the pane's current folder).
-    private var backgroundDropAllowed: Bool {
-        guard let payload = dragSession.active else { return false }
-        return PaneDropLogic.canDrop(
-            draggedIds: payload.nodes.map(\.id),
-            sourceIsLeft: payload.sourceIsLeft,
-            targetIsLeft: isLeft,
-            targetDirectoryPath: currentPath
-        )
-    }
-
-    /// Validates and routes a performed drop; shared by row and background targets.
-    static func performPaneDrop(_ payload: PaneDragPayload, toPath path: String, targetIsLeft: Bool, delegate: FileActionDelegate) -> Bool {
-        defer { PaneDragSession.shared.active = nil }
-        let allowed = PaneDropLogic.canDrop(
-            draggedIds: payload.nodes.map(\.id),
-            sourceIsLeft: payload.sourceIsLeft,
-            targetIsLeft: targetIsLeft,
-            targetDirectoryPath: path
-        )
-        Logger.shared.debug("Pane drop received: \(payload.nodes.count) node(s) onto \(path) (allowed: \(allowed))")
-        guard allowed else { return false }
-        delegate.handleDrop(payload.nodes, toPath: path, isMove: ModifierTracker.moveModifierHeld)
-        return true
     }
 
     @ViewBuilder
@@ -685,62 +619,6 @@ enum SharedFileMenuItems {
     }
 }
 
-/// Makes every tree row accept cross-pane drags. Directory rows target themselves and
-/// highlight while a valid drop hovers; file rows route the drop to their enclosing folder,
-/// like Finder, and never highlight — a highlight on the file row itself would misread as
-/// dropping "into" the file.
-/// This modifier exists once per VISIBLE ROW, which is the whole reason it holds neither an
-/// `@AppStorage` nor an `@ObservedObject`. Both were here and both were per-row costs the pane
-/// deliberately refuses to pay elsewhere: `FileTreeView` already reads the density default once for
-/// the whole pane precisely because "a per-row @AppStorage would register a defaults observer per
-/// visible row" — and this modifier then registered one anyway, for the hue. The observed drag
-/// session was worse: it invalidated *every* visible row of both panes the instant a drag began or
-/// ended, in a modifier whose entire visible output is a highlight on the one row being hovered.
-///
-/// So the accent arrives as a resolved `Color` from the pane (which reads the hue once), and the
-/// drag payload is read straight off the shared session at the moment it is needed. That read needs
-/// no observation to be correct: the highlight is gated on `isTargeted`, which is this row's own
-/// `@State` and re-renders it on both edges of the hover — and a target cannot be hovered without a
-/// drag in flight, which is the same invariant `PaneDragSession` already documents ("only read
-/// while a target is actively hovered").
-struct PaneDropTarget: ViewModifier {
-    /// Absolute path of the node this row represents.
-    let rowPath: String
-    let rowIsDirectory: Bool
-    let paneIsLeft: Bool
-    let delegate: FileActionDelegate
-    /// Drop-highlight color — the user-selected glass hue's accent (C7), resolved once per pane
-    /// and handed down rather than read from defaults per row.
-    let accent: Color
-
-    @State private var isTargeted = false
-
-    func body(content: Content) -> some View {
-        let targetDirectoryPath = PaneDropLogic.dropTargetDirectory(forRowId: rowPath, isDirectory: rowIsDirectory)
-        content
-            .background {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(accent.opacity(rowIsDirectory && isTargeted && dropAllowed(into: targetDirectoryPath) ? 0.25 : 0))
-            }
-            .dropDestination(for: PaneDragPayload.self) { payloads, _ in
-                guard let payload = payloads.first else { return false }
-                return FileTreeView.performPaneDrop(payload, toPath: targetDirectoryPath, targetIsLeft: paneIsLeft, delegate: delegate)
-            } isTargeted: { targeting in
-                isTargeted = targeting
-            }
-    }
-
-    private func dropAllowed(into directoryPath: String) -> Bool {
-        guard let payload = PaneDragSession.shared.active else { return false }
-        return PaneDropLogic.canDrop(
-            draggedIds: payload.nodes.map(\.id),
-            sourceIsLeft: payload.sourceIsLeft,
-            targetIsLeft: paneIsLeft,
-            targetDirectoryPath: directoryPath
-        )
-    }
-}
-
 /// Dynamically generated context menu for file operations bounding the selected node and the overarching selection
 /// Adapts its available buttons depending on whether a single file, a batch of files, or a folder was right-clicked.
 struct FileContextMenu: View {
@@ -777,10 +655,10 @@ struct FileContextMenu: View {
         } else {
             effectiveSelection = [node.id]
         }
-        // Prune nested nodes (a folder and its descendant never travel together) exactly as the
-        // drag path does, so a context-menu Copy/Move/Delete on a selection spanning a folder AND an
-        // item inside it can't pass the superset to a handler — matching PaneDropLogic.dragNodes and
-        // the downstream copy/move prune, and keeping the two entry points from drifting apart.
+        // Prune nested nodes (a folder and its descendant never travel together), so a
+        // context-menu Copy/Move/Delete on a selection spanning a folder AND an item inside it
+        // can't pass the superset to a handler — matching the downstream copy/move prune, and
+        // matching `onDeleteCommand`, which resolves through this same helper.
         return tree.findNodes(at: effectiveSelection).pruneNestedNodes()
     }
 

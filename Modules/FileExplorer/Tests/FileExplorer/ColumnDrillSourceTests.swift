@@ -7,11 +7,14 @@ import Sync
 
 /// Clicking a folder must open its column — whichever half of the click actually fires.
 ///
-/// A column row is `.draggable`, and `TapGesture` fails outright if the pointer drifts even
-/// slightly, because the drag claims the gesture. `NSTableView` meanwhile selects on mouse-down
-/// regardless. So a click can land as selection-without-tap: the folder highlights and its column
-/// never opens, which is what the user reported and what the log showed as `[sel]` lines with no
-/// `[tap]` beside them.
+/// `TapGesture` fails outright if the pointer drifts even slightly, while `NSTableView` selects on
+/// mouse-down regardless. So a click can land as selection-without-tap: the folder highlights and
+/// its column never opens, which is what the user reported and what the log showed as `[sel]` lines
+/// with no `[tap]` beside them.
+///
+/// The row was also `.draggable` when this was first diagnosed, and the drag was blamed for the
+/// drift. Cross-pane drag has since been removed — that competition is why it never worked — and
+/// the drift is unchanged, so `TapGesture`'s own strictness was always the cause.
 ///
 /// Navigation therefore hangs off whichever source commits, not off the gesture. These pin the
 /// source the gesture cannot cover — a selection driven through the real `NSTableView`, which is
@@ -29,7 +32,6 @@ import Sync
         func handlePaste(_ targetDir: FileNode) {}
         func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
         func handlePasteToPath(_ path: String) {}
-        func handleDrop(_ nodes: [FileNode], toPath path: String, isMove: Bool) {}
         func handleRename(_ node: FileNode) {}
         func handleCreateFolder(at path: String) {}
         func handleGetInfo(for path: String) {}

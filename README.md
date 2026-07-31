@@ -37,8 +37,8 @@ Every destructive action is Trash-backed, atomically applied, and reversible wit
 - **Content verification** checksums same-size, date-only pairs (streaming SHA-256) to tell you
   whether files *actually* differ, and offers to reconcile the ones that are byte-identical.
 - **Details inspector** with name, kind, size, dates, permissions, and Quick Look.
-- **Bulk or single** copy/move/delete/new-folder from the action bar, context menus, drag & drop, or
-  the keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
+- **Bulk or single** copy/move/delete/new-folder from the action bar, context menus, or the
+  keyboard (`⌘→ / ⌘←` to copy, add `⇧` to move).
 
 ### 🧹 Tidy — clean up one provider
 - **Duplicates** — finds byte-for-byte **identical** copies, **overlapping** folders, drifted

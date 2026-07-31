@@ -31,7 +31,6 @@ import Design
         func handlePaste(_ targetDir: FileNode) {}
         func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
         func handlePasteToPath(_ path: String) {}
-        func handleDrop(_ nodes: [FileNode], toPath path: String, isMove: Bool) {}
         func handleRename(_ node: FileNode) {}
         func handleCreateFolder(at path: String) {}
         func handleGetInfo(for path: String) {}
@@ -259,7 +258,6 @@ import Design
             func handlePaste(_ targetDir: FileNode) {}
             func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) {}
             func handlePasteToPath(_ path: String) {}
-            func handleDrop(_ nodes: [FileNode], toPath path: String, isMove: Bool) {}
             func handleRename(_ node: FileNode) {}
             func handleCreateFolder(at path: String) {}
             func handleGetInfo(for path: String) {}

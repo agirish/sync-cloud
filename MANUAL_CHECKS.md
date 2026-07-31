@@ -31,11 +31,12 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Unaffected flows.** Settings overlay (⌘,) and the quit-with-operations-running
   warning behave as before.
 
-## Drag & drop / context menus (Wave 2C)
+## Context menus (Wave 2C)
 
-- [ ] **File-row drop targets the enclosing folder.** Expand a subfolder in one pane,
-  drag a file from the other pane onto a *file* row inside it → the file lands in that
-  file's folder (not the pane root), and the file row itself shows no drop highlight.
+- [ ] **No drag & drop between panes.** Cross-pane drag was removed after it turned out
+  never to have worked outside one dev-build verification; dragging a pane row does
+  nothing, and no drop highlight appears anywhere. Copy/move is the action bar, the
+  context menus, and `⌘→ / ⌘←`.
 - [ ] **Tree-row Reveal / Quick Look.** Right-click a pane row → "Reveal in Finder" and
   "Quick Look" work; Quick Look coexists with the spacebar previewer.
 - [ ] **Paste-here dims when empty.** With nothing on the internal clipboard,

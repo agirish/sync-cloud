@@ -1,6 +1,4 @@
-import CoreTransferable
 import Foundation
-import UniformTypeIdentifiers
 
 /// An in-memory representation of a file or directory mapped from a local or cloud path.
 /// Includes metadata used for UI display, sorting, and differential scanning.
@@ -26,13 +24,13 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
     /// Its `children == []` is a construction artifact, not an observation — consumers that
     /// treat a subtree as authoritative (the prefetch cache's `subtree` slicing, and through
     /// it the in-memory diff) must treat such a node as a miss, never as an empty folder.
-    /// Optional so drag payloads encoded before this field existed still decode (nil = walked).
+    /// Optional so JSON encoded before this field existed still decodes (nil = walked).
     public var isUnexplored: Bool?
     /// True when this entry is a symbolic link (its `fileSize`/`kind`/`isDirectory` describe the
     /// link's TARGET — the walk resolves them for display and diffing). Tidy's duplicate finder
     /// excludes symlinks: a link and its in-tree target otherwise hash identically and group as
     /// "copies," and trashing the real target would leave a dangling link as the "kept" copy.
-    /// Optional so drag payloads encoded before this field existed still decode (nil = not a link).
+    /// Optional so JSON encoded before this field existed still decodes (nil = not a link).
     public var isSymbolicLink: Bool?
 
     /// Initializes a new FileNode with optional metadata.
@@ -58,12 +56,6 @@ public struct FileNode: Identifiable, Hashable, Codable, Sendable {
         self.kind = kind
         self.isUnexplored = isUnexplored
         self.isSymbolicLink = isSymbolicLink
-    }
-}
-
-extension FileNode: Transferable {
-    public static var transferRepresentation: some TransferRepresentation {
-        CodableRepresentation(contentType: .data)
     }
 }
 

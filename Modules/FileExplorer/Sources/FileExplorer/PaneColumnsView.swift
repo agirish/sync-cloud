@@ -293,12 +293,6 @@ struct PaneColumnsView: View {
                     .allowsHitTesting(false)
             }
         }
-        // Dropping onto a column's empty space targets that column's own folder, matching the
-        // tree pane's background drop.
-        .dropDestination(for: PaneDragPayload.self) { payloads, _ in
-            guard let payload = payloads.first else { return false }
-            return FileTreeView.performPaneDrop(payload, toPath: directory, targetIsLeft: isLeft, delegate: delegate)
-        }
         .contextMenu {
             SharedFileMenuItems.refresh(delegate: delegate)
             Divider()
@@ -390,10 +384,6 @@ struct PaneColumnsView: View {
                 onQuickLook: onQuickLook
             )
         }
-        .draggable(makeDragPayload(for: node))
-        .modifier(PaneDropTarget(rowPath: node.id, rowIsDirectory: node.isDirectory,
-                                 paneIsLeft: isLeft, delegate: delegate,
-                                 accent: glassHue.accentColor))
         .background(rowPositionProbe(for: node))
         .listRowBackground(rowBackground(for: node, isOnPath: isOnPath))
     }
@@ -426,9 +416,13 @@ struct PaneColumnsView: View {
                 // The List committed this one, which means the tap gesture did NOT — the two never
                 // both drive a single click, and the log showed `[sel]` lines with no `[tap]`
                 // beside them. Those are the clicks that select a folder and leave its column
-                // shut: `TapGesture` fails outright if the pointer drifts even slightly, because
-                // the row is also `.draggable` and the drag claims the gesture, while
+                // shut: `TapGesture` fails outright if the pointer drifts even slightly, while
                 // `NSTableView` selects on mouse-down regardless.
+                //
+                // The row used to be `.draggable` too, and that was long blamed for the drift —
+                // but cross-pane drag was removed once it turned out never to have started here
+                // at all (that competition is exactly what killed it), and the drift remains.
+                // `TapGesture`'s own strictness is the whole cause, so BOTH sources still commit.
                 //
                 // So navigation cannot hang off the gesture alone. Whichever source commits the
                 // selection navigates for it, and they agree by construction because both call
@@ -503,15 +497,6 @@ struct PaneColumnsView: View {
                                        value: [node.id: proxy.frame(in: .global).maxY])
             }
         }
-    }
-
-    private func makeDragPayload(for node: FileNode) -> PaneDragPayload {
-        let payload = PaneDragPayload(
-            sourceIsLeft: isLeft,
-            nodes: PaneDropLogic.dragNodes(for: node, selection: selection, tree: tree.nodes)
-        )
-        PaneDragSession.shared.active = payload
-        return payload
     }
 
     /// The draggable seam between two columns. Writes defaults only when the drag ends, so a drag

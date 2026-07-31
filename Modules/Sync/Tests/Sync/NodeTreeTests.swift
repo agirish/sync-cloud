@@ -148,8 +148,8 @@ import Foundation
 
     // MARK: Coding stability
 
-    /// FileNode is a Codable drag payload (Transferable); a payload encoded before
-    /// `isUnexplored` existed must still decode (the field is optional, nil = walked).
+    /// FileNode is Codable; JSON encoded before `isUnexplored` existed must still decode
+    /// (the field is optional, nil = walked).
     @Test func testDecodesPayloadWithoutUnexploredField() throws {
         let legacy = Data(#"{"id":"/a/dir","name":"dir","isDirectory":true,"children":[]}"#.utf8)
         let node = try JSONDecoder().decode(FileNode.self, from: legacy)
