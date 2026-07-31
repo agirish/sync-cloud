@@ -150,6 +150,27 @@ public struct HoverAffordanceMetrics: Equatable, Sendable {
         }
         return m
     }
+
+    /// Whether this variant can ever draw a shadow — i.e. whether the style needs to isolate its
+    /// content into a compositing group at all.
+    ///
+    /// A shadow is applied to whatever the group flattens, so `.compositingGroup()` is what keeps
+    /// the label, its wash and its ring casting ONE shadow instead of three. But it also forces an
+    /// offscreen layer, and the style used to take that cost on every control it decorates —
+    /// including `.glyph` and `.row`, which are by far the most numerous and whose shadow alpha is
+    /// zero in every phase of the table above.
+    ///
+    /// Keyed on the VARIANT, deliberately, and not on `metrics.shadow > 0`. The variant is fixed
+    /// for the lifetime of a button, so this predicate picks one branch and stays there; branching
+    /// on the live phase would swap `_ConditionalContent` arms on hover, which destroys and
+    /// rebuilds the caller's label — losing any `@State` inside it and restarting the very
+    /// animation the affordance exists to run.
+    public static func castsShadow(variant: HoverAffordanceVariant) -> Bool {
+        switch variant {
+        case .filled, .circular, .chrome: return true
+        case .glyph, .segment, .row, .inline: return false
+        }
+    }
 }
 
 // MARK: - Environment
@@ -208,12 +229,10 @@ private struct HoverAffordanceBody: View {
     private var washColor: Color { variant == .inline ? .primary : tint }
 
     var body: some View {
-        configuration.label
-            .background(washShape)
-            .overlay(ringShape)
-            .compositingGroup()
-            .shadow(color: tint.opacity(metrics.shadow),
-                    radius: 5, x: 0, y: 3)
+        // The group + shadow only exist for the variants that can actually cast one — see
+        // `HoverAffordanceMetrics.castsShadow(variant:)` for why this branches on the variant
+        // (fixed per button) rather than on the live phase.
+        shadowed(configuration.label.background(washShape).overlay(ringShape))
             .offset(y: metrics.lift)
             .scaleEffect(metrics.scale)
             .environment(\.hoverAffordancePhase, phase)
@@ -225,6 +244,20 @@ private struct HoverAffordanceBody: View {
             // Asymmetric on purpose. Fast in reads as responsive; the slower out keeps a pointer
             // crossing a row of toolbar glyphs from strobing behind it.
             .animation(.easeOut(duration: phase == .rest ? 0.18 : 0.12), value: phase)
+    }
+
+    /// Flattens `content` into one layer and drops the lift shadow under it — for the variants
+    /// that lift. Everything else is handed straight back, so no offscreen layer is allocated for
+    /// a shadow that is transparent in every phase.
+    @ViewBuilder
+    private func shadowed(_ content: some View) -> some View {
+        if HoverAffordanceMetrics.castsShadow(variant: variant) {
+            content
+                .compositingGroup()
+                .shadow(color: tint.opacity(metrics.shadow), radius: 5, x: 0, y: 3)
+        } else {
+            content
+        }
     }
 
     @ViewBuilder

@@ -684,6 +684,24 @@ public struct TidyView: View {
         reduceMotion ? nil : .easeInOut(duration: 0.22)
     }
 
+    /// The membership token the card lists animate on.
+    ///
+    /// The lists want to animate exactly when their row IDENTITIES change — not when a keeper pick
+    /// or an expand/collapse rewrites a row in place. Both call sites expressed that as
+    /// `value: rows.map(\.id)`, which is correct and allocates a fresh array of every id on every
+    /// render just to be compared and thrown away. This compares the same thing over the array the
+    /// view is already holding: no allocation, and the count check settles the common case before
+    /// a single id is looked at.
+    struct RowIdentities<Row: Identifiable>: Equatable where Row.ID: Equatable {
+        let rows: [Row]
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            guard lhs.rows.count == rhs.rows.count else { return false }
+            for (a, b) in zip(lhs.rows, rhs.rows) where a.id != b.id { return false }
+            return true
+        }
+    }
+
     // MARK: Filing toolbar
 
     private var hasFilingResults: Bool { !syncManager.filingSuggestions.isEmpty }
@@ -1086,7 +1104,7 @@ public struct TidyView: View {
             // Animate the list settling when a resolved/merged group leaves the array (H4). Keyed on
             // the visible id list so only membership changes animate — expand/collapse and keeper
             // picks (which don't change the id set) stay instant.
-            .animation(listSettle, value: dupGroups.map(\.id))
+            .animation(listSettle, value: RowIdentities(rows: dupGroups))
         }
         .scrollContentBackground(.hidden)
     }
@@ -1299,7 +1317,7 @@ public struct TidyView: View {
             .padding(densityMetrics.cardListPadding)
             // Slide + fade a filed/dismissed card out and settle the list (H4). Keyed on the id list
             // so only a card leaving animates; an emptied tier's header falls away in the same pass.
-            .animation(listSettle, value: filing.map(\.id))
+            .animation(listSettle, value: RowIdentities(rows: filing))
         }
         .scrollContentBackground(.hidden)
     }

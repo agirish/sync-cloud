@@ -313,7 +313,13 @@ public class FileSyncManager: ObservableObject {
     /// Numeric progress for the build; the walk phase has no granular count, so it stays 0 (the UI
     /// shows an indeterminate spinner). Reserved for a future determinate pass — kept as its own
     /// stored property (like `duplicateScanProgress`) rather than folded into the lifecycle.
-    @Published public var storageLensProgress: Double = 0
+    ///
+    /// Deliberately NOT `@Published`, unlike its neighbours. It is written only to `0`, at the two
+    /// ends of a build, and read nowhere — so the wrapper bought nothing and cost two whole-window
+    /// invalidations per lens build (every `@Published` write on this manager re-evaluates the
+    /// observing view). Whoever lands the determinate pass adds the wrapper back along with the
+    /// reader that justifies it.
+    public var storageLensProgress: Double = 0
     /// The in-flight Storage Lens build task, so the UI can cancel a long walk.
     var storageLensTask: Task<Void, Never>?
 

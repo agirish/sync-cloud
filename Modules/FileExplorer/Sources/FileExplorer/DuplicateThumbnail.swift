@@ -22,13 +22,31 @@ enum DuplicateThumbnail {
         return cache
     }()
 
+    /// Keys QuickLook has already declined, so a file it cannot preview isn't re-requested every
+    /// time its card scrolls back into view.
+    ///
+    /// A separate set rather than a sentinel in `imageCache`, because the two want opposite
+    /// eviction behaviour: dropping a cached IMAGE under memory pressure costs one regeneration,
+    /// while dropping the memory of a REFUSAL costs a full generator round-trip that is already
+    /// known to fail. Bounded by the same rule `DetailsMetadataCache.warnedPaths` uses — cleared
+    /// wholesale at the cap, which is O(1) and costs at most one repeated request per key after.
+    @MainActor private static var declined: Set<String> = []
+    private static let maxDeclined = 512
+
     @MainActor
     static func image(path: String, side: CGFloat, scale: CGFloat, modified: Date?) async -> NSImage? {
-        let key = "\(path)|\(Int(side))|\(Int(scale))|\(modified?.timeIntervalSince1970 ?? 0)" as NSString
-        if let hit = imageCache.object(forKey: key) { return hit }
+        let key = "\(path)|\(Int(side))|\(Int(scale))|\(modified?.timeIntervalSince1970 ?? 0)"
+        if let hit = imageCache.object(forKey: key as NSString) { return hit }
+        // The key carries the modification date, so a file whose CONTENT changed gets a new key
+        // and a fresh attempt — a refusal is remembered for one version of one file, not forever.
+        if declined.contains(key) { return nil }
         guard let data = await pngData(path: path, side: side, scale: scale),
-              let image = NSImage(data: data) else { return nil }
-        imageCache.setObject(image, forKey: key)
+              let image = NSImage(data: data) else {
+            if declined.count >= maxDeclined { declined.removeAll() }
+            declined.insert(key)
+            return nil
+        }
+        imageCache.setObject(image, forKey: key as NSString)
         return image
     }
 
