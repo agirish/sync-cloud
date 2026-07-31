@@ -39,6 +39,8 @@ public struct DetailsSidebar: View {
     /// Memoization and invalidation rules live in DetailsMetadataCache; the view only
     /// forwards lookups and the refresh/scan events to it.
     @State private var cache = DetailsMetadataCache()
+    /// The stat result the card renders, filled by the loader task. See `LoadedDetails`.
+    @State private var loaded: LoadedDetails?
 
     /// Item previewed via the metadata card's "Quick Look" action. Presented by this view's own
     /// `.quickLookPreview`, mirroring `FileTreeView` — the sidebar has no host presenter to
@@ -131,6 +133,45 @@ public struct DetailsSidebar: View {
         let path: String
         let isMultiSelection: Bool
         let generation: Int
+    }
+
+    /// What the metadata card renders, once the stat behind it has actually run.
+    ///
+    /// Held in `@State` and filled by a task rather than resolved inline, because resolving it
+    /// inline meant resolving it *inside `body`* — and the resolve is four blocking filesystem
+    /// calls (`fileExists`, `attributesOfItem`, a `typeIdentifier` fetch, and
+    /// `NSWorkspace.icon(forFile:)`, which looks for a custom icon resource). The memo in
+    /// `DetailsMetadataCache` bounded how OFTEN they ran but not WHERE: it is dropped after every
+    /// file operation and at the end of every scan, and `activePath` changes on every click, so in
+    /// practice each click on a file serialized the pane's own re-render behind four stats against
+    /// a cloud path.
+    ///
+    /// Landing them in state instead means the click paints first and the card fills a beat later.
+    /// The stats still run on the main actor — `DetailsSidebar` is `@MainActor` by its `View`
+    /// conformance and the loader reaches a shared `DateFormatter` — so this reorders the work off
+    /// the render path rather than off the thread; moving the syscalls themselves to a nonisolated
+    /// loader is the next step if it measures.
+    private struct LoadedDetails: Equatable {
+        let key: DirectorySizeTaskID
+        let metadata: FileMetadata?
+        let icon: NSImage?
+
+        static func == (lhs: LoadedDetails, rhs: LoadedDetails) -> Bool { lhs.key == rhs.key }
+    }
+
+    /// `.task(id:)` key for the folder-size walk: the base key plus the resolved directory the
+    /// walk would run over, which is `nil` until the stat has landed and said the item is a
+    /// directory. That second half is what re-fires the walk when the metadata arrives.
+    private struct DirectorySizeWalkID: Equatable {
+        let base: DirectorySizeTaskID
+        let directoryPath: String?
+    }
+
+    private func sizeWalkKey(base: DirectorySizeTaskID) -> DirectorySizeWalkID {
+        guard let settled = loaded, settled.key == base,
+              let metadata = settled.metadata, metadata.isDirectory
+        else { return DirectorySizeWalkID(base: base, directoryPath: nil) }
+        return DirectorySizeWalkID(base: base, directoryPath: metadata.path)
     }
 
     /// Stats `activePath` for the metadata card, or nil when there is nothing to show.
@@ -258,10 +299,20 @@ public struct DetailsSidebar: View {
 
     public var body: some View {
         let summary = selectionSummary
-        // Metadata and icon are memoized per path (they hit the filesystem). A multi-selection
-        // renders the summary instead, so the single-item lookup is skipped entirely.
-        let (data, icon): (FileMetadata?, NSImage?) = summary == nil ? cache.data(for: activePath) : (nil, nil)
         let sizeKey = DirectorySizeTaskID(path: activePath, isMultiSelection: summary != nil, generation: sizeGeneration)
+        // Read out of state, never resolved here: the lookup hits the filesystem, and `body` is the
+        // one place it must not run from. See `LoadedDetails`.
+        //
+        // Stale-while-revalidate, the same rule the pane trees follow. Withholding the previous
+        // answer until the new stat lands would drop the card into its "No item selected" branch
+        // for the turn in between — a flash saying the opposite of what the user just did. The
+        // pair is held together in one value, so a stale card is internally consistent (this
+        // file's icon, this file's name); it is only a beat behind. What it must NOT do is offer
+        // to act, which is why `metadataActions` is withheld while stale — Reveal and Quick Look
+        // would otherwise target the previous file.
+        let shown = loaded
+        let isStale = shown?.key != sizeKey
+        let (data, icon): (FileMetadata?, NSImage?) = (shown?.metadata, shown?.icon)
         // Compact (narrow inspector): stack the icon above the metadata so values get the full width.
         // Wide (bottom pane): the icon sits in a column beside the metadata.
         let layout = compact
@@ -334,7 +385,11 @@ public struct DetailsSidebar: View {
                             Divider()
 
                             metadataRow(label: "Kind:", value: data.kind)
-                            metadataRow(label: "Size:", value: displaySize(for: data, key: sizeKey))
+                            // Keyed on the stat this card came from, not on the live key: a folder
+                            // total belongs to the item it was walked for, so a stale card reads
+                            // "Calculating…" rather than crediting the previous folder's size to
+                            // the one now selected.
+                            metadataRow(label: "Size:", value: displaySize(for: data, key: shown?.key ?? sizeKey))
                             metadataRow(label: "Where:", value: data.path)
 
                             Divider()
@@ -346,9 +401,15 @@ public struct DetailsSidebar: View {
 
                             metadataRow(label: "Permissions:", value: data.permissions)
 
-                            Divider()
+                            // Withheld while the card is a beat behind the selection — see the
+                            // stale-while-revalidate note in `body`. Reveal / Copy Path / Quick
+                            // Look all name `data.path`, and for the turn between the click and
+                            // the stat landing that is still the PREVIOUS file.
+                            if !isStale {
+                                Divider()
 
-                            metadataActions(for: data)
+                                metadataActions(for: data)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.trailing, 20)
@@ -381,10 +442,27 @@ public struct DetailsSidebar: View {
             cache.scanningChanged(scanning)
             sizeGeneration = cache.generation
         }
+        // The stat, off the render path. A multi-selection renders the summary instead, so the
+        // single-item lookup is skipped entirely rather than computed and discarded.
         .task(id: sizeKey) {
+            guard !sizeKey.isMultiSelection, !sizeKey.path.isEmpty else {
+                loaded = LoadedDetails(key: sizeKey, metadata: nil, icon: nil)
+                return
+            }
+            // Still the memoized lookup — `DetailsMetadataCache` keeps owning the per-path memo
+            // and the once-per-path warning. All that changed is that nothing calls it from `body`.
+            let (metadata, icon) = cache.data(for: sizeKey.path)
+            guard !Task.isCancelled else { return }
+            loaded = LoadedDetails(key: sizeKey, metadata: metadata, icon: icon)
+        }
+        // Keyed on the walk id, not the base key: the metadata this depends on now arrives
+        // asynchronously, so a task keyed on the base alone would run once — before the stat
+        // landed — see a nil `data`, bail, and never re-fire, leaving every folder reading
+        // "Calculating…" forever.
+        .task(id: sizeWalkKey(base: sizeKey)) {
             // No directory walk while multi-selected: the summary never shows a computed
-            // folder size (it stays metadata-only).
-            guard summary == nil, let data, data.isDirectory else {
+            // folder size (it stays metadata-only). Nor before the stat says it's a directory.
+            guard let directoryPath = sizeWalkKey(base: sizeKey).directoryPath else {
                 computedDirectorySizeKey = nil
                 computedDirectorySize = nil
                 return
@@ -399,7 +477,7 @@ public struct DetailsSidebar: View {
             computedDirectorySizeKey = sizeKey
             computedDirectorySize = nil
 
-            let result = await Self.computeDirectorySizeString(path: data.path)
+            let result = await Self.computeDirectorySizeString(path: directoryPath)
 
             guard !Task.isCancelled else { return }
             if computedDirectorySizeKey == sizeKey {
