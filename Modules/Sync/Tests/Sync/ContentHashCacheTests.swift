@@ -106,6 +106,57 @@ import Foundation
         #expect(await cache.hash(for: d) == "d1")
     }
 
+    /// The eviction loop's comment rests on an invariant — that a key never occupies two LIVE
+    /// slots, so `entries.count == insertionOrder.count - evictedPrefix`. The existing tests drive
+    /// clean patterns (all-new keys, or one key re-stored); this drives the messy one that could
+    /// actually break the bookkeeping: new keys interleaved with re-stores of keys that are
+    /// variously live, already evicted, or never seen, all while sitting at the cap.
+    ///
+    /// A double-counted key would let the cache exceed its cap or evict a live entry early, so the
+    /// two assertions here — never over cap, and survivors are exactly the newest `cap` distinct
+    /// keys — are what the invariant buys, checked from outside.
+    @Test func testMixedNewAndRepeatStoresKeepEvictionExact() async {
+        let cap = 8
+        let cache = ContentHashCache(maxEntries: cap)
+        func k(_ i: Int) -> ContentHashKey { ContentHashKey(path: "/f\(i)", mtime: 1, size: 1) }
+
+        // A reference model of the documented policy, rather than a hand-derived expectation.
+        // The order is FIFO by FIRST INSERTION: re-storing a key that is still live updates its
+        // value and leaves its position alone (see `testRestoringSameKeyDoesNotDoubleCountForEviction`),
+        // while re-storing one that has been evicted appends it afresh at the back. Writing the
+        // expectation out longhand instead got this backwards — modelling a re-store as a move to
+        // the back is LRU, which this is not.
+        var modelOrder: [Int] = []
+        var modelLive: Set<Int> = []
+        func modelStore(_ i: Int) {
+            if !modelLive.contains(i) { modelOrder.append(i); modelLive.insert(i) }
+            while modelLive.count > cap { modelLive.remove(modelOrder.removeFirst()) }
+        }
+
+        // Deterministic but adversarial ordering: after each new key, re-store one from well
+        // behind it (often already evicted) and one from just behind it (usually still live).
+        for i in 0..<60 {
+            await cache.store("h\(i)", for: k(i)); modelStore(i)
+            let farBack = i - 7
+            if farBack >= 0 { await cache.store("r\(farBack)", for: k(farBack)); modelStore(farBack) }
+            let justBack = i - 2
+            if justBack >= 0 { await cache.store("s\(justBack)", for: k(justBack)); modelStore(justBack) }
+        }
+
+        var actual = Set<Int>()
+        for i in 0..<60 where await cache.hash(for: k(i)) != nil { actual.insert(i) }
+
+        // Never over cap: a key counted twice would have inflated the live set.
+        #expect(actual.count == cap, "live entries \(actual.count) should equal the cap \(cap)")
+        // And exactly the set the policy says — evicting a live entry early, or failing to evict a
+        // dead one, shows up here.
+        #expect(actual == modelLive)
+
+        // The order array is still bounded despite all the re-stores appending after eviction.
+        let slots = await cache.orderSlotsInUse
+        #expect(slots <= cap * 2, "order storage \(slots) exceeded the 2x ceiling")
+    }
+
     /// Why the cap is a cliff rather than a dial, pinned so the next person to touch the number
     /// sees it before they shrink it.
     ///

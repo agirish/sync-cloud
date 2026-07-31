@@ -49,10 +49,20 @@ public actor ContentHashCache {
     /// cache. At the old 20 000 the cache returned nothing at all for those trees while still
     /// paying to maintain itself.
     ///
-    /// 100 000 is that measured need with room to grow into, at roughly 165 bytes an entry —
-    /// about 16 MB, against the two 35 000-node trees the app already holds. Sizing it to just
-    /// clear today's number (50 000 would fit 48 270) would sit 3 % from the cliff and fall off it
-    /// the first time the user adds files.
+    /// 100 000 is that measured need with room to grow into. Headroom is close to free here,
+    /// because **this is a ceiling, not an allocation**: the cache holds the WORKING SET, and the
+    /// cap only decides when it starts throwing entries away. Measured with realistic paths and
+    /// distinct digests — a 48 270-entry working set costs 20.9 MB under a 60 000 cap and 21.4 MB
+    /// under a 100 000 one. Half a megabyte buys twice the room before the cliff.
+    ///
+    /// The cap only *becomes* the memory figure in sustained overflow (~83 MB at 100 000), and
+    /// that is precisely the regime it exists to prevent — a cache that big is one that has
+    /// already stopped working. Budget against the working set: ~440 bytes an entry, so ~21 MB
+    /// for these trees, against the 525 MB the app was measured at with both trees loaded.
+    ///
+    /// Sizing to just clear today's number (50 000 fits 48 270) would sit 3 % from the cliff and
+    /// fall off it the first time the user adds files — and, per the figures above, would save
+    /// essentially nothing.
     private let maxEntries: Int
 
     private var entries: [ContentHashKey: String] = [:]
