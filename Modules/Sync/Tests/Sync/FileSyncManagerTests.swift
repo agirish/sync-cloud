@@ -181,38 +181,59 @@ import Foundation
         #expect(manager.activeRefreshTask != nil)
     }
     
+    /// Every operation handed to `enqueueFileOperation` runs, runs ALONE, and unwinds the active
+    /// count — the serialization guarantee every mutation path in the app is built on.
+    ///
+    /// Deliberately has no timeout. It used to poll for up to 5 real seconds and then assert on
+    /// whatever had finished, which made it a race against the wall clock rather than a test of the
+    /// queue: the operations need the cooperative pool, so under any CPU load (a concurrent build
+    /// is enough) they legitimately do not finish in 5 s and the test reported "1 of 50 completed"
+    /// — a starvation symptom dressed up as a correctness failure. Seen twice in one session.
+    ///
+    /// Awaiting the task handles instead is exact: `enqueueFileOperation` returns only after its
+    /// own completion block has decremented the count, so when all 50 handles resolve the final
+    /// state is settled and both assertions are deterministic. A genuine deadlock now hangs until
+    /// the harness's own timeout, which is the honest signal — the old version turned that same
+    /// deadlock into a confusing wrong-number failure.
     @MainActor
     @Test func testConcurrentFileOperationsStress() async throws {
         actor Counter {
-            var value = 0
-            func increment() { value += 1 }
-            func get() -> Int { value }
+            private(set) var completed = 0
+            private var inFlight = 0
+            /// The most operations ever running at once. `enqueueFileOperation` promises this
+            /// never exceeds 1; nothing asserted it before, so the test could pass with the queue
+            /// running everything in parallel.
+            private(set) var peakInFlight = 0
+            func enter() {
+                inFlight += 1
+                peakInFlight = max(peakInFlight, inFlight)
+            }
+            func leave() {
+                inFlight -= 1
+                completed += 1
+            }
         }
-        
+
         let manager = FileSyncManager()
         let operationCount = 50
         let counter = Counter()
-        
-        // Enqueue 50 fast operations
-        for _ in 0..<operationCount {
+
+        // Spawn all 50 before awaiting any, so they genuinely contend for the queue.
+        let tasks = (0..<operationCount).map { _ in
             Task {
                 await manager.enqueueFileOperation {
-                    // Minimal work
-                    try? await Task.sleep(nanoseconds: 1_000_000) // 1ms
-                    await counter.increment()
+                    await counter.enter()
+                    try? await Task.sleep(nanoseconds: 1_000_000) // 1ms, to widen the overlap window
+                    await counter.leave()
                 }
             }
         }
-        
-        // Wait for all to finish. We use a timeout approach.
-        let start = Date()
-        var currentCount = 0
-        while currentCount < operationCount && Date().timeIntervalSince(start) < 5.0 {
-            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-            currentCount = await counter.get()
-        }
-        
-        #expect(currentCount == operationCount)
+        for task in tasks { await task.value }
+
+        let completed = await counter.completed
+        let peak = await counter.peakInFlight
+        #expect(completed == operationCount)
+        #expect(peak == 1, "operations must be serialized; saw \(peak) running at once")
         #expect(manager.activeFileOperationsCount == 0)
     }
     
