@@ -1214,14 +1214,12 @@ public struct DifferencesView: View {
         // to Compare, and Tidy shows `TidyView` instead, so the rail's hidden-right-pane case
         // cannot reach here.
         .onKeyPress(.space) {
-            guard let onQuickLook else { return .ignored }
-            guard let targetPath = CurrentSelection.quickLookPath(
+            guard let onQuickLook, let targetPath = DifferencesQuery.spaceQuickLookTarget(
                 lastInteracted: syncManager.lastSelectionSurface,
-                panePath: CurrentSelection.primaryPanePath(
-                    left: syncManager.selectedLeftPaths,
-                    right: syncManager.selectedRightPaths
-                ),
-                differencesPath: sorted.first(where: { selection.contains($0.id) })?.reviewSourcePath
+                leftSelection: syncManager.selectedLeftPaths,
+                rightSelection: syncManager.selectedRightPaths,
+                rows: sorted,
+                selection: selection
             ) else { return .ignored }
             onQuickLook(URL(fileURLWithPath: targetPath))
             return .handled

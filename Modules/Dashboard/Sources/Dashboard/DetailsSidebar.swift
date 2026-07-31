@@ -137,11 +137,23 @@ public struct DetailsSidebar: View {
         return leftPath.isEmpty ? rightPath : leftPath
     }
 
-    /// True when nothing is selected in either pane, so `activePath` fell back to the focused
-    /// folder rather than a user-chosen item. Drives the "— focused folder" caption so the
-    /// metadata card doesn't read as a selection the user made.
+    /// True when `activePath` fell back to the focused folder rather than a user-chosen item.
+    /// Drives the "— focused folder" caption so the metadata card doesn't read as a selection the
+    /// user made.
+    ///
+    /// It has to answer for the SAME branches `activePath` takes, and it used to answer for only
+    /// one of them: it re-derived "no pane selection" by hand and ignored `overridePath` entirely.
+    /// So "Get Info" on a differences row — which sets the override precisely when no pane holds a
+    /// selection — showed that file's metadata captioned "— focused folder", which is wrong twice
+    /// over: it is not the focused folder, and it IS an item the user chose. Now it mirrors
+    /// `activePath`'s own order, override first and the shared resolver second.
     internal var isShowingFocusedFolderFallback: Bool {
-        syncManager.selectedLeftPaths.isEmpty && rightSelectionPaths.isEmpty
+        if let overridePath, !overridePath.isEmpty { return false }
+        return CurrentSelection.primaryPanePath(
+            left: syncManager.selectedLeftPaths,
+            right: syncManager.selectedRightPaths,
+            singleSource: singleSource
+        ) == nil
     }
 
     /// Non-nil when 2+ items are selected: the sidebar shows the Finder-style summary instead

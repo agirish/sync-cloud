@@ -278,16 +278,11 @@ enum PaneLogic {
         return nil
     }
 
-    /// The path Quick Look (and similar single-item consumers) should target for the current pane
-    /// selection.
-    ///
-    /// Now a forwarder: the rule moved to `CurrentSelection.primaryPanePath` in `Sync` so the
-    /// Differences table and the Info inspector — neither of which can see `MacApp` — resolve the
-    /// pane selection through the same code instead of re-deriving it. Kept as a name because the
-    /// pane call sites and their tests read better with it.
-    static func primarySelectionPath(leftSelection: Set<String>, rightSelection: Set<String>) -> String? {
-        CurrentSelection.primaryPanePath(left: leftSelection, right: rightSelection)
-    }
+    // `primarySelectionPath` lived here. The rule is now `CurrentSelection.primaryPanePath` in
+    // `Sync`, where the Differences table and the Info inspector can reach it too — neither can see
+    // `MacApp`, which is precisely why the inspector grew its own hand-written copy and drifted.
+    // Left as a forwarder at first; deleted once it turned out no caller had survived the move, so
+    // the only thing exercising it was a test pinning a pass-through.
 
     /// Whether Escape, pressed over a pane, should clear that pane's selection (and so swallow the
     /// key) rather than let it bubble to a dialog.

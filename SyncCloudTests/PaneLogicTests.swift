@@ -120,24 +120,10 @@ import Sync
         #expect(PaneLogic.activePane(leftSelection: ["/l/a"], rightSelection: ["/r/b"]) == .left)
     }
 
-    // MARK: primarySelectionPath
-
-    @Test func testPrimarySelectionPathIsAlphabeticalNotHashOrder() {
-        // A multi-item selection must always preview the same (alphabetically first) file.
-        #expect(PaneLogic.primarySelectionPath(
-            leftSelection: ["/l/b.txt", "/l/a.txt", "/l/c.txt"],
-            rightSelection: []) == "/l/a.txt")
-        #expect(PaneLogic.primarySelectionPath(
-            leftSelection: [],
-            rightSelection: ["/r/b.txt", "/r/a.txt"]) == "/r/a.txt")
-    }
-
-    @Test func testPrimarySelectionPathPrefersLeftPaneAndHandlesEmpty() {
-        #expect(PaneLogic.primarySelectionPath(
-            leftSelection: ["/l/z.txt"],
-            rightSelection: ["/r/a.txt"]) == "/l/z.txt")
-        #expect(PaneLogic.primarySelectionPath(leftSelection: [], rightSelection: []) == nil)
-    }
+    // `primarySelectionPath`'s tests lived here. The rule moved to `CurrentSelection.primaryPanePath`
+    // in `Sync` so the Differences table and the Info inspector could share it, and
+    // `CurrentSelectionTests` now owns these cases (alphabetical-not-hash-order, left-first, empty,
+    // plus the single-source rule this pair never covered).
 
     // MARK: tidyTargetsRightPane
 

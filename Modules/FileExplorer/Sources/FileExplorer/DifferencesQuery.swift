@@ -58,6 +58,43 @@ enum DifferencesQuery {
         }
         return updated
     }
+
+    /// What Space previews when it arrives at the Differences table — which, with the bottom pane
+    /// open, is very nearly always, because that table holds key focus and a pane row click does
+    /// not take it away.
+    ///
+    /// Lives here rather than on `DifferencesView` for two reasons. It is pure query logic, which
+    /// is what this type is for; and a `static` on the View is `@MainActor`-isolated along with it,
+    /// so calling it from a plain test traps at runtime (SIGTRAP) rather than failing to compile —
+    /// a pure function has no business demanding the main actor.
+    ///
+    /// Split out of the `.onKeyPress` closure so the *composition* is testable and not just
+    /// `CurrentSelection`'s arithmetic: the bug this fixes was never in the arithmetic, it was in
+    /// which surface the app asked about. A mounted key-window test is not available here (the
+    /// test host cannot make a window key), so this function is the seam that stands in for it.
+    ///
+    /// `rows` is the filtered+sorted table, and resolving the selection through it is load-bearing:
+    /// SwiftUI's `Table` does NOT prune its selection binding when rows disappear (measured), so a
+    /// difference that syncs away leaves a stale id behind. Looking the id up in `rows` yields nil
+    /// for a stale one, which falls through to the pane rather than previewing a row that is no
+    /// longer on screen.
+    ///
+    /// `singleSource` is deliberately not a parameter: `.differences` maps to `.compare` in
+    /// `TopPaneVisibility.mode(for:)`, so the Tidy rail and this table can never be on screen at
+    /// once and the hidden-right-pane case cannot reach here.
+    static func spaceQuickLookTarget(
+        lastInteracted: SelectionSurface?,
+        leftSelection: Set<String>,
+        rightSelection: Set<String>,
+        rows: [FileDifference],
+        selection: Set<FileDifference.ID>
+    ) -> String? {
+        CurrentSelection.quickLookPath(
+            lastInteracted: lastInteracted,
+            panePath: CurrentSelection.primaryPanePath(left: leftSelection, right: rightSelection),
+            differencesPath: rows.first(where: { selection.contains($0.id) })?.reviewSourcePath
+        )
+    }
 }
 
 /// Selection-aware action targets for the header's Copy / Move / Verify buttons: the selected

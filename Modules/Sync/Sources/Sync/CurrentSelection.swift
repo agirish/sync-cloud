@@ -6,7 +6,7 @@ import Foundation
 /// and RIGHT only, so a pane and the Differences table can hold selections at the same time. That
 /// makes "the current file" ambiguous by construction, and this is the tie-break: whichever surface
 /// the user touched last is the one they mean.
-public enum SelectionSurface: String, Sendable, Equatable {
+public enum SelectionSurface: Sendable, Equatable {
     /// Either Compare pane, or the Tidy rail. Not split into left/right: the one-pane-selected
     /// invariant already guarantees at most one of them holds anything, so the side is recoverable
     /// from the selections themselves and storing it here would be a second source of truth.

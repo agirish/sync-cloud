@@ -82,5 +82,43 @@ import Sync
         #expect(CurrentSelection.primaryPanePath(
             left: manager.selectedLeftPaths, right: manager.selectedRightPaths) == nil)
         #expect(sidebar(manager).activePath == "/left/root")
+        #expect(sidebar(manager).isShowingFocusedFolderFallback)
+    }
+
+    // MARK: The caption must answer for the same branches activePath takes
+
+    /// "Get Info" on a differences row sets the override precisely when no pane holds a selection,
+    /// so the caption's hand-derived "nothing is selected" test called that a focused-folder
+    /// fallback — captioning a file the user explicitly asked about "— focused folder", which is
+    /// wrong twice: it is not the focused folder, and it IS an item they chose.
+    @Test func aGetInfoTargetIsNotAFocusedFolderFallback() {
+        let manager = FileSyncManager()
+        let view = sidebar(manager, overridePath: "/diff/target.txt")
+        #expect(view.activePath == "/diff/target.txt")
+        #expect(view.isShowingFocusedFolderFallback == false)
+    }
+
+    /// The caption and `activePath` must agree in every combination, not just the reported one.
+    ///
+    /// The expectation is deliberately NOT a restatement of the caption's own condition — that
+    /// would pass against any implementation that matched itself. It ties the caption to the
+    /// observable outcome instead: the caption claims a focused-folder fallback exactly when
+    /// `activePath` actually returned the navigated folder. No fixture selection or override
+    /// equals `/left/root`, so that comparison can only be true by falling back.
+    @Test func theCaptionAgreesWithActivePathAcrossEveryBranch() {
+        for override in [nil, "", "/diff/target.txt"] {
+            for left in [Set<String>(), ["/left/a.txt"]] {
+                for right in [Set<String>(), ["/right/b.txt"]] {
+                    for singleSource in [false, true] {
+                        let manager = FileSyncManager()
+                        manager.selectedLeftPaths = left
+                        manager.selectedRightPaths = right
+                        let view = sidebar(manager, overridePath: override, singleSource: singleSource)
+                        #expect(view.isShowingFocusedFolderFallback == (view.activePath == "/left/root"),
+                                "override=\(override ?? "nil") left=\(left) right=\(right) single=\(singleSource)")
+                    }
+                }
+            }
+        }
     }
 }
