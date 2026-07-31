@@ -60,6 +60,30 @@ struct PathBoundaryTests {
         #expect(PathBoundary.relativize("/", under: "/") == "")
     }
 
+    // MARK: Empty root
+
+    /// An empty root is the ABSENCE of a root, not the volume root. Before the guard, `""`
+    /// normalized to the same empty base that root "/" produces, so it prefix-matched every
+    /// absolute path: `contains` answered true for everything and `relativize` handed back a
+    /// near-absolute "Users/…" as though it were root-relative. That is the empty-root hazard the
+    /// transfer and folder-creation paths each guard before building a URL (an empty path resolves
+    /// against the process working directory); this keeps the shared helper from re-offering the
+    /// permissive answer to a future caller that forgets its own check.
+    @Test func emptyRootClaimsNothing() {
+        #expect(PathBoundary.relativize("/Users/me/file.txt", under: "") == nil)
+        #expect(PathBoundary.relativize("/", under: "") == nil)
+        #expect(PathBoundary.relativize("", under: "") == nil)
+        #expect(!PathBoundary.contains("/Users/me/file.txt", under: ""))
+    }
+
+    /// The guard tests the ARGUMENT, not the normalized base — root "/" also reduces to an empty
+    /// base and must keep working. Pinned separately so a future simplification to `base.isEmpty`
+    /// fails loudly instead of silently un-rooting the filesystem root.
+    @Test func filesystemRootIsUnaffectedByTheEmptyRootGuard() {
+        #expect(PathBoundary.relativize("/x/y", under: "/") == "x/y")
+        #expect(PathBoundary.contains("/x/y", under: "/"))
+    }
+
     // MARK: Unicode
 
     @Test func unicodeNamesCompareAsExactStrings() {

@@ -381,7 +381,11 @@ extension FileSyncManager {
                                                  key: Self.rulesDefaultsKey,
                                                  describing: "remembered filing rules") ?? []
         }
-        set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rulesDefaultsKey) }
+        set {
+            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
+                                                key: Self.rulesDefaultsKey,
+                                                describing: "remembered filing rules")
+        }
     }
 
     /// Legacy rules whose destination lives inside `providerRoot` — the only ones safe to apply to
@@ -475,7 +479,11 @@ extension FileSyncManager {
                                                  key: Self.rejectionsDefaultsKey,
                                                  describing: "remembered filing rejections") ?? []
         }
-        set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.rejectionsDefaultsKey) }
+        set {
+            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
+                                                key: Self.rejectionsDefaultsKey,
+                                                describing: "remembered filing rejections")
+        }
     }
 
     /// Rejections whose folder lives inside `providerRoot`.
@@ -759,26 +767,53 @@ extension FileSyncManager {
         }
 
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
-        let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool) = await enqueueFileOperation {
+        // The folder the new segments hang off — the deepest part of the destination that already
+        // existed when the suggestion was built. See the guard below for why it is stat'ed.
+        let anchor = (0..<destination.newSegments.count)
+            .reduce(destFolder) { url, _ in url.deletingLastPathComponent() }
+        let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool, reason: String?) = await enqueueFileOperation {
             do {
-                guard fm.fileExists(atPath: src.path) else { return (nil, nil, true) }
+                guard fm.fileExists(atPath: src.path) else { return (nil, nil, true, nil) }
+                // One stat, before any I/O — the guard `transferItems` has always had and filing
+                // never did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
+                // path, so a destination tree that has gone away since the scan (a provider
+                // unmounted, an external volume ejected) is silently RECREATED as an ordinary local
+                // folder. This is a MOVE: the file would leave a live tree to sit in a dead one the
+                // provider never syncs, under a success banner.
+                //
+                // Stat'ing the ANCHOR rather than the leaf is what makes the check precise: only
+                // the folders `newSegments` names are ours to create, so everything above them must
+                // already be there. It degrades correctly if `newSegments` is stale — a tree that
+                // has since been fully created stats a shallower ancestor and passes; one that has
+                // gone away fails whichever level we land on. For a destination the user browsed to
+                // (`newSegments` empty) the anchor IS the folder, which is exactly right: if it
+                // vanished between the pick and the apply, refusing beats re-creating it.
+                guard fm.fileExists(atPath: anchor.path) else {
+                    throw FileOperationError.destinationRootUnavailable
+                }
                 try fm.createDirectory(at: destFolder, withIntermediateDirectories: true)
                 var dst = destFolder.appendingPathComponent(suggestion.fileName)
                 if fm.fileExists(atPath: dst.path) {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
                 }
                 let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
-                return (dst, overwritten, false)
+                return (dst, overwritten, false, nil)
             } catch {
-                // Record the cause — the user-facing alert only says "couldn't file this item".
+                // Record the cause — the generic alert below can't carry it.
                 logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
-                return (nil, nil, true)
+                // A vanished destination tree is a condition the user can act on ("plug the volume
+                // back in / rescan"), unlike a generic I/O failure — so it gets to say so instead
+                // of being flattened into "couldn't file this item".
+                let reason = (error as? FileOperationError) == .destinationRootUnavailable
+                    ? error.localizedDescription
+                    : nil
+                return (nil, nil, true, reason)
             }
         }
 
         guard let moved = outcome.movedTo, !outcome.failed else {
             present(.syncFailed(item: suggestion.fileName, path: suggestion.filePath,
-                                reason: "Couldn't file this item; it was left in place."))
+                                reason: outcome.reason ?? "Couldn't file this item; it was left in place."))
             return .failed
         }
         filingSuggestions.removeAll { $0.id == suggestion.id }

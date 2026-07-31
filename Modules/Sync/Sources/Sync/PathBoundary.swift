@@ -17,6 +17,9 @@ import Foundation
 /// - A sibling sharing only a string prefix is OUTSIDE: `relativize("/a/bc", under: "/a/b") == nil`.
 /// - Root `"/"` normalizes to the empty base, so every absolute path is inside it:
 ///   `relativize("/x/y", under: "/") == "x/y"`.
+/// - An EMPTY root claims nothing: `relativize(anything, under: "") == nil`. It is the absence of
+///   a root, not the volume root — the two used to be indistinguishable here, because `""` and
+///   `"/"` both reduce to an empty base, so an empty root prefix-matched every absolute path.
 /// - Pure string math, no filesystem access: paths are compared exactly as given (no symlink or
 ///   case canonicalization, matching every call site this replaced).
 public enum PathBoundary {
@@ -24,6 +27,21 @@ public enum PathBoundary {
     /// `path` relative to `root`, or nil when `path` is not `root` itself and not inside it.
     /// The exact match returns `""`.
     public static func relativize(_ path: String, under root: String) -> String? {
+        // An EMPTY root is the ABSENCE of a root, not the volume root — and it must never claim a
+        // path. Without this the normalization below leaves an empty base, which prefixes every
+        // absolute path, so `contains(_:under:)` answered true for everything and `relativize`
+        // handed back a near-absolute "Users/…" as though it were root-relative.
+        //
+        // That is the same empty-root hazard `transferItems` and `createFolder` each guard
+        // separately before they build a URL (an empty path resolves against the process working
+        // directory), and it reaches here the same way: a provider dropped from settings while its
+        // stale tree is still on screen. Those guards stay — this closes the helper that the
+        // module's boundary math is supposed to be the single implementation of, so a future caller
+        // cannot inherit the permissive answer by forgetting a check of its own.
+        //
+        // Root "/" is unaffected: it normalizes to an empty BASE by design (see the type doc), and
+        // the guard tests the argument, not the base.
+        guard !root.isEmpty else { return nil }
         let base = root.hasSuffix("/") ? String(root.dropLast()) : root
         if path == base { return "" }
         guard path.hasPrefix(base + "/") else { return nil }

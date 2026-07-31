@@ -70,6 +70,35 @@ extension FileSyncManager {
         return .unreadable
     }
 
+    /// Writes a persisted store, KEEPING the previously saved bytes when the value cannot be
+    /// encoded.
+    ///
+    /// The setters used to spell this `defaults.set(try? JSONEncoder().encode(newValue), forKey:)`,
+    /// and `UserDefaults.set(nil, forKey:)` is defined as `removeObject(forKey:)` — so a failed
+    /// encode did not skip the write, it DELETED every rule the user had taught. That is the same
+    /// destruction `readPersistedStore` above goes to real lengths to prevent on the way in (an
+    /// undecodable payload is preserved under a sibling key rather than silently becoming `[]`),
+    /// arriving through the one door that was left open.
+    ///
+    /// These models are `String`/`Int`/`Bool`/`UUID` throughout, so `JSONEncoder` should never
+    /// actually fail — which is the point: a wipe that cannot be triggered on purpose is a wipe
+    /// nobody would find the cause of. Failing closed costs one unsaved edit and a log line;
+    /// failing open costs the whole store with no way back.
+    static func writePersistedStore<T: Encodable>(
+        _ value: T,
+        to defaults: UserDefaults,
+        key: String,
+        describing what: String
+    ) {
+        guard let data = try? JSONEncoder().encode(value) else {
+            Logger.shared.error(
+                "Saved \(what) could not be encoded, so this change was NOT saved — the previously "
+                + "saved copy is untouched under \"\(key)\"")
+            return
+        }
+        defaults.set(data, forKey: key)
+    }
+
     /// The decoded value, or nil for both "nothing saved" and "unreadable" — the shape the getters
     /// want, since neither can do anything but show an empty list.
     static func decodePersistedStore<T: Decodable>(
@@ -96,7 +125,11 @@ extension FileSyncManager {
                                                  key: Self.automationRulesDefaultsKey,
                                                  describing: "automation rules") ?? []
         }
-        set { filingRuleDefaults.set(try? JSONEncoder().encode(newValue), forKey: Self.automationRulesDefaultsKey) }
+        set {
+            FileSyncManager.writePersistedStore(newValue, to: filingRuleDefaults,
+                                                key: Self.automationRulesDefaultsKey,
+                                                describing: "automation rules")
+        }
     }
 
     /// Loads rules from defaults into the published array exactly once. Safe to call repeatedly
