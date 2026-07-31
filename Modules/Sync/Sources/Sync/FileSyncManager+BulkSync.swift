@@ -48,6 +48,9 @@ extension FileSyncManager {
         let progressRef = ProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
+        // One @Published write per whole percent instead of one per file — see
+        // `ProgressPublishGate` for what the ungated version cost the window.
+        let publishGate = ProgressPublishGateBox()
 
         let result = await enqueueFileOperation {
             await Self.performBulkSyncIO(
@@ -55,7 +58,10 @@ extension FileSyncManager {
                 concurrency: min(4, max(2, workList.count)),
                 progress: progressRef,
                 fileManager: activeFM,
-                reportCompleted: { completed in weakRef.value?.bulkSyncProgress = (completed, totalCount) }
+                reportCompleted: { completed in
+                    guard publishGate.admits(completed: completed, total: totalCount) else { return }
+                    weakRef.value?.bulkSyncProgress = (completed, totalCount)
+                }
             )
         }
 
@@ -417,6 +423,9 @@ extension FileSyncManager {
         let progressRef = ProgressRef(progress)
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = total
+        // One @Published write per whole percent instead of one per file — see
+        // `ProgressPublishGate` for what the ungated version cost the window.
+        let publishGate = ProgressPublishGateBox()
         let workList = preparedList
 
         let result = await enqueueFileOperation {
@@ -426,7 +435,10 @@ extension FileSyncManager {
                 progress: progressRef,
                 completedBase: skipped,
                 fileManager: activeFM,
-                reportCompleted: { completed in weakRef.value?.bulkSyncProgress = (completed, totalCount) }
+                reportCompleted: { completed in
+                    guard publishGate.admits(completed: completed, total: totalCount) else { return }
+                    weakRef.value?.bulkSyncProgress = (completed, totalCount)
+                }
             )
         }
 

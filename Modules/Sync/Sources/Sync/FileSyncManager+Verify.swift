@@ -52,12 +52,18 @@ extension FileSyncManager {
         let collector = VerifyResultsCollector()
         let weakRef = WeakSyncManagerRef(self)
         let totalCount = toVerify.count
+        // One @Published write per whole percent instead of one per file — see
+        // `ProgressPublishGate` for what the ungated version cost the window.
+        let publishGate = ProgressPublishGateBox()
 
         await Self.processInParallel(
             items: toVerify,
             concurrency: min(4, max(1, toVerify.count)),
             progress: ProgressRef(progress),
-            reportCompleted: { completed in weakRef.value?.verifyAllProgress = (completed, totalCount) }
+            reportCompleted: { completed in
+                guard publishGate.admits(completed: completed, total: totalCount) else { return }
+                weakRef.value?.verifyAllProgress = (completed, totalCount)
+            }
         ) { diff in
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: diff.leftItemPath,
