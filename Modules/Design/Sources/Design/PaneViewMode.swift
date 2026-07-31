@@ -176,10 +176,14 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     // MARK: - Preview column
 
     /// Whether a Columns pane appends a Quick Look preview column for a selected file, as Finder's
-    /// column view does. On by default; toggled from a column's empty-area context menu.
+    /// column view does. On by default; toggled from the pane header's pill (or the same item in its
+    /// ⋯ menu at narrow widths), and from a column's empty-area context menu — the place Finder keeps
+    /// its view options.
     ///
     /// Shared by both panes and the Tidy rail, like `columnWidthDefaultsKey`: this is a reading
     /// preference ("do I want to see file contents while I browse"), not a per-surface layout choice.
+    /// That sharing is what makes the header's pill worth offering on a pane too narrow to show a
+    /// preview itself — see `showsPreviewToggle`.
     public static let previewColumnDefaultsKey = "paneColumnShowsPreview"
     public static let previewColumnDefault = true
 
@@ -193,12 +197,18 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
     /// that kept the preview off comparison panes. Both are gone: a comparison pane in Columns mode
     /// shows a preview like any other, so its header must offer the switch for it.
     ///
-    /// Pane *width* is deliberately not a condition. A pane too narrow to fit a column beside a
-    /// minimum preview shows none (`showsPreviewColumn`), but that is a "not right now", not a
-    /// "never" — and a pill that vanished while you dragged the splitter narrow would take the
-    /// setting with it, unreachable exactly when widening the pane again should bring the preview
-    /// back. Same reasoning as `PaneColumnsView.previewSupportable` keeping the menu item up
-    /// whenever the pane *could* hold a preview rather than whenever one is on screen.
+    /// Pane *width* is deliberately not a condition, and this genuinely diverges from
+    /// `PaneColumnsView.previewSupportable`, which hides the column context menu's item once a pane is
+    /// too narrow to hold a preview. The two differ because they govern different scopes. That menu
+    /// item is a view option on one column, so withholding it where this pane can show nothing is
+    /// honest; the header's pill writes `previewColumnDefaultsKey`, which is one preference SHARED by
+    /// both comparison panes and the rail, so flipping it in a pane too narrow to show a preview still
+    /// does something everywhere else — it is never the switch wired to nothing that Tree mode would
+    /// give. Widths also change under a splitter drag, and a pill that vanished mid-drag would take
+    /// the setting off screen exactly when widening the pane again should bring the preview back.
+    ///
+    /// Stated because the divergence looks like an oversight: do not "align" the two without
+    /// deciding which scope you mean.
     public static func showsPreviewToggle(mode: PaneViewMode) -> Bool {
         mode == .columns
     }

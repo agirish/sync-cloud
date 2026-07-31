@@ -122,6 +122,28 @@ struct ColumnPreviewProbe: Equatable, Sendable {
 /// immediately either way, so the column is never blank while it waits.
 struct ColumnPreviewColumn: View {
     let item: ColumnPreviewItem
+    /// Room held clear at the bottom for the pane's action bar, which overlays this column on a
+    /// comparison pane. `0` where there is no bar — the Tidy rail. See the call site in
+    /// `PaneColumnsView` for the measurement.
+    var actionBarClearance: CGFloat = 0
+
+    /// The height the bar's band actually needs: its own height plus the padding the overlay adds
+    /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
+    /// near its column's bottom, and there it covers the Quick Look area instead — an image that
+    /// scales into whatever it is given, so it degrades where the identity rows could not. Reserving
+    /// both edges would cost this column ~128pt to protect the half that tolerates the loss.
+    ///
+    /// A constant rather than a live read of `PaneBarPlacement.coverage`: writes to that class
+    /// deliberately do not invalidate any view, so a body that read it would render from whatever the
+    /// last layout pass happened to leave there. `ColumnPreviewClearanceTests` renders the real
+    /// `PaneActionBar` and fails if it ever grows past this, which is what keeps the number honest.
+    ///
+    /// 72 rather than the 64 that bar measures here, and the 8pt is not padding-by-feel: the check is
+    /// a `<=` against a height rendered on whatever machine runs it, and CI is x86-under-Rosetta while
+    /// this was measured on arm64. At exactly 64 any cross-machine font-metric difference turns a
+    /// green suite red for a reason that has nothing to do with the code under test. The headroom
+    /// costs this column 8pt and buys the assertion room to be about the bar rather than the host.
+    static let actionBarClearance: CGFloat = 72
 
     /// How long a file must stay selected before Quick Look is mounted for it.
     static let previewSettleDelay = Duration.milliseconds(180)
@@ -159,6 +181,7 @@ struct ColumnPreviewColumn: View {
             preview
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             identity
+                .padding(.bottom, actionBarClearance)
         }
         .padding(16)
         // The content fills the column rather than capping at a "readable" width. The column's width

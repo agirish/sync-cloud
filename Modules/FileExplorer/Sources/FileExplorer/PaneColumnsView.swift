@@ -59,7 +59,8 @@ struct PaneColumnsView: View {
     @AppStorage(PaneViewMode.columnWidthDefaultsKey) private var storedColumnWidth: Double =
         Double(PaneViewMode.defaultColumnWidth)
     /// Whether a selected file gets a preview column, as it does in Finder's column view. Toggled
-    /// from a column's empty-area context menu — the same place Finder keeps its view options.
+    /// from the pane header's pill and from a column's empty-area context menu — the same place
+    /// Finder keeps its view options. One shared preference, not a per-pane one.
     @AppStorage(PaneViewMode.previewColumnDefaultsKey) private var previewEnabled: Bool =
         PaneViewMode.previewColumnDefault
     /// The preview pane's width, dragged from the divider on its leading edge.
@@ -140,7 +141,29 @@ struct PaneColumnsView: View {
             scrollingColumns(stackWidth: stackWidth, paneWidth: paneWidth)
                 .frame(width: stackWidth)
             if showsPreview, let previewTarget {
-                ColumnPreviewColumn(item: previewTarget)
+                // The pane's action bar is an overlay across the WHOLE pane, so on a comparison pane
+                // it lands on top of this column — and it is not an edge case: the preview needs
+                // exactly one selected file, which is precisely when the bar is up. Measured in a
+                // 940pt pane, the bar spans x 10…930 of the pane while the preview holds x 438…940,
+                // covering 492 of its 502 points across the bottom band, which is where the identity
+                // rows are. Nor can it be dismissed to read them: the bar's ✕ clears the selection,
+                // and that takes the preview with it.
+                //
+                // `placement` is the signal because its contract is already "nil on surfaces with no
+                // action bar", which is why the Tidy rail (where this column shipped first) never had
+                // the problem.
+                //
+                // Deliberately NOT also `isActivePane`, though that would be the more precise reading
+                // of "a bar will actually be drawn here": the bar shows on the active side only, so an
+                // inactive pane holding a single-file selection reserves a band nothing occupies. The
+                // cost of precision is a jump — clicking into that pane would raise the bar and lift
+                // the identity rows 64pt in the same instant. A little dead space on the pane you are
+                // not reading beats geometry that moves under the one you just clicked, which is the
+                // same resting-state rule `showsPreviewColumn` follows when it refuses to let a file
+                // click start the stack scrolling.
+                ColumnPreviewColumn(
+                    item: previewTarget,
+                    actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance)
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag
                     // that could not work while the preview lived in the scroll view: pinned to the

@@ -86,6 +86,9 @@ import UniformTypeIdentifiers
         /// The surface. Defaults to the Tidy rail, which is where the preview started; `false` is a
         /// comparison pane, which gets the same preview since the rail-only gate came out.
         var isSingleSource: Bool = true
+        /// Non-nil exactly on a surface that shows the action bar — the signal the preview column
+        /// reads to hold a band clear for it. `nil` is the rail's value.
+        var placement: PaneBarPlacement?
 
         var body: some View {
             PaneColumnsView(
@@ -95,11 +98,18 @@ import UniformTypeIdentifiers
                 selection: $box.selection, otherSelection: [], isLeft: true,
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
                 isSingleSource: isSingleSource, density: .compact, isActivePane: true,
-                placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
+                placement: placement, onBarEdgeFlip: nil, onQuickLook: { _ in },
+                onBackgroundDeselect: { _ in }
             )
             // Both the preview setting and the column width come from defaults, so the test owns a
             // domain of its own rather than reading whatever the host process happens to hold.
             .defaultAppStorage(defaults)
+            // A known ground, for the one test here that reads PIXELS rather than view frames. A
+            // hosted pane with no background renders over an undefined backing, and every pixel then
+            // reads as ink — which is exactly how the clearance measurement first came back as
+            // "lowest painted row = the last row" for both sides, a lift of zero that looked like a
+            // broken fix. The frame-reading tests are indifferent to it.
+            .background(Color.white)
         }
     }
 
@@ -109,7 +119,8 @@ import UniformTypeIdentifiers
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         columnWidth: CGFloat = PaneViewMode.defaultColumnWidth,
         previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth,
-        isSingleSource: Bool = true
+        isSingleSource: Bool = true,
+        placement: PaneBarPlacement? = nil
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
         defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
@@ -122,7 +133,8 @@ import UniformTypeIdentifiers
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree,
             index: PaneChildrenIndex(tree: tree, treeRoot: fixture.root),
-            root: fixture.root, defaults: defaults, isSingleSource: isSingleSource))
+            root: fixture.root, defaults: defaults, isSingleSource: isSingleSource,
+            placement: placement))
         host.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -228,6 +240,72 @@ import UniformTypeIdentifiers
         await pump(off.window, seconds: 0.3)
         #expect(columnWidths(in: off.host) == [990])
         withExtendedLifetime((fixture, rail, compare, off)) {}
+    }
+
+    /// The clearance is WIRED, not merely available: a pane that has an action bar paints its
+    /// preview's last ink higher up the column than the same pane without one.
+    ///
+    /// `ColumnPreviewClearanceTests` proves the column honours the parameter and that the constant
+    /// covers the real bar. Neither notices if `PaneColumnsView` passes 0 — the exact shape of "the
+    /// fix exists but is connected to nothing" that this review turned up in the header. Measured on
+    /// the mounted pane, restricted to the preview's own x-band so the columns' rows cannot supply
+    /// the ink.
+    @Test func testAPaneWithAnActionBarHoldsRoomForItInThePreview() async throws {
+        let fixture = try Fixture()
+        let bar = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                        previewWidth: 420, isSingleSource: false, placement: PaneBarPlacement())
+        let none = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                         previewWidth: 420, isSingleSource: false)
+        await pump(bar.window, seconds: 0.4)
+        await pump(none.window, seconds: 0.4)
+
+        // The preview occupies the trailing 420pt of the 990pt pane (x 570…990). The band starts
+        // INSIDE that, past the resize divider: the divider is an overlay on the preview's leading
+        // edge running the column's full height, so a band that included x=570 would find its ink at
+        // the very bottom row in both renders and report a lift of zero whatever the fix did. Learned
+        // by measuring — the first version of this test failed for exactly that reason.
+        let band = CGFloat(600)..<CGFloat(980)
+        let withBar = try lowestInk(in: bar.host, xRange: band)
+        let withoutBar = try lowestInk(in: none.host, xRange: band)
+        #expect(withoutBar > 0, "nothing was painted in the preview band — the measurement is vacuous")
+        #expect(withBar > 0)
+        let lifted = withoutBar - withBar
+        #expect(abs(lifted - ColumnPreviewColumn.actionBarClearance) <= 2,
+                "expected the bar's band to be held clear (\(ColumnPreviewColumn.actionBarClearance)pt), lifted \(lifted)")
+        withExtendedLifetime((fixture, bar, none)) {}
+    }
+
+    /// Lowest painted row inside a mounted pane, in points from the top of the host.
+    private func lowestInk(in host: NSHostingView<Harness>, xRange: Range<CGFloat>) throws -> CGFloat {
+        let rep = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return lowestPaintedRow(in: rep, pointHeight: host.bounds.height, pointXRange: xRange)
+    }
+
+    /// Flipping the setting re-lays a pane that is ALREADY on screen — which is the toggle's entire
+    /// job, and the one thing none of these tests covered.
+    ///
+    /// Every other case here mounts a pane with the setting already at its final value, so all of
+    /// them would pass against a pane that read the preference once and never looked again. The pill
+    /// in the header writes this key from a different view entirely; nothing but a live flip proves
+    /// the pane hears it. Asserted in both directions, because "off" and "on" reach the layout
+    /// through different branches — off must give the width back, not merely hide the preview.
+    @Test func testFlippingTheSettingRelaysAMountedPane() async throws {
+        let fixture = try Fixture()
+        let mounted = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                            previewWidth: 420, isSingleSource: false)
+        await pump(mounted.window, seconds: 0.3)
+        #expect(columnWidths(in: mounted.host) == [570])
+
+        mounted.host.rootView.defaults.set(false, forKey: PaneViewMode.previewColumnDefaultsKey)
+        await pump(mounted.window, seconds: 0.5)
+        #expect(columnWidths(in: mounted.host) == [990], "turning the preview off must return its width")
+        #expect(previews(in: mounted.host).isEmpty)
+
+        mounted.host.rootView.defaults.set(true, forKey: PaneViewMode.previewColumnDefaultsKey)
+        await pump(mounted.window, seconds: 0.5)
+        #expect(columnWidths(in: mounted.host) == [570], "turning it back on must take the width again")
+        withExtendedLifetime((fixture, mounted)) {}
     }
 
     /// The point of the whole reshape, mounted: a wide preview must take its width from the SCROLL
