@@ -168,7 +168,9 @@ public struct PaneHeader: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .contextMenu { barContextMenu() }
-            .sheet(isPresented: $isCustomizing) { PaneBarCustomizeSheet() }
+            .sheet(isPresented: $isCustomizing) {
+                PaneBarCustomizeSheet(availableHere: Set(availableItems))
+            }
             PaneBreadcrumb(
                 rootPath: rootPath,
                 providerName: provider?.displayName,
@@ -262,18 +264,24 @@ public struct PaneHeader: View {
     /// The rungs are declared one per line rather than generated, because `ViewThatFits` takes a
     /// `ViewBuilder`: ten literal children are a tuple it can walk, whereas a `ForEach` over depths
     /// is a single child and the ladder silently collapses to one rung.
+    /// Every rung is built on every layout pass — that is how `ViewThatFits` works — so the two
+    /// inputs they share are resolved once here rather than ten times inside them. The arrangement in
+    /// particular arrives as a defaults *string*, and parsing it per rung meant ten splits and ten
+    /// array builds for one row of pills.
     private var navCluster: some View {
-        ViewThatFits(in: .horizontal) {
-            barVariant(0)
-            barVariant(1)
-            barVariant(2)
-            barVariant(3)
-            barVariant(4)
-            barVariant(5)
-            barVariant(6)
-            barVariant(7)
-            barVariant(8)
-            barVariant(9)
+        let arrangement = PaneBarArrangement(encoded: arrangementRaw)
+        let available = availableItems
+        return ViewThatFits(in: .horizontal) {
+            barVariant(0, arrangement, available)
+            barVariant(1, arrangement, available)
+            barVariant(2, arrangement, available)
+            barVariant(3, arrangement, available)
+            barVariant(4, arrangement, available)
+            barVariant(5, arrangement, available)
+            barVariant(6, arrangement, available)
+            barVariant(7, arrangement, available)
+            barVariant(8, arrangement, available)
+            barVariant(9, arrangement, available)
         }
     }
 
@@ -284,11 +292,12 @@ public struct PaneHeader: View {
     /// shedding rungs still apply, because a bar that overflows the pane is worse than small glyphs.
     /// The last rung sheds everything sheddable, so an arrangement longer than the ladder still has
     /// a variant that fits rather than falling off the end.
-    private func barVariant(_ rung: Int) -> some View {
-        let ceiling = iconSize.ceiling
-        let controlSize: ControlSize = rung == 0 ? ceiling : .mini
+    private func barVariant(_ rung: Int,
+                            _ arrangement: PaneBarArrangement,
+                            _ available: [PaneBarItem]) -> some View {
+        let controlSize: ControlSize = rung == 0 ? iconSize.ceiling : .mini
         let depth = rung == 0 ? 0 : (rung == 9 ? Int.max : rung - 1)
-        return barContent(controlSize, depth: depth)
+        return barContent(controlSize, depth: depth, arrangement: arrangement, available: available)
     }
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
@@ -303,16 +312,15 @@ public struct PaneHeader: View {
         return available
     }
 
-    private var arrangement: PaneBarArrangement {
-        PaneBarArrangement(encoded: arrangementRaw)
-    }
-
     private var iconSize: PaneBarIconSize {
         PaneBarIconSize(rawValue: iconSizeRaw) ?? .regular
     }
 
-    private func barContent(_ controlSize: ControlSize, depth: Int) -> some View {
-        let plan = PaneBarLayout.plan(arrangement: arrangement, available: availableItems, depth: depth)
+    private func barContent(_ controlSize: ControlSize,
+                            depth: Int,
+                            arrangement: PaneBarArrangement,
+                            available: [PaneBarItem]) -> some View {
+        let plan = PaneBarLayout.plan(arrangement: arrangement, available: available, depth: depth)
         // Gaps are placed by hand rather than by `HStack(spacing:)`, because a flexible space must
         // cost *nothing*. As a stack child it would otherwise earn a 6pt gap of its own, the bar's
         // minimum width would grow by that much for every bar carrying one — which is every default

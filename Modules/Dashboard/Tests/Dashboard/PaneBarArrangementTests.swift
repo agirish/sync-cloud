@@ -209,6 +209,18 @@ import Testing
         #expect(plan.overflow.contains(.newFolder))
     }
 
+    @Test func testTheOverflowListsRemovedControlsInCanonicalOrder() {
+        // These become menu items. `available` is assembled by each host in whatever order its
+        // optional callbacks happen to be checked in, and passing that order through produced a menu
+        // reading Back/Forward, Sort, Hidden Files, View — an order nobody can learn, and one that
+        // would reshuffle itself the day a host gains another optional callback.
+        let shuffled: [PaneBarItem] = [.hiddenFiles, .preview, .backForward, .viewMode, .sort, .newFolder, .scan]
+        let plan = PaneBarLayout.plan(arrangement: PaneBarArrangement([.flexibleSpace, .scan]),
+                                      available: shuffled, depth: 0)
+        let canonical = PaneBarItem.allCases.filter { shuffled.contains($0) && $0 != .scan }
+        #expect(plan.overflow == canonical, "the overflow menu follows the host's order, not the bar's")
+    }
+
     @Test func testAControlAddedInALaterReleaseLandsInTheOverflowNotOnTheBar() {
         // The decided rule, and it falls out of the model: a stored arrangement predates the new
         // control, so the control is absent, so it arrives in ⋯ rather than rearranging a bar

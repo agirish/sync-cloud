@@ -70,16 +70,12 @@ public enum PaneBarItem: String, CaseIterable, Identifiable, Sendable, Codable {
         }
     }
 
-    /// How many pill-widths this item occupies, for the fold arithmetic. A `flexibleSpace` is 0 —
-    /// it is the thing that gives up its width first, and keeping it costs a narrow pane nothing.
-    public var pillCount: Int {
-        switch self {
-        case .backForward: return 2
-        case .viewMode: return 2
-        case .flexibleSpace: return 0
-        default: return 1
-        }
-    }
+    // `pillCount` was here — 2 for the paired items, 0 for a flexible space — written for a fold
+    // arithmetic that in the end never needed it: `ViewThatFits` measures the real views, so nothing
+    // ever asked this type how wide it thinks it is. It went for the same reason
+    // `PaneNavMetrics.clusterWidth` did in the commit that introduced this file: a number describing
+    // layout that no layout reads is a claim nothing checks, and the first time it disagreed with the
+    // pills on screen there would be no test to notice.
 }
 
 /// The persisted order of a pane bar: which items are on it, and where.
@@ -193,8 +189,14 @@ public struct PaneBarArrangement: Equatable, Sendable {
     /// This is also, for free, the rule for controls added in a future release: a stored arrangement
     /// predates them, so they are absent, so they arrive in ⋯ rather than rearranging a bar someone
     /// chose. Discoverability is the release notes' job, not the layout's.
+    ///
+    /// Ordered by `PaneBarItem.allCases` — the canonical bar order — not by `available`. These become
+    /// menu items, and `available` is assembled by each host in whatever order its `if let`s happen to
+    /// run: the menu was listing removed controls as Back/Forward, Sort, Hidden Files, View, which is
+    /// not an order anyone can hold in their head. A menu that reorders itself when a host adds an
+    /// optional callback is not a menu anyone can learn.
     public func absent(from available: [PaneBarItem]) -> [PaneBarItem] {
-        available.filter { !$0.isSpacer && !items.contains($0) }
+        PaneBarItem.allCases.filter { !$0.isSpacer && available.contains($0) && !items.contains($0) }
     }
 
     /// The arrangement restricted to what this host can actually offer — a header with no view-mode
@@ -281,6 +283,66 @@ public enum PaneBarLayout {
         let placed = arrangement.resolved(available: available)
         let sheddable = placed.filter { $0 == .space || (!$0.isSpacer && $0 != .viewMode && !floor.contains($0)) }
         return sheddable.count + (placed.contains(.viewMode) ? 1 : 0)
+    }
+}
+
+/// The drag payloads the customize sheet moves items with, and the rules for applying them.
+///
+/// This lives in the model rather than in the sheet for one reason: it is the part of drag-and-drop
+/// that can be tested. The gestures need a real event loop, so the sheet's own behaviour is only ever
+/// verifiable by hand — which makes it exactly the wrong place to also hide index arithmetic and
+/// string parsing. Here, every payload shape has a test.
+///
+/// Each entry point answers with a *new arrangement or nil*, where nil means "this drop changes
+/// nothing". The sheet reports that straight back to the drag session, so an item that cannot be
+/// placed springs back instead of animating into a bar that did not move.
+public enum PaneBarDrop {
+    static let barPrefix = "bar:"
+    static let palettePrefix = "palette:"
+
+    /// The payload for an item already on the bar, identified by position.
+    public static func payload(forItemAt index: Int) -> String { "\(barPrefix)\(index)" }
+
+    /// The payload for a palette tile, identified by item.
+    public static func payload(for item: PaneBarItem) -> String { "\(palettePrefix)\(item.rawValue)" }
+
+    /// A drop onto the track at `index` (the slot *before* the item currently at that index).
+    public static func applying(_ payloads: [String],
+                                at index: Int,
+                                to arrangement: PaneBarArrangement) -> PaneBarArrangement? {
+        guard let payload = payloads.first else { return nil }
+        var next = arrangement
+        if let from = barIndex(payload) {
+            // No range check here on purpose: `move` refuses an index it does not have, so a stale
+            // payload — the bar changed under a drag in flight — falls out as "changed nothing" and
+            // is refused below. An explicit guard here was measured to be unreachable: removing it
+            // failed no test, because the one underneath it was already doing the work.
+            next.move(from: from, to: index)
+        } else if let item = paletteItem(payload) {
+            next.insert(item, at: index)
+        } else {
+            return nil
+        }
+        return next == arrangement ? nil : next
+    }
+
+    /// A drag off the bar and back into the palette.
+    public static func removing(_ payloads: [String],
+                                from arrangement: PaneBarArrangement) -> PaneBarArrangement? {
+        guard let payload = payloads.first, let index = barIndex(payload) else { return nil }
+        var next = arrangement
+        next.remove(at: index)
+        return next == arrangement ? nil : next
+    }
+
+    private static func barIndex(_ payload: String) -> Int? {
+        guard payload.hasPrefix(barPrefix) else { return nil }
+        return Int(payload.dropFirst(barPrefix.count))
+    }
+
+    private static func paletteItem(_ payload: String) -> PaneBarItem? {
+        guard payload.hasPrefix(palettePrefix) else { return nil }
+        return PaneBarItem(rawValue: String(payload.dropFirst(palettePrefix.count)))
     }
 }
 

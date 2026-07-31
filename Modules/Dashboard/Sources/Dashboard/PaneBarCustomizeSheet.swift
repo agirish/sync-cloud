@@ -15,6 +15,16 @@ import SwiftUI
 ///   drag-only affordance that never worked in a Release build before (`4d55246`), and an
 ///   arrangement you cannot reach without a mouse is not an accessible one.
 struct PaneBarCustomizeSheet: View {
+    /// What the pane you opened this from can actually draw.
+    ///
+    /// The arrangement is shared by both Compare panes and the Tidy rail, so it necessarily contains
+    /// items a given pane has no use for — Collapse Pane is in the *default* arrangement and only the
+    /// Tidy rail ever draws it, and Preview only exists in Columns view. Without this the sheet showed
+    /// a Collapse Pane pill on the track of a Compare pane whose bar does not have one, which reads as
+    /// a bug in the sheet. Those items are still fully editable here; they are just marked as not
+    /// applying to the pane in front of you.
+    var availableHere: Set<PaneBarItem> = Set(PaneBarItem.allCases)
+
     @Environment(\.dismiss) private var dismiss
     @AppStorage(PaneBar.arrangementKey) private var arrangementRaw: String =
         PaneBarArrangement.default.encoded
@@ -54,6 +64,11 @@ struct PaneBarCustomizeSheet: View {
         }
         .padding(22)
         .frame(width: 560)
+        // Escape closes it. There is nothing to cancel — every edit is applied to the shared
+        // arrangement as it is made, so Done and Escape mean the same thing, and a sheet that
+        // swallows Escape reads as stuck. `.cancelAction` on the Done button is not an option:
+        // it already carries `.defaultAction`, and a button can only have one shortcut.
+        .onExitCommand { dismiss() }
     }
 
     // MARK: Header
@@ -67,7 +82,26 @@ struct PaneBarCustomizeSheet: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if explainsItemsFromElsewhere {
+                Label("Dimmed items don't apply to this pane. They stay in the arrangement and "
+                      + "appear on the panes that do use them.",
+                      systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
         }
+    }
+
+    /// Whether anything on the bar or in the palette belongs to a pane other than this one — the
+    /// explanation is only worth the space when there is something to explain.
+    var explainsItemsFromElsewhere: Bool {
+        Self.palette.contains { !$0.isSpacer && !availableHere.contains($0) }
+    }
+
+    private func appliesHere(_ item: PaneBarItem) -> Bool {
+        item.isSpacer || availableHere.contains(item)
     }
 
     // MARK: The editable bar
@@ -76,16 +110,19 @@ struct PaneBarCustomizeSheet: View {
     /// pane's identity and provider switcher, not a control, so it can be neither moved nor removed),
     /// then a drop slot before and after every item.
     private var track: some View {
-        HStack(spacing: 0) {
+        let items = arrangement.items
+        return HStack(spacing: 0) {
             providerGhost
-            ForEach(Array(arrangement.items.enumerated()), id: \.offset) { index, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 slot(index)
                 trackItem(item, at: index)
             }
-            slot(arrangement.items.count)
-                // The trailing slot is the one you aim at to append, so it gets the leftovers of the
-                // row rather than the same 12pt as the rest.
-                .frame(maxWidth: .infinity)
+            // The trailing slot is what you aim at to append, so it takes the whole rest of the row
+            // rather than another 12pt sliver. The width has to be applied INSIDE the slot, ahead of
+            // its `contentShape` and drop destination: an outer `.frame(maxWidth: .infinity)` only
+            // grows an empty box around a 12pt hit area, centred, which is what this did at first —
+            // the target claimed the row's leftovers in a comment and covered none of it.
+            slot(items.count, flexible: true)
         }
         .padding(8)
         .frame(minHeight: 52)
@@ -97,6 +134,14 @@ struct PaneBarCustomizeSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(glassHue.accentColor.opacity(targetedSlot == nil ? 0 : 0.55), lineWidth: 1.5)
         )
+        // The backstop. Only the gaps between items are precise drop targets, so a drop that lands
+        // on a pill itself — the most natural place to aim — would otherwise hit nothing at all and
+        // spring back with no explanation. This catches those and appends, so **no drop anywhere on
+        // the track is ever a silent no-op**. Nested destinations resolve innermost-first, so an
+        // accurate drop into a gap still lands in that gap.
+        .dropDestination(for: String.self) { payloads, _ in
+            drop(payloads, at: arrangement.items.count)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane bar arrangement")
     }
@@ -120,7 +165,8 @@ struct PaneBarCustomizeSheet: View {
     /// reachable without a drag.
     private func trackItem(_ item: PaneBarItem, at index: Int) -> some View {
         trackPill(item)
-            .draggable("bar:\(index)")
+            .opacity(appliesHere(item) ? 1 : 0.45)
+            .draggable(PaneBarDrop.payload(forItemAt: index))
             .contextMenu {
                 Button("Move Left") { update { $0.nudge(index, by: -1) } }
                     .disabled(index == 0)
@@ -130,15 +176,23 @@ struct PaneBarCustomizeSheet: View {
                 Button("Remove", role: .destructive) { update { $0.remove(at: index) } }
                     .disabled(!item.isRemovable)
             }
-            .help(item.isRemovable
-                  ? "\(item.displayName) — drag to move, or right-click for more"
-                  : "\(item.displayName) is always shown: a pane that cannot be scanned is a broken pane")
+            .help(trackHelp(item))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.displayName)
             .accessibilityHint(item.isRemovable ? "Draggable. Actions available." : "Always shown.")
             .accessibilityAction(named: "Move Left") { update { $0.nudge(index, by: -1) } }
             .accessibilityAction(named: "Move Right") { update { $0.nudge(index, by: 1) } }
             .accessibilityAction(named: "Remove") { update { $0.remove(at: index) } }
+    }
+
+    private func trackHelp(_ item: PaneBarItem) -> String {
+        if !item.isRemovable {
+            return "\(item.displayName) is always shown: a pane that cannot be scanned is a broken pane"
+        }
+        if !appliesHere(item) {
+            return "\(item.displayName) doesn't apply to this pane — it appears on the panes that use it"
+        }
+        return "\(item.displayName) — drag to move, or right-click for more"
     }
 
     @ViewBuilder
@@ -148,7 +202,9 @@ struct PaneBarCustomizeSheet: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(.tertiary.opacity(0.5))
                 .frame(width: 46, height: 24)
-                .overlay(Image(systemName: "arrow.left.and.right")
+                // `paletteSymbol`, not a second copy of the same glyph name: the SF Symbol test walks
+                // that property, so a hardcoded name here would be the one glyph nothing checks.
+                .overlay(Image(systemName: item.paletteSymbol)
                     .font(.caption2)
                     .foregroundStyle(.secondary))
         case .space:
@@ -169,12 +225,19 @@ struct PaneBarCustomizeSheet: View {
         }
     }
 
-    /// The gap between two items: a thin, invisible drop target that grows a caret when aimed at.
-    private func slot(_ index: Int) -> some View {
+    /// The gap between two items: an invisible drop target that grows a caret when aimed at.
+    ///
+    /// - Parameter flexible: when true the slot takes every remaining point of the row instead of a
+    ///   fixed 12pt. Used for the trailing slot, where the empty space to the right of the last pill
+    ///   is the obvious place to aim an append at.
+    private func slot(_ index: Int, flexible: Bool = false) -> some View {
         Rectangle()
             .fill(.clear)
-            .frame(width: 12, height: 30)
-            .overlay {
+            .frame(width: flexible ? nil : 12, height: 30)
+            .frame(maxWidth: flexible ? .infinity : nil)
+            // Leading for the flexible slot: the caret marks where the item will land, which is hard
+            // against the last pill, not adrift in the middle of the empty space.
+            .overlay(alignment: flexible ? .leading : .center) {
                 if targetedSlot == index {
                     Capsule()
                         .fill(glassHue.accentColor)
@@ -189,20 +252,19 @@ struct PaneBarCustomizeSheet: View {
             }
     }
 
-    /// Applies a drop at `index`. Two payload shapes: `bar:<index>` is a move within the track,
-    /// `palette:<raw>` is an add. Anything else is ignored rather than guessed at.
+    /// Applies a drop at `index`, reporting whether the bar actually moved — the rules and their
+    /// tests live in `PaneBarDrop`.
     private func drop(_ payloads: [String], at index: Int) -> Bool {
-        guard let payload = payloads.first else { return false }
-        if payload.hasPrefix("bar:"), let from = Int(payload.dropFirst("bar:".count)) {
-            update { $0.move(from: from, to: index) }
-            return true
-        }
-        if payload.hasPrefix("palette:"),
-           let item = PaneBarItem(rawValue: String(payload.dropFirst("palette:".count))) {
-            update { $0.insert(item, at: index) }
-            return true
-        }
-        return false
+        guard let next = PaneBarDrop.applying(payloads, at: index, to: arrangement) else { return false }
+        arrangementRaw = next.encoded
+        return true
+    }
+
+    /// Drag-off-the-bar removal, from the palette's drop destination.
+    private func dropToRemove(_ payloads: [String]) -> Bool {
+        guard let next = PaneBarDrop.removing(payloads, from: arrangement) else { return false }
+        arrangementRaw = next.encoded
+        return true
     }
 
     // MARK: Palette
@@ -225,10 +287,7 @@ struct PaneBarCustomizeSheet: View {
             // Dropping a bar item back into the palette removes it — Finder's drag-off-the-toolbar,
             // aimed at a target that actually exists rather than at "anywhere but the bar".
             .dropDestination(for: String.self) { payloads, _ in
-                guard let payload = payloads.first, payload.hasPrefix("bar:"),
-                      let index = Int(payload.dropFirst(4)) else { return false }
-                update { $0.remove(at: index) }
-                return true
+                dropToRemove(payloads)
             } isTargeted: { isOverPalette = $0 }
         }
     }
@@ -252,22 +311,35 @@ struct PaneBarCustomizeSheet: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .opacity(item.isRemovable ? (onBar ? 0.45 : 1) : 0.45)
+            .opacity(item.isRemovable && !onBar && appliesHere(item) ? 1 : 0.45)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(!item.isRemovable || onBar)
-        .draggable("palette:\(item.rawValue)")
+        .draggable(PaneBarDrop.payload(for: item))
         .help(paletteHelp(item, onBar: onBar))
         .accessibilityLabel(item.displayName)
-        .accessibilityHint(onBar ? "Already on the bar" : "Adds to the end of the bar")
+        // Say where it lands, not just that it lands: clicking appends, which for a flexible space
+        // means it arrives at the trailing end where it has nothing to push, and the placing is done
+        // afterwards with Move Left. A hint that stopped at "adds it" would leave a spacer looking
+        // like it had done nothing.
+        .accessibilityHint(onBar
+                           ? "Already on the bar"
+                           : (item.isSpacer
+                              ? "Adds to the end of the bar; use Move Left to place it"
+                              : "Adds to the end of the bar"))
     }
 
     private func paletteHelp(_ item: PaneBarItem, onBar: Bool) -> String {
         if !item.isRemovable {
             return "Scan is always on the bar — it is the pane's only scan control"
         }
-        return onBar ? "\(item.displayName) is already on the bar" : "Add \(item.displayName)"
+        if onBar { return "\(item.displayName) is already on the bar" }
+        if !appliesHere(item) {
+            return "Add \(item.displayName) — it doesn't apply to this pane, but the arrangement is "
+                 + "shared, so it will appear on the panes that use it"
+        }
+        return "Add \(item.displayName)"
     }
 
     // MARK: Footer

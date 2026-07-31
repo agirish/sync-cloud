@@ -22,6 +22,21 @@ import Testing
         return host.fittingSize
     }
 
+    @Test func testItemsTheEditingPaneCannotDrawAreStillOfferedButMarked() {
+        // Collapse Pane is in the DEFAULT arrangement and only the Tidy rail draws it, so a Compare
+        // pane's sheet necessarily shows a pill its own bar does not have. That is honest — the
+        // arrangement is shared — but it has to be visibly explained rather than looking like a bug
+        // in the sheet.
+        let comparePane = PaneBarCustomizeSheet(
+            availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles])
+        #expect(comparePane.explainsItemsFromElsewhere,
+                "a pane that cannot draw Collapse or Preview showed no explanation for them")
+
+        let everything = PaneBarCustomizeSheet(availableHere: Set(PaneBarItem.allCases))
+        #expect(!everything.explainsItemsFromElsewhere,
+                "a pane that can draw everything still spent space explaining nothing")
+    }
+
     @Test func testTheSheetLaysOutAtAWorkableSize() {
         let size = laidOut(PaneBarCustomizeSheet())
         #expect(size.width == 560, "the sheet should hold its declared width, got \(size.width)")
