@@ -130,7 +130,7 @@ import Foundation
     /// Both stores live in ONE `UserDefaults`, so writing one must leave the other alone. A shared
     /// key would pass every single-store test above and only surface here.
     @MainActor
-    @Test func thetwoFilingStoresCoexistInOneDefaults() throws {
+    @Test func theTwoFilingStoresCoexistInOneDefaults() throws {
         let manager = FileSyncManager()
         manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteBoth")
         let rules = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Vehicles")]

@@ -106,6 +106,24 @@ import Foundation
         #expect(await cache.hash(for: d) == "d1")
     }
 
+    /// The bound that the amortization rests on. Eviction only advances an index, so the dead
+    /// prefix has to be reclaimed on a schedule or `insertionOrder` grows forever — a memory leak
+    /// that every other test here sails straight past, because the survivors stay correct whether
+    /// or not the array is ever compacted. Storing 100x the cap must leave the storage within the
+    /// documented 2x-cap ceiling, not at the 100x it would reach uncompacted.
+    @Test func testOrderStorageStaysBoundedUnderSustainedOverflow() async {
+        let cap = 50
+        let cache = ContentHashCache(maxEntries: cap)
+        for i in 0..<(cap * 100) {
+            await cache.store("h\(i)", for: ContentHashKey(path: "/f\(i)", mtime: 1, size: 1))
+        }
+        let slots = await cache.orderSlotsInUse
+        #expect(slots <= cap * 2, "order storage grew to \(slots) for a \(cap)-entry cache")
+        // And the cache is still holding exactly what it should.
+        #expect(await cache.hash(for: ContentHashKey(path: "/f\(cap * 100 - 1)", mtime: 1, size: 1)) != nil)
+        #expect(await cache.hash(for: ContentHashKey(path: "/f0", mtime: 1, size: 1)) == nil)
+    }
+
     /// A cap of 1 is the degenerate case the index arithmetic is most likely to get wrong: every
     /// store evicts, so `evictedPrefix` reaches the compaction threshold on essentially every call.
     @Test func testCapOfOneKeepsOnlyTheNewest() async {

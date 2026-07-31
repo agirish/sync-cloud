@@ -335,7 +335,12 @@ struct ReviewCardView: View {
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: item.leftItemPath,
                 rightPath: item.rightItemPath,
-                fileManager: fileManager
+                fileManager: fileManager,
+                // The same session cache Verify All and the Tidy scans use. Without it this path
+                // only *said* it reused the bulk hashing: stepping back to an item, or verifying
+                // one Verify All had already hashed, re-read and re-hashed both sides from disk.
+                // Keyed on (path, mtime, size), so an edited file is bypassed rather than served.
+                cache: ContentHashCache.shared
             )
             let verdict: ReviewSession.VerifyVerdict =
                 same == true ? .identical : (same == false ? .differed : .unverifiable)

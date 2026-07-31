@@ -65,6 +65,14 @@ public actor ContentHashCache {
         entries[key]
     }
 
+    /// How many slots `insertionOrder` currently occupies, live plus not-yet-compacted.
+    ///
+    /// Exists only so the compaction threshold can be pinned. Deferring compaction is what makes
+    /// eviction amortized O(1), and the cost of getting the threshold wrong is an array that grows
+    /// forever — a memory leak that every correctness test would still pass straight through,
+    /// because the SURVIVORS stay right either way. Nothing outside tests should read this.
+    var orderSlotsInUse: Int { insertionOrder.count }
+
     /// Records `hex` as the SHA-256 of `key`, evicting the oldest entry if the cap is exceeded.
     public func store(_ hex: String, for key: ContentHashKey) {
         if entries[key] == nil {

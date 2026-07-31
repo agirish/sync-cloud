@@ -86,6 +86,42 @@ import Foundation
         #expect(warm.duplicateGroups.count == 1)
     }
 
+    /// The headline claim: Verify and Tidy stop paying for each other's work. Verify hashes through
+    /// the shared cache; a Tidy scan of the same files must then find those digests already there.
+    /// Proved the same way — by what Verify leaves behind being the thing Tidy answers from.
+    @MainActor
+    @Test func aVerifyPopulatesTheCacheThatTidyThenReadsFrom() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "TidyCacheCrossFeature")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("A/report.pdf")
+        let b = root.appendingPathComponent("B/report.pdf")
+        try write(a, bytes: 4096, fill: 0x41)
+        try write(b, bytes: 4096, fill: 0x41)   // identical
+
+        let shared = ContentHashCache()
+
+        // Verify's own entry point, through the cache.
+        let same = await FileContentVerifier.filesHaveSameContent(
+            leftPath: a.path, rightPath: b.path, cache: shared)
+        #expect(same == true)
+
+        // Both digests are now cached — and they are the REAL ones, so the scan must group.
+        #expect(await shared.hash(for: try key(for: a)) != nil)
+        #expect(await shared.hash(for: try key(for: b)) != nil)
+
+        let manager = FileSyncManager()
+        await manager.findDuplicates(root: root, cache: shared)
+        #expect(manager.duplicateGroups.count == 1)
+
+        // Mutation guard for the direction of the claim: overwrite ONE of the digests Verify left
+        // behind, and the scan's answer changes — so the scan really did read Verify's entries and
+        // not just re-hash the files itself.
+        await shared.store(String(repeating: "c", count: 64), for: try key(for: b))
+        let after = FileSyncManager()
+        await after.findDuplicates(root: root, cache: shared)
+        #expect(after.duplicateGroups.isEmpty)
+    }
+
     /// `planMerge` decides "the keeper already has this content at this path" from a hash compare,
     /// and it re-hashes the WHOLE keeper tree once per redundant copy — the merge path's real cost.
     /// Plant matching digests for a keeper/copy pair and the step disappears from the plan.
