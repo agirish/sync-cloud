@@ -1,6 +1,6 @@
 ---
-name: install-app
-description: Copy the latest built SyncCloud.app to /Applications. Use when the user asks to install, deploy, or copy the app to Applications.
+name: install-sync-cloud
+description: Copy the latest built SyncCloud.app to /Applications, verify it actually launched, and sweep stale build debris. Use when the user asks to install, deploy, or copy SyncCloud to Applications.
 ---
 
 Install the most recent SyncCloud build into /Applications.

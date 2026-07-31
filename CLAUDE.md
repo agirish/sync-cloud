@@ -38,10 +38,12 @@ Commit and push **proactively** as work lands; don't wait to be asked each time.
 
 ## After shipping an app change
 
-Run the `install-app` skill (quits the running instance, installs the fresh build to
-`/Applications/SyncCloud.app`, de-dupes the DerivedData copy from Spotlight), then launch and
-**verify** with `pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud'` — a silent `open` exit is not
-proof the app started.
+Run the `install-sync-cloud` skill (quits the running instance, installs the fresh build to
+`/Applications/SyncCloud.app`, de-dupes the DerivedData copy from Spotlight, then sweeps stale
+build debris). It launches and verifies the app itself — **by polling `~/sync-cloud.log` for a new
+line, not by `pgrep`**: a silent `open` exit is not proof the app started, and neither is a live
+pid. The app can come up wedged with zero windows and an empty log, which is exactly what `pgrep`
+cannot see.
 
 ## Correctness bar
 
