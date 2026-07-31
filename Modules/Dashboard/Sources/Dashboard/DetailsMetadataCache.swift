@@ -33,6 +33,12 @@ final class DetailsMetadataCache {
     private var metadata: DetailsSidebar.FileMetadata?
     private var icon: NSImage?
 
+    /// The path of the most recent `load(for:)` REQUEST, which is not the same as the most recent
+    /// load to finish. Loads are started in the order the sidebar's selection changes, so this is
+    /// the path the UI currently wants; a load that comes back to find it changed is stale by
+    /// definition and must not claim the memo. See the guard in `load(for:)`.
+    private var requestedPath: String?
+
     /// Paths whose stat failure has already been reported, so a re-stat of the same unreadable
     /// item stays quiet.
     ///
@@ -116,25 +122,43 @@ final class DetailsMetadataCache {
     /// If the load never comes back — the wedged-provider case — this simply never resumes. The
     /// awaiting task stays suspended, holding no thread and blocking nothing; the card keeps
     /// rendering whatever the caller already had. That is the intended degradation.
+    ///
+    /// The caller always gets the result of *its own* load. What is conditional is whether that
+    /// result is adopted into the memo — see `requestedPath`.
     func load(for path: String) async -> Entry {
         if let hit = cached(for: path) { return hit }
+
+        // Claim the memo for this path before suspending. See `requestedPath`.
+        requestedPath = path
+        let startGeneration = generation
 
         // Captured as locals so the closure takes the two loaders and nothing else — capturing
         // `self` would pull a main-actor-isolated reference onto the queue.
         let loadMetadata = self.loadMetadata
         let loadIcon = self.loadIcon
-        let result: (load: DetailsSidebar.MetadataLoad, entry: Entry) = await withCheckedContinuation { continuation in
+        let result: (failure: String?, entry: Entry) = await withCheckedContinuation { continuation in
             Self.ioQueue.async {
                 let load = loadMetadata(path)
                 let icon = load.metadata.map { loadIcon($0.path) }
-                continuation.resume(returning: (load, Entry(metadata: load.metadata, icon: icon)))
+                continuation.resume(
+                    returning: (load.failure, Entry(metadata: load.metadata, icon: icon)))
             }
         }
 
-        if let failure = result.load.failure { reportOnce(failure, for: path) }
+        // Reported whether or not the memo adopts this result: the stat really did fail, and
+        // `reportOnce` already collapses repeats per path. Same for clearing the warned mark —
+        // a successful read is news about the path regardless of which load observed it.
+        if let failure = result.failure { reportOnce(failure, for: path) }
         // A successful read clears the path's warned mark: whatever made it unreadable is
         // over, so the NEXT failure is news again rather than a suppressed repeat.
         if result.entry.metadata != nil { warnedPaths.remove(path) }
+
+        // Last REQUESTED wins, not last to come back. A superseded load still runs to completion
+        // (its Task is cancelled, but the queue block behind the continuation is not), and on a
+        // `.concurrent` queue it can land after the load that replaced it. Committing it here
+        // would memoize the previously-selected path while the inspector shows the current one,
+        // and would resurrect a pre-invalidation entry that `refreshOccurred()` had just dropped.
+        guard requestedPath == path, generation == startGeneration else { return result.entry }
 
         metadata = result.entry.metadata
         icon = result.entry.icon

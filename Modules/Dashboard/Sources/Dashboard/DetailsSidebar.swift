@@ -184,10 +184,12 @@ public struct DetailsSidebar: View {
     /// a cloud path.
     ///
     /// Landing them in state instead means the click paints first and the card fills a beat later.
-    /// The stats still run on the main actor — `DetailsSidebar` is `@MainActor` by its `View`
-    /// conformance and the loader reaches a shared `DateFormatter` — so this reorders the work off
-    /// the render path rather than off the thread; moving the syscalls themselves to a nonisolated
-    /// loader is the next step if it measures.
+    ///
+    /// That reordering alone was **not** enough, and the note that used to sit here saying the
+    /// stats "still run on the main actor … the next step if it measures" understated it: a
+    /// `View`'s `.task` inherits the view's `@MainActor` isolation, so the syscalls were still on
+    /// the main thread and a wedged `getxattr` still froze the app at launch. They now run on
+    /// `DetailsMetadataCache.ioQueue`; see `loadMetadata(for:fileManager:)`.
     private struct LoadedDetails: Equatable {
         let key: DirectorySizeTaskID
         let metadata: FileMetadata?
@@ -237,7 +239,7 @@ public struct DetailsSidebar: View {
     ///
     /// Being `nonisolated` is what lets `DetailsMetadataCache` run it on a private queue. It must
     /// therefore stay free of main-actor state: `logError` is gone (the failure comes back in the
-    /// return value) and `dateFormatter` is `nonisolated(unsafe)`.
+    /// return value) and `dateFormatter` is `nonisolated`.
     ///
     /// `fileManager` is injected (defaulting to the real one) so the failure path is testable,
     /// following `FolderJump.siblings`.
@@ -506,17 +508,14 @@ public struct DetailsSidebar: View {
                 return
             }
             // Still the memoized lookup — `DetailsMetadataCache` keeps owning the per-path memo
-            // and the once-per-path warning. What changed is where the miss runs.
+            // and the once-per-path warning. What changed is where a miss runs.
             //
-            // A hit publishes in this turn without suspending, so a re-render of an
-            // already-loaded path still paints its card in one pass. A miss suspends here and
-            // the syscalls run on the cache's private queue; until they land, `body` renders
-            // the previous card (see the stale-while-revalidate note there). If they never
-            // land, this task simply stays suspended — the window is already on screen.
-            if let hit = cache.cached(for: sizeKey.path) {
-                loaded = LoadedDetails(key: sizeKey, metadata: hit.metadata, icon: hit.icon)
-                return
-            }
+            // `load(for:)` serves a memo hit without ever suspending, so a re-render of an
+            // already-loaded path still paints its card in one pass; there is deliberately no
+            // separate `cached(for:)` branch here, which would only duplicate that check. A miss
+            // suspends and the syscalls run on the cache's private queue; until they land, `body`
+            // renders the previous card (see the stale-while-revalidate note there). If they
+            // never land, this task simply stays suspended — the window is already on screen.
             let entry = await cache.load(for: sizeKey.path)
             guard !Task.isCancelled else { return }
             loaded = LoadedDetails(key: sizeKey, metadata: entry.metadata, icon: entry.icon)

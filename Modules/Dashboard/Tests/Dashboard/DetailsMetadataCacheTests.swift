@@ -336,6 +336,106 @@ import Sync
         }
     }
 
+    /// A loader with a per-path gate, so a test can choose the order two in-flight loads finish in.
+    /// `ioQueue` is `.concurrent`, so that order is genuinely not the order they were started.
+    final class OrderedLoader: @unchecked Sendable {
+        private let lock = NSLock()
+        private var gates: [String: DispatchSemaphore] = [:]
+        private var _entered: Set<String> = []
+
+        var entered: Set<String> { lock.withLock { _entered } }
+
+        private func gate(_ path: String) -> DispatchSemaphore {
+            lock.withLock {
+                if let g = gates[path] { return g }
+                let g = DispatchSemaphore(value: 0)
+                gates[path] = g
+                return g
+            }
+        }
+
+        func load(_ path: String) -> DetailsSidebar.MetadataLoad {
+            let g = gate(path)
+            lock.withLock { _entered.insert(path) }
+            _ = g.wait(timeout: .now() + 30)
+            return DetailsSidebar.MetadataLoad(
+                metadata: DetailsSidebar.FileMetadata(
+                    name: (path as NSString).lastPathComponent, path: path, kind: "Document",
+                    size: "1 KB", creationDate: "", modificationDate: "", permissions: "644",
+                    isDirectory: false),
+                failure: nil)
+        }
+
+        func release(_ path: String) { gate(path).signal() }
+    }
+
+    /// **The memo must track the last path REQUESTED, not the last load to come back.**
+    ///
+    /// A superseded load is not cancellable — `.task(id:)` cancels its Task, but the Task is
+    /// suspended on a continuation whose queue block runs to completion regardless, and then
+    /// writes the memo. With a `.concurrent` `ioQueue` the two are genuinely unordered, so the
+    /// stale one can land last.
+    ///
+    /// Without a guard the cache ends up memoizing `/a` while the inspector is showing `/b`, and a
+    /// later re-selection of `/a` is served from an entry that was already superseded once — the
+    /// exact staleness `refreshOccurred()` exists to prevent. The synchronous code this replaced
+    /// could not exhibit it, so this is a regression the async split introduced, not a pre-existing
+    /// hole.
+    @Test func aSupersededLoadMustNotOverwriteTheMemoWithItsStalePath() async {
+        let loader = OrderedLoader()
+        let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
+
+        // Selection moves /a -> /b: two loads in flight, /b requested last.
+        let first = Task { await cache.load(for: "/vault/a.txt") }
+        let second = Task { await cache.load(for: "/vault/b.txt") }
+
+        // Yield (never block — these Tasks are main-actor isolated and a blocking wait here would
+        // deadlock them) until both are genuinely parked inside the loader.
+        for _ in 0..<300 where loader.entered.count < 2 {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(loader.entered.count == 2, "both loads should be in flight — otherwise this proves nothing")
+
+        // The superseding load lands FIRST, the superseded one LAST.
+        loader.release("/vault/b.txt")
+        _ = await second.value
+        loader.release("/vault/a.txt")
+        _ = await first.value
+
+        #expect(cache.cached(for: "/vault/b.txt") != nil, "the memo lost the path actually selected")
+        #expect(cache.cached(for: "/vault/a.txt") == nil, "a superseded load overwrote the memo")
+    }
+
+    /// The other half of the same guard: an invalidation that lands while a load is in flight must
+    /// not be undone by that load finishing afterwards.
+    ///
+    /// `refreshOccurred()` fires after every file operation and means "the item may have changed on
+    /// disk, re-stat it". A load started BEFORE it carries pre-operation attributes, so committing
+    /// it afterwards would put the stale size and dates back into the memo — the precise thing the
+    /// invalidation existed to prevent, and invisible because the card would look populated and
+    /// current.
+    @Test func aLoadStartedBeforeAnInvalidationMustNotResurrectTheMemo() async {
+        let loader = OrderedLoader()
+        let cache = DetailsMetadataCache(loadMetadata: loader.load, loadIcon: { _ in NSImage() })
+
+        let inFlight = Task { await cache.load(for: "/vault/report.pdf") }
+        for _ in 0..<300 where loader.entered.isEmpty {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(loader.entered.contains("/vault/report.pdf"), "the load never started")
+
+        // A file operation completes while the stat is still out.
+        cache.refreshOccurred()
+
+        loader.release("/vault/report.pdf")
+        _ = await inFlight.value
+
+        #expect(cache.cached(for: "/vault/report.pdf") == nil,
+                "a pre-invalidation load repopulated the memo the refresh had just dropped")
+    }
+
     /// The narrow, timing-free version of the claim: a miss is answered out of memory, immediately,
     /// without the loader being consulted at all. This is the call `body` and the `.task` make
     /// first, and it is the reason neither can be made to block.
