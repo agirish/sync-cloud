@@ -7,21 +7,45 @@ Install the most recent SyncCloud build into /Applications.
 
 Every check below is here because it failed once and reported success anyway — keep the reasons attached.
 
+**Shell state does not survive between tool calls.** `$APP`, `$CONFIG`, the `newest_app` and `bundle_digest` functions, and `$INSTALLED_DIGEST` are each defined in one step and read in a later one — but each Bash call starts a fresh shell, so following this file one step per call silently loses all of them. `$APP` empties and `rm -rf /Applications/SyncCloud.app && ditto "" …` then wipes the installed app without replacing it; `$INSTALLED_DIGEST` empties and step 9's provenance check compares against nothing and "passes". Either run a whole phase in one shell, or persist the values — write `$APP`, `$CONFIG` and `$INSTALLED_DIGEST` to files under the scratchpad and re-read them, and re-declare the two functions in any step that calls them.
+
 **macOS has no `timeout(1)`.** `timeout 5 some-cmd` exits **127 (command not found)** for *every* input, which reads exactly like "everything timed out" — on 2026-07-30 that made a purely local path and every cloud root look equally blocked and sent the investigation the wrong way. Wherever a command must be bounded, background it and poll `kill -0 $!` instead (steps 3 and 7).
 
-1. Find the newest built app bundle. Two roots matter: the shared DerivedData path, and the **current worktree's `.dd`** — CLAUDE.md has each session build in its own worktree with `xcodebuild -derivedDataPath .dd`, so the freshest bundle is often there and a DerivedData-only search silently installs someone else's older build. Pick by **binary** mtime, not bundle mtime: `ditto`/`lsregister` touch the bundle, so the directory timestamp can be newer than the code inside it.
+1. Find the newest built app bundle **of the configuration you actually want to install**. Three things decide it, and the third is the one that bites:
+
+   - **Two roots matter**: the shared DerivedData path, and the **current worktree's `.dd`** — CLAUDE.md has each session build in its own worktree with `xcodebuild -derivedDataPath .dd`, so the freshest bundle is often there and a DerivedData-only search silently installs someone else's older build.
+   - **Pick by *binary* mtime, not bundle mtime**: `ditto`/`lsregister` touch the bundle, so the directory timestamp can be newer than the code inside it.
+   - **Never let mtime choose the CONFIGURATION.** Release is what the user runs; Debug is what `xcodebuild … test` builds. So verifying a change — build Release, then run the test bundle — leaves a **Debug** bundle as the newest thing on disk, and a plain newest-wins search installs *that* over the user's Release app: a slower build carrying `SyncCloud.debug.dylib` and `__preview.dylib`, with nothing anywhere reporting an error. Caught on 2026-07-30 with the two bundles 66 seconds apart. Resolve within Release, and fall back to Debug only when there is no Release build at all — loudly, because that fallback changes what the user runs.
+
    ```bash
-   APP=$( { find "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.dd/Build/Products" \
-                 -maxdepth 2 -name 'SyncCloud.app' -type d 2>/dev/null
-            find ~/Library/Developer/Xcode/DerivedData \
-                 -maxdepth 5 -path '*/SyncCloud-*/Build/Products/*/SyncCloud.app' -type d 2>/dev/null
-          } | while read -r a; do
-            printf '%s\t%s\n' "$(stat -f %m "$a/Contents/MacOS/SyncCloud" 2>/dev/null || echo 0)" "$a"
-          done | sort -rn | head -1 | cut -f2- )
-   echo "$APP"
+   newest_app() {   # $1 = configuration — newest binary mtime WITHIN that configuration only
+     { find "$(git rev-parse --show-toplevel 2>/dev/null || pwd)/.dd/Build/Products/$1" \
+            -maxdepth 1 -name 'SyncCloud.app' -type d 2>/dev/null
+       find ~/Library/Developer/Xcode/DerivedData \
+            -maxdepth 5 -path "*/SyncCloud-*/Build/Products/$1/SyncCloud.app" -type d 2>/dev/null
+     } | while read -r a; do
+         printf '%s\t%s\n' "$(stat -f %m "$a/Contents/MacOS/SyncCloud" 2>/dev/null || echo 0)" "$a"
+       done | sort -rn | head -1 | cut -f2-
+   }
+
+   CONFIG=Release
+   APP=$(newest_app "$CONFIG")
+   if [ -z "$APP" ]; then
+     CONFIG=Debug
+     APP=$(newest_app "$CONFIG")
+     echo "WARNING: no Release build found — falling back to Debug. That installs a slower build"
+     echo "carrying a debug dylib; build Release first unless you meant this."
+   fi
+   echo "$CONFIG: $APP"
    ```
    Use `find`, not a glob: under zsh a non-matching `*/SyncCloud.app` glob aborts the **whole command**, so a session with no `.dd` yet would fail to resolve `$APP` at all rather than falling through to DerivedData.
-2. Compare the binary's mtime (`stat -f '%Sm' "$APP/Contents/MacOS/SyncCloud"`) with the latest commit (`git log -1 --format='%ci %h %s'`). If the build is older than HEAD, rebuild first (`xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud build`) and re-resolve `$APP`.
+2. Compare the binary's mtime (`stat -f '%Sm' "$APP/Contents/MacOS/SyncCloud"`) with the latest commit (`git log -1 --format='%ci %h %s'`). If the build is older than HEAD, rebuild **in that same configuration** and re-resolve:
+   ```bash
+   xcodebuild -project SyncCloud.xcodeproj -scheme SyncCloud \
+              -configuration "$CONFIG" -derivedDataPath .dd build
+   APP=$(newest_app "$CONFIG")
+   ```
+   `-configuration` is not optional here. Bare `xcodebuild … build` uses the scheme's default, which is **Debug** — so a stale *Release* bundle would be "refreshed" by building Debug, the Release search would still return the same stale bundle, and the step would either install old code or drop into the Debug fallback it exists to avoid. Same reason for `-derivedDataPath .dd`: without it the rebuild lands in shared DerivedData while this worktree's `.dd` keeps the stale copy.
 3. If the app is running (`pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud'`), quit it and tell the user — and **verify the quit landed**. A modal sheet or an unsaved-changes prompt makes the app refuse the AppleEvent, which fails with `User canceled. (-128)`; `rm -rf` then succeeds anyway (the running process holds the inode) and `open` merely re-activates the *old* instance, so the whole install reports success while the user stays on the previous build. The AppleEvent can also **hang** instead of failing — a wedged app never answers and `osascript` sits until it returns `AppleEvent timed out. (-1712)`, which took ~2 minutes on 2026-07-30 and blocked the `pkill` fallback behind it. So bound the wait rather than letting `osascript` set the pace:
    ```bash
    osascript -e 'quit app "SyncCloud"' & OSA=$!
