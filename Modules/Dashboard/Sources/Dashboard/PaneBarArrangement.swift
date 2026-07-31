@@ -284,6 +284,146 @@ public enum PaneBarLayout {
         let sheddable = placed.filter { $0 == .space || (!$0.isSpacer && $0 != .viewMode && !floor.contains($0)) }
         return sheddable.count + (placed.contains(.viewMode) ? 1 : 0)
     }
+
+    // MARK: The ladder
+
+    /// Whether a 6pt gap belongs before `index`. Not before the first item, and never on either side
+    /// of a flexible space — the space is already the separation, and charging for a gap next to it
+    /// is what made the bar wider than the one it replaced.
+    ///
+    /// Lives here, beside `width(of:controlSize:)`, rather than next to the `HStack` that draws it:
+    /// the drawn bar and the measured bar must place gaps by the *same* rule or the arithmetic that
+    /// picks a rung is quietly describing a different bar than the one on screen.
+    static func needsGap(before index: Int, in items: [PaneBarItem]) -> Bool {
+        guard index > 0 else { return false }
+        return items[index] != .flexibleSpace && items[index - 1] != .flexibleSpace
+    }
+
+    /// The laid-out width of one item, at the pill size of the rung drawing it.
+    ///
+    /// Every figure here is the arithmetic of the view that draws the item in `PaneHeader.barItem`,
+    /// expressed in the same `PaneNavMetrics` constants those views use — not a second opinion about
+    /// them. `PaneBarLadderTests.everyItemMeasuresWhatItDraws` pins each one against the hosted view.
+    static func width(of item: PaneBarItem, pill: CGSize, compactsViewMode: Bool) -> CGFloat {
+        switch item {
+        // A `Spacer(minLength: 0)`. It is what pins the bar to the trailing edge, and it costs the
+        // bar's *minimum* width nothing — which is exactly the width a rung is chosen by.
+        case .flexibleSpace:
+            return 0
+        case .space:
+            return pill.width
+        // Two segments inset from the plain pill, hair-spaced, inside a padded capsule ground.
+        case .viewMode:
+            return compactsViewMode
+                ? pill.width
+                : 2 * (pill.width - PaneNavMetrics.segmentInset)
+                    + PaneNavMetrics.segmentSpacing + 2 * PaneNavMetrics.segmentPadding
+        // One item, two pills — they move and fold together, so they measure together.
+        case .backForward:
+            return 2 * pill.width + PaneNavMetrics.pairSpacing
+        // Styled as the view switch's selected segment, so it is a segment wide, not a pill wide.
+        case .preview:
+            return pill.width - PaneNavMetrics.segmentInset
+        case .collapse, .scan, .newFolder, .sort, .hiddenFiles:
+            return pill.width
+        }
+    }
+
+    /// The laid-out width of a whole rung, gaps and ⋯ included.
+    ///
+    /// This is the number `ViewThatFits` used to discover by building the rung and measuring it. It
+    /// is arithmetic now because building ten candidate bars per layout pass, twice per window, was
+    /// the pane header's dominant main-thread cost.
+    public static func width(of plan: PaneBarLayoutPlan, controlSize: ControlSize) -> CGFloat {
+        let pill = PaneNavMetrics.pill(controlSize)
+        var total: CGFloat = 0
+        for (index, item) in plan.visible.enumerated() {
+            if needsGap(before: index, in: plan.visible) { total += PaneNavMetrics.itemGap }
+            total += width(of: item, pill: pill, compactsViewMode: plan.compactsViewMode)
+        }
+        if !plan.overflow.isEmpty {
+            if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false { total += PaneNavMetrics.itemGap }
+            total += pill.width
+        }
+        return total
+    }
+
+    /// The tallest thing on a rung. Only the view switch is taller than a pill — it wears a padded
+    /// capsule ground behind its two segments.
+    public static func height(of plan: PaneBarLayoutPlan, controlSize: ControlSize) -> CGFloat {
+        let pill = PaneNavMetrics.pill(controlSize)
+        let carriesSwitch = plan.visible.contains(.viewMode) && !plan.compactsViewMode
+        return pill.height + (carriesSwitch ? 2 * PaneNavMetrics.segmentPadding : 0)
+    }
+}
+
+/// The pane bar's narrow-pane ladder: every layout the bar can step down through, widest first, and
+/// the arithmetic that says which one a given width gets.
+///
+/// The header used to hand all ten rungs to `ViewThatFits` and let it search. That works, but
+/// `ViewThatFits` *builds every child to measure it* — ten full bars of up to eight hover-affordance
+/// controls each, twice over for two panes, on every layout pass. Measured with
+/// `MainThreadHitchMonitor` while opening and closing Settings three times, that search cost 4,805 ms
+/// of main-thread work and an 831 ms worst-case stall; cutting the ladder to a single rung took the
+/// same interaction to 1,002 ms and 175 ms.
+///
+/// So the rung is computed instead of searched. Each rung's width is the sum of the widths of the
+/// views that draw it (`PaneBarLayout.width(of:controlSize:)`), which makes "which rung fits" plain
+/// arithmetic over `PaneNavMetrics`.
+///
+/// The header still hands the result to `ViewThatFits`, with the narrowest rung behind it as a
+/// fallback. That is deliberate: if this arithmetic ever disagrees with the real fit, the layout
+/// engine gets the final say and the bar steps down rather than overflowing the pane's trailing
+/// edge — which has no loud failure mode and would not be noticed.
+struct PaneBarLadder {
+    let arrangement: PaneBarArrangement
+    let available: [PaneBarItem]
+    /// The largest control size the ladder may start from — the icon-size preference is a ceiling,
+    /// not a pin, because a bar that overflows the pane is worse than small glyphs.
+    let ceiling: ControlSize
+
+    /// The narrowest rung: `.mini` with everything sheddable shed and the view switch compacted.
+    /// Every ladder ends here, however long the arrangement.
+    let terminal: Int
+
+    init(arrangement: PaneBarArrangement, available: [PaneBarItem], ceiling: ControlSize) {
+        self.arrangement = arrangement
+        self.available = available
+        self.ceiling = ceiling
+        // Rung 0 is the ceiling size at depth 0; rung r > 0 is `.mini` at depth r - 1. So the rung
+        // that reaches the deepest meaningful fold is one past it.
+        self.terminal = PaneBarLayout.maxDepth(arrangement: arrangement, available: available) + 1
+    }
+
+    /// Rung 0 is the chosen icon size unfolded; every rung after it is `.mini`, shedding one more
+    /// item into ⋯ each step.
+    func controlSize(forRung rung: Int) -> ControlSize { rung == 0 ? ceiling : .mini }
+
+    func depth(forRung rung: Int) -> Int { rung == 0 ? 0 : rung - 1 }
+
+    func plan(forRung rung: Int) -> PaneBarLayoutPlan {
+        PaneBarLayout.plan(arrangement: arrangement, available: available, depth: depth(forRung: rung))
+    }
+
+    func width(forRung rung: Int) -> CGFloat {
+        PaneBarLayout.width(of: plan(forRung: rung), controlSize: controlSize(forRung: rung))
+    }
+
+    func height(forRung rung: Int) -> CGFloat {
+        PaneBarLayout.height(of: plan(forRung: rung), controlSize: controlSize(forRung: rung))
+    }
+
+    /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
+    /// rule, and the narrowest rung when nothing does.
+    ///
+    /// *First*, not *narrowest-that-fits*: the ladder is deliberately not monotonic. Shedding the
+    /// preview toggle (a segment wide) to gain a ⋯ pill (a full pill, plus its gap) makes the bar
+    /// four points **wider**, so that rung can never be chosen — and a search that reordered the
+    /// rungs by width would pick a different bar than the one this replaces.
+    func rung(fitting width: CGFloat) -> Int {
+        for rung in 0...terminal where self.width(forRung: rung) <= width { return rung }
+        return terminal
+    }
 }
 
 /// The drag payloads the customize sheet moves items with, and the rules for applying them.

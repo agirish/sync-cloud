@@ -266,28 +266,100 @@ public struct PaneHeader: View {
     /// bar steps down to `.mini` controls and then sheds pills into ⋯ instead of overflowing the
     /// trailing edge — every control stays reachable, nothing is pushed out of view.
     ///
-    /// The rungs are declared one per line rather than generated, because `ViewThatFits` takes a
-    /// `ViewBuilder`: ten literal children are a tuple it can walk, whereas a `ForEach` over depths
-    /// is a single child and the ladder silently collapses to one rung.
+    /// The rung is **computed, not searched**. This used to be a ten-child `ViewThatFits`, and
+    /// `ViewThatFits` builds every child in order to measure it: ten full bars of up to eight
+    /// hover-affordance controls, twice over for two panes, on every layout pass — which is to say on
+    /// every re-evaluation of `ContentView`'s body. Measured with `MainThreadHitchMonitor` over
+    /// opening and closing Settings three times, that search was 4,805 ms of main-thread work and an
+    /// 831 ms worst stall, against 1,002 ms / 175 ms for a ladder cut to one rung. It was the pane
+    /// header's dominant cost, and the cause of a whole class of reported slowness.
     ///
-    /// Every rung is built on every layout pass — that is how `ViewThatFits` works — so the two
-    /// inputs they share are resolved once here rather than ten times inside them. The arrangement in
-    /// particular arrives as a defaults *string*, and parsing it per rung meant ten splits and ten
-    /// array builds for one row of pills.
+    /// `PaneBarLadder` does the same job with arithmetic — see it for why the ladder is not monotonic
+    /// and must therefore be walked in order rather than sorted by width.
+    ///
+    /// The `GeometryReader` reads the width the bar is actually offered: the row hands the provider
+    /// capsule its width first (it holds the higher `layoutPriority`) and this container takes what is
+    /// left, so the proxy is measuring exactly what `ViewThatFits` used to be handed. It replaces a
+    /// `ViewThatFits`, which reported the *narrowest* rung as its minimum width — the number the row
+    /// reserves for the bar before the capsule may grow into it — so `minWidth` restates that.
+    ///
+    /// The computed rung is still handed to `ViewThatFits` with the narrowest rung behind it, so the
+    /// layout engine keeps the final say: if the arithmetic ever overestimates what fits, the bar
+    /// steps down instead of overflowing the pane's trailing edge. Two children, not ten.
     private var navCluster: some View {
         let arrangement = PaneBarArrangement(encoded: arrangementRaw)
         let available = availableItems
-        return ViewThatFits(in: .horizontal) {
-            barVariant(0, arrangement, available)
-            barVariant(1, arrangement, available)
-            barVariant(2, arrangement, available)
-            barVariant(3, arrangement, available)
-            barVariant(4, arrangement, available)
-            barVariant(5, arrangement, available)
-            barVariant(6, arrangement, available)
-            barVariant(7, arrangement, available)
-            barVariant(8, arrangement, available)
-            barVariant(9, arrangement, available)
+        let ladder = PaneBarLadder(arrangement: arrangement,
+                                   available: available,
+                                   ceiling: iconSize.ceiling)
+        return Group {
+            if provider == nil {
+                searchedLadder(ladder)
+            } else {
+                GeometryReader { proxy in
+                    let rung = ladder.rung(fitting: proxy.size.width)
+                    // `.leading` is (leading, centre): a `GeometryReader` parks its content at the
+                    // top-left corner, where the row used to hand the bar the enclosing `HStack`'s
+                    // vertical centring and the container frame's leading alignment. A bar carrying a
+                    // flexible space fills the width either way; one packed hard left does not, and
+                    // would drift to the middle.
+                    hedged(rung, ladder)
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+                }
+                // A `GeometryReader` is greedy in both axes and reports nothing about its content, so
+                // the two things the `ViewThatFits` it replaced *did* report have to be restated:
+                // the narrowest rung's width, which is what the row reserves for the bar before the
+                // capsule may grow into it, and a height — pinned, or the row would stretch to the
+                // tallest it could ever be.
+                //
+                // Pinning the height to the narrowest rung is exact only because something else in
+                // the row is always taller: the provider capsule is a 28pt logo (34 with its padding)
+                // or a headline-sized name, against 26pt for the widest rung. That is precisely why
+                // the header WITHOUT a capsule takes the searched ladder above — there the bar is the
+                // row's own height authority, and a pinned container reports the wrong row height.
+                .frame(minWidth: ladder.width(forRung: ladder.terminal),
+                       minHeight: ladder.height(forRung: ladder.terminal),
+                       maxHeight: ladder.height(forRung: ladder.terminal))
+            }
+        }
+    }
+
+    /// The original ladder, searched by `ViewThatFits`, for the header that has no provider capsule.
+    ///
+    /// Kept for the one case the computed rung cannot serve — see `navCluster` — and clamped to the
+    /// deepest rung that changes anything rather than run to a hard-coded ten. `PaneBarLayout.plan`
+    /// is idempotent past `maxDepth` (`PaneBarArrangementTests` pins that), so the rungs this drops
+    /// were duplicates of the last one.
+    private func searchedLadder(_ ladder: PaneBarLadder) -> some View {
+        ViewThatFits(in: .horizontal) {
+            barVariant(min(0, ladder.terminal), ladder)
+            barVariant(min(1, ladder.terminal), ladder)
+            barVariant(min(2, ladder.terminal), ladder)
+            barVariant(min(3, ladder.terminal), ladder)
+            barVariant(min(4, ladder.terminal), ladder)
+            barVariant(min(5, ladder.terminal), ladder)
+            barVariant(min(6, ladder.terminal), ladder)
+            barVariant(min(7, ladder.terminal), ladder)
+            barVariant(min(8, ladder.terminal), ladder)
+            barVariant(ladder.terminal, ladder)
+        }
+    }
+
+    /// The computed rung, with the narrowest rung behind it as the layout engine's veto.
+    ///
+    /// Branched rather than always emitting both, because at the narrowest pane widths the computed
+    /// rung *is* the terminal one, and a `ViewThatFits` of two identical children would build the bar
+    /// twice for nothing. The branch is outside the `ViewThatFits` on purpose: an `if` inside its
+    /// `ViewBuilder` is one `_ConditionalContent` child, not two, and the ladder would collapse.
+    @ViewBuilder
+    private func hedged(_ rung: Int, _ ladder: PaneBarLadder) -> some View {
+        if rung >= ladder.terminal {
+            barVariant(ladder.terminal, ladder)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                barVariant(rung, ladder)
+                barVariant(ladder.terminal, ladder)
+            }
         }
     }
 
@@ -296,14 +368,13 @@ public struct PaneHeader: View {
     ///
     /// The icon-size preference is a **ceiling**: choosing Small starts at rung 1's size, but the
     /// shedding rungs still apply, because a bar that overflows the pane is worse than small glyphs.
-    /// The last rung sheds everything sheddable, so an arrangement longer than the ladder still has
-    /// a variant that fits rather than falling off the end.
-    private func barVariant(_ rung: Int,
-                            _ arrangement: PaneBarArrangement,
-                            _ available: [PaneBarItem]) -> some View {
-        let controlSize: ControlSize = rung == 0 ? iconSize.ceiling : .mini
-        let depth = rung == 0 ? 0 : (rung == 9 ? Int.max : rung - 1)
-        return barContent(controlSize, depth: depth, arrangement: arrangement, available: available)
+    /// The terminal rung sheds everything sheddable, so an arrangement of any length still has a
+    /// variant that fits rather than falling off the end.
+    private func barVariant(_ rung: Int, _ ladder: PaneBarLadder) -> some View {
+        barContent(ladder.controlSize(forRung: rung),
+                   depth: ladder.depth(forRung: rung),
+                   arrangement: ladder.arrangement,
+                   available: ladder.available)
     }
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
@@ -334,27 +405,19 @@ public struct PaneHeader: View {
         // shaved a character off the name in the 250pt snapshot.
         return HStack(spacing: 0) {
             ForEach(Array(plan.visible.enumerated()), id: \.offset) { index, item in
-                if Self.needsGap(before: index, in: plan.visible) {
-                    Color.clear.frame(width: 6, height: 1)
+                if PaneBarLayout.needsGap(before: index, in: plan.visible) {
+                    Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
                 }
                 barItem(item, controlSize: controlSize, compactViewMode: plan.compactsViewMode)
             }
             if !plan.overflow.isEmpty {
                 if plan.visible.last.map({ $0 != .flexibleSpace }) ?? false {
-                    Color.clear.frame(width: 6, height: 1)
+                    Color.clear.frame(width: PaneNavMetrics.itemGap, height: 1)
                 }
                 viewOptionsMenu(controlSize: controlSize, overflow: plan.overflow)
             }
         }
         .controlSize(controlSize)
-    }
-
-    /// Whether a 6pt gap belongs before `index`. Not before the first item, and never on either side
-    /// of a flexible space — the space is already the separation, and charging for a gap next to it
-    /// is what made the bar wider than the one it replaced.
-    private static func needsGap(before index: Int, in items: [PaneBarItem]) -> Bool {
-        guard index > 0 else { return false }
-        return items[index] != .flexibleSpace && items[index - 1] != .flexibleSpace
     }
 
     /// One item of the arrangement, drawn.
@@ -411,7 +474,7 @@ public struct PaneHeader: View {
         case .backForward:
             // One arrangement item, two pills — they move and fold together, as they do in Finder.
             // The stack restates the 6pt the bar's outer spacing no longer supplies.
-            HStack(spacing: 6) {
+            HStack(spacing: PaneNavMetrics.pairSpacing) {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left").paneNavChrome(accent: glassHue.accentColor, controlSize: controlSize)
                 }
@@ -512,7 +575,7 @@ public struct PaneHeader: View {
     /// `.tint`, so the selected segment could never carry the app accent.
     private func viewModeSwitch(_ mode: Binding<PaneViewMode>, controlSize: ControlSize) -> some View {
         let pill = PaneNavMetrics.pill(controlSize)
-        return HStack(spacing: 3) {
+        return HStack(spacing: PaneNavMetrics.segmentSpacing) {
             ForEach(PaneViewMode.allCases) { candidate in
                 let isSelected = mode.wrappedValue == candidate
                 Button {
@@ -523,7 +586,7 @@ public struct PaneHeader: View {
                         .foregroundStyle(isSelected
                                          ? AnyShapeStyle(glassHue.onAccentLabelColor)
                                          : AnyShapeStyle(Color.primary.opacity(0.75)))
-                        .frame(width: pill.width - 4, height: pill.height)
+                        .frame(width: pill.width - PaneNavMetrics.segmentInset, height: pill.height)
                         .background(isSelected ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
                                     in: Capsule())
                         .contentShape(Capsule())
@@ -535,7 +598,7 @@ public struct PaneHeader: View {
                 .help(candidate.help)
             }
         }
-        .padding(3)
+        .padding(PaneNavMetrics.segmentPadding)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane view")
@@ -650,7 +713,7 @@ public struct PaneHeader: View {
                 .foregroundStyle(previewEnabled
                                  ? AnyShapeStyle(glassHue.onAccentLabelColor)
                                  : AnyShapeStyle(Color.primary.opacity(0.75)))
-                .frame(width: pill.width - 4, height: pill.height)
+                .frame(width: pill.width - PaneNavMetrics.segmentInset, height: pill.height)
                 .background(previewEnabled ? AnyShapeStyle(glassHue.accentFillColor) : AnyShapeStyle(Color.clear),
                             in: Capsule())
                 .contentShape(Capsule())
@@ -708,6 +771,19 @@ enum PaneNavMetrics {
     static func pill(_ controlSize: ControlSize) -> CGSize {
         controlSize == .mini ? CGSize(width: 27, height: 17) : CGSize(width: 33, height: 20)
     }
+
+    /// How far a *segment* — a view-switch half, the preview toggle — is drawn inside the plain
+    /// pill's width, so that a two-segment control reads as one control rather than two pills.
+    static let segmentInset: CGFloat = 4
+    /// The hairline between the view switch's two segments.
+    static let segmentSpacing: CGFloat = 3
+    /// The capsule ground the view switch's segments sit on, per edge.
+    static let segmentPadding: CGFloat = 3
+    /// Back and Forward are one item and stay a pair's width apart, as they do in Finder.
+    static let pairSpacing: CGFloat = 6
+    /// Between two adjacent bar items. Placed by hand rather than by `HStack(spacing:)` — see
+    /// `PaneHeader.barContent` for why a flexible space must cost nothing.
+    static let itemGap: CGFloat = 6
 
     /// An explicit symbol size, so the glyphs stop each having their own intrinsic metrics.
     static func glyphFont(_ controlSize: ControlSize) -> ScaledFont {
