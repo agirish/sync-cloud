@@ -45,4 +45,25 @@ import Foundation
         #expect(manager.isNodeIgnored(node("/x"), currentPath: "/"))
         #expect(manager.isNodeIgnored(node("/root/ab/x"), currentPath: "/root/ab/"))
     }
+
+    /// An EMPTY currentPath — a pane whose provider was dropped from settings while its stale tree
+    /// is still on screen — is the absence of a root, not the volume root. `PathBoundary` now says
+    /// so, and this pins what that means HERE: the node keeps its absolute path and is matched
+    /// against the ignore set as an absolute entry.
+    ///
+    /// The distinction matters because "" and "/" used to be the same answer: an empty root once
+    /// stripped the leading slash and produced a near-absolute "root/ab/x", which matched neither
+    /// the relative entries the ignore set stores nor the absolute ones — it could only ever be a
+    /// false negative, and silently.
+    @MainActor
+    @Test func testEmptyCurrentPathKeepsTheNodesAbsolutePath() {
+        let manager = FileSyncManager()
+        manager.ignoredPaths = ["/root/ab/x"]
+        #expect(manager.isNodeIgnored(node("/root/ab/x"), currentPath: ""))
+
+        // And the leading-slash-stripped spelling the old empty-root behavior produced must NOT
+        // match — that form was never a path the ignore set legitimately holds.
+        manager.ignoredPaths = ["root/ab/x"]
+        #expect(!manager.isNodeIgnored(node("/root/ab/x"), currentPath: ""))
+    }
 }

@@ -87,6 +87,59 @@ import Foundation
         let reread = FileSyncManager()
         reread.filingRuleDefaults = manager.filingRuleDefaults
         reread.ensureAutomationRulesLoaded()
-        #expect(reread.automationRules.contains { $0.id == rule.id })
+        let round = try #require(reread.automationRules.first { $0.id == rule.id })
+        #expect(round.name == rule.name)
+        #expect(round.destinationTemplate == rule.destinationTemplate)
+        #expect(round.conditions == rule.conditions)
+    }
+
+    /// The three setters are near-identical call sites that each name their OWN defaults key, and
+    /// the helper cannot catch a copy-pasted key — a rules/rejections mix-up would simply write the
+    /// wrong store and read back empty. These two pin the remaining pair by round-tripping through
+    /// the real properties, and cross-check that they do not tread on each other despite sharing
+    /// one `UserDefaults`.
+    @MainActor
+    @Test func theFilingRuleSetterRoundTripsUnderItsOwnKey() throws {
+        let manager = FileSyncManager()
+        manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteRules")
+        let rules = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Documents/Vehicles"),
+                     FilingRule(tokens: ["acme"], destinationPath: "/root/Work", enabled: false)]
+
+        manager.filingRules = rules
+
+        #expect(manager.filingRules == rules)
+        // Written under the rules key specifically, not whichever key was pasted last.
+        #expect(manager.filingRuleDefaults.data(forKey: FileSyncManager.rulesDefaultsKey) != nil)
+        #expect(manager.filingRejections.isEmpty, "rejections must not see the rules' payload")
+    }
+
+    @MainActor
+    @Test func theFilingRejectionSetterRoundTripsUnderItsOwnKey() throws {
+        let manager = FileSyncManager()
+        manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteRejections")
+        let rejections = [FilingRejection(tokens: ["tesla"], path: "/root/Wrong"),
+                          FilingRejection(tokens: ["acme"], path: "/root/AlsoWrong")]
+
+        manager.filingRejections = rejections
+
+        #expect(manager.filingRejections == rejections)
+        #expect(manager.filingRuleDefaults.data(forKey: FileSyncManager.rejectionsDefaultsKey) != nil)
+        #expect(manager.filingRules.isEmpty, "rules must not see the rejections' payload")
+    }
+
+    /// Both stores live in ONE `UserDefaults`, so writing one must leave the other alone. A shared
+    /// key would pass every single-store test above and only surface here.
+    @MainActor
+    @Test func thetwoFilingStoresCoexistInOneDefaults() throws {
+        let manager = FileSyncManager()
+        manager.filingRuleDefaults = ScratchDefaults("PersistedStoreWriteBoth")
+        let rules = [FilingRule(tokens: ["tesla"], destinationPath: "/root/Vehicles")]
+        let rejections = [FilingRejection(tokens: ["tesla"], path: "/root/Wrong")]
+
+        manager.filingRules = rules
+        manager.filingRejections = rejections
+
+        #expect(manager.filingRules == rules)
+        #expect(manager.filingRejections == rejections)
     }
 }

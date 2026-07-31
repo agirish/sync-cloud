@@ -101,6 +101,151 @@ import Foundation
         #expect(!FileManager.default.fileExists(atPath: src.path))
     }
 
+    // MARK: The anchor derivation itself
+
+    /// The ordinary case: one level up per new segment.
+    @Test func theAnchorIsTheDestinationMinusItsNewSegments() {
+        let dest = FilingDestination(path: "/root/Documents/Vehicles/Tesla/Insurance",
+                                     confidence: .medium, reasons: [], newSegments: ["Tesla", "Insurance"])
+        #expect(FileSyncManager.filingAnchor(for: dest, under: "/root").path
+                == "/root/Documents/Vehicles")
+
+        let one = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
+                                    confidence: .medium, reasons: [], newSegments: ["Tesla"])
+        #expect(FileSyncManager.filingAnchor(for: one, under: "/root").path == "/root/Documents/Vehicles")
+
+        let none = FilingDestination(path: "/root/Documents/Vehicles",
+                                     confidence: .medium, reasons: [], newSegments: [])
+        #expect(FileSyncManager.filingAnchor(for: none, under: "/root").path == "/root/Documents/Vehicles")
+    }
+
+    /// The clamp. An over-long `newSegments` would otherwise walk past the provider root and
+    /// saturate at "/", which always exists — the guard would still "pass" while checking nothing.
+    /// `FilingEngine` builds `newSegments` as a suffix of the destination's own segments so it
+    /// cannot over-count today; this keeps that a property of the anchor function rather than of a
+    /// caller far away.
+    @Test func anOverLongNewSegmentsListIsClampedToTheProviderRoot() {
+        let dest = FilingDestination(path: "/root/Documents/Vehicles",
+                                     confidence: .medium, reasons: [],
+                                     newSegments: ["a", "b", "c", "d", "e", "f"])
+        #expect(FileSyncManager.filingAnchor(for: dest, under: "/root").path == "/root")
+        // Unclamped, this walks to "/" — the tautology the clamp exists to prevent.
+        #expect(FileSyncManager.filingAnchor(for: dest, under: nil).path == "/")
+    }
+
+    /// An EMPTY provider root is no root at all. `URL(fileURLWithPath: "")` resolves against the
+    /// process working directory, so clamping to it would aim the guard at an unrelated folder —
+    /// and `PathBoundary.contains(_, under: "")` is now false, which is what makes the empty case
+    /// easy to fall into. The anchor must simply stay unclamped.
+    @Test func anEmptyProviderRootDoesNotClampTheAnchorToTheWorkingDirectory() {
+        let dest = FilingDestination(path: "/root/Documents/Vehicles/Tesla",
+                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+        let anchor = FileSyncManager.filingAnchor(for: dest, under: "")
+        #expect(anchor.path == "/root/Documents/Vehicles")
+        #expect(anchor.path.hasPrefix("/root"), "must never resolve against the CWD")
+    }
+
+    /// A destination the user picked on another volume is not under the provider root, so the clamp
+    /// must not drag its anchor back to that root — it is checked where it actually lives.
+    @Test func aDestinationOutsideTheProviderRootIsNotClamped() {
+        let dest = FilingDestination(path: "/Volumes/External/Archive/2026",
+                                     confidence: .high, reasons: [], newSegments: ["2026"])
+        #expect(FileSyncManager.filingAnchor(for: dest, under: "/root").path
+                == "/Volumes/External/Archive")
+    }
+
+    // MARK: Batch path and message routing
+
+    /// The batch path is what automations drive, so it gets its own coverage rather than riding on
+    /// the single-file test: a vanished anchor must refuse there too, leaving every file in place.
+    @MainActor
+    @Test func theRecommendedBatchAlsoRefusesAVanishedAnchor() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorBatch")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
+        let b = root.appendingPathComponent("Downloads/Tesla Invoice.pdf")
+        try write(a); try write(b)
+        let anchor = root.appendingPathComponent("Documents/Vehicles")   // never created
+
+        let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
+                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+        let suggestions = [a, b].map {
+            FilingSuggestion(filePath: $0.path, fileName: $0.lastPathComponent, size: 512,
+                             modificationDate: nil, candidates: [dest], providerRoot: root.path)
+        }
+        let manager = FileSyncManager()
+        manager.filingSuggestions = suggestions
+
+        await manager.applyRecommendedFiling(suggestions)
+
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(FileManager.default.fileExists(atPath: b.path))
+        #expect(!FileManager.default.fileExists(atPath: anchor.path))
+        #expect(manager.filingSuggestions.count == 2, "nothing filed, nothing dropped from the list")
+    }
+
+    /// Mutation guard for the batch test above. "Nothing moved" is only evidence of a refusal if
+    /// these suggestions would otherwise have been filed — an ineligible batch (wrong confidence,
+    /// `fromContent`, `fromAI`) would move nothing for reasons that have nothing to do with the
+    /// anchor, and the assertions above would pass while testing nothing at all.
+    @MainActor
+    @Test func theRecommendedBatchFilesTheSameSuggestionsWhenTheAnchorIsLive() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorBatchLive")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let a = root.appendingPathComponent("Downloads/Tesla Policy.pdf")
+        let b = root.appendingPathComponent("Downloads/Tesla Invoice.pdf")
+        try write(a); try write(b)
+        let anchor = root.appendingPathComponent("Documents/Vehicles")
+        try write(anchor.appendingPathComponent(".keep"), bytes: 1)   // the ONLY difference
+
+        let dest = FilingDestination(path: anchor.appendingPathComponent("Tesla").path,
+                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+        let suggestions = [a, b].map {
+            FilingSuggestion(filePath: $0.path, fileName: $0.lastPathComponent, size: 512,
+                             modificationDate: nil, candidates: [dest], providerRoot: root.path)
+        }
+        let manager = FileSyncManager()
+        manager.filingSuggestions = suggestions
+        let allEligible = suggestions.allSatisfy { $0.isBatchEligible }
+        #expect(allEligible, "the batch must be eligible to begin with")
+
+        await manager.applyRecommendedFiling(suggestions)
+
+        let filed = anchor.appendingPathComponent("Tesla")
+        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Policy.pdf").path))
+        #expect(FileManager.default.fileExists(atPath: filed.appendingPathComponent("Tesla Invoice.pdf").path))
+        #expect(!FileManager.default.fileExists(atPath: a.path))
+        #expect(!FileManager.default.fileExists(atPath: b.path))
+    }
+
+    /// The specific "no longer available" wording is reserved for the vanished-tree refusal. Any
+    /// OTHER failure must still get the generic message — without this, threading a reason through
+    /// could quietly relabel every filing failure as a missing volume.
+    @MainActor
+    @Test func anUnrelatedFailureKeepsTheGenericReason() async throws {
+        let root = try makeCanonicalTempRoot(prefix: "FilingAnchorGeneric")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let src = root.appendingPathComponent("Downloads/Report.pdf")
+        try write(src)
+        // The anchor EXISTS but is a regular file, so `createDirectory` fails for a reason that has
+        // nothing to do with a vanished tree.
+        let blocker = root.appendingPathComponent("Documents/Vehicles")
+        try write(blocker, bytes: 4)
+
+        let manager = FileSyncManager()
+        let suggestion = FilingSuggestion(filePath: src.path, fileName: "Report.pdf", size: 512,
+                                          modificationDate: nil, candidates: [])
+        let dest = FilingDestination(path: blocker.appendingPathComponent("Tesla").path,
+                                     confidence: .medium, reasons: [], newSegments: ["Tesla"])
+        manager.filingSuggestions = [suggestion]
+
+        let result = await manager.applyFilingSuggestion(suggestion, to: dest)
+
+        #expect(result == .failed)
+        #expect(FileManager.default.fileExists(atPath: src.path))
+        #expect(manager.currentError?.reason == "Couldn't file this item; it was left in place.")
+    }
+
     /// `newSegments` is scan-time data and can be stale. When the whole path has since been created,
     /// the guard stats a shallower ancestor that exists and lets the move through — a stale plan must
     /// not refuse a destination that is demonstrably there.

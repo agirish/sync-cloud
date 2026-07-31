@@ -767,13 +767,10 @@ extension FileSyncManager {
         }
 
         let logger = Logger.shared   // captured on the main actor; its methods are nonisolated
-        // The folder the new segments hang off — the deepest part of the destination that already
-        // existed when the suggestion was built. See the guard below for why it is stat'ed.
-        let anchor = (0..<destination.newSegments.count)
-            .reduce(destFolder) { url, _ in url.deletingLastPathComponent() }
-        let outcome: (movedTo: URL?, overwritten: URL?, failed: Bool, reason: String?) = await enqueueFileOperation {
+        let anchor = Self.filingAnchor(for: destination, under: suggestion.providerRoot)
+        let outcome: FilingMoveOutcome = await enqueueFileOperation {
             do {
-                guard fm.fileExists(atPath: src.path) else { return (nil, nil, true, nil) }
+                guard fm.fileExists(atPath: src.path) else { return .failed(reason: nil) }
                 // One stat, before any I/O — the guard `transferItems` has always had and filing
                 // never did. `createDirectory(withIntermediateDirectories:)` below builds the WHOLE
                 // path, so a destination tree that has gone away since the scan (a provider
@@ -783,11 +780,10 @@ extension FileSyncManager {
                 //
                 // Stat'ing the ANCHOR rather than the leaf is what makes the check precise: only
                 // the folders `newSegments` names are ours to create, so everything above them must
-                // already be there. It degrades correctly if `newSegments` is stale — a tree that
-                // has since been fully created stats a shallower ancestor and passes; one that has
-                // gone away fails whichever level we land on. For a destination the user browsed to
-                // (`newSegments` empty) the anchor IS the folder, which is exactly right: if it
-                // vanished between the pick and the apply, refusing beats re-creating it.
+                // already be there. See `filingAnchor(for:under:)` for how the anchor is derived and
+                // why it is clamped. For a destination the user browsed to (`newSegments` empty) the
+                // anchor IS the folder, which is exactly right: if it vanished between the pick and
+                // the apply, refusing beats re-creating it.
                 guard fm.fileExists(atPath: anchor.path) else {
                     throw FileOperationError.destinationRootUnavailable
                 }
@@ -797,7 +793,7 @@ extension FileSyncManager {
                     dst = FileSyncManager.generateUniqueURL(for: dst, fileManager: fm)
                 }
                 let overwritten = try FileSyncManager.safeMoveItem(at: src, to: dst, fileManager: fm)
-                return (dst, overwritten, false, nil)
+                return .moved(to: dst, overwritten: overwritten)
             } catch {
                 // Record the cause — the generic alert below can't carry it.
                 logger.warning("Filing: moving “\(suggestion.fileName)” into \(destFolder.lastPathComponent) failed: \(error.localizedDescription)")
@@ -807,16 +803,53 @@ extension FileSyncManager {
                 let reason = (error as? FileOperationError) == .destinationRootUnavailable
                     ? error.localizedDescription
                     : nil
-                return (nil, nil, true, reason)
+                return .failed(reason: reason)
             }
         }
 
-        guard let moved = outcome.movedTo, !outcome.failed else {
+        switch outcome {
+        case .failed(let reason):
             present(.syncFailed(item: suggestion.fileName, path: suggestion.filePath,
-                                reason: outcome.reason ?? "Couldn't file this item; it was left in place."))
+                                reason: reason ?? "Couldn't file this item; it was left in place."))
             return .failed
+        case .moved(let dst, let overwritten):
+            filingSuggestions.removeAll { $0.id == suggestion.id }
+            return .moved((from: src, to: dst, overwritten: overwritten))
         }
-        filingSuggestions.removeAll { $0.id == suggestion.id }
-        return .moved((from: src, to: moved, overwritten: outcome.overwritten))
+    }
+
+    /// What the enqueued move actually did. An enum rather than a tuple because the tuple it
+    /// replaced carried the same fact twice — `movedTo == nil` and `failed == true` always agreed,
+    /// and nothing stopped a future edit from returning a destination alongside `failed: true`.
+    private enum FilingMoveOutcome: Sendable {
+        case moved(to: URL, overwritten: URL?)
+        /// `reason` is user-facing when the failure is one the user can act on; nil falls back to
+        /// the generic "couldn't file this item".
+        case failed(reason: String?)
+    }
+
+    /// The folder a filing destination's new segments hang off — the part that must ALREADY exist,
+    /// because everything below it is what `createDirectory` is being asked to create.
+    ///
+    /// Walking up one level per entry in `newSegments` is the whole rule, but it trusts a
+    /// scan-time list, so it is clamped to the provider root. Without the clamp an over-long
+    /// `newSegments` walks past the root and saturates at "/", which always exists — turning a
+    /// data-safety guard into a tautology exactly when its input is wrong. `FilingEngine` builds
+    /// `newSegments` as a suffix of the destination's own segments, so today it cannot over-count;
+    /// the clamp is what keeps that a property of THIS function rather than of a caller far away.
+    ///
+    /// The clamp only applies when the destination is genuinely under the root, so a picker choice
+    /// on another volume is still checked at its own anchor. An EMPTY `providerRoot` is treated as
+    /// no root at all — `URL(fileURLWithPath: "")` resolves against the process working directory,
+    /// so clamping to it would aim the guard at a completely unrelated folder.
+    nonisolated static func filingAnchor(for destination: FilingDestination,
+                                         under providerRoot: String?) -> URL {
+        let destFolder = URL(fileURLWithPath: destination.path)
+        let walked = destination.newSegments.reduce(destFolder) { url, _ in url.deletingLastPathComponent() }
+        guard let providerRoot, !providerRoot.isEmpty,
+              PathBoundary.contains(destFolder.path, under: providerRoot) else { return walked }
+        return PathBoundary.contains(walked.path, under: providerRoot)
+            ? walked
+            : URL(fileURLWithPath: providerRoot)
     }
 }
