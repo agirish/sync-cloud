@@ -282,6 +282,12 @@ public struct FileTreeView: View, Equatable {
     private var density: ListDensity {
         ListDensity(rawValue: listDensityRaw) ?? .comfortable
     }
+    /// Read ONCE here for the whole pane, for the same reason the density default is: what was a
+    /// per-row `@Environment` read (five of them, via `scaledFont`) is now one. Changing the text
+    /// size still invalidates this view — dynamic properties drive invalidation independently of
+    /// `==`, exactly as the `@AppStorage` hue above already does — so the setting stays live.
+    @Environment(\.appFontScale) private var appFontScale
+    private var rowFonts: PaneRowFonts { PaneRowFonts(scale: appFontScale) }
     private var glassHue: LiquidGlassHue {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
@@ -394,7 +400,8 @@ public struct FileTreeView: View, Equatable {
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { quickLookItem = $0 },
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
-                awaitingDownloadPath: awaitingDownloadPath
+                awaitingDownloadPath: awaitingDownloadPath,
+                fonts: rowFonts
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
             .quickLookPreview($quickLookItem)
@@ -499,6 +506,7 @@ public struct FileTreeView: View, Equatable {
             diffStatus: diffIndex.status(forNodeId: node.id),
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
+            fonts: rowFonts,
             isAwaitingDownload: awaitingDownloadPath == node.id
         )
         .tag(node.id)
@@ -841,6 +849,8 @@ struct FileRowView: View {
     /// for the whole pane): comfortable renders exactly the pre-setting look; compact tightens
     /// the row and drops the secondary size/date detail.
     let density: ListDensity
+    /// The pane's resolved fonts. Handed down rather than derived per row — see `PaneRowFonts`.
+    var fonts: PaneRowFonts = .unscaled
     /// True while the pane is watching a download this row requested.
     ///
     /// Supplied by the pane rather than discovered here. Every row used to hold its own
@@ -880,13 +890,13 @@ struct FileRowView: View {
             // Affix whitespace made visible ("Swimming " → "Swimming␣"): such a node can
             // have a pixel-identical sibling that is actually a different item.
             Text(NameDisplay.visibleName(node.name))
-                .scaledFont(.system(.body, design: .rounded))
+                .font(fonts.name)
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
             Spacer()
             if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)
-                    .scaledFont(.caption)
+                    .font(fonts.secondary)
                     .monospacedDigit()
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -895,7 +905,8 @@ struct FileRowView: View {
                 isCloudOnly: isCloudOnly,
                 reservesCloudSlot: !node.isDirectory,
                 diffStatus: diffStatus,
-                containedDiffCount: containedDiffCount
+                containedDiffCount: containedDiffCount,
+                fonts: fonts
             )
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
@@ -967,12 +978,14 @@ struct FileRowAccessories: View {
     let reservesCloudSlot: Bool
     let diffStatus: FileDifference.DifferenceType?
     let containedDiffCount: Int
+    /// The pane's resolved fonts — see `PaneRowFonts`.
+    var fonts: PaneRowFonts = .unscaled
 
     /// The bare glyph, which is also what sizes the reserved slot. A generic cloud (not the iCloud
     /// glyph) since it applies to any File Provider (Dropbox, Drive, OneDrive, Box).
     private var cloudGlyph: some View {
         Image(systemName: "cloud")
-            .scaledFont(.caption)
+            .font(fonts.cloudBadge)
             .foregroundStyle(.secondary)
     }
 
@@ -1001,13 +1014,13 @@ struct FileRowAccessories: View {
             // Shape encodes direction/kind so status is readable without color
             // (colors match the Differences table in the Differences pane).
             Image(systemName: DifferenceGlyph.symbol(for: diffStatus, filled: false))
-                .scaledFont(.subheadline)
+                .font(fonts.differenceBadge)
                 .foregroundStyle(DifferenceGlyph.color(for: diffStatus))
                 .help(FileRowView.badgeHelp(for: diffStatus))
                 .accessibilityLabel(FileRowView.badgeHelp(for: diffStatus))
         } else if containedDiffCount > 0 {
             Text("\(containedDiffCount)")
-                .scaledFont(.caption2.weight(.semibold))
+                .font(fonts.countPill)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)

@@ -53,6 +53,8 @@ struct PaneColumnsView: View {
     /// landing. Owned by the hosting `FileTreeView`, which holds the pane's single subscription —
     /// see `FileRowView.isAwaitingDownload`.
     var awaitingDownloadPath: String?
+    /// The pane's resolved row fonts — see `PaneRowFonts`.
+    var fonts: PaneRowFonts = .unscaled
 
     /// One width shared by both panes, so the two sides stay symmetric while you read them against
     /// each other. Clamped on every write — see `PaneViewMode.clampColumnWidth`.
@@ -354,6 +356,7 @@ struct PaneColumnsView: View {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
             showsChevron: node.isDirectory,
+            fonts: fonts,
             isAwaitingDownload: awaitingDownloadPath == node.id
         )
         .tag(node.id)
@@ -634,6 +637,8 @@ struct ColumnRowView: View {
     let containedDiffCount: Int
     let density: ListDensity
     let showsChevron: Bool
+    /// The pane's resolved fonts — see `PaneRowFonts`.
+    var fonts: PaneRowFonts = .unscaled
     /// See `FileRowView.isAwaitingDownload`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
     var isAwaitingDownload: Bool = false
@@ -642,10 +647,10 @@ struct ColumnRowView: View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        isAwaitingDownload: isAwaitingDownload)
+                        fonts: fonts, isAwaitingDownload: isAwaitingDownload)
             if showsChevron {
                 Image(systemName: "chevron.right")
-                    .scaledFont(.caption2.weight(.semibold))
+                    .font(fonts.chevron)
                     .foregroundStyle(.tertiary)
             }
         }
