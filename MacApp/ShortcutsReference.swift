@@ -25,7 +25,6 @@ enum ShortcutsReference {
             Item(keys: "Space", action: "Quick Look the selected item"),
             Item(keys: "⌘-click / ⇧-click", action: "Select multiple items"),
             Item(keys: "⌥-click a breadcrumb", action: "Navigate both panes to that folder"),
-            Item(keys: "⇧ or ⌘ while dropping", action: "Move instead of copy when dragging between panes"),
         ]),
         Group(title: "Differences", items: [
             Item(keys: "⌘ → / ⌘ ←", action: "Copy the selected differences to the right / left pane"),

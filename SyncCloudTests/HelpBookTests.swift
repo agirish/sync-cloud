@@ -97,4 +97,27 @@ import Testing
     @Test func testUnmatchedQueryReturnsNothing() {
         #expect(HelpBook.filteredSections(matching: "zzzznotatopic").isEmpty)
     }
+
+    /// No article may teach dragging or dropping.
+    ///
+    /// Cross-pane drag & drop was removed in `4d55246`, but the "Copy and move" topic went on
+    /// telling users "Drag items between panes to copy; hold ⇧ or ⌘ while dropping to move"
+    /// until `94f1776`'s follow-up. Every other test here pins only STRUCTURE — sections exist,
+    /// copy is non-empty, ids are unique, related links resolve — so an article can document a
+    /// deleted feature and stay green. This is the app teaching the user something false, which
+    /// is worse than a stale code comment.
+    ///
+    /// Asserted through `filteredSections(matching:)` because that is the same body-text search
+    /// the Help window itself runs, so it covers every block type without this test having to
+    /// know their shapes. If a future feature legitimately involves dragging (resizing a divider,
+    /// say), narrow this to the cross-pane transfer wording rather than deleting it.
+    @Test func testNoArticleTeachesDragAndDrop() {
+        let dragHits = HelpBook.filteredSections(matching: "drag")
+            .flatMap(\.topics).map(\.id)
+        #expect(dragHits.isEmpty, "Help topics still mention dragging: \(dragHits)")
+
+        let dropHits = HelpBook.filteredSections(matching: "dropping")
+            .flatMap(\.topics).map(\.id)
+        #expect(dropHits.isEmpty, "Help topics still mention dropping: \(dropHits)")
+    }
 }

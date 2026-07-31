@@ -153,7 +153,7 @@ enum HelpBook {
                 blocks: [
                     .bullets([
                         "Copy a single row with its inline arrow, or select several and use ⌘→ / ⌘←.",
-                        "Drag items between panes to copy; hold ⇧ or ⌘ while dropping to move.",
+                        "In a pane, select rows and use its action bar — “Copy to …” and “Move to …” name the other side — or the row's right-click menu.",
                         "Bulk-sync every difference in one direction from the toolbar.",
                     ]),
                     .tip("A transfer that would overwrite a newer file, or remove the last copy, always asks first. Tune these prompts in Settings ▸ Sync."),
