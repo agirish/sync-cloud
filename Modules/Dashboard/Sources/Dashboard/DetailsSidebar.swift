@@ -49,7 +49,12 @@ public struct DetailsSidebar: View {
 
     /// Shared formatter for created/modified dates. Reused instead of reallocated on every access
     /// of `metadata` (DateFormatter is expensive to construct).
-    private static let dateFormatter: DateFormatter = {
+    ///
+    /// `nonisolated` so the stat that reads it can run off the main actor — see
+    /// `loadMetadata(for:fileManager:)`. Safe: it is fully configured here and never mutated
+    /// afterwards, and `DateFormatter` is documented thread-safe for formatting on macOS 10.9+
+    /// (which is why Foundation marks it `Sendable`).
+    nonisolated private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .medium
@@ -57,16 +62,31 @@ public struct DetailsSidebar: View {
     }()
     
     public init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool = false, overridePath: String? = nil, singleSource: Bool = false) {
+        self.init(syncManager: syncManager, leftPath: leftPath, rightPath: rightPath,
+                  compact: compact, overridePath: overridePath, singleSource: singleSource,
+                  cache: DetailsMetadataCache())
+    }
+
+    /// Test seam: hands in the metadata cache instead of letting `@State` mint one, so a test can
+    /// control the loader behind it — specifically, hold it hostage and prove the first frame still
+    /// paints. `DetailsMetadataCache` is internal, which is why this initializer cannot be the
+    /// public one.
+    init(syncManager: FileSyncManager, leftPath: String, rightPath: String, compact: Bool,
+         overridePath: String?, singleSource: Bool, cache: DetailsMetadataCache) {
         self.syncManager = syncManager
         self.leftPath = leftPath
         self.rightPath = rightPath
         self.compact = compact
         self.overridePath = overridePath
         self.singleSource = singleSource
+        _cache = State(initialValue: cache)
     }
     
     // Internal struct to hold parsed metadata logic cleanly.
-    struct FileMetadata {
+    //
+    // `Sendable` (and plain values throughout) because it is produced off the main actor by
+    // `loadMetadata(for:fileManager:)` and handed back to it — see `DetailsMetadataCache.load(for:)`.
+    struct FileMetadata: Sendable {
         let name: String
         let path: String
         let kind: String
@@ -75,6 +95,20 @@ public struct DetailsSidebar: View {
         let modificationDate: String
         let permissions: String
         let isDirectory: Bool
+    }
+
+    /// What one stat produced: the metadata, plus the reason it failed when the item exists but
+    /// could not be read.
+    ///
+    /// The reason is *returned* rather than logged from inside the loader for two reasons. The
+    /// loader now runs off the main actor, where a `@MainActor` logging sink cannot be reached
+    /// at all; and the caller — `DetailsMetadataCache` — is the only party that knows a re-stat
+    /// of the same path is not news, which is what its `warnedPaths` rate limit is for.
+    struct MetadataLoad: Sendable {
+        let metadata: FileMetadata?
+        /// Non-nil only for the "exists but unreadable" case. A path that is simply not there is
+        /// the common, unremarkable case (the selection cleared, the item moved) and reports nothing.
+        let failure: String?
     }
     
     /// The right pane's selection, treated as empty in single-source mode: the right pane is hidden
@@ -177,32 +211,47 @@ public struct DetailsSidebar: View {
         return DirectorySizeWalkID(base: base, directoryPath: metadata.path)
     }
 
-    /// Stats `activePath` for the metadata card, or nil when there is nothing to show.
+    /// Stats `activePath` for the metadata card, or an empty result when there is nothing to show.
     ///
-    /// nil is genuinely ambiguous to the caller — a path that isn't there and a path the app is not
-    /// allowed to read both render the same empty inspector — so the second case leaves a
-    /// breadcrumb before returning. Without it a permissions or IO failure on a cloud provider was
-    /// indistinguishable from "nothing selected", with nothing recorded anywhere to say otherwise.
+    /// An empty result is genuinely ambiguous to the caller — a path that isn't there and a path
+    /// the app is not allowed to read both render the same empty inspector — so the second case
+    /// carries a breadcrumb back in `MetadataLoad.failure`. Without it a permissions or IO failure
+    /// on a cloud provider was indistinguishable from "nothing selected", with nothing recorded
+    /// anywhere to say otherwise.
     ///
-    /// `fileManager` and `logError` are injected (defaulting to the real ones) so that failure path
-    /// is testable, following `FolderJump.siblings`. Warning rather than debug: unlike the sibling
-    /// listing, this fires on a selection the user actively made.
+    /// This function reports EVERY failed stat — the once-per-path limit belongs to the caller that
+    /// knows a re-stat is a re-stat, `DetailsMetadataCache` (see its `warnedPaths`). The claim used
+    /// to be made here and rest on that cache's memo, which is wrong: the memo is dropped after
+    /// every file operation, so a bulk run of N operations over an unreadable selection wrote N
+    /// identical warnings.
     ///
-    /// This function itself reports EVERY failed stat — the once-per-path limit belongs to the
-    /// caller that knows a re-stat is a re-stat, `DetailsMetadataCache` (see its `warnedPaths`).
-    /// The claim used to be made here and rest on that cache's memo, which is wrong: the memo is
-    /// dropped after every file operation, so a bulk run of N operations over an unreadable
-    /// selection wrote N identical warnings.
-    static func loadMetadata(
+    /// ## Why this is `nonisolated`
+    ///
+    /// **Every call below can block indefinitely.** `attributesOfItem(atPath:)` reaches
+    /// `getxattr`, which on a wedged file provider (bird/fileproviderd) does not return — measured
+    /// 2026-07-30: `xattr -l ~/Documents` blocked >8s with no SyncCloud process running at all,
+    /// while a plain `stat` of the same path answered in 6ms. `f77bdc3` moved this call out of the
+    /// render pass and into a `.task`, which is the right shape but not sufficient: a `View`'s
+    /// `.task` closure is `@MainActor`-isolated, so the syscall still ran on the main thread and
+    /// still froze the app — with zero windows and an empty log when it happened during launch.
+    ///
+    /// Being `nonisolated` is what lets `DetailsMetadataCache` run it on a private queue. It must
+    /// therefore stay free of main-actor state: `logError` is gone (the failure comes back in the
+    /// return value) and `dateFormatter` is `nonisolated(unsafe)`.
+    ///
+    /// `fileManager` is injected (defaulting to the real one) so the failure path is testable,
+    /// following `FolderJump.siblings`.
+    nonisolated static func loadMetadata(
         for activePath: String,
-        fileManager: FileManager = .default,
-        logError: @MainActor (String) -> Void = { _ = Logger.shared.warning($0) }
-    ) -> FileMetadata? {
+        fileManager: FileManager = .default
+    ) -> MetadataLoad {
         let url = URL(fileURLWithPath: activePath)
         let fm = fileManager
         var isDir: ObjCBool = false
 
-        guard fm.fileExists(atPath: activePath, isDirectory: &isDir) else { return nil }
+        guard fm.fileExists(atPath: activePath, isDirectory: &isDir) else {
+            return MetadataLoad(metadata: nil, failure: nil)
+        }
 
         do {
             let attrs = try fm.attributesOfItem(atPath: activePath)
@@ -232,22 +281,26 @@ public struct DetailsSidebar: View {
                 }
             }
             
-            return FileMetadata(
-                name: name,
-                path: activePath,
-                kind: fileKind,
-                size: sizeStr,
-                creationDate: dateFormatter.string(from: creation),
-                modificationDate: dateFormatter.string(from: modification),
-                permissions: permStr,
-                isDirectory: isDir.boolValue
+            return MetadataLoad(
+                metadata: FileMetadata(
+                    name: name,
+                    path: activePath,
+                    kind: fileKind,
+                    size: sizeStr,
+                    creationDate: dateFormatter.string(from: creation),
+                    modificationDate: dateFormatter.string(from: modification),
+                    permissions: permStr,
+                    isDirectory: isDir.boolValue
+                ),
+                failure: nil
             )
         } catch {
             // The item exists (the guard above passed) but its attributes could not be read —
             // a permissions failure, or a cloud provider's placeholder that won't materialize.
             // Say so; the inspector itself can only fall silent.
-            logError("Details: couldn't read attributes of \(activePath): \(error.localizedDescription)")
-            return nil
+            return MetadataLoad(
+                metadata: nil,
+                failure: "Details: couldn't read attributes of \(activePath): \(error.localizedDescription)")
         }
     }
 
@@ -453,10 +506,20 @@ public struct DetailsSidebar: View {
                 return
             }
             // Still the memoized lookup — `DetailsMetadataCache` keeps owning the per-path memo
-            // and the once-per-path warning. All that changed is that nothing calls it from `body`.
-            let (metadata, icon) = cache.data(for: sizeKey.path)
+            // and the once-per-path warning. What changed is where the miss runs.
+            //
+            // A hit publishes in this turn without suspending, so a re-render of an
+            // already-loaded path still paints its card in one pass. A miss suspends here and
+            // the syscalls run on the cache's private queue; until they land, `body` renders
+            // the previous card (see the stale-while-revalidate note there). If they never
+            // land, this task simply stays suspended — the window is already on screen.
+            if let hit = cache.cached(for: sizeKey.path) {
+                loaded = LoadedDetails(key: sizeKey, metadata: hit.metadata, icon: hit.icon)
+                return
+            }
+            let entry = await cache.load(for: sizeKey.path)
             guard !Task.isCancelled else { return }
-            loaded = LoadedDetails(key: sizeKey, metadata: metadata, icon: icon)
+            loaded = LoadedDetails(key: sizeKey, metadata: entry.metadata, icon: entry.icon)
         }
         // Keyed on the walk id, not the base key: the metadata this depends on now arrives
         // asynchronously, so a task keyed on the base alone would run once — before the stat

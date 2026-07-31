@@ -5,14 +5,17 @@ import Foundation
 /// Pins that the Details inspector's stat distinguishes "there is nothing to show" from "I was not
 /// allowed to look".
 ///
-/// `loadMetadata` answers both with nil, and the inspector renders both as an empty card — so the
-/// failure case has to leave a breadcrumb, or a permissions/IO failure on a cloud path is
-/// indistinguishable from an empty selection with nothing recorded anywhere. Follows
-/// `FolderJump.siblings`, which logs the same class of failure through an injected closure.
+/// `loadMetadata` answers both with an empty `metadata`, and the inspector renders both as an empty
+/// card — so the failure case has to leave a breadcrumb, or a permissions/IO failure on a cloud path
+/// is indistinguishable from an empty selection with nothing recorded anywhere. Follows
+/// `FolderJump.siblings`, which surfaces the same class of failure to its caller.
 ///
-/// `@MainActor` because `loadMetadata` is a static on a SwiftUI `View`, which isolates the whole
-/// type — calling it off the main actor traps at runtime rather than failing to compile.
-@MainActor
+/// This suite is deliberately **not** `@MainActor`. It used to have to be — `loadMetadata` was a
+/// static on a SwiftUI `View`, which isolates the whole type, so calling it off the main actor
+/// trapped at runtime. That isolation is exactly what froze the app: a `.task` closure inherits it,
+/// so the stat ran on the main thread and a wedged `getxattr` took the UI down with it. The loader
+/// is now `nonisolated`, and these tests running off the main actor is what holds that open — put
+/// the isolation back and this file stops compiling.
 @Suite struct DetailsMetadataLoadTests {
 
     /// An item that exists but whose attributes cannot be read — a locked folder, a cloud
@@ -30,33 +33,29 @@ import Foundation
     }
 
     @Test func anUnreadableItemIsReportedRatherThanRenderedAsAnEmptyInspector() {
-        var logged: [String] = []
         let path = "/Volumes/Cloud/Statements/locked.pdf"
 
-        let metadata = DetailsSidebar.loadMetadata(
+        let load = DetailsSidebar.loadMetadata(
             for: path,
-            fileManager: UnreadableAttributesFileManager(),
-            logError: { logged.append($0) })
+            fileManager: UnreadableAttributesFileManager())
 
         // The inspector still falls silent — the card has nothing to render and this is not worth
-        // failing a UI over — but the reason is no longer lost.
-        #expect(metadata == nil)
-        #expect(logged.count == 1)
+        // failing a UI over — but the reason is no longer lost. It comes back in the return value
+        // rather than going to a log sink, because the loader now runs where no `@MainActor` sink
+        // can be reached; `DetailsMetadataCache` logs it, rate-limited per path.
+        #expect(load.metadata == nil)
         // The two things a breadcrumb has to carry: which item, and why.
-        #expect(logged.first?.contains(path) == true)
-        #expect(logged.first?.contains("permission") == true)
+        #expect(load.failure?.contains(path) == true)
+        #expect(load.failure?.contains("permission") == true)
     }
 
     @Test func aPathThatIsSimplyNotThereIsNotReportedAsAFailure() {
         // The common case by far: the selection cleared, or the item was just moved/deleted. That
         // is not a failure and must not put a warning in the log every time it happens.
-        var logged: [String] = []
-        let metadata = DetailsSidebar.loadMetadata(
-            for: "/no/such/path-\(UUID().uuidString)",
-            logError: { logged.append($0) })
+        let load = DetailsSidebar.loadMetadata(for: "/no/such/path-\(UUID().uuidString)")
 
-        #expect(metadata == nil)
-        #expect(logged.isEmpty)
+        #expect(load.metadata == nil)
+        #expect(load.failure == nil)
     }
 
     @Test func areadableItemLoadsItsMetadataAndSaysNothing() throws {
@@ -65,11 +64,10 @@ import Foundation
         try "hello".write(to: url, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        var logged: [String] = []
-        let metadata = DetailsSidebar.loadMetadata(for: url.path, logError: { logged.append($0) })
+        let load = DetailsSidebar.loadMetadata(for: url.path)
 
-        #expect(metadata?.name == url.lastPathComponent)
-        #expect(metadata?.isDirectory == false)
-        #expect(logged.isEmpty)
+        #expect(load.metadata?.name == url.lastPathComponent)
+        #expect(load.metadata?.isDirectory == false)
+        #expect(load.failure == nil)
     }
 }
