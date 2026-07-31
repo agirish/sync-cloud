@@ -66,22 +66,23 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
     /// rather than let the row grow.
     @Test(arguments: [CGFloat(560), CGFloat(400), CGFloat(250)])
     func previewToggleCostsNoHeight(width: CGFloat) {
-        #expect(laidOutHeight(Self.railHeader(), width: width) == LiquidGlass.headerHeight)
+        #expect(laidOutHeight(Self.paneHeader(), width: width) == LiquidGlass.headerHeight)
     }
 
-    /// And it genuinely renders: the rail's Columns header draws one more control than the same
-    /// header in Tree mode, where there is no preview for a toggle to govern.
-    @Test func theRailsColumnsHeaderDrawsTheExtraControl() {
-        let columns = Self.buttonCount(Self.railHeader(mode: .columns), width: 560)
-        let tree = Self.buttonCount(Self.railHeader(mode: .tree), width: 560)
+    /// And it genuinely renders: a Columns header draws one more control than the same header in Tree
+    /// mode, where there is no preview for a toggle to govern.
+    ///
+    /// Mode is now the *whole* gate. The header used to take an `isSingleSource` and withhold the
+    /// toggle from comparison panes, which is why there was a second test here asserting a comparison
+    /// header drew one control fewer. That input is gone rather than merely ignored — a comparison
+    /// header and the rail's are the same value now, so the property this suite could assert about
+    /// them is a tautology, and the surface-independence is instead carried by the type having no
+    /// surface to be told about. What a comparison pane does with the setting is asserted where it is
+    /// observable: `ColumnPreviewLayoutTests.testAComparisonPaneGetsThePreviewToo`.
+    @Test func aColumnsHeaderDrawsTheExtraControl() {
+        let columns = Self.buttonCount(Self.paneHeader(mode: .columns), width: 560)
+        let tree = Self.buttonCount(Self.paneHeader(mode: .tree), width: 560)
         #expect(columns == tree + 1)
-    }
-
-    /// A comparison pane's header must not offer it — the preview is the rail's.
-    @Test func aComparisonHeaderDoesNotOfferTheToggle() {
-        let rail = Self.buttonCount(Self.railHeader(mode: .columns), width: 560)
-        let compare = Self.buttonCount(Self.railHeader(mode: .columns, isSingleSource: false), width: 560)
-        #expect(compare == rail - 1)
     }
 
     // MARK: Fixtures
@@ -112,8 +113,8 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         return count
     }
 
-    private static func railHeader(mode: PaneViewMode = .columns,
-                                   isSingleSource: Bool = true) -> PaneHeader {
+    /// A pane header carrying the view-mode switch — the only kind that can offer the preview toggle.
+    private static func paneHeader(mode: PaneViewMode = .columns) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: CloudProvider(id: "icloud", displayName: "iCloud Drive", imageName: "icloud-logo",
@@ -122,7 +123,7 @@ private func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             canGoBack: true, canGoForward: false, onBack: {}, onForward: {},
             onNavigate: { _ in }, onNavigateBoth: { _ in }, sortOption: .constant(.name),
             onRefresh: {}, isRefreshing: false, showHiddenFiles: .constant(false),
-            viewMode: .constant(mode), onNewFolder: {}, isSingleSource: isSingleSource)
+            viewMode: .constant(mode), onNewFolder: {})
     }
 
     private static func headerNoProvider() -> PaneHeader {

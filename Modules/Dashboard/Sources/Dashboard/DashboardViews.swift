@@ -49,9 +49,6 @@ public struct PaneHeader: View {
     /// Creates a folder in the pane's current folder — in Columns that is the deepest open column,
     /// which is the one genuinely unambiguous answer the tree view could never give. `nil` hides it.
     public let onNewFolder: (() -> Void)?
-    /// True on the surface whose Columns pane can show a Quick Look preview — the single-source Tidy
-    /// rail. Gates the preview toggle; see `PaneViewMode.showsPreviewToggle`.
-    public let isSingleSource: Bool
     // No surface style here: the header's shape comes from its container, its material from the
     // glass level. This view only paints the tint. It does read the level back, though — the nav
     // cluster stopped needing it when it was drawn in-house (6bb7bdf), but the provider capsule
@@ -93,8 +90,7 @@ public struct PaneHeader: View {
         isRefreshing: Bool = false,
         showHiddenFiles: Binding<Bool>,
         viewMode: Binding<PaneViewMode>? = nil,
-        onNewFolder: (() -> Void)? = nil,
-        isSingleSource: Bool = false
+        onNewFolder: (() -> Void)? = nil
     ) {
         self.title = title
         self.provider = provider
@@ -116,7 +112,6 @@ public struct PaneHeader: View {
         self._showHiddenFiles = showHiddenFiles
         self.viewMode = viewMode
         self.onNewFolder = onNewFolder
-        self.isSingleSource = isSingleSource
     }
 
     public var body: some View {
@@ -469,9 +464,12 @@ public struct PaneHeader: View {
     }
 
     /// Whether this header offers the preview toggle at all.
+    ///
+    /// A header with no view-mode switch (`viewMode == nil`) is on a surface with no Columns mode to
+    /// be in, so there is nothing to preview and nothing to offer.
     private var showsPreviewToggle: Bool {
         guard let viewMode else { return false }
-        return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue, isSingleSource: isSingleSource)
+        return PaneViewMode.showsPreviewToggle(mode: viewMode.wrappedValue)
     }
 
     private var previewSymbol: String { "rectangle.righthalf.inset.filled" }

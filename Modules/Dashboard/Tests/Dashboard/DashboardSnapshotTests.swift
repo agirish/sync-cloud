@@ -124,7 +124,8 @@ import Events
             named: "narrow-250-columns")
     }
 
-    /// The roomy rung: everything inline, including the two-segment switch with Columns selected.
+    /// The roomy rung: everything inline, including the two-segment switch with Columns selected and
+    /// the preview pill wearing the accent.
     @Test func paneHeaderWideWithColumnsControls() {
         assertViewSnapshot(
             of: Self.header(providerName: "iCloud Drive",
@@ -133,10 +134,33 @@ import Events
             named: "wide-660-columns")
     }
 
+    /// The preview pill's other resting state, which nothing else pins.
+    ///
+    /// "Accent-filled while the preview shows, plain while it doesn't" is a claim about painted
+    /// pixels, and the height and control-count tests in `PaneHeaderHeightTests` are both blind to
+    /// it — a pill stuck in one fill would pass every one of them. Two images at the same width, with
+    /// only the setting differing, are what make the state visible to a test at all.
+    @Test func paneHeaderWideWithPreviewOff() {
+        assertViewSnapshot(
+            of: Self.header(providerName: "iCloud Drive",
+                            viewMode: .constant(PaneViewMode.columns), onNewFolder: {},
+                            previewEnabled: false),
+            size: CGSize(width: 660, height: 92),
+            named: "wide-660-columns-preview-off")
+    }
+
+    /// - Parameter previewEnabled: the preview toggle's state, pinned through an injected defaults
+    ///   domain. `PaneHeader` reads it from `@AppStorage`, so left alone these images would render
+    ///   from whatever the test host's standard domain happens to hold — a reference PNG that is a
+    ///   coin flip on the next machine. The same injection pins the glass hue, tint and level the
+    ///   header also reads.
     private static func header(providerName: String,
                                viewMode: Binding<PaneViewMode>? = nil,
-                               onNewFolder: (() -> Void)? = nil) -> PaneHeader {
-        PaneHeader(
+                               onNewFolder: (() -> Void)? = nil,
+                               previewEnabled: Bool = true) -> some View {
+        let defaults = ScratchDefaults("DashboardSnapshotTests-header")
+        defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
+        return PaneHeader(
             title: "Left",
             provider: CloudProvider(
                 id: "icloud",
@@ -156,5 +180,6 @@ import Events
             showHiddenFiles: .constant(false),
             viewMode: viewMode,
             onNewFolder: onNewFolder)
+        .defaultAppStorage(defaults)
     }
 }

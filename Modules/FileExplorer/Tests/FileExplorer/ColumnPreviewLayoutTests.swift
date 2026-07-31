@@ -83,6 +83,9 @@ import UniformTypeIdentifiers
         let index: PaneChildrenIndex
         let root: String
         let defaults: UserDefaults
+        /// The surface. Defaults to the Tidy rail, which is where the preview started; `false` is a
+        /// comparison pane, which gets the same preview since the rail-only gate came out.
+        var isSingleSource: Bool = true
 
         var body: some View {
             PaneColumnsView(
@@ -91,8 +94,7 @@ import UniformTypeIdentifiers
                 browsePath: $box.browsePath, onNavigate: { box.browsePath = $0 },
                 selection: $box.selection, otherSelection: [], isLeft: true,
                 delegate: StubDelegate(), diffIndex: .empty, otherPaneName: "R",
-                // The Tidy rail — the one surface that shows a preview.
-                isSingleSource: true, density: .compact, isActivePane: true,
+                isSingleSource: isSingleSource, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
             // Both the preview setting and the column width come from defaults, so the test owns a
@@ -106,7 +108,8 @@ import UniformTypeIdentifiers
         _ fixture: Fixture, paneWidth: CGFloat, selection: Set<String>, previewEnabled: Bool,
         browsePath: PaneBrowsePath = PaneBrowsePath(),
         columnWidth: CGFloat = PaneViewMode.defaultColumnWidth,
-        previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth
+        previewWidth: CGFloat = PaneViewMode.defaultPreviewColumnWidth,
+        isSingleSource: Bool = true
     ) -> (window: NSWindow, host: NSHostingView<Harness>) {
         let defaults = ScratchDefaults("ColumnPreviewLayoutTests")
         defaults.set(previewEnabled, forKey: PaneViewMode.previewColumnDefaultsKey)
@@ -119,7 +122,7 @@ import UniformTypeIdentifiers
         let host = NSHostingView(rootView: Harness(
             box: box, tree: tree,
             index: PaneChildrenIndex(tree: tree, treeRoot: fixture.root),
-            root: fixture.root, defaults: defaults))
+            root: fixture.root, defaults: defaults, isSingleSource: isSingleSource))
         host.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 600)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -194,6 +197,37 @@ import UniformTypeIdentifiers
         // directory the preview's probe reads (a released fixture classifies as `.missing`), and
         // releasing the window tears the hosted views down.
         withExtendedLifetime((fixture, mounted)) {}
+    }
+
+    /// A comparison pane gets the preview too, and gets it on the same terms as the rail.
+    ///
+    /// This was the rail's alone until the `isSingleSource` gate came out of
+    /// `PaneColumnsView.previewItem`. Asserted as an equality against the rail rather than against a
+    /// literal 570, because the claim is not "a comparison pane reserves 420 points" but "the surface
+    /// no longer enters into it" — a rule that stayed surface-dependent in some *other* term would
+    /// still satisfy a hard-coded number on this side.
+    ///
+    /// The second half is what makes the header's new pill worth having there: the setting still
+    /// governs the pane, so the switch we now offer a comparison pane is a switch that does something.
+    @Test func testAComparisonPaneGetsThePreviewToo() async throws {
+        let fixture = try Fixture()
+        let rail = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                         previewWidth: 420)
+        let compare = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: true,
+                            previewWidth: 420, isSingleSource: false)
+        await pump(rail.window, seconds: 0.3)
+        await pump(compare.window, seconds: 0.3)
+        #expect(columnWidths(in: compare.host) == columnWidths(in: rail.host))
+        #expect(stackViewportWidth(in: compare.host) == stackViewportWidth(in: rail.host))
+        // Non-vacuous: the pane really did give room away, rather than both sides reporting nothing.
+        #expect(columnWidths(in: compare.host) == [570])
+
+        // And the setting still rules it here — off, the comparison pane keeps every point.
+        let off = mount(fixture, paneWidth: 990, selection: [fixture.file], previewEnabled: false,
+                        previewWidth: 420, isSingleSource: false)
+        await pump(off.window, seconds: 0.3)
+        #expect(columnWidths(in: off.host) == [990])
+        withExtendedLifetime((fixture, rail, compare, off)) {}
     }
 
     /// The point of the whole reshape, mounted: a wide preview must take its width from the SCROLL

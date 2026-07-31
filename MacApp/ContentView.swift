@@ -1488,10 +1488,7 @@ struct ContentView: View {
                             .currentDirectory(treeRoot: pane.currentPath)
                         : pane.currentPath
                     actionHandler?.beginCreateFolder(in: target)
-                },
-                // Only the rail's Columns pane can show a preview, so only its header offers the
-                // toggle for one.
-                isSingleSource: layoutMode == .singleSource
+                }
             )
             // Cards gives the provider header its own card, so the chrome reads as a separate
             // object from the data — the same [toolbar][gap][content] rhythm the bottom workspace

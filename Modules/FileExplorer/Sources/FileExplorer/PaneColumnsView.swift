@@ -90,12 +90,15 @@ struct PaneColumnsView: View {
 
     /// The file the preview column would show, or `nil` — see `ColumnPreview.item`.
     ///
-    /// Only on the single-source Tidy rail. A comparison pane is half a window wide and its whole
-    /// job is to be read against the pane beside it; spending a third of it on a preview would take
-    /// that room from the columns doing the comparing. The setting and the layout math are
-    /// surface-agnostic, so this gate is the only thing to relax if the panes should have it too.
+    /// Every Columns surface, comparison panes included. This was the rail's alone at first, on the
+    /// reasoning that a comparison pane is half a window wide and its whole job is to be read against
+    /// the pane beside it, so spending a third of it on a preview would take that room from the
+    /// columns doing the comparing. That is a real cost, but it is the reader's to weigh — and they
+    /// weigh it with the toggle, which is the same one the rail uses. The width rule already refuses
+    /// the trade where it would be ruinous: `showsPreviewColumn` gives a preview no room at all
+    /// unless a full column still fits beside it.
     private var previewItem: ColumnPreviewItem? {
-        guard isSingleSource, previewEnabled, let deepest = directories.last else { return nil }
+        guard previewEnabled, let deepest = directories.last else { return nil }
         return ColumnPreview.item(selection: selection,
                                   deepestRows: childrenIndex.children(atPath: deepest) ?? [])
     }
@@ -222,7 +225,7 @@ struct PaneColumnsView: View {
     /// currently on screen would be unreachable exactly when you wanted to switch it back on.
     private func previewSupportable(paneWidth: CGFloat) -> Bool {
         PaneViewMode.showsPreviewColumn(paneWidth: paneWidth, columnWidth: columnWidth,
-                                        isEnabled: true, hasPreviewTarget: true) && isSingleSource
+                                        isEnabled: true, hasPreviewTarget: true)
     }
 
     /// The dead space to the right of the last column, made a deselect target so that clicking

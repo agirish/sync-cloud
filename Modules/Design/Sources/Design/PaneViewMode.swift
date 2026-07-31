@@ -185,13 +185,22 @@ public enum PaneViewMode: String, CaseIterable, Identifiable, Sendable {
 
     /// Whether a pane's header offers the preview toggle.
     ///
-    /// Two conditions, and both are about the control being honest rather than about taste. Tree
-    /// mode has no preview to show, so a toggle there would be a switch wired to nothing; and the
-    /// preview is the single-source rail's (see `PaneColumnsView.previewItem`), so a comparison
-    /// pane's header must not offer it either. A control that can be flipped without anything
-    /// happening is worse than no control.
-    public static func showsPreviewToggle(mode: PaneViewMode, isSingleSource: Bool) -> Bool {
-        mode == .columns && isSingleSource
+    /// One condition, and it is about the control being honest rather than about taste: Tree mode has
+    /// no preview to show, so a toggle there would be a switch wired to nothing. A control that can be
+    /// flipped without anything happening is worse than no control.
+    ///
+    /// It used to also require the single-source rail, matching a gate in `PaneColumnsView.previewItem`
+    /// that kept the preview off comparison panes. Both are gone: a comparison pane in Columns mode
+    /// shows a preview like any other, so its header must offer the switch for it.
+    ///
+    /// Pane *width* is deliberately not a condition. A pane too narrow to fit a column beside a
+    /// minimum preview shows none (`showsPreviewColumn`), but that is a "not right now", not a
+    /// "never" — and a pill that vanished while you dragged the splitter narrow would take the
+    /// setting with it, unreachable exactly when widening the pane again should bring the preview
+    /// back. Same reasoning as `PaneColumnsView.previewSupportable` keeping the menu item up
+    /// whenever the pane *could* hold a preview rather than whenever one is on screen.
+    public static func showsPreviewToggle(mode: PaneViewMode) -> Bool {
+        mode == .columns
     }
 
     /// Narrower than this a preview is not worth the room it costs: the thumbnail stops carrying
