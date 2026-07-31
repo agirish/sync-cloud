@@ -106,6 +106,42 @@ import Foundation
         #expect(await cache.hash(for: d) == "d1")
     }
 
+    /// Why the cap is a cliff rather than a dial, pinned so the next person to touch the number
+    /// sees it before they shrink it.
+    ///
+    /// Eviction is FIFO and both workloads re-read their files in the same order they wrote them,
+    /// so a working set one entry past the cap evicts each key just before the next pass asks for
+    /// it. The hit rate does not taper — it collapses. This drives the default's size: a Tidy scan
+    /// hashes every size-colliding file, which on the trees the default was measured against is
+    /// ~23k and ~25k for the two providers (~48k together, since Verify shares the cache), and at
+    /// the old 20k cap the cache returned nothing at all for them.
+    @Test func testHitRateCollapsesOnceTheWorkingSetPassesTheCap() async {
+        // Pass 2 must STORE on a miss, because that is what the real callers do — a miss means the
+        // file gets hashed, and the result is written back. That write is what evicts the entry the
+        // next read was about to want. A read-only second pass would show a comfortable 1000 hits
+        // here and hide the whole effect.
+        func rescanHits(workingSet: Int, cap: Int) async -> Int {
+            let cache = ContentHashCache(maxEntries: cap)
+            let keys = (0..<workingSet).map { ContentHashKey(path: "/f\($0)", mtime: 1, size: 1) }
+            for k in keys { await cache.store("h", for: k) }      // pass 1
+            var hits = 0
+            for k in keys {
+                if await cache.hash(for: k) != nil { hits += 1 } else { await cache.store("h", for: k) }
+            }
+            return hits
+        }
+        // Comfortably inside the cap: every entry survives to be re-read.
+        #expect(await rescanHits(workingSet: 900, cap: 1000) == 900)
+        // Exactly at it: still whole.
+        #expect(await rescanHits(workingSet: 1000, cap: 1000) == 1000)
+        // A single entry past it is enough to lose EVERYTHING, not one entry.
+        #expect(await rescanHits(workingSet: 1001, cap: 1000) == 0)
+        // And well past it stays zero — the cache is pure overhead in this regime.
+        #expect(await rescanHits(workingSet: 2500, cap: 1000) == 0)
+        // Raising the cap over the working set restores it completely.
+        #expect(await rescanHits(workingSet: 2500, cap: 3000) == 2500)
+    }
+
     /// The bound that the amortization rests on. Eviction only advances an index, so the dead
     /// prefix has to be reclaimed on a schedule or `insertionOrder` grows forever — a memory leak
     /// that every other test here sails straight past, because the survivors stay correct whether

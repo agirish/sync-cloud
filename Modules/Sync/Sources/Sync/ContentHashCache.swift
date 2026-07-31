@@ -35,8 +35,24 @@ public actor ContentHashCache {
     /// cannot add stored properties — can reach it.
     public static let shared = ContentHashCache()
 
-    /// Upper bound on retained entries; oldest are evicted first once exceeded. 20k hashes is a
-    /// few MB of strings — enough to cover a very large tree while keeping memory bounded.
+    /// Upper bound on retained entries; oldest are evicted first once exceeded.
+    ///
+    /// **This number is a cliff, not a dial.** Eviction is FIFO and the workloads re-read their
+    /// files in the same order they wrote them, so a working set that exceeds the cap evicts every
+    /// entry just before the next pass reaches it: the hit rate does not degrade, it goes to
+    /// ZERO. Measured, replaying a scan twice — 18 000 files against a 20 000 cap gives 100 %
+    /// hits; 23 122 files against the same cap gives 0.0 %.
+    ///
+    /// That is not hypothetical. A Tidy scan hashes every file whose size collides with another,
+    /// and on the trees this was sized against that is 23 122 of 33 580 files in one provider and
+    /// 25 148 of 35 100 in the other — 48 270 together, since Verify and both scans share this
+    /// cache. At the old 20 000 the cache returned nothing at all for those trees while still
+    /// paying to maintain itself.
+    ///
+    /// 100 000 is that measured need with room to grow into, at roughly 165 bytes an entry —
+    /// about 16 MB, against the two 35 000-node trees the app already holds. Sizing it to just
+    /// clear today's number (50 000 would fit 48 270) would sit 3 % from the cliff and fall off it
+    /// the first time the user adds files.
     private let maxEntries: Int
 
     private var entries: [ContentHashKey: String] = [:]
@@ -47,15 +63,17 @@ public actor ContentHashCache {
     /// How much of `insertionOrder`'s front has already been evicted.
     ///
     /// Eviction used to be `insertionOrder.removeFirst()`, which shifts the whole array — O(n) per
-    /// eviction on a 20 000-element array of 32-byte keys. That costs nothing until the cap is
-    /// reached and then costs it on EVERY subsequent store, which is exactly the sustained-load
-    /// case the cap exists for: hashing a large tree past 20 000 files turned each store into a
-    /// ~640 KB memmove. Advancing an index instead makes eviction O(1); the dead prefix is
+    /// eviction, where n is the cap. That costs nothing until the cap is reached and then costs it
+    /// on EVERY subsequent store, which is exactly the sustained-load case the cap exists for:
+    /// measured at the then-current 20 000 cap, each store past it became a ~640 KB memmove, and
+    /// 200 000 stores took 5.08 s against 0.29 s for the version below. The cap has since grown,
+    /// which would have made that worse in direct proportion. Advancing an index instead makes
+    /// eviction O(1); the dead prefix is
     /// compacted away in one shot once it reaches half the array, so the array cannot grow without
     /// bound and each compaction drops at least half of it — amortized O(1) per store.
     private var evictedPrefix = 0
 
-    public init(maxEntries: Int = 20_000) {
+    public init(maxEntries: Int = 100_000) {
         self.maxEntries = max(1, maxEntries)
     }
 
