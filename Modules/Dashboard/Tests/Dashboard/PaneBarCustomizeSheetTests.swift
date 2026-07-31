@@ -12,8 +12,16 @@ import Testing
 @MainActor
 @Suite(.serialized) struct PaneBarCustomizeSheetTests {
 
+    /// Renders the sheet against an injected defaults domain.
+    ///
+    /// Without this the sheet's `@AppStorage` reads `UserDefaults.standard` — i.e. **the arrangement
+    /// on the machine running the tests**. A developer who had customized their own bar would render
+    /// a different sheet from CI's, and the height assertion below would be a coin flip on their
+    /// machine. Same reason `DashboardSnapshotTests` injects the preview setting.
     private func laidOut(_ view: some View) -> CGSize {
-        let host = NSHostingView(rootView: AnyView(view))
+        let defaults = ScratchDefaults("PaneBarCustomizeSheetTests-layout")
+        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        let host = NSHostingView(rootView: AnyView(view.defaultAppStorage(defaults)))
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

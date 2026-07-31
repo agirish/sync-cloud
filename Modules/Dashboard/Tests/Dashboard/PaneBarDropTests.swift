@@ -51,10 +51,12 @@ import Testing
                 == [.sort, .backForward, .scan])
     }
 
-    @Test func testSpacersCanBeAddedRepeatedly() {
-        let once = PaneBarDrop.applying(["palette:flexibleSpace"], at: 0, to: bar)
-        #expect(once?.items == [.flexibleSpace, .backForward, .scan, .sort])
-        let twice = PaneBarDrop.applying(["palette:flexibleSpace"], at: 4, to: once!)
+    @Test func testSpacersCanBeAddedRepeatedly() throws {
+        // `#require`, not `!`. A force-unwrap here would take the whole test *host* down the day this
+        // regressed, turning one red assertion into a run with no results at all.
+        let once = try #require(PaneBarDrop.applying(["palette:flexibleSpace"], at: 0, to: bar))
+        #expect(once.items == [.flexibleSpace, .backForward, .scan, .sort])
+        let twice = PaneBarDrop.applying(["palette:flexibleSpace"], at: 4, to: once)
         #expect(twice?.items == [.flexibleSpace, .backForward, .scan, .sort, .flexibleSpace])
     }
 

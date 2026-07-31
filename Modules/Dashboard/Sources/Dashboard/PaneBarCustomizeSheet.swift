@@ -109,6 +109,24 @@ struct PaneBarCustomizeSheet: View {
     /// The arrangement, as a track: a provider-capsule stand-in pinned at the leading edge (it is the
     /// pane's identity and provider switcher, not a control, so it can be neither moved nor removed),
     /// then a drop slot before and after every item.
+    /// Every part of the track you can aim at is its own drop target, and none of them overlap (the
+    /// 8pt padding ring around the row is the one exception, and a drop there springs back):
+    ///
+    /// - the provider ghost inserts at the head (it is the leading edge you aim past),
+    /// - each gap inserts at its own slot,
+    /// - **each pill inserts before itself**, which is the whole point of the arrangement below,
+    /// - the trailing slot takes the rest of the row and appends.
+    ///
+    /// There used to be one blanket destination over the whole track instead of the last two,
+    /// appending whatever it caught, and it was a worse bug than the gap it filled. Dropping a pill
+    /// onto another pill — or onto *itself*, which is how anyone abandons a drag — silently relocated
+    /// it to the end of the bar. A drop that does nothing is a miss; a drop that quietly does the
+    /// wrong thing is a defect, and it replaced the first with the second.
+    ///
+    /// It also rested on nested destinations resolving innermost-first, which needs a live event loop
+    /// to check and so was never checked. If that assumption were wrong, every drop would have
+    /// appended and the gaps would have been decoration. Leaf targets that do not overlap do not need
+    /// the assumption to be true.
     private var track: some View {
         let items = arrangement.items
         return HStack(spacing: 0) {
@@ -134,16 +152,18 @@ struct PaneBarCustomizeSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(glassHue.accentColor.opacity(targetedSlot == nil ? 0 : 0.55), lineWidth: 1.5)
         )
-        // The backstop. Only the gaps between items are precise drop targets, so a drop that lands
-        // on a pill itself — the most natural place to aim — would otherwise hit nothing at all and
-        // spring back with no explanation. This catches those and appends, so **no drop anywhere on
-        // the track is ever a silent no-op**. Nested destinations resolve innermost-first, so an
-        // accurate drop into a gap still lands in that gap.
-        .dropDestination(for: String.self) { payloads, _ in
-            drop(payloads, at: arrangement.items.count)
-        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pane bar arrangement")
+    }
+
+    /// Marks `index` as where a drop would land, and clears it on the way out.
+    ///
+    /// A slot and the pill beside it name the same insertion point, so crossing from one to the other
+    /// can clear the caret a frame after the new target set it. That costs a flicker and never a
+    /// wrong drop — both targets insert at the same index — which is why it is left alone rather than
+    /// fixed with a second piece of state to keep in step.
+    private func markTarget(_ index: Int, _ isTargeted: Bool) {
+        targetedSlot = isTargeted ? index : (targetedSlot == index ? nil : targetedSlot)
     }
 
     private var providerGhost: some View {
@@ -157,6 +177,11 @@ struct PaneBarCustomizeSheet: View {
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
+        // Not draggable, not removable — but it *is* a drop target, because "past the provider name"
+        // is exactly how someone aims at the head of the bar.
+        .dropDestination(for: String.self) { payloads, _ in
+            drop(payloads, at: 0)
+        } isTargeted: { markTarget(0, $0) }
         .help("The provider name stays at the leading edge — it is the pane's identity, not a control")
         .accessibilityHidden(true)
     }
@@ -167,6 +192,12 @@ struct PaneBarCustomizeSheet: View {
         trackPill(item)
             .opacity(appliesHere(item) ? 1 : 0.45)
             .draggable(PaneBarDrop.payload(forItemAt: index))
+            // A pill is both a drag source and a drop target. Dropping onto it inserts *before* it,
+            // which makes the pills themselves aimable instead of being dead space between the gaps;
+            // dropping a pill onto itself resolves to its own slot, changes nothing, and springs back.
+            .dropDestination(for: String.self) { payloads, _ in
+                drop(payloads, at: index)
+            } isTargeted: { markTarget(index, $0) }
             .contextMenu {
                 Button("Move Left") { update { $0.nudge(index, by: -1) } }
                     .disabled(index == 0)
@@ -247,9 +278,7 @@ struct PaneBarCustomizeSheet: View {
             .contentShape(Rectangle())
             .dropDestination(for: String.self) { payloads, _ in
                 drop(payloads, at: index)
-            } isTargeted: { targeted in
-                targetedSlot = targeted ? index : (targetedSlot == index ? nil : targetedSlot)
-            }
+            } isTargeted: { markTarget(index, $0) }
     }
 
     /// Applies a drop at `index`, reporting whether the bar actually moved — the rules and their

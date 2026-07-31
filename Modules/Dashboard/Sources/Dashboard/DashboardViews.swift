@@ -264,6 +264,7 @@ public struct PaneHeader: View {
     /// The rungs are declared one per line rather than generated, because `ViewThatFits` takes a
     /// `ViewBuilder`: ten literal children are a tuple it can walk, whereas a `ForEach` over depths
     /// is a single child and the ladder silently collapses to one rung.
+    ///
     /// Every rung is built on every layout pass — that is how `ViewThatFits` works — so the two
     /// inputs they share are resolved once here rather than ten times inside them. The arrangement in
     /// particular arrives as a defaults *string*, and parsing it per rung meant ten splits and ten
