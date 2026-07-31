@@ -33,10 +33,18 @@ Every check below is here because it failed once and reported success anyway —
    fi
    pgrep -fl 'SyncCloud.app/Contents/MacOS/SyncCloud' || echo "quit OK"
    ```
-4. Replace the installed copy:
+4. Replace the installed copy, and **record a fingerprint of what you just installed** — step 9 needs it to prove the bundle in /Applications is still yours. Fingerprint the *installed* copy, not `$APP` (that is what "still yours" is a claim about, and it keeps working after step 5 deletes `$APP`), and take it immediately: the window in which an overwrite can slip past unnoticed is exactly the gap between the copy and this line.
    ```bash
    rm -rf /Applications/SyncCloud.app && ditto "$APP" /Applications/SyncCloud.app
+
+   bundle_digest() {   # path-independent digest of every binary in the bundle
+     find "$1/Contents/MacOS" -type f -print0 | sort -z | xargs -0 shasum -a 256 \
+       | awk '{print $1}' | shasum -a 256 | cut -d' ' -f1
+   }
+   INSTALLED_DIGEST=$(bundle_digest /Applications/SyncCloud.app)
+   echo "installed digest: $INSTALLED_DIGEST"
    ```
+   It hashes every file under `Contents/MacOS` rather than one named binary because the layout differs by configuration: a Debug build is a ~59 KB `SyncCloud` launcher stub plus the real ~35 MB `SyncCloud.debug.dylib` (and a small `__preview.dylib`), while Release puts the code in `SyncCloud` itself. Hashing the directory covers both, and covers a foreign build whose layout differs entirely.
 5. Unregister the DerivedData copy from LaunchServices AND delete it, so macOS search (Spotlight indexes the bundle on disk) shows only the installed app. The next build recreates it:
    ```bash
    /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister -u "$APP" && rm -rf "$APP"
@@ -76,7 +84,19 @@ Every check below is here because it failed once and reported success anyway —
    stat -f '%Sm' /Applications/SyncCloud.app/Contents/MacOS/SyncCloud
    ```
    This check passes on a wedged app too — a process that hangs during launch still started after the binary was written — so it confirms *which build* is running, never *that the app works*. Step 7 is what establishes the latter.
-10. Report both timestamps **and the new log lines from step 7** as the evidence the app is running. If step 8 ran, report the blocking frame instead and say plainly that the install did not come up.
+
+   **Then re-check the fingerprint, because timestamps do not settle this one.** Sessions run concurrently, and on 2026-07-30 another session's install overwrote `/Applications/SyncCloud.app` *seconds after* this one's `ditto`. The source bundle was correct and the installed one was somebody else's build — the fastest tell being a different layout, with no `SyncCloud.debug.dylib` at all. Every timestamp check still passed: the stub launcher's mtime is meaningless and `ditto` preserves whatever it copied, so mtime describes the *other* session's build just as happily as yours. Comparing content is the only check that survives the race:
+   ```bash
+   if [ "$(bundle_digest /Applications/SyncCloud.app)" = "$INSTALLED_DIGEST" ]; then
+     echo "provenance OK — /Applications is still the build installed in step 4"
+   else
+     echo "PROVENANCE MISMATCH — /Applications was overwritten after step 4"
+     ls -la /Applications/SyncCloud.app/Contents/MacOS/     # layout is the fastest tell
+     pgrep -fl 'xcodebuild|ditto' | grep -v actions-runner   # another session mid-install?
+   fi
+   ```
+   On a mismatch, **report it — do not silently re-`ditto`.** The other session is mid-install and racing it just trades which build loses; and the app you verified in step 7 was launched from a bundle that no longer exists on disk, so that evidence is void too. Say which build is now installed and let the user decide.
+10. Report both timestamps, **the new log lines from step 7**, and **the provenance result from step 9** — the three answer different questions and only together mean "installed successfully": the log lines say the app got through launch, the digest says the bundle in /Applications is the one you installed, and the timestamps say the process is not a survivor of step 3. If step 8 ran, report the blocking frame instead and say plainly that the install did not come up.
 
 ## Cleanup sweep
 
