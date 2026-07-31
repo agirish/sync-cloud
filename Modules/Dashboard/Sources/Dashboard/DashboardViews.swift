@@ -167,6 +167,11 @@ public struct PaneHeader: View {
                     .padding(.leading, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // Without this the row is only hit-testable where it has *content* — so right-clicking
+            // the bar worked on a pill and nowhere else, and the empty stretch between the provider
+            // name and the controls (which is most of the bar, and the obvious place to aim for "the
+            // bar itself") did nothing at all. An `HStack` claims no hit area of its own.
+            .contentShape(Rectangle())
             .contextMenu { barContextMenu() }
             .sheet(isPresented: $isCustomizing) {
                 PaneBarCustomizeSheet(availableHere: Set(availableItems))

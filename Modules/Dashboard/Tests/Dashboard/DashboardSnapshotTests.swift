@@ -149,6 +149,31 @@ import Events
             named: "wide-660-columns-preview-off")
     }
 
+    // MARK: Customize sheet
+
+    /// The customize sheet, whole.
+    ///
+    /// It shipped once looking, in the user's words, horrible: every palette tile dimmed to 45%
+    /// (the default arrangement carries every control, so "already on the bar" greyed all of them),
+    /// the sections running together as one field of grey, and — because the track overflowed a
+    /// 560pt sheet — the provider capsule's label squeezed away to a bare cloud glyph. Not one of
+    /// those is visible to a geometry assertion: the sheet's own size was pinned, so it measured
+    /// exactly as intended while rendering nothing of the sort.
+    ///
+    /// This is the net for that whole class. `availableHere` deliberately omits Collapse Pane so the
+    /// "doesn't apply to this pane" treatment is in frame too.
+    @Test func paneBarCustomizeSheet() {
+        let defaults = ScratchDefaults("DashboardSnapshotTests-customize")
+        defaults.set(PaneBarArrangement.default.encoded, forKey: PaneBar.arrangementKey)
+        defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
+        assertViewSnapshot(
+            of: PaneBarCustomizeSheet(
+                availableHere: [.viewMode, .backForward, .scan, .newFolder, .sort, .hiddenFiles, .preview])
+                .defaultAppStorage(defaults),
+            size: CGSize(width: 700, height: 560),
+            named: "customize-sheet")
+    }
+
     /// - Parameter previewEnabled: the preview toggle's state, pinned through an injected defaults
     ///   domain. `PaneHeader` reads it from `@AppStorage`, so left alone these images would render
     ///   from whatever the test host's standard domain happens to hold — a reference PNG that is a

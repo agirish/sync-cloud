@@ -47,9 +47,9 @@ import Testing
 
     @Test func testTheSheetLaysOutAtAWorkableSize() {
         let size = laidOut(PaneBarCustomizeSheet())
-        #expect(size.width == 560, "the sheet should hold its declared width, got \(size.width)")
+        #expect(size.width == 700, "the sheet should hold its declared width, got \(size.width)")
         // Tall enough to be a real sheet, short enough not to run off a laptop screen.
-        #expect(size.height > 240 && size.height < 700, "sheet height \(size.height) is out of range")
+        #expect(size.height > 300 && size.height < 760, "sheet height \(size.height) is out of range")
     }
 
     @Test func testEveryPaletteItemIsSomethingTheBarCanPlace() {
