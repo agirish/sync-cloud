@@ -389,21 +389,20 @@ struct PaneColumnsView: View {
             // committed against the stack the user clicked in, not the one they are about to get.
             if selection != [node.id] { selection = [node.id] }
             onNavigate(navigation(for: row, depth: depth))
-            // The click's cost, measured from mouse-UP.
+            // No click-cost stamp here any more, and that is deliberate.
             //
-            // `[click]`'s own timing is taken from the selection commit, which happens on mouse-DOWN
-            // inside `NSTableView`'s tracking loop — so it spans however long the button was held,
-            // and reports ~290ms for a click that cost the app nothing. Rebuilding the app with
-            // optimisations changed those numbers not at all, which is what gave the lie away: real
-            // computation would have moved. This stamp starts after the button is already up, so
-            // whatever it measures is work.
-            if PaneScrollTrace.isEnabled {
-                let released = CFAbsoluteTimeGetCurrent()
-                DispatchQueue.main.async {
-                    let ms = (CFAbsoluteTimeGetCurrent() - released) * 1000
-                    Logger.shared.debug("[render] \(isLeft ? "left" : "right") pane re-rendered in \(String(format: "%.1fms", ms))")
-                }
-            }
+            // There have been two, and both measured the user's finger. `[click]` stamps from the
+            // selection commit on mouse-DOWN, inside `NSTableView`'s tracking loop, so it spans the
+            // hold — `dfa74e4` caught that. `[render]` replaced it by stamping here, in the tap
+            // gesture's `onEnded`, and reading back on the next main-queue turn, claiming "this
+            // stamp starts after the button is already up, so whatever it measures is work". It
+            // does not: across twenty clicks the two agreed to within 0.2ms. This closure runs
+            // INSIDE the same tracking loop, so the block it enqueues cannot run until that loop
+            // exits — when the button comes up. Moving the stamp changed nothing, because the flaw
+            // was never where the stamp was; it was hanging the clock off an input event at all.
+            //
+            // `MainThreadHitchMonitor` times the run loop instead, which cannot be inflated by a
+            // held button because a held button with nothing happening IS the run loop asleep.
         })
         .contextMenu {
             FileContextMenu(

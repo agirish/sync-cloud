@@ -73,6 +73,13 @@ struct SyncCloudApp: App {
             // calls noted above are harmless.
             LiquidGlass.migrateLegacyAppearance()
 
+            // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
+            // than from a view so it covers the whole session — including launch, which is where a
+            // wedged `getxattr` once cost the app every one of its windows. Idempotent, so the
+            // repeat App.init calls noted above are harmless, and it installs nothing at all on a
+            // normal launch.
+            MainThreadHitchMonitor.startIfEnabled()
+
             // Undo the one thing the preview's old sizing rule made people do to their columns.
             // Idempotent by its own flag, so the repeat App.init calls noted above are harmless.
             PaneViewMode.liftColumnWidthOffTheFloor()
