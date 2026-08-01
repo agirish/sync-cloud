@@ -466,6 +466,49 @@ import Sync
                 "the watchdog left the clip stranded past the right edge, at \(clip.bounds.origin)")
     }
 
+    /// The case the preview's un-driven FALLING edge hands to this watchdog: a rest that was
+    /// legal becomes illegal because the VIEWPORT GREW under it. Every stranding test above
+    /// moves the origin and leaves the viewport alone; this moves the viewport and leaves the
+    /// origin alone, and only `legalOrigin`'s clamp closes the gap.
+    ///
+    /// It is pinned here rather than through a mounted pane, and the reason is worth stating: a
+    /// real pane's own `NSClipView` re-constrains itself when its frame grows, so the mounted
+    /// close never reaches this code — measured, deleting `legalOrigin`'s clamp entirely leaves
+    /// `ColumnPreviewRevealTests`'s close test passing. What this watchdog covers is the clip
+    /// that does NOT self-correct, which is the state a phase-less gesture leaves behind and the
+    /// whole reason this file exists.
+    @Test func testARestTheGrownViewportMadeIllegalIsPulledBack() async throws {
+        let (window, scroller, clip) = mount()
+        defer { _ = window }
+        await pump(seconds: 0.3)
+
+        // Resting legally at the far end of a 200pt viewport over 600pt of content.
+        clip.setBoundsOrigin(NSPoint(x: 400, y: 0))
+        await pump(seconds: PaneColumnsOverscrollReturn.WatchdogView.quiescence * 4)
+        try #require(clip.bounds.origin.x == 400,
+                     "the far-end rest was pulled before the viewport ever grew — nothing below measures growth")
+
+        // The preview closes: the stack gets 300pt back and 400 is suddenly 300 past the end.
+        scroller.frame = NSRect(x: 0, y: 0, width: 500, height: 100)
+        scroller.tile()
+        try #require(clip.bounds.width == 500,
+                     "the viewport did not grow (clip \(clip.bounds.width)pt) — the origin is still legal")
+
+        // Re-armed the way the app re-arms it, and this step is not ceremony. Resizing a clip
+        // posts a FRAME notification; this watchdog observes the BOUNDS one, so a viewport that
+        // grows on its own wakes nothing. What wakes it in the pane is the SwiftUI update that
+        // closed the preview — `updateNSView` calls `rearm()` on every pass — and a harness that
+        // skipped it would be pinning a path the app never takes.
+        let watchdog = try #require(
+            scroller.documentView?.subviews.compactMap {
+                $0 as? PaneColumnsOverscrollReturn.WatchdogView
+            }.first, "the watchdog is not mounted in the document view")
+        watchdog.rearm()
+
+        #expect(await waitForOrigin(clip, toBecome: NSPoint(x: 100, y: 0)),
+                "a rest the grown viewport made illegal was left stranded at \(clip.bounds.origin)")
+    }
+
     /// Absence has no observable to wait on, so this one holds the fixed window — but waits
     /// FIRST for a full quiescence period to elapse, so the watchdog demonstrably had its chance.
     @Test func testAnInRangeRestIsNeverTouched() async {
