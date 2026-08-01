@@ -348,6 +348,127 @@ import Sync
                 "widening the preview pushed the deepest column back off screen: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
     }
 
+    /// Scrolls the stack back to a legal origin, the way a user reading earlier columns does,
+    /// and waits for it to rest there.
+    private func scrollBack(_ mounted: Mounted, toX x: CGFloat) async {
+        let clip = mounted.stack.contentView
+        clip.scroll(to: NSPoint(x: x, y: clip.bounds.origin.y))
+        mounted.stack.reflectScrolledClipView(clip)
+        await settle(mounted)
+    }
+
+    /// Widening the COLUMNS pushes the deepest column's trailing edge past the preview's seam —
+    /// the same defect class the preview divider had, from the other divider. The reveal has to
+    /// follow the column divider's commit too.
+    ///
+    /// Driven by writing the stored width, exactly as the preview-divider test above: the drag
+    /// renders from `dragWidth` and commits to the preference in `onEnded`, and the committed
+    /// state is what the view keys its driver on.
+    @Test func testWideningTheColumnsKeepsTheDeepestColumnOnScreen() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 2)
+        defer { _ = mounted.window }
+
+        let full = mounted.stack.contentView.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+
+        let deepestBefore = try #require(columnFrames(mounted).last)
+        #expect(deepestBefore.maxX <= visibleSpan(mounted).upperBound + 1,
+                "the deepest column was already hidden before the resize — this test's premise is gone")
+
+        let contentBefore = mounted.stack.documentView?.frame.width ?? 0
+        let originBefore = mounted.stack.contentView.bounds.origin.x
+
+        // A drag that grows every column from 210 to 260, committed.
+        mounted.defaults.set(260.0, forKey: PaneViewMode.columnWidthDefaultsKey)
+        await wait(mounted.window, upTo: 25) {
+            (mounted.stack.documentView?.frame.width ?? 0) > contentBefore
+        }
+        await wait(mounted.window, upTo: 25) {
+            mounted.stack.contentView.bounds.origin.x != originBefore
+        }
+        await settle(mounted)
+
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > contentBefore,
+                "the stored column width never reached the layout (content \(content)pt) — nothing below measures a resize")
+        #expect(content > mounted.stack.contentView.bounds.width,
+                "the widened stack does not overflow its viewport — the reveal is unobservable here, so this is vacuous")
+        let deepest = try #require(columnFrames(mounted).last)
+        let visible = visibleSpan(mounted)
+        #expect(deepest.maxX <= visible.upperBound + 1,
+                "widening the columns pushed the deepest column off screen and nothing revealed it: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+        #expect(deepest.minX >= visible.lowerBound - 1,
+                "the deepest column is cut off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// The preview-width key is ONE process-wide preference shared by every `PaneColumnsView`
+    /// (both comparison panes and the Tidy rail). Ending a preview-divider drag in one pane fires
+    /// the stored-width driver in all of them — but a pane whose preview is HIDDEN had its
+    /// viewport untouched by that drag, and revealing there clobbers a scroll-back the user made
+    /// deliberately. This pane never opens a preview at all; the shared key changing must leave
+    /// its stack exactly where the user put it.
+    @Test func testAPreviewWidthCommitLeavesAPreviewlessPaneAlone() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        // No selection was ever made, so no preview: the stack keeps the full pane's viewport,
+        // and four columns overflow it — a wrong reveal would genuinely move the stack.
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "fixture does not overflow its viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible, so this proves nothing")
+        #expect(clip.bounds.width > 690 - PaneViewMode.minimumPreviewColumnWidth,
+                "a preview took room from this pane — the premise of a preview-less pane is gone")
+
+        // The drill's own reveal parked the stack at its trailing edge; the user scrolls back.
+        #expect(clip.bounds.origin.x > 0,
+                "the drill never revealed, so the scroll-back below distinguishes nothing")
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+
+        // Another pane's preview divider commits: the shared key changes, this viewport does not.
+        mounted.defaults.set(470.0, forKey: PaneViewMode.previewColumnWidthDefaultsKey)
+        // Absence has no observable to wait on, so hold a window comfortably past the reveal's
+        // deferred hop (one runloop turn), its 0.25s retry, and its 0.18s animation.
+        await pump(mounted.window, seconds: 2.0)
+        #expect(clip.bounds.origin.x == 0,
+                "a preview-width commit scrolled a pane whose preview is hidden, to x \(clip.bounds.origin.x)")
+    }
+
+    /// Closing the preview GROWS the viewport, so a scrolled-back origin stays legal — and must
+    /// stay put. The falling edge used to reveal unconditionally, yanking the whole stack to the
+    /// deepest column the moment the preview closed; the only close that needs correcting is an
+    /// origin the grown viewport made illegal, and that is the overscroll watchdog's clamp, not
+    /// this driver's business.
+    @Test func testClosingThePreviewLeavesAScrolledBackStackWhereItWas() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        let full = clip.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+        let narrow = clip.bounds.width
+        try #require(narrow < full, "the preview never narrowed the viewport")
+
+        // The user scrolls back to read the first columns...
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+
+        // ...then closes the preview (clearing the selection is how a preview goes away).
+        mounted.box.selection = []
+        await wait(mounted.window, upTo: 25) { clip.bounds.width > narrow }
+        #expect(clip.bounds.width > narrow,
+                "the preview never closed — nothing below measures the falling edge")
+        // The stack must still overflow the grown viewport: a fitting stack sits at origin 0 no
+        // matter what fires, and the assertion below would hold with the yank present.
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the stack fits its restored viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible, so this is vacuous")
+        await pump(mounted.window, seconds: 2.0)
+        #expect(clip.bounds.origin.x == 0,
+                "closing the preview yanked a scrolled-back stack to x \(clip.bounds.origin.x)")
+    }
+
     /// A Tidy rail — full width, and deep enough that the rail overflows too.
     ///
     /// Depth matters: at three columns this width passed before the fix as well, because 980pt of
