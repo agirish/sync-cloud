@@ -297,32 +297,114 @@ import Design
                       ceiling: PaneBarIconSize.regular.ceiling)
     }
 
-    /// The slot arithmetic the searched ladder's literal children are built from, checked against
-    /// the DEEPEST ladder the arrangement normalizer permits: 15 duplicate-exempt spaces beside
-    /// the pinned scan control, which is `maxDepth` 15 and so `terminal` 16.
+    /// The deepest ladder the arrangement normalizer permits: `maxItems` items, all of them
+    /// duplicate-exempt spaces except the scan control it forces on and will not shed.
+    private static let worstArrangement =
+        PaneBarArrangement(Array(repeating: PaneBarItem.space, count: PaneBarArrangement.maxItems - 1)
+                           + [.scan])
+
+    private static func ladder(_ arrangement: PaneBarArrangement) -> PaneBarLadder {
+        PaneBarLadder(arrangement: arrangement,
+                      available: header(nil).availableItems,
+                      ceiling: PaneBarIconSize.regular.ceiling)
+    }
+
+    /// The three shapes the searched ladder has to serve, by depth: what almost every install runs,
+    /// the palette-reachable spacer-heavy bar that falsified the old ten-rung premise, and the
+    /// deepest bar the normalizer permits — which is the only fixture that reaches the last slots.
+    private static var ladderFixtures: [(String, PaneBarLadder)] {
+        [("default", ladder(.default)),
+         ("spacer-heavy", ladder(spacerHeavy)),
+         ("worst", ladder(worstArrangement))]
+    }
+
+    /// The rungs `ViewThatFits` can actually land on: first-fit takes the earliest child that fits,
+    /// so a rung no narrower than one before it is unreachable by construction and no assertion may
+    /// demand it (see `theLadderIsNotMonotonicAndIsWalkedInOrder`).
+    private static func reachableRungs(_ ladder: PaneBarLadder) -> [Int] {
+        var narrowest = CGFloat.greatestFiniteMagnitude
+        var reachable: [Int] = []
+        for rung in 0...ladder.terminal where ladder.width(forRung: rung) < narrowest {
+            narrowest = ladder.width(forRung: rung)
+            reachable.append(rung)
+        }
+        return reachable
+    }
+
+    /// The contract that was comment-only: the view declares exactly one child per slot.
+    ///
+    /// `searchedSlotCount` is otherwise production dead code — read only by tests — so nothing
+    /// stopped the numbers drifting apart. Raise `maxItems` to 24 and the derived count becomes 25
+    /// while `PaneHeader.searchedLadder` still lists seventeen literals, silently reinstating the
+    /// rung-skipping hole; this counts the children of the real view and fails when it does.
+    ///
+    /// The count is read by reflection because a `ViewThatFits`'s children are only its generic
+    /// `TupleView` — the check has to fail loudly if that shape ever changes, hence the `Optional`
+    /// rather than a silent zero.
+    @Test func theSearchedLadderDeclaresOneChildPerSlot() {
+        // Derived, not restated: the ladder's depth is bounded by how long a bar can be.
+        #expect(PaneBarLadder.searchedSlotCount == PaneBarArrangement.maxItems + 1)
+
+        let view = Self.header(nil)
+        let children = Self.viewThatFitsChildCount(view.searchedLadder(Self.ladder(.default)))
+        #expect(children != nil, "cannot read ViewThatFits's children — the reflection path broke")
+        #expect(children == PaneBarLadder.searchedSlotCount,
+                "searchedLadder declares \(children.map(String.init) ?? "?") children, the contract says \(PaneBarLadder.searchedSlotCount)")
+    }
+
+    /// How many children a `ViewThatFits` declares, read off the view itself: its content is a
+    /// `TupleView` whose `value` is the literal tuple of children. `nil` when that shape is not what
+    /// this walks, so a broken reflection path is a failure and never a quiet pass.
+    private static func viewThatFitsChildCount<V: View>(_ view: V) -> Int? {
+        guard let tree = Mirror(reflecting: view).children.first(where: { $0.label == "_tree" })?.value,
+              let content = Mirror(reflecting: tree).children.first(where: { $0.label == "content" })?.value,
+              let tuple = Mirror(reflecting: content).children.first(where: { $0.label == "value" })?.value
+        else { return nil }
+        let mirror = Mirror(reflecting: tuple)
+        guard mirror.displayStyle == .tuple else { return nil }
+        return mirror.children.count
+    }
+
+    /// The slot arithmetic checked against the DEEPEST ladder the normalizer permits: 15
+    /// duplicate-exempt spaces beside the pinned scan control, which is `maxDepth` 15 and so
+    /// `terminal` 16.
     ///
     /// The old ladder declared ten literals under a comment claiming "`terminal` is at most 9 for
-    /// any arrangement the palette can build" — false exactly here, and this is the assertion that
-    /// was missing: set `searchedSlotCount` back to 10 and the coverage set loses rungs 9…15.
+    /// any arrangement the palette can build" — false exactly here.
+    ///
+    /// The bound is asserted as an inequality over adversarial arrangements rather than only against
+    /// a hand-written worst case, because the failure this guards is `maxItems` moving: a fixture
+    /// that restates today's 16 would be updated alongside it and go green again.
     @Test func theSearchedSlotsCoverTheDeepestLadderAnyArrangementCanBuild() {
-        let worst = PaneBarArrangement(Array(repeating: PaneBarItem.space, count: 15) + [.scan])
+        let worst = Self.worstArrangement
         #expect(worst.items.count == PaneBarArrangement.maxItems)
 
         let ladder = PaneBarLadder(arrangement: worst, available: [.scan], ceiling: .small)
         // The deepest terminal possible: every slot count below `terminal + 1` skips a rung here.
-        #expect(ladder.terminal == 16)
+        #expect(ladder.terminal == PaneBarArrangement.maxItems)
         #expect(ladder.terminal + 1 == PaneBarLadder.searchedSlotCount)
 
         let covered = Set((0..<PaneBarLadder.searchedSlotCount).map { ladder.searchedRung(forSlot: $0) })
         #expect(covered == Set(0...ladder.terminal),
                 "slots cover \(covered.sorted()), ladder runs 0...\(ladder.terminal)")
 
-        // And a palette-reachable spacer-heavy bar is covered the same way, its surplus slots
-        // clamping to the terminal rung as duplicates.
-        let six = Self.spacerHeavyLadder()
-        #expect(six.terminal > 9, "\(six.terminal) — the shape that falsified the old comment")
-        let sixCovered = Set((0..<PaneBarLadder.searchedSlotCount).map { six.searchedRung(forSlot: $0) })
-        #expect(sixCovered == Set(0...six.terminal))
+        // No arrangement the normalizer will produce — spacer-packed, switch-carrying, or built for
+        // a host that cannot even offer the scan control the normalizer forces on — outruns the
+        // slots. These are the shapes that maximise `maxDepth`: sheddable items, plus the switch.
+        let spaces = Array(repeating: PaneBarItem.space, count: PaneBarArrangement.maxItems)
+        let adversarial: [(String, PaneBarArrangement, [PaneBarItem])] = [
+            ("all spaces", PaneBarArrangement(spaces), Self.header(nil).availableItems),
+            ("spaces + switch", PaneBarArrangement([.viewMode] + spaces), Self.header(nil).availableItems),
+            ("spaces + every control", PaneBarArrangement(PaneBarItem.allCases + spaces),
+             Self.header(nil).availableItems),
+            ("no scan available", PaneBarArrangement(spaces), [.backForward, .sort, .hiddenFiles]),
+            ("worst, full palette", worst, PaneBarItem.allCases),
+        ]
+        for (name, arrangement, available) in adversarial {
+            let deep = PaneBarLadder(arrangement: arrangement, available: available, ceiling: .small)
+            #expect(deep.terminal + 1 <= PaneBarLadder.searchedSlotCount,
+                    "\(name): terminal \(deep.terminal) needs \(deep.terminal + 1) slots, the ladder declares \(PaneBarLadder.searchedSlotCount)")
+        }
     }
 
     /// Every rung of a spacer-heavy ladder is a DIFFERENT bar — sheds one more item — right up to
@@ -341,52 +423,86 @@ import Design
         #expect(ladder.controlSize(forRung: 0) != ladder.controlSize(forRung: 1))
     }
 
-    /// The end-to-end claim, on drawn pixels: with a spacer-heavy arrangement, the no-provider
-    /// header steps through the deep rungs (9…terminal−1) at intermediate widths instead of
-    /// jumping from rung 8 to full compaction. Reverting `searchedLadder` to its ten literals
-    /// fails this — the deep rungs' spans never appear at any width.
+    /// The claim on drawn pixels, exactly: offered a rung's own width, the searched ladder draws
+    /// THAT rung's bar — the same view `barVariant` builds for it, ring for ring.
     ///
-    /// Only first-fit-REACHABLE rungs are demanded: the ladder is not monotonic, so a rung wider
-    /// than everything before it can never be chosen (see `theLadderIsNotMonotonicAndIsWalkedInOrder`).
-    /// The deep rungs shed controls with no spaces left on the bar (the spaces go first, by design),
-    /// so a rung's drawn span is ring-to-ring and comparable to its computed width.
-    @Test func theNoProviderHeaderStepsThroughTheDeepRungs() {
+    /// Offering the rung's exact width is what makes this precise rather than a sampling: for a
+    /// first-fit-reachable rung every earlier child is strictly wider, so that width selects it and
+    /// nothing else. The old version of this test swept header widths in 5pt steps, which asserted
+    /// the same thing only while every rung's fit band stayed wider than the stride — a fixture
+    /// property, not a code property — and its spacer-heavy fixture stopped at `terminal` 12, so the
+    /// last four slots were never exercised at all. The worst-case fixture reaches slot 16.
+    ///
+    /// A stand-in slot being selected would draw an empty bar, so the ring count is asserted
+    /// non-empty: an all-empty comparison would otherwise pass by matching nothing against nothing.
+    @Test func theSearchedLadderDrawsTheRungEachOfferSelects() {
+        let view = Self.header(nil)
+        for (name, ladder) in Self.ladderFixtures {
+            for rung in Self.reachableRungs(ladder) {
+                let width = ladder.width(forRung: rung)
+                let searched = fingerprint(view.searchedLadder(ladder), width: width)
+                let direct = fingerprint(view.barVariant(rung, ladder), width: width)
+                #expect(!direct.isEmpty, "\(name) rung \(rung): the bar itself drew nothing")
+                #expect(searched == direct,
+                        "\(name) at \(width)pt (rung \(rung)) drew \(searched), rung \(rung) is \(direct)")
+            }
+
+            // Nothing fits — the 250pt pane's case. `ViewThatFits` falls through to its LAST child,
+            // which is why that slot stays a real bar however far past `terminal` it sits: an inert
+            // stand-in there would leave the narrowest pane with no bar at all.
+            let squeezed = ladder.width(forRung: ladder.terminal) - 20
+            let fallback = fingerprint(view.searchedLadder(ladder), width: squeezed)
+            let terminal = fingerprint(view.barVariant(ladder.terminal, ladder), width: squeezed)
+            #expect(!terminal.isEmpty, "\(name): the terminal bar itself drew nothing")
+            #expect(fallback == terminal,
+                    "\(name) squeezed to \(squeezed)pt drew \(fallback), the terminal rung is \(terminal)")
+        }
+    }
+
+    /// The end-to-end half, in the real header: a spacer-heavy no-provider header steps through
+    /// every deep rung — the ones past the old ladder's ninth — at pane widths it can actually be
+    /// given, rather than jumping from rung 8 to full compaction. Reverting `searchedLadder` to ten
+    /// literals fails this; rungs 10 and 11 never appear at any width.
+    ///
+    /// This is the one test that goes through `@AppStorage` and the whole header, so it is also what
+    /// says the arrangement a user stored is the arrangement the ladder is built from. The exact
+    /// per-rung claim, free of the header's own geometry, is
+    /// `theSearchedLadderDrawsTheRungEachOfferSelects`.
+    ///
+    /// Sampling a stride makes the fixture load-bearing — a rung whose band of pane widths is
+    /// narrower than the stride would fall between two samples and fail for a fixture reason rather
+    /// than a code one. So the premise is asserted rather than assumed: the narrowest gap between
+    /// consecutive reachable rungs is checked against the stride before the sweep runs.
+    @Test func theNoProviderHeaderReachesTheDeepRungs() {
         let defaults = ScratchDefaults("PaneBarLadderTests-spacerHeavy")
         defaults.set(Self.spacerHeavy.encoded, forKey: PaneBar.arrangementKey)
         defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
         let view = Self.header(nil).defaultAppStorage(defaults)
-
-        let ladder = Self.spacerHeavyLadder()
-        // First-fit-reachable deep rungs: narrower than every slot before them.
-        var reachableDeep: [Int] = []
-        var narrowestSoFar = CGFloat.greatestFiniteMagnitude
-        for rung in 0...ladder.terminal {
-            let width = ladder.width(forRung: rung)
-            if width < narrowestSoFar {
-                narrowestSoFar = width
-                if rung > 8 && rung < ladder.terminal { reachableDeep.append(rung) }
-            }
-        }
+        let ladder = Self.ladder(Self.spacerHeavy)
+        let reachable = Self.reachableRungs(ladder)
+        let deep = reachable.filter { $0 > 8 && $0 < ladder.terminal }
         // The premise: there IS something between rung 8 and the terminal to skip.
-        #expect(!reachableDeep.isEmpty)
+        #expect(!deep.isEmpty, "the fixture has no deep rungs — it has lost its subject")
 
-        var spans: [CGFloat] = []
-        for width in stride(from: CGFloat(250), through: 900, by: 5) {
+        let step: CGFloat = 10
+        for (wider, narrower) in zip(reachable, reachable.dropFirst()) {
+            #expect(ladder.width(forRung: wider) - ladder.width(forRung: narrower) > step,
+                    "rungs \(wider)/\(narrower) are \(ladder.width(forRung: wider) - ladder.width(forRung: narrower))pt apart, the sweep steps \(step)pt")
+        }
+
+        var seen = Set<Int>()
+        for width in stride(from: CGFloat(250), through: 900, by: step) {
             let drawn = barRings(view, width: width)
             guard let first = drawn.min(by: { $0.minX < $1.minX }),
                   let trailing = drawn.map(\.maxX).max() else { continue }
-            spans.append(trailing - first.minX)
-        }
-
-        for rung in reachableDeep {
-            let width = ladder.width(forRung: rung)
-            // With and without the view switch's 3pt capsule ground, exactly as
-            // `theDrawnBarIsAlwaysSomeRungOfTheLadder` accepts either leading edge.
-            let hit = spans.contains { span in
-                abs(span - width) < 0.5 || abs(span + PaneNavMetrics.segmentPadding - width) < 0.5
+            let span = trailing - first.minX
+            for rung in deep where abs(span - ladder.width(forRung: rung)) < 0.5
+                || abs(span + PaneNavMetrics.segmentPadding - ladder.width(forRung: rung)) < 0.5 {
+                seen.insert(rung)
             }
-            #expect(hit, "rung \(rung) (\(width)pt) was never drawn at any width 250–900 — the ladder skips it")
         }
+        #expect(seen == Set(deep),
+                "the header drew rungs \(seen.sorted()) of the deep rungs \(deep) between 250 and 900pt")
     }
 
     // MARK: - Golden

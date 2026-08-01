@@ -88,8 +88,12 @@ public struct PaneBarArrangement: Equatable, Sendable {
     public private(set) var items: [PaneBarItem]
 
     /// A ceiling on how long a bar can get. Not a UI limit anyone will hit with the palette — it
-    /// bounds what a corrupt or hand-edited defaults value can do to the layout ladder, which only
-    /// has ten rungs.
+    /// bounds what a corrupt or hand-edited defaults value can do to the layout ladder.
+    ///
+    /// Load-bearing beyond that: the ladder's depth is bounded BY this number, and the searched
+    /// ladder in `PaneHeader` must declare a literal child per rung. `PaneBarLadder.searchedSlotCount`
+    /// derives itself from this constant for that reason — raise it and the view is short a rung,
+    /// which is a silent layout hole, so `PaneBarLadderTests` counts the view's children against it.
     public static let maxItems = 16
 
     /// Today's bar, exactly: a flexible space (which is what pins the rest to the trailing edge),
@@ -360,7 +364,7 @@ public enum PaneBarLayout {
 /// The pane bar's narrow-pane ladder: every layout the bar can step down through, widest first, and
 /// the arithmetic that says which one a given width gets.
 ///
-/// The header used to hand all ten rungs to `ViewThatFits` and let it search. That works, but
+/// The header used to hand every rung to `ViewThatFits` and let it search. That works, but
 /// `ViewThatFits` *builds every child to measure it* — ten full bars of up to eight hover-affordance
 /// controls each, twice over for two panes, on every layout pass. Measured with
 /// `MainThreadHitchMonitor` while opening and closing Settings three times, that search cost 4,805 ms
@@ -421,22 +425,28 @@ struct PaneBarLadder {
     /// `ViewThatFits` takes a `ViewBuilder`, and a `ForEach` inside one is a SINGLE child — the
     /// ladder silently collapses to one rung — so the searched path must declare a fixed count of
     /// literal children, whatever the arrangement. That count has to cover the deepest ladder any
-    /// arrangement can build: `PaneBarArrangement.maxItems` is 16 and spacers are exempt from the
-    /// duplicate rule, so a stored arrangement can carry 15 fixed spaces beside the pinned scan
-    /// control — 15 sheddable items, `maxDepth` 15, `terminal` 16. Seventeen slots (rungs 0
-    /// through 15, then the terminal) therefore cover every rung of every ladder.
+    /// arrangement can build, which is `maxItems + 1`, **derived** rather than restated so that
+    /// raising `maxItems` cannot silently leave the ladder short:
+    ///
+    /// `maxDepth` counts sheddable items, plus one if the view switch is placed (it compacts as the
+    /// last step). Spacers are exempt from the duplicate rule, so the longest ladder is a bar of
+    /// fixed spaces — but a `maxItems`-long arrangement can never be *all* sheddable spaces: the
+    /// normalizer forces `scan` on, which is floor (unsheddable) and displaces a space when the bar
+    /// is full, and if the host cannot offer `scan` it is filtered back out of the resolved bar
+    /// instead. Either way at most `maxItems - 1` items shed, so `maxDepth <= maxItems - 1` and
+    /// `terminal <= maxItems`. Slots run rung 0 through the terminal: `maxItems + 1` of them.
     ///
     /// The previous count was ten, justified by a comment claiming "`terminal` is at most 9 for
     /// any arrangement the palette can build" — false for exactly the spacer-heavy case above, and
     /// the no-provider header jumped from rung 8 straight to full compaction at intermediate
-    /// widths. `PaneBarLadderTests.theSearchedSlotsCoverTheDeepestLadderAnyArrangementCanBuild`
-    /// pins the arithmetic against the worst arrangement the normalizer permits.
-    static let searchedSlotCount = 17
+    /// widths. `PaneBarLadderTests` pins both halves of the contract: the arithmetic against the
+    /// worst arrangement the normalizer permits, and this count against the number of children
+    /// `PaneHeader.searchedLadder` actually declares.
+    static let searchedSlotCount = PaneBarArrangement.maxItems + 1
 
     /// The rung the searched ladder's literal child at `slot` draws. Slots past `terminal` clamp
-    /// to it: those children are duplicates of the terminal rung, which `ViewThatFits` walks past
-    /// at no behavioural cost — the cost of *building* them is why the searched ladder is reserved
-    /// for the rare no-provider header (see `PaneHeader.navCluster`).
+    /// to it — `PaneBarLayout.plan` is idempotent past `maxDepth`, so they are duplicates of the
+    /// terminal rung.
     func searchedRung(forSlot slot: Int) -> Int { min(slot, terminal) }
 
     /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
