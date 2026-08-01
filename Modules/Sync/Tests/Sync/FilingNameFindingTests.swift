@@ -142,6 +142,43 @@ import Events
         #expect(manager.riskyNames == [previous], "…nor replace the names it describes")
     }
 
+    @MainActor
+    @Test func anUnreadableProviderRootIsNotItselfOfferedAsARename() async {
+        // `buildTree` reports a permission-denied root as ONE unexplored marker carrying the
+        // root's own path. The detector cannot tell that from a real entry, so it would flag the
+        // provider root's name — and "Fix all" would rename it. A rename needs only parent-write,
+        // so it would succeed, dangling the configured root and every path aimed at it.
+        //
+        // The standalone scan has always guarded this. The folded one was written without it,
+        // which is why the check now lives in one shared predicate.
+        let root = URL(fileURLWithPath: "/denied/Provider Root ")
+        let marker = FileNode(id: root.path, name: "Provider Root ", isDirectory: true,
+                              children: nil, isUnexplored: true)
+        // Sanity: the name IS one the detector would otherwise flag, so this test cannot pass
+        // merely because the fixture was safe.
+        #expect(NameNormalizer.risky(name: marker.name, relativePath: marker.name,
+                                     absolutePath: marker.id, isDirectory: true,
+                                     provider: .oneDrive) != nil)
+
+        let manager = FileSyncManager()
+        await manager.detectRiskyNames(in: [marker], root: root, provider: .oneDrive)
+
+        #expect(manager.riskyNames.isEmpty, "an unreadable root must never be offered as a rename")
+    }
+
+    @MainActor
+    @Test func aRealEntryThatHappensToMatchTheRootPathIsStillScanned() async {
+        // The guard keys on the unexplored MARKER, not merely on the path — otherwise a readable
+        // tree whose single entry sits at the root path would be silently skipped.
+        let root = URL(fileURLWithPath: "/readable")
+        let child = FileNode(id: "/readable/tail ", name: "tail ", isDirectory: false)
+
+        let manager = FileSyncManager()
+        await manager.detectRiskyNames(in: [child], root: root, provider: .oneDrive)
+
+        #expect(manager.riskyNames.map(\.currentName) == ["tail "])
+    }
+
     // MARK: The single-file door (the pane row's "Fix name…")
 
     @Test func theOneNodeCheckAgreesWithTheWholeTreeScan() {

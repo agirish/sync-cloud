@@ -182,24 +182,18 @@ extension ContentView {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
-    /// Whether the bar can spell its segments out at the window's current width.
+    /// Each segment's rendered label width, at the app's current text scale.
     ///
-    /// The label widths are measured, not assumed: the app scales its own type (Settings ▸ Text
-    /// size), so a hard-coded table would be correct at exactly one setting and would silently
-    /// overflow at the larger ones — which is the failure that hides the control entirely.
-    /// Measured at semibold because that is the selected segment's weight, and the widest.
-    private var workspaceBarStyle: WorkspaceBarStyle {
-        // Before the first geometry callback there is no width to reason about. Start narrow:
-        // a bar that begins as glyphs and gains labels is a cosmetic settle, where one that
-        // begins too wide is a toolbar that overflows on launch.
-        guard contentWidth > 0 else { return .iconOnly }
-        let font = NSFont.systemFont(ofSize: 12 * appFontScale, weight: .semibold)
-        let widths = Workspace.allCases.map { workspace in
-            (workspace.title as NSString)
-                .size(withAttributes: [.font: font])
-                .width
+    /// Measured, not tabulated: a constant would be right at exactly one Settings ▸ Text size and
+    /// would silently overflow at the larger ones — and overflow here does not truncate, it hides
+    /// the whole control behind macOS's overflow chevron. Semibold because that is the selected
+    /// segment's weight, and the widest; sizing on `.medium` would under-measure the one segment
+    /// that is always bold.
+    static func workspaceLabelWidths(scale: CGFloat) -> [CGFloat] {
+        let font = NSFont.systemFont(ofSize: 12 * scale, weight: .semibold)
+        return Workspace.allCases.map {
+            ($0.title as NSString).size(withAttributes: [.font: font]).width
         }
-        return WorkspaceBarMetrics.style(contentWidth: contentWidth, labelWidths: widths)
     }
 
     /// The window toolbar — the window-level controls, and only those: which workspace you're in,

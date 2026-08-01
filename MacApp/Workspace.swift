@@ -111,11 +111,12 @@ extension Workspace {
     ///
     /// Anything unrecognised resolves to `.compare`, which is also the default: an unreadable
     /// stored value and no stored value at all should land in the same place.
+    ///
+    /// This reads the LEGACY pair only. `selectedBottomTab` never held anything but `Differences`
+    /// or `Tidy`, so there is deliberately no `Rename` arm on the tab here — a retired *workspace*
+    /// value lives in the new key and is handled by ``migratedWorkspace(_:)``. An arm for a value
+    /// the key never carried would read like coverage of the path that actually stranded people.
     static func migrated(tab: String?, lens: String?) -> Workspace {
-        // `Rename` was a workspace in the first flat bar and a Tidy lens before that. It is now a
-        // finding inside Organize, so both spellings land there rather than failing to resolve —
-        // which would silently drop the user on Compare.
-        if tab == retiredRenameRawValue { return .filing }
         guard tab == "Tidy" else { return .compare }
         // On Tidy the lens decided what you were looking at, so it — not the tab — is the
         // workspace. A missing or unrecognised lens takes Tidy's own former default.

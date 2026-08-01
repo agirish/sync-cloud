@@ -119,9 +119,12 @@ import FileExplorer
         // which is nowhere near what they were doing. This is the only mapping in the table whose
         // source case no longer exists in the enum, which is exactly why it needs pinning.
         #expect(Workspace(rawValue: Workspace.retiredRenameRawValue) == nil)
+        // As a Tidy LENS — the 2.8-and-earlier spelling, in the legacy pair.
         #expect(Workspace.migrated(tab: "Tidy", lens: "Rename") == .filing)
-        #expect(Workspace.migrated(tab: "Rename", lens: nil) == .filing)
-        #expect(Workspace.migrated(tab: "Rename", lens: "Rename") == .filing)
+        // As a WORKSPACE — the one-commit spelling, in the new key. Different function, because
+        // it is a different key; asserting it through `migrated(tab:)` instead would pin an input
+        // `selectedBottomTab` never held, and that false coverage is what let the real gap ship.
+        #expect(Workspace.migratedWorkspace(Workspace.retiredRenameRawValue) == .filing)
     }
 
     @Test func testRenameIsNotABarSegment() {

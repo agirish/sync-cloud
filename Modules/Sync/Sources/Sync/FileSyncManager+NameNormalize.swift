@@ -44,7 +44,7 @@ extension FileSyncManager {
         // ITSELF as a rename candidate — and "Fix all" would rename a folder we can't even list
         // (a rename only needs parent-write), dangling the pane focus and anything aimed at the
         // old path. An unreadable root has no scannable names: publish the honest empty result.
-        if tree.count == 1, let only = tree.first, only.isUnexplored == true, only.id == root.path {
+        if Self.isUnreadableRootMarker(tree, root: root) {
             riskyNames = []
             completeScan(\.nameScanLifecycle, root: root)
             Logger.shared.warning("Name normalizer: could not read \(root.lastPathComponent) — permission denied; no names scanned")
@@ -68,6 +68,21 @@ extension FileSyncManager {
         Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s)")
     }
 
+    /// True when a walk came back as nothing but the unreadable root itself.
+    ///
+    /// `buildTree` reports a permission-denied root as a single unexplored marker carrying the
+    /// root's OWN path, and the detector cannot tell that marker from a real entry — it would flag
+    /// the root's name, and "Fix all" would rename a folder we cannot even list. A rename needs
+    /// only parent-write, so it would succeed, dangling the pane focus, the configured provider
+    /// root and everything aimed at the old path.
+    ///
+    /// Shared rather than duplicated because it has now been needed twice: once by the standalone
+    /// scan, and again the moment the Filing scan started reporting names. The second caller was
+    /// written without it.
+    static func isUnreadableRootMarker(_ tree: [FileNode], root: URL) -> Bool {
+        tree.count == 1 && tree.first?.isUnexplored == true && tree.first?.id == root.path
+    }
+
     /// Flags provider-hostile names on a tree the caller has **already walked**.
     ///
     /// Rename stopped being a place of its own. A name the cloud will reject is something you hit
@@ -84,6 +99,17 @@ extension FileSyncManager {
     ///   ruleset — not something to leave to a sleep and a hope.
     func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType,
                           isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
+        // Same wall, same answer as the standalone scan. Reporting "1 risky name" for an
+        // unreadable provider root and then offering to rename it is the worst outcome this
+        // feature could produce.
+        if Self.isUnreadableRootMarker(tree, root: root) {
+            nameScanProvider = provider
+            riskyNames = []
+            completeScan(\.nameScanLifecycle, root: root)
+            Logger.shared.warning("Filing scan: could not read \(root.lastPathComponent) — permission denied; no names checked")
+            return
+        }
+
         let risky = await Task.detached(priority: .userInitiated) {
             NameNormalizer.scan(nodes: tree, provider: provider)
         }.value

@@ -139,11 +139,18 @@ struct ContentView: View {
     /// one selection now, and a second copy of it would be a second thing to keep in step.
     var selectedLens: TidyLens? { selectedWorkspace.lens }
 
-    /// The width the window's content is currently getting, for the workspace bar's shedding rule.
-    /// Tracked with `.onGeometryChange` rather than a `GeometryReader` writing a preference: this
-    /// fires outside the layout pass, which is what keeps it from re-entering layout and tripping
-    /// the AppKit constraint-loop crash that pattern caused before.
-    @State var contentWidth: CGFloat = 0
+    /// Whether the workspace bar can spell its segments out at the window's current width.
+    ///
+    /// The *style*, not the width. `.onGeometryChange` only calls its action when the transformed
+    /// value changes, so resolving the answer inside the transform means a live window resize
+    /// writes this once — when the labels actually shed — instead of once per frame. Storing the
+    /// raw width invalidated `ContentView.body` on every frame of every drag to answer a question
+    /// whose answer flips maybe twice in a session.
+    ///
+    /// `.onGeometryChange` rather than a `GeometryReader` writing a preference: it fires outside
+    /// the layout pass, which is what keeps a width-driven toolbar from re-entering layout and
+    /// tripping the AppKit constraint-loop crash that pattern caused before.
+    @State var workspaceBarStyle: WorkspaceBarStyle = .iconOnly
 
     /// Per-workspace override of the top-pane visibility, a JSON map (workspace raw value →
     /// hidden). Empty means "no overrides — every workspace uses its default". Persisted, so
@@ -423,12 +430,16 @@ struct ContentView: View {
         // so the window is a single content column — the panes fill the space the sidebar used to take.
         mainContentView
             .frame(minWidth: 600)
-            // Feeds the workspace bar's shedding rule. `.onGeometryChange` and not a
-            // `GeometryReader` writing a preference: this delivers the width *after* layout
-            // settles rather than during it, which is what keeps a width-driven toolbar from
-            // re-entering layout — the failure mode behind the AppKit constraint-loop crash.
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                contentWidth = width
+            // Resolved in the transform, so the action — and the state write behind it — fires
+            // only when the answer changes. See `workspaceBarStyle`. The label widths are measured
+            // rather than tabulated because the app scales its own type (Settings ▸ Text size), and
+            // reading `appFontScale` here means a scale change rebuilds this closure and
+            // re-resolves; a constant would be correct at exactly one setting.
+            .onGeometryChange(for: WorkspaceBarStyle.self) { proxy in
+                WorkspaceBarMetrics.style(contentWidth: proxy.size.width,
+                                          labelWidths: Self.workspaceLabelWidths(scale: appFontScale))
+            } action: { style in
+                workspaceBarStyle = style
             }
             .toolbar { mainToolbar }
         .overlay {

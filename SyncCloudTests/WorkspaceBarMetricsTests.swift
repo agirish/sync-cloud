@@ -70,11 +70,23 @@ import Design
         let one = WorkspaceBarMetrics.fullWidth(labelWidths: [40], separators: 0)
         let two = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 0)
         #expect(two == one + 40 + WorkspaceBarMetrics.segmentChrome + WorkspaceBarMetrics.segmentGap)
+    }
 
-        // And the separator is charged for, so the rule between Compare and the lenses can't
-        // silently overflow the bar it divides.
-        let withRule = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 1)
-        #expect(withRule == two + WorkspaceBarMetrics.separatorWidth)
+    @Test func testTheSeparatorCostsItsOwnGapToo() {
+        // The rule is a child of the same HStack, so adding it adds BOTH its width and one more
+        // spacing gap. Charging only for the width under-measures the bar — the direction that
+        // ships a toolbar claiming to fit when it doesn't, which is the failure with no visible
+        // symptom short of the control vanishing.
+        let without = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 0)
+        let with = WorkspaceBarMetrics.fullWidth(labelWidths: [40, 40], separators: 1)
+        #expect(with == without + WorkspaceBarMetrics.separatorWidth + WorkspaceBarMetrics.segmentGap)
+    }
+
+    @Test func testGapsAreCountedOverChildrenNotSegments() {
+        #expect(WorkspaceBarMetrics.gapWidth(children: 6) == 5 * WorkspaceBarMetrics.segmentGap)
+        // Degenerate inputs must not go negative: one child has no gaps, and neither has none.
+        #expect(WorkspaceBarMetrics.gapWidth(children: 1) == 0)
+        #expect(WorkspaceBarMetrics.gapWidth(children: 0) == 0)
     }
 
     @Test func testAnEmptyBarHasNoWidth() {

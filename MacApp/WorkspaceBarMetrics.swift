@@ -37,8 +37,10 @@ enum WorkspaceBarMetrics {
     static let segmentGap: CGFloat = 4
     /// The container capsule's own inset, both edges.
     static let containerPadding: CGFloat = 6
-    /// The rule that separates Compare from the lens workspaces, plus its margins.
-    static let separatorWidth: CGFloat = 11
+    /// The rule that separates Compare from the lens workspaces: a 1pt `Divider` inside 2×4pt of
+    /// horizontal padding. Its `segmentGap` on either side is NOT in here — it is a child of the
+    /// same `HStack`, so it is counted by the gap term below like any other child.
+    static let separatorWidth: CGFloat = 1 + 8
 
     /// Toolbar width the bar can never have: the traffic lights and their margin, the minimum gap
     /// before the trailing group, and the utility pill (Info, Logs, Settings). Deliberately
@@ -56,16 +58,24 @@ enum WorkspaceBarMetrics {
     static func fullWidth(labelWidths: [CGFloat], separators: Int = 1) -> CGFloat {
         guard !labelWidths.isEmpty else { return 0 }
         let segments = labelWidths.reduce(0) { $0 + $1 + segmentChrome }
-        let gaps = CGFloat(labelWidths.count - 1) * segmentGap
-        return segments + gaps + CGFloat(separators) * separatorWidth + containerPadding
+        return segments + gapWidth(children: labelWidths.count + separators)
+            + CGFloat(separators) * separatorWidth + containerPadding
+    }
+
+    /// The `HStack`'s spacing total. Counted over CHILDREN, not segments: each separator is a
+    /// child too, so a bar of five segments and one rule has six children and five gaps — not
+    /// four. Getting this wrong under-measures the bar, which is the dangerous direction: it
+    /// claims the labels fit when they are a couple of points too wide to.
+    static func gapWidth(children: Int) -> CGFloat {
+        CGFloat(max(0, children - 1)) * segmentGap
     }
 
     /// Width of the bar with every label shed.
     static func iconOnlyWidth(segmentCount: Int, separators: Int = 1) -> CGFloat {
         guard segmentCount > 0 else { return 0 }
         let segments = CGFloat(segmentCount) * iconOnlySegmentWidth
-        let gaps = CGFloat(segmentCount - 1) * segmentGap
-        return segments + gaps + CGFloat(separators) * separatorWidth + containerPadding
+        return segments + gapWidth(children: segmentCount + separators)
+            + CGFloat(separators) * separatorWidth + containerPadding
     }
 
     /// The style a window of this content width can seat.
