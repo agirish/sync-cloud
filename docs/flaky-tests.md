@@ -1,0 +1,179 @@
+# Flaky tests
+
+Tests here have failed for reasons that had nothing to do with the code under test — and each
+time, the failure looked exactly like a real defect. `ColumnPreviewRevealTests` reported "the
+deepest column is hidden behind the preview: column 420…630, visible 0…270", which is the precise
+geometry of the bug it exists to catch. Nothing about that message says *the machine decided this*.
+
+This file records the mechanisms that have actually produced false failures in this repo, how to
+tell one from a regression before you start bisecting, and the fix pattern for each. See
+[ci.md](ci.md) for what CI runs and the runner's own quirks.
+
+---
+
+## First: is it a flake or a regression?
+
+Do these in order. Steps 1–3 cost about a minute and have each been skipped, at least once, in
+favour of a wrong conclusion.
+
+**1. Read the timing, not just the verdict.** A suite that normally finishes in 10s taking 57s is
+the single strongest tell. Condition-based waits give up at their deadline, so a starved test
+*spends* its whole ceiling — 25s or 32s per test — before failing. Real geometry bugs fail
+instantly.
+
+**2. Check what else is running.**
+
+```bash
+uptime                          # load average — anything over ~8 on this Mac is contention
+pmset -g | grep lowpowermode    # 1 = CoreAnimation throttled
+pgrep -fl 'xcodebuild|swift-frontend' | grep -v actions-runner
+git worktree list               # every one of these is a session that may be building
+```
+
+**The self-hosted runner IS this Mac.** A local build competes directly with CI, and there are
+routinely many worktrees open at once — ten, on 2026-08-01, with load peaking above 20. A CI red
+that coincides with your own full-suite run is very likely yours, and not in the way you think.
+
+**3. Run the OLD source under the SAME conditions.** This is the step that settles it, and the one
+easiest to skip. On 2026-08-01 a suite failed 4/4 and CI had been green on the previous commit, so
+the new commit looked guilty. It wasn't:
+
+| Source | Machine | Result |
+|---|---|---|
+| new commit | idle | 573/573 pass, 10s |
+| **previous commit** | **load ~10** | **4 failures, 52s** |
+
+The second row is the whole argument. Without it you are comparing a commit against a *different
+machine state* and calling the difference a regression.
+
+**4. Do not stop at `--filter`.** Passing in isolation proves almost nothing — most of these
+mechanisms need the rest of the suite present to fire. Confirm against the full suite, ideally
+twice.
+
+**5. Never judge `swift test` from piped output.** Under the x64 agent it exits 1 with everything
+passing; `… | tail` masks the real exit code. See [ci.md](ci.md#rosetta-corollary-swift-test-exit-code-lies-under-x86_64).
+
+If steps 1–4 point at the environment, say so *with the evidence* and re-run. If they don't, it's
+your commit — keep going.
+
+---
+
+## Reproducing a load-sensitive failure on purpose
+
+Suspected flakes are worth confirming rather than assumed. Load the machine, run the suite, then
+**verify the load generators actually died** — a leaked spinner poisons every later measurement on
+a machine that also runs CI.
+
+```bash
+for i in $(seq 1 6); do (yes > /dev/null &); done
+uptime
+arch -arm64 swift test --filter <Suite>
+pkill -x yes; pgrep -x yes || echo "clean"
+```
+
+Use CPU spin, not `sleep`, when validating that a timing test can actually fail — a sleeping
+process contends for nothing and proves nothing.
+
+---
+
+## The mechanisms
+
+### 1. The machine decides the verdict — throttled CoreAnimation
+
+**Symptom.** A view test asserting a scroll offset, a caret, or any animated end state fails with
+the start state, having burned its full wait. Passes when someone is at the machine; fails on
+pushes made overnight.
+
+**Mechanism.** The tests mount an offscreen, never-key `NSWindow`. When the display sleeps — or in
+Low Power Mode on battery — CoreAnimation stops ticking for it, so a `withAnimation` never
+advances and the `scrollTo` inside it never lands. Measured on one commit, one build: 6/6 pass with
+the display awake, 5/6 fail with it asleep. Heavy CPU load starves it the same way.
+
+**Fix.** Take the animation from the environment and let the test inject `nil`. Note the trap:
+a harness-level `.transaction { $0.animation = nil }` **loses** to an explicit `withAnimation` at
+the state change, so the nil has to be where that call reads it.
+
+**See.** `92e2bdf` — *Decide the column reveal's tests by the code, not the machine's power state*;
+`Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.
+
+### 2. Fixed pumps and fixed sleeps
+
+**Symptom.** Passes under `--filter`, fails in the full suite. Flake rate drifts between batches
+rather than sitting at a stable percentage.
+
+**Mechanism.** A fixed window is ample on an idle machine and nowhere near enough when several
+hundred tests contend for the main thread. Worse, a fixed sleep *before* an absence assertion makes
+it vacuous — "nothing happened" is indistinguishable from "it hasn't happened yet", and the test
+passes for the wrong reason forever.
+
+**Fix.** Wait for the movement you expect *first*, then wait out its animation. Poll a real
+observable, and drain queue **turns** rather than wall time. Quiescence alone is never sufficient:
+it cannot tell "finished" from "not started".
+
+**See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
+`3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*.
+
+### 3. Process-wide state, and suites running in parallel
+
+**Symptom.** A suite fails only when a specific other suite runs; two suites pass alone and fail
+together; a test observes a change it never made.
+
+**Mechanism.** Static caches, memos, and `UserDefaults` are process-wide, and swift-testing runs
+suites in parallel by default. The sharpest edge: **`@AppStorage` notifies by key *name*,
+process-wide.** `.defaultAppStorage` isolates the stored *values*, not the change *events* — so a
+write in one suite fires another suite's `onChange` driver even with separate suites.
+
+**Fix.** `@Suite(.serialized)` on anything that writes process-wide state, with the reason in the
+doc comment — there are 28 of them, and each says why it needs it. For values, use a per-mount
+scratch defaults suite rather than the standard domain.
+
+**See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;
+`Modules/FileExplorer/Tests/FileExplorer/CloudOnlyBadgeCacheTests.swift` for the shape of the note.
+
+### 4. Leaked defaults suites
+
+**Symptom.** Not a failure — accumulating `<SuiteName>-<UUID>.plist` files in
+`~/Library/Preferences`, and occasionally a test reading a previous run's value.
+
+**Mechanism.** A defaults suite outlives the test that made it; `cfprefsd` rewrites the backing
+plist after the process exits.
+
+**Fix.** Tear the suite down *and* delete its backing plist; record every wiped suite in the
+ledger. The residue is bounded and self-clearing — the count oscillates rather than growing — so
+measure across several runs before concluding the mechanism is broken.
+
+**See.** `8c46d65` — *Delete the backing plist when a test's scratch defaults suite is torn down*;
+`5b495f7` — *Record every wiped defaults suite in the ledger, not just ScratchDefaults'*.
+
+### 5. Tests racing a real-time window
+
+**Symptom.** Fails near a boundary — a freshness cutoff, a recency window — and only sometimes.
+
+**Mechanism.** The test races wall-clock time it does not control. Unwinnable by construction.
+
+**Fix.** Inject the instant (`at:` / `now:`) so the window is a value, not a race.
+
+### 6. Load-scaled benchmarks
+
+**Symptom.** A timing assertion fails on a busy machine and passes on an idle one.
+
+**Mechanism.** An absolute threshold encodes the machine it was written on.
+
+**Fix.** Retune from the test's own printed measurement rather than guessing, and validate that the
+assertion can fail using CPU spin — never `sleep`.
+
+---
+
+## When you fix one
+
+**Mutation-test it.** Re-introduce the defect and confirm the test fails on the exact value you
+expect. A test written against a flake is especially prone to passing for the wrong reason: on
+2026-08-01 a cancellation test passed under mutation because it exercised an opt-out path and never
+reached the cancellation it claimed to cover. Re-run the mutation *after* writing the test, not
+before.
+
+If the invariant is only reachable through a race, make the trigger injectable rather than trying
+to stage the race. A guarded rename is worth a seam.
+
+**Do not race a concurrent session.** Check `git worktree list` and recent commits touching the
+file first. Two sessions rewriting one test harness is worse than the flake.
