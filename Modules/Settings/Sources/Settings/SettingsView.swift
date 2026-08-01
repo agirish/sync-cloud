@@ -433,10 +433,10 @@ struct GeneralSettingsTab: View {
     /// The login item is registered but awaits the user's consent in System Settings →
     /// Login Items; shown distinctly so a pending approval doesn't read as a broken toggle.
     @State private var loginItemNeedsApproval = false
-    /// The last toggle value known to match the actual service state. `onChange` skips
-    /// values equal to it, so programmatic sets (the initial `.task` read, a failure
-    /// revert) don't trigger another register/unregister round-trip.
-    @State private var lastAppliedLaunchAtLogin: Bool?
+    /// Tells a user's flip apart from the echo of a programmatic set, and decides what a
+    /// finished round-trip owes the user — see `LoginItemEchoGuard`, where the whole state
+    /// machine lives so it can be tested without an SMAppService round-trip.
+    @State private var loginItemEcho = LoginItemEchoGuard()
     @AppStorage(GeneralSettings.showHiddenByDefaultKey) private var showHiddenByDefault: Bool = false
     @AppStorage(GeneralSettings.warnBeforeQuitKey) private var warnBeforeQuit: Bool = true
     @AppStorage(GeneralSettings.restoreLastFocusKey) private var restoreLastFocus: Bool = true
@@ -452,7 +452,7 @@ struct GeneralSettingsTab: View {
             SettingsSection {
                 Toggle("Launch SyncCloud at login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, enabled in
-                        guard enabled != lastAppliedLaunchAtLogin else { return }
+                        guard loginItemEcho.isGesture(enabled) else { return }
                         updateLoginItem(enabled)
                     }
             } caption: {
@@ -546,13 +546,20 @@ struct GeneralSettingsTab: View {
         }
     }
 
-    /// Publishes a freshly read service status to the view state. Setting
-    /// `lastAppliedLaunchAtLogin` in the same main-actor turn as the toggle keeps `onChange`
-    /// from treating the programmatic set as a user gesture (initial read, failure revert).
+    /// Publishes just the approval hint, leaving the toggle where the user put it. Used when a
+    /// failing round-trip's status re-read is the freshest thing we know but the toggle has
+    /// already moved on — `applyLoginItemState` would overwrite that move.
+    private func applyApprovalHint(_ status: SMAppService.Status) {
+        loginItemNeedsApproval = (status == .requiresApproval)
+    }
+
+    /// Publishes a freshly read service status to the view state. Marking the value applied in
+    /// the same main-actor turn as the toggle keeps `onChange` from treating the programmatic
+    /// set as a user gesture (initial read, failure revert).
     private func applyLoginItemState(_ status: SMAppService.Status) {
         launchAtLogin = (status == .enabled || status == .requiresApproval)
         loginItemNeedsApproval = (status == .requiresApproval)
-        lastAppliedLaunchAtLogin = launchAtLogin
+        loginItemEcho.markApplied(launchAtLogin)
     }
 
     /// Registers/unregisters the login item, reverting the toggle to the real service state on
@@ -561,33 +568,32 @@ struct GeneralSettingsTab: View {
         Task {
             do {
                 let needsApproval = try await Self.applyLoginItemOffMain(enabled)
-                lastAppliedLaunchAtLogin = enabled
+                let followUp = loginItemEcho.settle(applied: enabled, toggle: launchAtLogin, succeeded: true)
                 loginItemNeedsApproval = needsApproval
                 if needsApproval {
                     Logger.shared.info("Login item registered; awaiting user approval in Login Items settings")
                 }
-                // The toggle can move again while the round-trip is in flight; that flip's
-                // onChange compared against the OLD lastApplied value and was suppressed, so
-                // apply the latest position now that the echo marker is up to date.
-                if launchAtLogin != enabled {
-                    updateLoginItem(launchAtLogin)
-                }
+                perform(followUp, status: nil)
             } catch {
                 Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
                 let status = await Self.readStatusOffMain()
-                // Mirror the success path's re-read: the toggle can move while the failing
-                // round-trip is in flight, and that flip's onChange compared against the stale
-                // `lastApplied` marker and was suppressed. `applyLoginItemState` would overwrite
-                // the flip with the service's state and mark it applied — silently discarding a
-                // gesture — so when the toggle moved, apply ITS position instead; revert to the
-                // real state only when nothing moved.
-                if launchAtLogin != enabled {
-                    loginItemNeedsApproval = (status == .requiresApproval)
-                    updateLoginItem(launchAtLogin)
-                } else {
-                    applyLoginItemState(status)
-                }
+                let followUp = loginItemEcho.settle(applied: enabled, toggle: launchAtLogin, succeeded: false)
+                perform(followUp, status: status)
             }
+        }
+    }
+
+    /// Carries out what `LoginItemEchoGuard.settle` decided. `status` is the freshly re-read
+    /// service status, available only on the failure path.
+    private func perform(_ followUp: LoginItemFollowUp, status: SMAppService.Status?) {
+        switch followUp {
+        case .settled:
+            break
+        case .adoptServiceState:
+            if let status { applyLoginItemState(status) }
+        case .reapply(let value, let refreshApprovalHint):
+            if refreshApprovalHint, let status { applyApprovalHint(status) }
+            updateLoginItem(value)
         }
     }
 
