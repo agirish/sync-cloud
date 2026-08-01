@@ -53,7 +53,8 @@ import Testing
     /// Appearance's 634pt tab scrolls even at the default text size. So what is pinned here is
     /// "a 1280×800 display with the Dock hidden or side-parked", not "a 1280×800 display".
     /// Trimming the tab for the smallest configuration conceivable was rejected — the fix for a
-    /// bottom-Dock user is the scroll fallback.
+    /// bottom-Dock user is the scroll fallback, which `residualOverflowIsAbsorbedByScrolling`
+    /// checks degrades gracefully.
     private static let smallDisplayWindow = CGSize(width: 1280, height: 800 - 24 - 36)
 
     /// The margin Appearance has left at one text size against a chosen accent hue, measured
@@ -195,6 +196,60 @@ import Testing
         let clamped = appearanceMargin(hue: hue, at: 1, available: Self.smallDisplayWindow)
         #expect(clamped >= 0,
                 "Appearance overflows a 1280×800 display's clamped opening by \(-clamped)pt with the \(rawValue) accent.")
+    }
+
+    /// The clamped opening at every TEXT SIZE — the case `appearanceFitsEveryTextSize` cannot
+    /// cover, because it passes `available: nil` and so measures Larger against a 910pt sheet
+    /// that a 1280×800 display can never produce. That is vacuous for exactly the configuration
+    /// the clamped-opening work was about.
+    ///
+    /// **The honest measured result, and the one place the residual is recorded.** On a 1280×800
+    /// display (Dock hidden or side-parked, per `smallDisplayWindow`) Appearance fits at Small
+    /// and at the Default text size, and does NOT fit at Large (~10pt over) or Larger (~55pt
+    /// over). This is a floor, not a bug to trim away: the sheet is capped at ~692pt by the
+    /// display while the tab's type grows 15–30%, so closing a 55pt gap would mean deleting
+    /// controls, and both of the alternatives are worse — a sheet sized for this case would
+    /// carry dead air on every normal display (which is the defect `baseSize` was just bounded
+    /// against), and `floorSize` cannot help because the clamp comes from the window, not the
+    /// floor. Large text on a small display genuinely has less room; scrolling is the correct
+    /// degradation and `SettingsPage` already does it.
+    ///
+    /// Written as a boundary rather than a one-sided assertion so it stays honest in both
+    /// directions: if a trim ever makes Large fit, this fails and asks for the note above to be
+    /// updated, and if Default ever stops fitting it fails loudly.
+    @MainActor
+    @Test func theClampedOpeningFitsTheSmallerTextSizesOnly() async throws {
+        let fitting = FontSize.allCases.filter { size in
+            let height = laidOutHeight(AppearanceSettingsTab(),
+                                       width: SettingsSheetMetrics.contentWidth(textScale: size.scale,
+                                                                                available: Self.smallDisplayWindow),
+                                       scale: size.scale)
+            return height <= SettingsSheetMetrics.contentOpening(textScale: size.scale,
+                                                                 available: Self.smallDisplayWindow)
+        }
+
+        #expect(fitting == [.small, .medium],
+                "Appearance fits a 1280×800 display at \(fitting.map(\.displayName)) — the residual recorded on this test is out of date.")
+    }
+
+    /// The residual degrades by SCROLLING, not by clipping — the thing a fit test cannot say.
+    ///
+    /// `SettingsPage` is a `ScrollView`, so content taller than its opening scrolls. What could
+    /// still go wrong is the sheet itself outgrowing the window, which would put the overflow
+    /// behind the screen edge where no scroll gesture reaches it. `resolvedSize` is what
+    /// prevents that, at every text size, on the display where the overflow actually happens.
+    @Test func residualOverflowIsAbsorbedByScrolling() {
+        for size in FontSize.allCases {
+            let sheet = SettingsSheetMetrics.resolvedSize(textScale: size.scale,
+                                                          available: Self.smallDisplayWindow)
+
+            #expect(sheet.height <= Self.smallDisplayWindow.height,
+                    "at \(size.displayName) the sheet is \(sheet.height)pt in a \(Self.smallDisplayWindow.height)pt window — the overflow is off-screen, not scrollable.")
+            #expect(sheet.width <= Self.smallDisplayWindow.width)
+            #expect(SettingsSheetMetrics.contentOpening(textScale: size.scale,
+                                                        available: Self.smallDisplayWindow) > 0,
+                    "at \(size.displayName) the title row has eaten the whole sheet.")
+        }
     }
 
     /// The rule the case above rests on, stated directly so a regression names the cause rather
