@@ -1004,14 +1004,23 @@ public class FileSyncManager: ObservableObject {
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.
     public var activeFileOperationsCount = 0
-    /// Monotonic count of file operations ever STARTED. Bumped alongside every
-    /// `activeFileOperationsCount` increment and never decremented, so a long async pass can
-    /// tell that an operation ran even when it started AND finished during the pass —
+    /// Monotonic count of file operations ever STARTED, and never decremented, so a long async
+    /// pass can tell that an operation ran even when it started AND finished during the pass —
     /// re-checking `activeFileOperationsCount == 0` alone cannot see that window. The scan-time
     /// checksum pass captures this at entry and discards its batch if it moved by commit time.
+    ///
+    /// Bumped in `enqueueFileOperation`, NOT alongside `activeFileOperationsCount` — the two
+    /// deliberately move at different moments. The count moves at PRE-count time because the
+    /// quit guard and the hashing exclusions must treat a pending transfer as in flight while
+    /// its confirmation prompt is up. The epoch may not: a declined prompt runs no I/O, yet the
+    /// bump cannot be taken back (that is the point of a monotonic counter), so bumping it there
+    /// voided the whole auto-verify batch for an operation that never happened — and since
+    /// nothing ran, nothing sent `refreshSubject`, so no rescan re-ran the pass and those rows
+    /// stayed listed as differences until a manual rescan.
     internal private(set) var fileOperationsEpoch = 0
 
-    /// Records that a file operation began (see `fileOperationsEpoch`).
+    /// Records that a file operation is about to run (see `fileOperationsEpoch`). Called from
+    /// `enqueueFileOperation` only — every path that touches the disk goes through it.
     private func noteFileOperationBegan() {
         fileOperationsEpoch += 1
     }
@@ -1113,12 +1122,16 @@ public class FileSyncManager: ObservableObject {
     /// there is shared and unconditional.
     public func preCountFileOperation() {
         activeFileOperationsCount += 1
-        noteFileOperationBegan()
     }
 
     /// Reverts a `preCountFileOperation()` whose operation will never be enqueued — the user
     /// declined its confirmation prompt. Only for that pairing: operations that DID enqueue
     /// are decremented by `enqueueFileOperation`'s unconditional completion handler.
+    ///
+    /// There is nothing to revert on the epoch side, and that is the point: a monotonic counter
+    /// cannot be un-bumped, so the pre-count deliberately leaves it alone and the bump happens
+    /// at enqueue time instead. A declined prompt therefore leaves no trace at all, which is
+    /// correct — nothing was read and nothing was written.
     public func cancelPreCountedFileOperation() {
         activeFileOperationsCount = max(0, activeFileOperationsCount - 1)
     }
@@ -1132,11 +1145,13 @@ public class FileSyncManager: ObservableObject {
         alreadyCounted: Bool = false,
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
-        if !alreadyCounted {
-            await MainActor.run {
-                self.activeFileOperationsCount += 1
-                self.noteFileOperationBegan()
-            }
+        // The epoch moves HERE, unconditionally — this is the last point before the work is
+        // queued, and every mutating path in the app reaches the disk through this call. The
+        // count moves here only when the caller didn't already pre-count it (see
+        // `preCountFileOperation`, which deliberately runs earlier).
+        await MainActor.run {
+            if !alreadyCounted { self.activeFileOperationsCount += 1 }
+            self.noteFileOperationBegan()
         }
 
         let previousTask = fileOperationTask
