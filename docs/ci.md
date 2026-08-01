@@ -48,13 +48,45 @@ re-record workflow in `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`.
 
 ## Per-commit verdicts
 
-`concurrency.cancel-in-progress` is **false**: every push gets its own run
-instead of newer pushes cancelling older ones. On the single self-hosted
-runner the runs serialize, so a burst of close landings each land a green/red
-verdict and a break is bisectable to the exact SHA — which matters because
-commits here get audited. A run is ~3.5 min on our own hardware, so the cost
-is negligible; if a long burst ever backs the queue up, cancel stale runs
-with `gh run cancel <id>`.
+The concurrency group is **per (ref, commit)** — `tests-${{ github.ref }}-${{
+github.sha }}` — with `cancel-in-progress: false`. Both halves are load-bearing,
+and they cover different cases:
+
+- `cancel-in-progress: false` stops a newer push from killing a run that has
+  already **started**.
+- The **SHA in the group key** stops a newer push from evicting a run that has
+  **not started yet**. `cancel-in-progress` does not cover this: GitHub Actions
+  holds at most one *pending* run per group, so under a ref-wide group a third
+  push cancels the queued second one before it ever creates a job.
+
+Grouping by ref alone therefore dropped verdicts silently. During a burst of
+landings on 2026-08-01, v2.x `389b38fb` (run 30718845541) and `234e4312` (run
+30718896990), plus main `957e173d` (run 30718657891), were all cancelled with
+**zero jobs created**, each one second after the next push to the same branch —
+while the branch still read green because a later SHA passed. `gh run rerun`
+could not rescue them: for ~40 min each re-queued attempt lost the single
+pending slot to the next push again. Note the two symptoms that identify this
+rather than a `cancel-in-progress` cancellation: the run has **no jobs at all**
+(`gh api repos/{owner}/{repo}/actions/runs/<id>/jobs --jq .total_count` → `0`),
+and runs that had already started sailed through the same burst untouched.
+
+With per-commit groups no run can evict another, so a burst of close landings
+each land a green/red verdict and a break is bisectable to the exact SHA — which
+matters because commits here get audited. Serialization is the **runner's** job,
+not the concurrency group's: only one self-hosted runner exists, so a dispatched
+run's job waits `queued` until it frees up. A run is ~4-7 min of runner time
+(median ~5), so the per-commit cost is acceptable on our own hardware; wall-clock
+during a burst is much longer because of that queue. If a long burst ever backs
+the queue up, cancel stale runs with `gh run cancel <id>` — deliberately, per
+SHA, so you know which commits you gave up a verdict for.
+
+Verifying a push means checking the run for **that exact SHA**, not the branch:
+
+```sh
+gh run list --commit <sha> --workflow tests.yml
+```
+
+A SHA with no run at all is as bad as a red one.
 
 ## Runner
 

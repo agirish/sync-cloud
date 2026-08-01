@@ -22,13 +22,38 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# Every commit gets its own verdict: bursts of landings queue and run
-# sequentially on the single self-hosted runner rather than cancelling each
-# other, so a break is bisectable to the exact SHA. A run is ~3.5 min and the
-# runner is our own hardware, so per-commit cost is negligible. (If a long
-# burst ever backs the queue up, cancel stale runs with `gh run cancel`.)
+# One concurrency group per (ref, commit), and nothing is ever cancelled.
+#
+# The SHA has to be in the key. `cancel-in-progress: false` protects only a run
+# that has already dispatched a job; GitHub Actions separately holds at most
+# ONE *pending* run per group. So under a ref-wide group, with one run in
+# progress and one pending, the next push evicts the pending one before it ever
+# creates a job — no verdict, and the branch still reads green because a later
+# SHA passed. Observed 2026-08-01 during a burst of landings, on both lines:
+# v2.x 389b38fb (run 30718845541) and 234e4312 (run 30718896990), and main
+# 957e173d (run 30718657891), all ended `cancelled` with ZERO jobs created,
+# each one second after the next push into its group. `gh run rerun` could not
+# rescue them — over ~40 min every re-queued attempt lost the single pending
+# slot to the next push again.
+#
+# With a per-commit group no run can evict another, so every commit gets its own
+# verdict and a break is bisectable to the exact SHA — which matters because
+# commits here get audited. Bursts still run one at a time, but that is the
+# RUNNER serializing them, not this group: there is one self-hosted runner, so a
+# dispatched run's job simply sits `queued` until it frees up (run 30718745600
+# waited 8 min that day). A run is ~4-7 min of runner time, so per-commit cost
+# stays acceptable on our own hardware, though wall-clock during a burst is much
+# longer. (If a long burst backs the queue up, cancel stale runs with
+# `gh run cancel <id>` — deliberately, per SHA.)
+#
+# The ref stays in the key so a release tag never shares a group with the branch
+# push at the same commit: cutting v2.9 or v3.0 must get its own verdict. No
+# event here wants cancellation, so `cancel-in-progress` is false for all of
+# them, stated explicitly rather than left to the default. The only requests
+# that can still evict one another are repeats of an identical (ref, SHA) — same
+# checkout, same verdict — so nothing is lost.
 concurrency:
-  group: tests-${{ github.ref }}
+  group: tests-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
