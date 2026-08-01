@@ -112,4 +112,66 @@ import Foundation
 
         #expect(CloudOnlyBadgeCache.cached(path) == false)
     }
+
+    // MARK: - Root-scoped clear (C11)
+
+    /// The reason `clear(underRoot:)` exists: one pane's republish must not wipe the answers the
+    /// OTHER pane's rows are still serving from.
+    @MainActor
+    @Test func aScopedClearDropsOnlyEntriesUnderItsRoot() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/left/sub/b.bin", isCloudOnly: false)
+        CloudOnlyBadgeCache.record("/right/c.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/left")
+
+        #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == nil)
+        #expect(CloudOnlyBadgeCache.cached("/left/sub/b.bin") == nil)
+        // The other pane's memo survives — the entire point of the scoping.
+        #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == true)
+    }
+
+    /// Prefix semantics are per path component: `/a/bc` is NOT under `/a/b`, and a character-wise
+    /// `hasPrefix(root)` would have said it was.
+    @MainActor
+    @Test func aScopedClearDoesNotMatchSiblingsSharingACharacterPrefix() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/a/bc", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/a/b/child.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/a/b", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/a/b")
+
+        #expect(CloudOnlyBadgeCache.cached("/a/bc") == true)          // sibling survives
+        #expect(CloudOnlyBadgeCache.cached("/a/b/child.bin") == nil)  // descendant dropped
+        #expect(CloudOnlyBadgeCache.cached("/a/b") == nil)            // the root itself dropped
+    }
+
+    /// A root handed in with a trailing separator scopes identically to one without.
+    @MainActor
+    @Test func aScopedClearNormalizesATrailingSeparator() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/root/x.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/rootling/y.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/root/")
+
+        #expect(CloudOnlyBadgeCache.cached("/root/x.bin") == nil)
+        #expect(CloudOnlyBadgeCache.cached("/rootling/y.bin") == true)
+    }
+
+    /// A scoped clear preserves the generation semantics: a stat in flight when it lands must not
+    /// memoize its now-stale answer — same contract as the whole-table `clear()`.
+    @MainActor
+    @Test func aStatSpanningAScopedClearIsNotMemoized() async {
+        CloudOnlyBadgeCache.clear()
+        let path = "/scoped/spanning.bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(
+            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.clear(underRoot: "/scoped") })
+
+        #expect(answer)
+        #expect(CloudOnlyBadgeCache.cached(path) == nil)
+    }
 }

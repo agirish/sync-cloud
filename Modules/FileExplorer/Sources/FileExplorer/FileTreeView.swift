@@ -302,7 +302,9 @@ public struct FileTreeView: View, Equatable {
                 // A republish is the moment every other fact on a row is refreshed, so it is the
                 // moment the cloud-only memo stops being allowed to speak for them too. `PaneTree`
                 // compares by publish stamp, so this fires once per publish rather than per render.
-                .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear() }
+                // Scoped to this pane's root: the memo is process-wide, and an unscoped clear wiped
+                // the answers the OTHER pane's rows were still relying on.
+                .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: currentPath) }
 
             switch emptyState {
             case .none:

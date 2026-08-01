@@ -60,9 +60,32 @@ enum CloudOnlyBadgeCache {
         generation &+= 1
     }
 
-    /// Drops everything. Called when a pane republishes its tree.
+    /// Drops everything. For callers with no root to scope by; a pane republish should use
+    /// `clear(underRoot:)` instead.
     static func clear() {
         known.removeAll(keepingCapacity: true)
+        generation &+= 1
+    }
+
+    /// Drops every entry at or under `root`. Called when a pane republishes its tree: the memo is
+    /// process-wide but a republish refreshes only THAT pane's rows, so a whole-table `clear()`
+    /// there wiped the answers the other pane's rows were still serving from — every republish on
+    /// one side re-statted the other side's visible rows for nothing.
+    ///
+    /// Prefix match is per path COMPONENT, not per character: the entry for `/a/bc` must survive a
+    /// clear under `/a/b`, so the comparison appends the separator before matching (and keeps the
+    /// exact-root case, for completeness — only files are recorded, but the memo should not know
+    /// that).
+    ///
+    /// The generation still bumps, exactly as `clear()`'s does: a stat in flight for a path under
+    /// this root must not re-adopt the answer this clear just threw away. That the bump also stops
+    /// an in-flight stat under the OTHER root from memoizing is deliberate over-invalidation — one
+    /// counter, one rare repeated `lstat`, no per-root bookkeeping to get wrong (the same trade
+    /// `forget(_:)` already makes for other paths).
+    static func clear(underRoot root: String) {
+        let exact = root.hasSuffix("/") ? String(root.dropLast()) : root
+        let prefix = exact + "/"
+        known = known.filter { !($0.key == exact || $0.key.hasPrefix(prefix)) }
         generation &+= 1
     }
 
