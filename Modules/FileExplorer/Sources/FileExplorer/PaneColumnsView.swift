@@ -86,6 +86,11 @@ struct PaneColumnsView: View {
     /// `revealDeepestColumn`.
     static let revealRetryDelay: TimeInterval = 0.25
 
+    /// The animation `revealDeepestColumn` scrolls with. Defaults to the shipped ease, so every
+    /// window that does not opt out scrolls exactly as it always did — see
+    /// `paneColumnRevealAnimation`.
+    @Environment(\.paneColumnRevealAnimation) private var revealAnimation
+
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var columnWidth: CGFloat {
         PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
@@ -351,10 +356,14 @@ struct PaneColumnsView: View {
     /// refuses a preview unless a full column fits beside it, and `previewPaneWidth` caps the
     /// preview at the pane minus one column, so the stack's viewport is never narrower than
     /// `columnWidth`.
+    /// The animation is taken from the environment rather than written here so a host that cannot
+    /// run one can say so — see `paneColumnRevealAnimation`. Read once, before the closure, so both
+    /// attempts scroll with the value this update carried.
     private func revealDeepestColumn(_ proxy: ScrollViewProxy, path: PaneBrowsePath) {
         guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
+        let animation = revealAnimation
         func scroll() {
-            withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
+            withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
         }
         DispatchQueue.main.async(execute: scroll)
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay, execute: scroll)
@@ -769,5 +778,58 @@ struct ColumnRowView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+}
+
+// MARK: - Reveal animation
+
+private struct PaneColumnRevealAnimationKey: EnvironmentKey {
+    /// What `revealDeepestColumn` has always scrolled with. The default is the shipped behaviour,
+    /// so nothing that does not deliberately opt out changes at all.
+    static let defaultValue: Animation? = .easeOut(duration: 0.18)
+}
+
+extension EnvironmentValues {
+    /// The animation `PaneColumnsView` scrolls its deepest-column reveal with, or `nil` to place
+    /// the stack outright.
+    ///
+    /// This exists for hosts where CoreAnimation does not tick. A SwiftUI animation only advances
+    /// while something is driving frames, and the app's window always is — it is on screen and
+    /// key, so the reveal eases across in 0.18s exactly as designed. An OFFSCREEN, never-key
+    /// `NSWindow` is not: when the machine throttles CoreAnimation, the animation never advances,
+    /// the clip's `bounds.origin.x` sits at 0 forever, and the deepest column stays behind the
+    /// preview. Two conditions do that throttling, both of them properties of the machine rather
+    /// than of any code:
+    ///
+    /// - the display being asleep, which is the *normal* state of an unattended self-hosted CI
+    ///   runner, and
+    /// - Low Power Mode on battery.
+    ///
+    /// Measured on one commit, one clean build, with no source change between the columns:
+    ///
+    /// | | CoreAnimation ticking | throttled |
+    /// |---|---|---|
+    /// | `ColumnPreviewRevealTests` | 6/6 pass in 4.7s | **5/6 fail** |
+    ///
+    /// The failures are the reveal's own numbers — a 690pt pane narrows to 270 with the deepest
+    /// column stranded at 420…630 — i.e. indistinguishable from the defect those tests were
+    /// written to catch. Machine state, not code, decided the verdict, so any push made while
+    /// nobody was at the machine read as red.
+    ///
+    /// **An ambient override cannot fix this, and that is why the injection point is here.** A
+    /// host applying `.transaction { $0.animation = nil }` loses: an explicit `withAnimation` at
+    /// the state change wins over the ambient transaction, which is the whole point of
+    /// `withAnimation`. The animation has to be absent at the call itself, so the call has to be
+    /// able to read that it should be.
+    ///
+    /// What a `nil` host gives up is only the easing. `scrollTo`'s DESTINATION — the thing every
+    /// one of those tests measures — is resolved identically either way; unanimated, the stack is
+    /// simply already there when the transaction commits. The reveal's real risks are all in that
+    /// destination (which column, against which viewport width, after which layout pass), and a
+    /// `nil` host still exercises every one of them, including the twice-issued attempt that
+    /// exists because a too-early `scrollTo` is silently dropped.
+    var paneColumnRevealAnimation: Animation? {
+        get { self[PaneColumnRevealAnimationKey.self] }
+        set { self[PaneColumnRevealAnimationKey.self] = newValue }
     }
 }

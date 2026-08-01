@@ -28,8 +28,26 @@ import Sync
 /// 420pt, so a shallow stack stays wholly visible and the missing scroll driver never shows;
 /// half a window does not. Pin both, so the rail cannot quietly regress the day someone drills
 /// one column deeper than this fixture does.
+/// **`.serialized` is load-bearing, not tidiness.** Two tests here assert a stack STAYS where the
+/// user put it, and two others commit a new `columnWidthDefaultsKey` / `previewColumnWidthDefaultsKey`
+/// — the very preferences whose change fires a reveal in every pane. Those keys are process-wide by
+/// design (the app has one domain and all panes share it, which is what the drivers on those keys
+/// are for), and `@AppStorage` delivers their change notification by KEY NAME across stores: a
+/// write into one test's `ScratchDefaults` re-evaluates the same key in every other pane alive in
+/// the process, `.defaultAppStorage` isolation notwithstanding. Traced directly — one write raised
+/// a single burst of driver fires spanning three panes here plus one in `ColumnPreviewLayoutTests`,
+/// whose tree root is a temp directory and whose store is a different UUID suite entirely.
+///
+/// Run in parallel, then, a widening test's commit lands inside an absence test's observation
+/// window and reveals ITS stack to the far end — `testAPreviewWidthCommitLeavesAPreviewlessPaneAlone`
+/// to exactly its 150pt extent, `testClosingThePreviewLeavesAScrolledBackStackWhereItWas` to its
+/// 570pt one. That was already flaking before this trait existed (1 full-suite run in 4), and it is
+/// a property of the harness, not of the pane: in the app those cross-pane fires are correct.
+///
+/// The cost is real and worth it: serialized, this suite becomes the FileExplorer target's critical
+/// path and takes it from ~11s to ~32s. The 11s was buying a 1-in-4 flake.
 @MainActor
-@Suite struct ColumnPreviewRevealTests {
+@Suite(.serialized) struct ColumnPreviewRevealTests {
 
     private struct StubDelegate: FileActionDelegate {
         func handleRefresh() {}
@@ -110,6 +128,25 @@ import Sync
             // the test process's standard domain by another suite would decide this test's
             // geometry — a stored `false` makes every assertion below vacuously true.
             .defaultAppStorage(defaults)
+            // Place the reveal outright instead of easing it across. Not a speed-up: this window
+            // is offscreen and never key, so whenever the machine throttles CoreAnimation — the
+            // display asleep, or Low Power Mode on battery — a SwiftUI animation in it NEVER
+            // advances, and the reveal's scroll never lands at all. Measured on one commit with
+            // the shipped ease: 6/6 here with the display awake, 5/6 FAILING with it asleep,
+            // reporting the exact geometry of the defect these tests exist to catch (deepest
+            // column 420…630, viewport 0…270). An unattended self-hosted runner sleeps its
+            // display by definition, so that is CI's normal state — which made the verdict a
+            // property of the machine rather than of the code.
+            //
+            // This is the injection the ambient lever cannot do: `.transaction { $0.animation =
+            // nil }` here is beaten by the explicit `withAnimation` at the state change inside
+            // `revealDeepestColumn`, so the animation has to be nil where that call reads it.
+            //
+            // It costs these tests nothing they were measuring. Every assertion below is about
+            // WHERE the scroll lands, never how it travels, and `scrollTo` resolves the same
+            // destination against the same post-layout viewport either way — including through
+            // the deferred hop and the retry, both of which still run.
+            .environment(\.paneColumnRevealAnimation, nil)
         }
     }
 

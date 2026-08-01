@@ -81,6 +81,19 @@ import Sync
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
+            // Place the drill's reveal outright rather than easing it across — see
+            // `EnvironmentValues.paneColumnRevealAnimation`. This window is offscreen and never
+            // key, so with the display asleep (an unattended CI runner's normal state) or in Low
+            // Power Mode on battery, a SwiftUI animation in it never advances and the reveal's
+            // scroll never lands.
+            //
+            // `testTheMountedStackAtRestIsLeftAlone` is the one that cares, and it stayed GREEN
+            // while that happened, which is worse than failing: its premise is a stack resting at
+            // the far end after the drill's reveal, and with the reveal inert it spun its 15s
+            // wait out and then asserted about a stack resting at x=0 instead — a different, much
+            // weaker claim, at 15s of CI wall clock apiece. It now requires the reveal it waits
+            // for, so the premise cannot go missing quietly again.
+            .environment(\.paneColumnRevealAnimation, nil)
         }
     }
 
@@ -196,12 +209,18 @@ import Sync
         // drill's scroll, not the watchdog. The extent is recomputed per pass because layout can
         // land late too.
         let revealDeadline = Date().addingTimeInterval(15)
+        var revealed = false
         while Date() < revealDeadline {
             let extent = max(0, (stack.documentView?.frame.width ?? 0) - stack.contentSize.width)
-            if extent > 0, clip.bounds.origin.x >= extent - 1 { break }
+            if extent > 0, clip.bounds.origin.x >= extent - 1 { revealed = true; break }
             window.layoutIfNeeded()
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
+        // Required, not merely waited for. Falling out of that loop leaves the stack at x=0, where
+        // the origin is legal and the watchdog has nothing to do — so the assertion below would
+        // hold no matter how the watchdog behaved at the far end this test means to probe.
+        try #require(revealed,
+                     "the drill's reveal never reached the stack's far end (origin \(clip.bounds.origin.x)) — the rest below is not the rest this test is about")
 
         // Then for genuine rest: a baseline read while anything still moves fails this test
         // against that movement. Rest = the origin holding still for a full second.
