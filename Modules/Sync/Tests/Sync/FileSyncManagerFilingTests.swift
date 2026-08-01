@@ -789,6 +789,96 @@ final class Flag: @unchecked Sendable { var value = false }
         #expect(best?.newSegments == ["Fresh"])
     }
 
+    /// The cached existing/taxonomy folder sets used to be read on BOTH sides of the classifier
+    /// await; a Filing scan of another provider (or `clearFiling()`) during the round-trip swaps
+    /// or empties them, and labeling the verdict against the swapped set marks every segment new
+    /// — so the "Creates N new folders." confirmation lies. The verdict must be labeled against
+    /// the sets snapshotted at the same pre-await point where the provider root was validated.
+    @MainActor
+    @Test func tryAnotherFolderLabelsVerdictAgainstPreAwaitSnapshot() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        manager.filingClassifier = { _, files in
+            // Another provider's scan lands while the classifier is out: it overwrites every
+            // cached set (clearFiling would empty them — same failure shape).
+            await MainActor.run {
+                manager.filingLastProviderRoot = "/other"
+                manager.filingLastTaxonomyFolders = ["Zebra"]
+                manager.filingLastExistingFolders = ["Zebra"]
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        // "Docs/Fresh" already exists (captured beyond the classifier cap) — nothing to create.
+        manager.filingLastExistingFolders = ["Docs", "Docs/Fresh"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0010.HEIC", fileName: "IMG_0010.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        await manager.tryAnotherFolder(for: s)
+
+        let best = manager.filingSuggestions.first?.best
+        #expect(best?.path == "/p/Docs/Fresh")
+        #expect(best?.newSegments == [], "labeled against the snapshot: Docs/Fresh existed when the re-ask was issued")
+    }
+
+    /// Each "Try another" click fires its own unstructured Task; without a guard two rapid
+    /// clicks run two classifier round-trips for the same card and whichever RETURNS last wins.
+    /// A second call while the first is parked at the classifier must be a no-op.
+    @MainActor
+    @Test func tryAnotherFolderIgnoresReentrantCallForSameSuggestion() async throws {
+        final class Counter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var count = 0
+            var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+            func increment() { lock.lock(); count += 1; lock.unlock() }
+        }
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let calls = Counter()
+        let released = Flag()
+        manager.filingClassifier = { _, files in
+            // Only the FIRST round-trip parks: a second one (the bug this test pins) returns
+            // immediately, so a regressed build fails the call-count check below instead of
+            // deadlocking the suite waiting for a release that can never come.
+            if calls.value == 0 {
+                calls.increment()
+                while !released.value { await Task.yield() }   // park until the test releases it
+            } else {
+                calls.increment()
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0011.HEIC", fileName: "IMG_0011.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        let first = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        // Let the first call reach the classifier and park there.
+        while calls.value == 0 { await Task.yield() }
+
+        await manager.tryAnotherFolder(for: s)   // the second rapid click
+        #expect(calls.value == 1, "a re-entrant Try another for the same card must not start a second round-trip")
+
+        released.value = true
+        await first.value
+        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh")
+    }
+
     /// `filingScanFolder` labels what's ON SCREEN, so it publishes with the results — a cancelled
     /// rescan of a different folder must not relabel the previous results.
     @MainActor
