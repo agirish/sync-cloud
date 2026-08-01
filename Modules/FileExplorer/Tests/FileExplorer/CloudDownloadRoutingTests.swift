@@ -40,6 +40,24 @@ struct CloudDownloadRoutingTests {
         #expect(CloudDownloadRequest.accepted(from: legacy, paneToken: .right) == nil)
     }
 
+    /// The round trip through `NotificationCenter`, from the one poster both Download buttons use
+    /// to the routing decision every pane applies: what `post` sends is exactly what the posting
+    /// pane accepts, and what every other pane declines.
+    @Test func aPostedRequestIsAcceptedByItsOwnPaneAlone() async {
+        let path = "/iCloud/posted.pdf"
+        var received: Notification?
+        let observer = NotificationCenter.default.addObserver(
+            forName: .cloudDownloadRequested, object: nil, queue: nil) { received = $0 }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        let posted = CloudDownloadRequest.post(path: path, from: .right)
+
+        let notification = try! #require(received)
+        #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .right) == posted)
+        #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .left) == nil)
+        #expect(CloudDownloadRequest.accepted(from: notification, paneToken: .singleSource) == nil)
+    }
+
     /// The three pane surfaces map onto three distinct tokens — in particular the Tidy rail is not
     /// confusable with the left pane just because both may pass `isLeft == true`.
     @Test func paneTokensAreDistinctPerSurface() {
