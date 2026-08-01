@@ -54,10 +54,6 @@ struct ColumnPreviewItem: Equatable {
 ///   file truncates the stack to its own column (`PaneColumnsView.navigation(for:depth:)`), so a
 ///   selection resolved anywhere shallower is a stale one the pane has already navigated past.
 enum ColumnPreview {
-    /// The sentinel `ScrollViewReader` id for the preview column. Prefixed with NUL, which cannot
-    /// occur in a POSIX path, so it can never collide with a column's own directory id.
-    static let scrollID = "\u{0}columnPreview"
-
     static func item(selection: Set<String>, deepestRows: [PaneRow]) -> ColumnPreviewItem? {
         guard selection.count == 1, let id = selection.first,
               let row = deepestRows.first(where: { $0.id == id }),

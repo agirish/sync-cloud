@@ -72,13 +72,6 @@ import UniformTypeIdentifiers
         #expect(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"], deepestRows: []) == nil)
     }
 
-    /// The preview column's scroll id must be unable to collide with a column's own, which is an
-    /// absolute path — otherwise "scroll to the preview" could land on a directory column instead.
-    @Test func testThePreviewScrollIDCannotBeAPath() {
-        #expect(ColumnPreview.scrollID.hasPrefix("/") == false)
-        #expect(ColumnPreview.scrollID.contains("\u{0}"))
-    }
-
     /// `FileNode.kind` holds a raw UTI, because that is what the Kind sort and the `kind:` search
     /// filter compare. A caption saying `com.adobe.pdf` — which is what shipped — is the identifier
     /// leaking through to a human.
