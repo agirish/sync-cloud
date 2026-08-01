@@ -460,8 +460,11 @@ public class FileSyncManager: ObservableObject {
     /// unstructured Task per click, so two rapid clicks would run two classifier round-trips
     /// for the same card and whichever RETURNED last would win — `tryAnotherFolder` checks-and-
     /// inserts here at entry (removing via defer) and ignores re-entrant calls for the same
-    /// suggestion. Internal so tests can pin the guard without racing real clicks.
-    var filingTryAnotherInFlight: Set<String> = []
+    /// suggestion. Published and publicly readable so the card can disable its button while its
+    /// own re-ask is out — a refused re-entrant click that still looks clickable reads as a dead
+    /// button. Written only inside this module; `clearFiling()` also empties it, which is the
+    /// only recovery if a classifier round-trip never returns.
+    @Published public internal(set) var filingTryAnotherInFlight: Set<String> = []
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {

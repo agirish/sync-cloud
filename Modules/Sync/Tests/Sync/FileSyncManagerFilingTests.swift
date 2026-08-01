@@ -5,8 +5,18 @@ import Events
 
 /// Manager-level coverage for Filing: the end-to-end scan (real folders) and the apply path
 /// (real move, creating new folders, undoable).
-/// A tiny thread-safe flag for asserting whether an injected closure ran.
-final class Flag: @unchecked Sendable { var value = false }
+/// A tiny thread-safe flag for asserting whether an injected closure ran, and for releasing a
+/// closure parked in another isolation domain. Lock-backed: the plain `var` this used to be was
+/// written from a test and read from an injected closure with no synchronization at all — a data
+/// race TSan flags, and one whose torn read would hang a parked spin forever.
+final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+    var value: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return storage }
+        set { lock.lock(); storage = newValue; lock.unlock() }
+    }
+}
 
 @Suite struct FileSyncManagerFilingTests {
 
@@ -853,7 +863,10 @@ final class Flag: @unchecked Sendable { var value = false }
             // deadlocking the suite waiting for a release that can never come.
             if calls.value == 0 {
                 calls.increment()
-                while !released.value { await Task.yield() }   // park until the test releases it
+                // Park until the test releases it — with a deadline, so a mis-wired test fails
+                // on its assertions instead of spinning this suite until the CI job times out.
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !released.value, ContinuousClock.now < deadline { await Task.yield() }
             } else {
                 calls.increment()
             }
@@ -868,8 +881,10 @@ final class Flag: @unchecked Sendable { var value = false }
         manager.filingSuggestions = [s]
 
         let first = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
-        // Let the first call reach the classifier and park there.
-        while calls.value == 0 { await Task.yield() }
+        // Let the first call reach the classifier and park there (bounded, same reason).
+        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        #expect(calls.value == 1, "the first re-ask must reach the classifier")
 
         await manager.tryAnotherFolder(for: s)   // the second rapid click
         #expect(calls.value == 1, "a re-entrant Try another for the same card must not start a second round-trip")
@@ -877,6 +892,31 @@ final class Flag: @unchecked Sendable { var value = false }
         released.value = true
         await first.value
         #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh")
+        #expect(manager.filingTryAnotherInFlight.isEmpty, "the completed re-ask must release its id")
+
+        // The guard must be a latch that OPENS, not one that shuts for good: a THIRD click,
+        // after the first round-trip returned, has to reach the classifier again. Without this
+        // call the suite stays green with `tryAnotherFolder`'s releasing `defer` deleted —
+        // shipping a "Try another" that works exactly once per card.
+        let refreshed = try #require(manager.filingSuggestions.first)
+        await manager.tryAnotherFolder(for: refreshed)
+        #expect(calls.value == 2, "once the first re-ask returned, the next click must re-ask again")
+    }
+
+    /// `tryAnotherFolder` releases its in-flight id in a `defer` — but only if it returns, and
+    /// `FilingClassifier` has no timeout. A round-trip that never comes back would latch the id
+    /// forever, making every later "Try another" for that card a silent no-op with no way out.
+    /// `clearFiling()` (switch providers, rescan) is that way out, so it must clear the set —
+    /// it resets every other piece of filing state on the same line.
+    @MainActor
+    @Test func clearFilingReleasesStuckTryAnotherIds() async throws {
+        let manager = FileSyncManager()
+        manager.filingTryAnotherInFlight = ["/p/Downloads/Stuck.pdf"]
+
+        manager.clearFiling()
+
+        #expect(manager.filingTryAnotherInFlight.isEmpty,
+                "a classifier round-trip that never returns must not latch the card forever")
     }
 
     /// `filingScanFolder` labels what's ON SCREEN, so it publishes with the results — a cancelled
