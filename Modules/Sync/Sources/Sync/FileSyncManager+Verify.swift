@@ -152,6 +152,16 @@ extension FileSyncManager {
               !isVerifyAllRunning, !isBulkSyncRunning,
               activeFileOperationsCount == 0 else { return }
 
+        // The entry guard above only proves nothing was writing when the pass STARTED. A
+        // copy/move that begins during the long parallel hash can overwrite a candidate
+        // mid-read, and if it also finishes before the commit below — before its rescan bumps
+        // `scanRequestGeneration` — a pre-operation "identical" verdict would hide a row that
+        // now genuinely differs. Capture the operations epoch (bumped whenever an operation
+        // begins, never decremented) and discard the whole batch if it moved: stronger than
+        // re-checking `activeFileOperationsCount == 0`, which an op that ran start-to-finish
+        // during the hash would pass.
+        let startOperationsEpoch = fileOperationsEpoch
+
         let candidates = rawDifferences.filter {
             $0.type == .differentDates && $0.sizesMatch && !syncingDifferenceIds.contains($0.id)
         }
@@ -185,6 +195,15 @@ extension FileSyncManager {
         // now. Checked AFTER the last suspension point above, so a scan requested while the
         // collector drained can't slip past the gate.
         guard scanGeneration == scanRequestGeneration else { return }
+        // Re-check the entry exclusions at commit time (see `startOperationsEpoch` above): an
+        // operation that started — even one that already finished — since entry may have
+        // rewritten the very bytes these verdicts describe. Discard the batch; the operation's
+        // own rescan re-runs this pass over fresh rows.
+        guard fileOperationsEpoch == startOperationsEpoch,
+              activeFileOperationsCount == 0, !isBulkSyncRunning else {
+            Logger.shared.debug("Scan checksum pass: discarded — a file operation started mid-hash")
+            return
+        }
         let liveIds = Set(rawDifferences.map(\.id))
         let ids = identical.map(\.id).filter { liveIds.contains($0) }
         guard !ids.isEmpty else { return }
