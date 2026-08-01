@@ -43,13 +43,15 @@ import Testing
 
     private struct AccentSectionSpecimen: View {
         var body: some View {
-            VStack(alignment: .leading, spacing: 16) {
+            // Pitch and padding from the same metrics `SettingsPage` draws with, so the specimen
+            // keeps rendering the section in its real habitat instead of a stale copy of it.
+            VStack(alignment: .leading, spacing: SettingsSheetMetrics.sectionPitch) {
                 ForEach([LiquidGlassHue.amber, .cyan, .indigo, .graphite]) { hue in
                     AccentColorSection(selectedHue: hue, onSelect: { _ in })
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.vertical, 16)
+            .padding(.vertical, SettingsSheetMetrics.pagePaddingV)
         }
     }
 }

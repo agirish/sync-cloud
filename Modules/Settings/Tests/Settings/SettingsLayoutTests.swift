@@ -83,6 +83,38 @@ import Testing
                 "Appearance has \(margin)pt of slack at \(size.displayName) (scale \(size.scale)).")
     }
 
+    /// The fit against a SMALL display's CLAMPED opening — the assertion whose absence let the
+    /// 688 → 758 raise ship a regression: every other fit test here passes `available: nil`, so
+    /// the sheet they measure against grows in lockstep with `baseSize` and no raise can ever
+    /// fail them. On a 1280×800-class display the sheet cannot grow; `resolvedSize` clamps it to
+    /// the window, and at 758 the Appearance tab (674pt) scrolled inside the ~647pt opening that
+    /// clamp produces. This is the upper bound: however `baseSize` moves, the tab must fit the
+    /// opening a small display can actually give it.
+    ///
+    /// The arithmetic, spelled out so the fixture is an argument rather than a magic number:
+    /// an 800pt-tall screen loses 24pt to the menu bar and ~36pt to the window's title bar,
+    /// leaving ~740pt of window content — which is what `ContentView.settingsOverlay`'s
+    /// `GeometryReader` hands to `SettingsView` as `availableSize`. `resolvedSize` then keeps
+    /// `hostMargin` (48pt) of air around the sheet, and the opening loses the title row and its
+    /// divider. Dock excluded deliberately: hidden or side-parked docks are common on 800pt
+    /// panels, and a bottom dock only shrinks the window further — the fix for that user is the
+    /// scroll fallback, not a sheet trimmed for the smallest configuration conceivable.
+    @MainActor
+    @Test func appearanceFitsA1280x800Display() async throws {
+        let window = CGSize(width: 1280, height: 800 - 24 - 36)
+        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: window)
+        // The premise that gives this test teeth: the small display genuinely clamps the sheet,
+        // so this opening is NOT the unclamped one every other fit test measures against.
+        #expect(opening < SettingsSheetMetrics.contentOpening(textScale: 1),
+                "a 1280×800 window no longer clamps the sheet — this test has lost its subject")
+
+        let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: window)
+        let height = laidOutHeight(AppearanceSettingsTab(), width: width)
+
+        #expect(height <= opening,
+                "Appearance lays out at \(height)pt but a 1280×800 display's clamped opening is \(opening)pt — it scrolls on small screens.")
+    }
+
     /// The rule the case above rests on, stated directly so a regression names the cause rather
     /// than only the symptom: the sheet grows with the text setting and never shrinks below its
     /// base size.
