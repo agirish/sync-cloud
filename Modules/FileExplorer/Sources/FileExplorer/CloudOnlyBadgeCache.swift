@@ -60,17 +60,43 @@ enum CloudOnlyBadgeCache {
         generation &+= 1
     }
 
-    /// Drops everything. For callers with no root to scope by; a pane republish should use
-    /// `clear(underRoot:)` instead.
-    static func clear() {
-        known.removeAll(keepingCapacity: true)
-        generation &+= 1
+    /// The normalized scope of a `clear(underRoot:)` — which keys it covers, decided once for the
+    /// whole table rather than re-derived per entry.
+    ///
+    /// A value, and not private, so the rule can be pinned without touching the process-wide table:
+    /// the one case that cannot be tested through the table is `/`, because a test that cleared it
+    /// to prove it covers everything would wipe the memo out from under whatever suite is running
+    /// in parallel. Failable IS the guard — see `clear(underRoot:)` for why an unresolvable root
+    /// must scope nothing at all.
+    struct ClearScope: Equatable {
+        /// The root itself, with every trailing separator removed. `/` normalizes to `""`, whose
+        /// separator-suffixed form is `/` — the prefix every absolute key matches.
+        let exact: String
+        /// `exact` plus the separator: the prefix a DESCENDANT must carry. Matching on this rather
+        /// than on `exact` is what keeps `/a/bc` out of a clear under `/a/b`.
+        let descendantPrefix: String
+
+        init?(root: String) {
+            guard root.hasPrefix("/") else { return nil }
+            var exact = root
+            while exact.hasSuffix("/") { exact.removeLast() }
+            self.exact = exact
+            self.descendantPrefix = exact + "/"
+        }
+
+        /// Whether `key` names an entry at or under this root. Case-SENSITIVE — see
+        /// `clear(underRoot:)`.
+        func contains(_ key: String) -> Bool {
+            key == exact || key.hasPrefix(descendantPrefix)
+        }
     }
 
     /// Drops every entry at or under `root`. Called when a pane republishes its tree: the memo is
-    /// process-wide but a republish refreshes only THAT pane's rows, so a whole-table `clear()`
-    /// there wiped the answers the other pane's rows were still serving from — every republish on
-    /// one side re-statted the other side's visible rows for nothing.
+    /// process-wide but a republish refreshes only THAT pane's rows, so the whole-table clear that
+    /// used to live here wiped the answers the other pane's rows were still serving from — every
+    /// republish on one side re-statted the other side's visible rows for nothing. This is now the
+    /// ONLY way to drop entries in bulk; the parameterless `clear()` it replaced had no production
+    /// callers left and no root to be honest about.
     ///
     /// Prefix match is per path COMPONENT, not per character: the entry for `/a/bc` must survive a
     /// clear under `/a/b`, so the comparison appends the separator before matching (and keeps the
@@ -99,20 +125,14 @@ enum CloudOnlyBadgeCache {
     /// nothing; it is written down because that agreement is an accident of plumbing rather than
     /// something either side promises.
     ///
-    /// The generation still bumps, exactly as `clear()`'s does: a stat in flight for a path under
-    /// this root must not re-adopt the answer this clear just threw away. That the bump also stops
-    /// an in-flight stat under the OTHER root from memoizing is deliberate over-invalidation — one
-    /// counter, one rare repeated `lstat`, no per-root bookkeeping to get wrong (the same trade
-    /// `forget(_:)` already makes for other paths).
+    /// The generation still bumps, exactly as a whole-table clear's would: a stat in flight for a
+    /// path under this root must not re-adopt the answer this clear just threw away. That the bump
+    /// also stops an in-flight stat under the OTHER root from memoizing is deliberate
+    /// over-invalidation — one counter, one rare repeated `lstat`, no per-root bookkeeping to get
+    /// wrong (the same trade `forget(_:)` already makes for other paths).
     static func clear(underRoot root: String) {
-        guard root.hasPrefix("/") else { return }
-        // EVERY trailing separator, not just one: "/root//" must scope like "/root", and dropping a
-        // single character left the prefix "/root//", which matches no key the walk ever produced —
-        // a clear that silently took nothing. "/" strips all the way to "", whose prefix is "/".
-        var exact = root
-        while exact.hasSuffix("/") { exact.removeLast() }
-        let prefix = exact + "/"
-        known = known.filter { !($0.key == exact || $0.key.hasPrefix(prefix)) }
+        guard let scope = ClearScope(root: root) else { return }
+        known = known.filter { !scope.contains($0.key) }
         generation &+= 1
     }
 
