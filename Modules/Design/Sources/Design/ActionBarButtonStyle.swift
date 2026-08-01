@@ -94,6 +94,12 @@ public struct ActionBarButtonStyle: ButtonStyle {
     }
 }
 
+/// The button's own body: everything that needs a live `Button` — the pressed flag from the
+/// configuration and the hover state that only a pointer can set — resolved into one phase and
+/// handed to `ActionBarButtonSurface`, which draws it.
+///
+/// The split is what lets the surface be reached without a `Button` (`actionBarButtonSurface`).
+/// This layer stays thin on purpose: nothing here paints.
 private struct ActionBarButtonBody: View {
     let weight: ActionBarWeight
     let tint: Color
@@ -103,14 +109,42 @@ private struct ActionBarButtonBody: View {
 
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorScheme) private var colorScheme
 
     private var phase: HoverAffordancePhase {
         guard isEnabled else { return .rest }
         if configuration.isPressed { return .pressed }
         return isHovering ? .hover : .rest
     }
+
+    var body: some View {
+        configuration.label
+            .modifier(ActionBarButtonSurface(weight: weight, tint: tint, onTint: onTint,
+                                             isIconOnly: isIconOnly, phase: phase))
+            .onHover { hovering in
+                // Same guard as HoverAffordanceStyle: SwiftUI keeps delivering onHover to a
+                // disabled button, which would strand it showing a hover it never repaints.
+                isHovering = isEnabled && hovering
+            }
+    }
+}
+
+/// The action-bar control's visual, for one phase — the whole capsule, with no `Button` in it.
+///
+/// Parameterised by the phase rather than reading a `ButtonStyle.Configuration`, so the same paint
+/// serves both callers: `ActionBarButtonStyle` drives it from a real button's pressed/hover state,
+/// and `actionBarButtonSurface` pins it at `.rest` to render a picture of a control. Everything the
+/// weights are drawn from lives here; the style above owns no paint of its own.
+struct ActionBarButtonSurface: ViewModifier {
+    let weight: ActionBarWeight
+    let tint: Color
+    let onTint: Color
+    let isIconOnly: Bool
+    /// Which of the three states to draw. `.rest` for a still picture.
+    let phase: HoverAffordancePhase
+
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     private var hover: HoverAffordanceMetrics {
         .resolve(variant: weight.hoverVariant, phase: phase,
@@ -148,8 +182,8 @@ private struct ActionBarButtonBody: View {
         return base.opacity(weight.strokeOpacity + hover.ring)
     }
 
-    var body: some View {
-        configuration.label
+    func body(content: Content) -> some View {
+        content
             .scaledFont(ActionBarMetrics.font)
             .foregroundStyle(labelColor)
             .lineLimit(1)
@@ -164,11 +198,6 @@ private struct ActionBarButtonBody: View {
             .scaleEffect(hover.scale)
             .contentShape(Capsule(style: .continuous))
             .environment(\.hoverAffordancePhase, phase)
-            .onHover { hovering in
-                // Same guard as HoverAffordanceStyle: SwiftUI keeps delivering onHover to a
-                // disabled button, which would strand it showing a hover it never repaints.
-                isHovering = isEnabled && hovering
-            }
             .animation(.easeOut(duration: phase == .rest ? 0.18 : 0.12), value: phase)
     }
 }
@@ -201,6 +230,36 @@ public extension ButtonStyle where Self == ActionBarButtonStyle {
                           onTint: Color,
                           iconOnly: Bool = false) -> ActionBarButtonStyle {
         ActionBarButtonStyle(weight: weight, tint: tint, onTint: onTint, isIconOnly: iconOnly)
+    }
+}
+
+public extension View {
+    /// The resting action-bar control surface, applied to any view — a picture of a button, with
+    /// no `Button` under it.
+    ///
+    /// The same paint `.actionBar(_:tint:onTint:)` puts on a real button, pinned at `.rest`: no
+    /// pressed state to report and no `onHover` to move it, because the caller has no action to
+    /// fire. Use it where a control has to be SHOWN rather than offered — the Appearance tab's
+    /// accent preview strip, which samples what the chosen hue actually paints.
+    ///
+    /// That is a structural guarantee rather than a convenience, and it is the reason this exists:
+    /// an inert `Button` has to be talked out of three separate input paths (`allowsHitTesting`,
+    /// `accessibilityElement(children:)`, `.focusable(false)`), and the third is a modifier whose
+    /// behaviour can only be checked by hand, since an offscreen `NSHostingView` has no key window
+    /// to walk focus through. A view that was never a button has none of those paths to close.
+    /// `semanticCapsuleSurface(_:)` is the same move for the count pill beside it.
+    ///
+    /// - Parameters:
+    ///   - weight: how loud — the same ladder the button style takes.
+    ///   - tint: the fill and hairline colour.
+    ///   - onTint: the label colour on a `.primary` fill.
+    ///   - iconOnly: renders a circular control sized for a bare glyph.
+    func actionBarButtonSurface(_ weight: ActionBarWeight,
+                                tint: Color,
+                                onTint: Color,
+                                iconOnly: Bool = false) -> some View {
+        modifier(ActionBarButtonSurface(weight: weight, tint: tint, onTint: onTint,
+                                        isIconOnly: iconOnly, phase: .rest))
     }
 }
 
