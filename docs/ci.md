@@ -1,7 +1,9 @@
 # CI
 
 `.github/workflows/tests.yml` runs the seven SPM package test suites on every
-push to `main`, on a self-hosted runner (GitHub-hosted macOS minutes bill at
+push to `main` or `v2.x` and on every `v*` release tag (so cutting a release
+validates the exact commit being tagged), on a self-hosted runner
+(GitHub-hosted macOS minutes bill at
 10x on a private repo, and the hosted toolchain lags the one this repo is
 developed against).
 
@@ -10,10 +12,12 @@ developed against).
 - All seven packages: `Modules/{Sync, Events, Settings, Design, Dashboard,
   FileExplorer}` and `SyncCloudCLI`.
 - Machine-pinned image snapshots (`*SnapshotTests` suites, see
-  `Modules/Design/SNAPSHOTS.md`) are excluded with `--skip SnapshotTests`:
-  their reference PNGs only match the machine that recorded them. They still
-  compile, so breakage in snapshot test code is caught.
-- App-target tests (`SyncCloudTests/`, 181 tests hosted in SyncCloud.app) run
+  `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`) are excluded with
+  `--skip SnapshotTests`: their reference PNGs only match the machine that
+  recorded them. They still compile, so breakage in snapshot test code is
+  caught.
+- App-target tests (the full `SyncCloudTests/` suite, hosted in
+  SyncCloud.app; the count grows with the app, so it is not pinned here) run
   as a second step: `xcodegen` (absolute Homebrew path — the runner service
   PATH is minimal) + `xcodebuild test -scheme SyncCloud`, both under
   `arch -arm64`. Safe next to a live SyncCloud instance: the app's
@@ -21,6 +25,26 @@ developed against).
   skips prefs writes. DerivedData lives in `.dd/` inside the workspace.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
+
+### Machine-pinned tests that DO run on CI
+
+The snapshot skip's rationale ("reference PNGs only match the machine that
+recorded them") is honest but incomplete: other machine-pinned tests run on
+CI anyway. Eleven suites sample rendered pixels directly via `colorAt(`
+(painted-fill and contrast assertions across Design, Dashboard, FileExplorer
+and Settings), and `ColumnClickCostBenchmark`
+(`Modules/FileExplorer/Tests/FileExplorer/ColumnClickCostBenchmark.swift`)
+asserts against latency thresholds calibrated on this hardware. These are
+pinned to the renderer and the machine in the same way the skipped PNGs are.
+
+This is currently sound because the self-hosted runner IS the recording
+machine — the same Mac that recorded the snapshot references, tuned the
+benchmark, and renders the sampled pixels, so there is no second renderer to
+disagree with. It stops being sound the moment the runner moves to different
+hardware or a different macOS version: expect the pixel-sampling suites and
+the benchmark to fail there for machine reasons, not code reasons, and plan
+to re-validate (and re-record/re-calibrate) on the new machine — see the
+re-record workflow in `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`.
 
 ## Per-commit verdicts
 
