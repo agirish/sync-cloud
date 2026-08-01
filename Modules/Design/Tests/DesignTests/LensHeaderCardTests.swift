@@ -44,7 +44,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             accent: .blue,
             surfaceStyle: .unified,
             level: .frosted,
-            tabs: { tabsRow },
+            title: { titleRow },
             actions: {
                 Button("Rescan") {}.controlSize(.small)
                 Button("Trash all 8") {}.buttonStyle(.borderedProminent).controlSize(.small)
@@ -61,22 +61,13 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
         )
     }
 
+    /// Row 1's leading slot: the lens's name, which is what replaced the tabs when they moved to
+    /// the window's workspace bar. Semibold 13 — the tallest thing the row carries, so if this
+    /// row's height is ever going to overflow 27 it will be here.
     @ViewBuilder
-    private static var tabsRow: some View {
-        HStack(spacing: 2) {
-            ForEach(["Duplicates", "Rename", "Organize", "Automations", "Storage"], id: \.self) { title in
-                Text(title)
-                    .font(.system(size: 12, weight: title == "Duplicates" ? .semibold : .regular))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    // The active-tab underline: an overlay adds ZERO height, which is exactly why
-                    // the tab row can be 27 and not 29. If this ever becomes a border or a VStack
-                    // row, `restsAt81Visible` below is what fails.
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(title == "Duplicates" ? Color.blue : .clear).frame(height: 2)
-                    }
-            }
-        }
+    private static var titleRow: some View {
+        Text("Duplicates")
+            .font(.system(size: 13, weight: .semibold))
     }
 
     // MARK: The line
@@ -150,7 +141,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             accent: .blue,
             surfaceStyle: .unified,
             level: .frosted,
-            tabs: { Self.tabsRow }
+            title: { Self.titleRow }
         )
         #expect(laidOutHeight(bare, width: 700) == 86.0)
     }
@@ -166,7 +157,7 @@ func laidOutHeight<V: View>(_ view: V, width: CGFloat) -> CGFloat {
             accent: .blue,
             surfaceStyle: .cards,
             level: .frosted,
-            tabs: { Self.tabsRow }
+            title: { Self.titleRow }
         )
         #expect(laidOutHeight(cards, width: 700) == 86.0)
     }

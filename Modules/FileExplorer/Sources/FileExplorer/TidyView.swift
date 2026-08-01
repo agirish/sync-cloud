@@ -6,8 +6,12 @@ import Design
 
 // MARK: - Lens / filter / match styling
 
-/// The lenses of the Tidy workspace. Public so the host can own the selection (persisting it) and
-/// drive `TidyView.lens` as a binding; the tabs themselves render in TidyView.
+/// The lenses shown in the right-hand slot. Public so the host can map its selected workspace
+/// onto one; the choice itself is made by the window's workspace bar, not in here.
+///
+/// Still its own type rather than folded into `Workspace`: the per-lens search grammars, query
+/// parking and expansion state in `TidyView` are all keyed by it, and they have no meaning for
+/// Compare.
 public enum TidyLens: String, CaseIterable, Identifiable {
     case duplicates = "Duplicates"
     /// The former Name Normalizer, its own lens again (was briefly folded into Organize) — finds and
@@ -20,8 +24,8 @@ public enum TidyLens: String, CaseIterable, Identifiable {
     case storage = "Storage"
     public var id: String { rawValue }
 
-    /// The label shown in the lens picker. Kept separate from `rawValue` so the display name can
-    /// change without breaking the persisted `selectedTidyLens` id (Filing shows as "Organize").
+    /// The lens's name, shown in the header card. Kept separate from `rawValue` so it can be
+    /// reworded without breaking a stored id (Filing shows as "Organize").
     public var title: String {
         switch self {
         case .filing: return "Organize"
@@ -118,9 +122,12 @@ enum TidyScanReset {
 
 // MARK: - TidyView
 
-/// The Tidy workspace: a single-source hub of lenses (Duplicates, Rename, Organize, Automations, and
-/// the read-only Storage). The host owns the active `lens` binding, but its picker renders here —
-/// `lensTabs` heads this workspace — and the host docks the source rail beside it.
+/// A single-source lens workspace (Duplicates, Rename, Organize, Automations, or the read-only
+/// Storage), rendered in the right-hand slot with the source rail docked beside it.
+///
+/// Which lens is showing is no longer decided here. It used to be: this view rendered the lens
+/// tabs and wrote the host's binding. The workspace bar in the window toolbar owns that choice
+/// now, and this view is handed the resolved lens.
 public struct TidyView: View {
     @ObservedObject public var syncManager: FileSyncManager
 
@@ -139,10 +146,10 @@ public struct TidyView: View {
     /// The app's text size, for the provider name — a `Menu` label that must stay a `Text`.
     @Environment(\.appFontScale) private var appFontScale
 
-    /// The active lens. `lensTabs` writes it directly; the host owns the storage so the choice
-    /// survives tab switches (and relaunches, via the host's `@AppStorage`) and so writing it can
-    /// carry the host's side effect — re-homing the source rail onto the new lens's folder.
-    @Binding private var lens: TidyLens
+    /// The active lens, resolved by the host from the selected workspace. A value, not a binding:
+    /// nothing in here selects a lens any more — the workspace bar does — so a writable binding
+    /// would be a write path with no writer.
+    private let lens: TidyLens
     @State private var filter: TidyFilter = .all
     /// Each lens's live query, kept SEPARATELY rather than as one shared field.
     ///
@@ -232,7 +239,7 @@ public struct TidyView: View {
 
     public init(
         syncManager: FileSyncManager,
-        lens: Binding<TidyLens>,
+        lens: TidyLens,
         providerName: String? = nil,
         scanTargetFolder: String? = nil,
         onFindDuplicates: @escaping () -> Void,
@@ -252,7 +259,7 @@ public struct TidyView: View {
         onRequestDestination: @escaping (PendingDestination) -> Void = { _ in }
     ) {
         self.syncManager = syncManager
-        self._lens = lens
+        self.lens = lens
         self.providerName = providerName
         self.scanTargetFolder = scanTargetFolder
         self.onFindDuplicates = onFindDuplicates
@@ -481,44 +488,23 @@ public struct TidyView: View {
             level: glassLevel,
             hue: glassHue,
             tint: surfaceTint,
-            tabs: { lensTabs },
+            title: { lensTitle },
             actions: { lensActions(rows: rows) },
             summary: { lensSummary(rows: rows) },
             trailing: { lensTrailing(rows: rows) }
         )
     }
 
-    /// The lens tabs — row 1 of the header card, and the primary control of this workspace.
-    private var lensTabs: some View {
-        HStack(spacing: 2) {
-            ForEach(TidyLens.allCases) { tab in
-                let isActive = (lens == tab)
-                Button { lens = tab } label: {
-                    Text(tab.title)
-                        .scaledFont(.system(size: 12, weight: isActive ? .semibold : .regular))
-                        .foregroundStyle(isActive ? Color.primary : Color.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        // An overlay, NOT a border or a stacked row: it adds ZERO height, which is
-                        // what keeps the tab row at 27 and the card at 81.
-                        .overlay(alignment: .bottom) {
-                            Rectangle()
-                                .fill(isActive ? glassHue.accentColor : Color.clear)
-                                .frame(height: 2)
-                        }
-                        .contentShape(Rectangle())
-                }
-                // roundedRect, not the variant's capsule: these tabs are marked by a bottom rule,
-                // and a capsule wash would round away from the very edge that indicates them.
-                .buttonStyle(.hoverAffordance(.segment, tint: glassHue.accentColor,
-                                              shape: .roundedRect(6)))
-                .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
-            }
-        }
-        // Land the first tab's *text* on the card's own content rule: the card pads by 12 and each
-        // tab already pads itself by 8, so pull back that 8 — otherwise the tabs sit 8pt right of
-        // the stat pills directly beneath them.
-        .padding(.leading, -8)
+    /// The lens's name — row 1 of the header card.
+    ///
+    /// This replaces the lens tabs, which moved to the window's workspace bar. Removing them
+    /// would have left the column with no statement of what it is showing: the counts beneath say
+    /// how many, never of what. So the row keeps its height and says the name instead.
+    private var lensTitle: some View {
+        Text(lens.title)
+            .scaledFont(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.primary)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// The source bar shown above the lens while the rail is collapsed: the provider dropdown (the

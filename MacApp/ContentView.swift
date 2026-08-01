@@ -123,38 +123,27 @@ struct ContentView: View {
         LiquidGlassHue(rawValue: glassHueRaw) ?? .blue
     }
 
-    /// Represents the available top-level tabs. Compare shows the two provider panes; Tidy is the
-    /// single-source hub. (Details is no longer a tab — it's the Info inspector inside Compare.)
-    enum BottomTab: String, CaseIterable {
-        /// Differential scanning results and sync actions, across the two panes.
-        case differences = "Differences"
-        /// Single-provider hub: Duplicates, Organize, Automations, and the read-only Storage lens.
-        case tidy = "Tidy"
-
-        /// The label shown in the tab picker. Kept separate from `rawValue` so the display name can
-        /// change without breaking the persisted `selectedBottomTab` id (Differences shows as
-        /// "Compare").
-        var title: String {
-            switch self {
-            case .differences: return "Compare"
-            case .tidy: return "Tidy"
-            }
-        }
-    }
-    /// Persisted so a user who was on Details stays there across launches. Stored by
-    /// `BottomTab` raw value — SyncCloudTests pins the raw values as a stable format.
-    /// Internal, not private: the tab picker it drives lives in the window toolbar now
+    /// The selected workspace, persisted so a session resumes where it left off. Stored by
+    /// ``Workspace`` raw value — `WorkspaceTests` pins those as a stable format, and
+    /// `Workspace.migrateSelection` carries the old two-key selection forward at launch.
+    /// Internal, not private: the workspace bar it drives lives in the window toolbar
     /// (ContentView+Toolbar.swift), which `private` would put out of reach.
-    @AppStorage("selectedBottomTab") var selectedBottomTab: BottomTab = .differences
+    @AppStorage(Workspace.defaultsKey) var selectedWorkspace: Workspace = .compare
 
-    /// The active Tidy lens. Held here rather than in TidyView so the selection survives tab
-    /// switches and relaunches; TidyView renders the lens tabs from the binding this hands it.
-    @AppStorage("selectedTidyLens") private var selectedTidyLens: TidyLens = .duplicates
+    /// The lens the selected workspace shows, or `nil` on Compare. Derived, not stored: there is
+    /// one selection now, and a second copy of it would be a second thing to keep in step.
+    var selectedLens: TidyLens? { selectedWorkspace.lens }
 
-    /// Per-tab override of the top-pane visibility, a JSON map (tab raw value → hidden).
-    /// Empty means "no overrides — every tab uses its default". Persisted, so deliberately
-    /// showing or hiding the Left/Right panes on Tidy or Storage Lens sticks across launches.
-    @AppStorage("topPaneOverridesByTab") private var topPaneOverridesRaw: String = ""
+    /// The width the window's content is currently getting, for the workspace bar's shedding rule.
+    /// Tracked with `.onGeometryChange` rather than a `GeometryReader` writing a preference: this
+    /// fires outside the layout pass, which is what keeps it from re-entering layout and tripping
+    /// the AppKit constraint-loop crash that pattern caused before.
+    @State var contentWidth: CGFloat = 0
+
+    /// Per-workspace override of the top-pane visibility, a JSON map (workspace raw value →
+    /// hidden). Empty means "no overrides — every workspace uses its default". Persisted, so
+    /// deliberately showing or hiding the panes on a workspace sticks across launches.
+    @AppStorage(TopPaneVisibility.overridesKey) private var topPaneOverridesRaw: String = ""
 
     /// Whether the Compare Info inspector is shown. It replaces the old Details tab: a toggleable
     /// right-side panel that shows metadata (and both-sides status) for the current selection.
@@ -429,6 +418,13 @@ struct ContentView: View {
         // so the window is a single content column — the panes fill the space the sidebar used to take.
         mainContentView
             .frame(minWidth: 600)
+            // Feeds the workspace bar's shedding rule. `.onGeometryChange` and not a
+            // `GeometryReader` writing a preference: this delivers the width *after* layout
+            // settles rather than during it, which is what keeps a width-driven toolbar from
+            // re-entering layout — the failure mode behind the AppKit constraint-loop crash.
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                contentWidth = width
+            }
             .toolbar { mainToolbar }
         .overlay {
             // The picker wins the precedence: it is a direct answer to an action the user just
@@ -615,7 +611,7 @@ struct ContentView: View {
         // above don't cover the no-selection case.
         .onChange(of: leftProviderId) { _, _ in infoPath = nil }
         .onChange(of: rightProviderId) { _, _ in infoPath = nil }
-        .onChange(of: selectedBottomTab) { _, _ in infoPath = nil }
+        .onChange(of: selectedWorkspace) { _, _ in infoPath = nil }
         // Watches the enabled subset (not the full discovered list) so toggling a provider
         // off in Settings re-resolves any pane that was showing it and rescans.
         .onChange(of: settings.enabledProviders) { oldProviders, newProviders in
@@ -785,15 +781,15 @@ struct ContentView: View {
     }
 
     /// The current tab's layout mode (compare vs single-source).
-    var layoutMode: TopPaneVisibility.Mode { TopPaneVisibility.mode(for: selectedBottomTab) }
+    var layoutMode: TopPaneVisibility.Mode { TopPaneVisibility.mode(for: selectedWorkspace) }
 
-    /// Whether the current tab's panes are hidden, honoring any stored per-tab override on top of
-    /// the tab's default. Computed (not stored) so switching tabs auto-applies each tab's
-    /// remembered state with no onChange plumbing.
+    /// Whether the current workspace's panes are hidden, honoring any stored override on top of
+    /// its default. Computed (not stored) so switching workspace auto-applies its remembered state
+    /// with no onChange plumbing.
     var panesHiddenForCurrentTab: Bool {
         TopPaneVisibility.panesHidden(
-            for: selectedBottomTab,
-            override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[selectedBottomTab.rawValue]
+            for: selectedWorkspace,
+            override: TopPaneVisibility.decodeOverrides(topPaneOverridesRaw)[selectedWorkspace.rawValue]
         )
     }
 
@@ -811,29 +807,30 @@ struct ContentView: View {
         }
     }
 
-    /// Toggles the panes (both comparison panes, or the single-source rail) for the current tab and
-    /// remembers the choice for it. The toolbar's tab picker is always on screen, so — unlike
-    /// before — no region is forced back on to compensate.
+    /// Toggles the panes (both comparison panes, or the single-source rail) for the current
+    /// workspace and remembers the choice for it. The workspace bar is always on screen, so no
+    /// region is forced back on to compensate.
     func togglePanesForCurrentTab() {
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
-            tab: selectedBottomTab,
+            workspace: selectedWorkspace,
             hidden: !panesHiddenForCurrentTab
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
     }
 
-    /// Entering a Tidy lens from the lens tabs opens the source rail and positions it for the lens:
+    /// Entering a lens workspace from the workspace bar opens the source rail and positions it:
     /// Organize works on the loose-files inbox, so it opens there; every other lens works over the
-    /// whole provider, so it opens at the root. Fired only from the explicit tab/lens controls — the
-    /// programmatic scan actions (Find Duplicates / loose files from a Compare menu) set the lens
-    /// directly and bypass this, so they keep scanning the folder the user picked.
-    func presentTidyRail(for lens: TidyLens) {
-        // Show the rail for the Tidy tab (remembered per tab, like the manual toggle). The layout
-        // animates via `.animation(value: panesHiddenForCurrentTab)`, so no explicit withAnimation.
+    /// whole provider, so it opens at the root. Fired only from the bar itself — the programmatic
+    /// scan actions (Find Duplicates / loose files from a Compare menu) set the workspace directly
+    /// and bypass this, so they keep scanning the folder the user picked.
+    func presentTidyRail(for workspace: Workspace) {
+        guard let lens = workspace.lens else { return }
+        // Show the rail for this workspace (remembered per workspace, like the manual toggle). The
+        // layout animates via `.animation(value: panesHiddenForCurrentTab)`, so no withAnimation.
         let overrides = TopPaneVisibility.settingOverride(
             TopPaneVisibility.decodeOverrides(topPaneOverridesRaw),
-            tab: .tidy,
+            workspace: workspace,
             hidden: false
         )
         topPaneOverridesRaw = TopPaneVisibility.encodeOverrides(overrides)
@@ -1246,8 +1243,7 @@ struct ContentView: View {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Find Duplicates in \(root)")
-        selectedBottomTab = .tidy
-        selectedTidyLens = .duplicates
+        selectedWorkspace = .duplicates
         let options = DuplicateFinderOptions.fromDefaults()
         syncManager.startFindDuplicates(root: URL(fileURLWithPath: root), options: options)
     }
@@ -1258,8 +1254,7 @@ struct ContentView: View {
         let root = tidyScanRootExpanded
         guard !root.isEmpty else { return }
         Logger.shared.info("User requested Storage Lens for \(root)")
-        selectedBottomTab = .tidy
-        selectedTidyLens = .storage
+        selectedWorkspace = .storage
         syncManager.startBuildStorageLens(root: URL(fileURLWithPath: root))
     }
 
@@ -1276,8 +1271,7 @@ struct ContentView: View {
             leftProviderId: $leftProviderId,
             rightProviderId: $rightProviderId,
             pendingSwapProviderChanges: $pendingSwapProviderChanges,
-            selectedBottomTab: $selectedBottomTab,
-            selectedTidyLens: $selectedTidyLens,
+            selectedWorkspace: $selectedWorkspace,
             accentColor: glassHue.accentColor,
             glassLevel: glassLevel,
             currentLeftPath: { currentLeftPath },
@@ -1344,8 +1338,7 @@ struct ContentView: View {
         let providerRoot = tidyProviderRootExpanded
         guard !root.isEmpty, !providerRoot.isEmpty else { return }
         Logger.shared.info("User requested Automations preview for \(root)\(only == nil ? "" : " (single rule)")")
-        selectedBottomTab = .tidy
-        selectedTidyLens = .automations
+        selectedWorkspace = .automations
         syncManager.startAutomationDryRun(root: URL(fileURLWithPath: root),
                                           destinationRoot: URL(fileURLWithPath: providerRoot),
                                           providerName: tidyProviderName, only: only)
@@ -1371,8 +1364,7 @@ struct ContentView: View {
             && FileManager.default.fileExists(atPath: inboxPath, isDirectory: &isDir) && isDir.boolValue
         let folder = (atRoot && inboxExists) ? inboxPath : focused
         Logger.shared.info("User requested Filing suggestions for \(folder)")
-        selectedBottomTab = .tidy
-        selectedTidyLens = .filing
+        selectedWorkspace = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root),
                                                providerName: tidyProviderName)
@@ -1636,7 +1628,7 @@ struct ContentView: View {
         // No animation on the collapse: the differences pane snaps open/closed instantly with the
         // chevron, which is what reads as responsive here; the others keep the softer easeInOut.
         .animation(nil, value: bottomPaneIsCollapsed)
-        .animation(.easeInOut(duration: 0.2), value: selectedBottomTab)
+        .animation(.easeInOut(duration: 0.2), value: selectedWorkspace)
         .animation(.easeInOut(duration: 0.15), value: showInspector)
         .overlay {
             if let progress = syncManager.activeProgress {
@@ -1825,41 +1817,31 @@ struct ContentView: View {
         applyColumnNavigation(path, isLeft: isLeft)
     }
 
-    /// Binding for the primary tab picker that, when the user switches *to* Tidy, opens the source
-    /// rail and positions it for the active lens. Wrapping the binding (rather than observing
-    /// `selectedBottomTab` globally) confines this to the picker's own control: the programmatic
-    /// scan actions assign `selectedBottomTab` directly and so never trip it, keeping their chosen
-    /// scan folder intact. Internal so the toolbar (ContentView+Toolbar.swift) can drive it.
-    var primaryTabSelection: Binding<BottomTab> {
+    /// Binding for the workspace bar that, on entering a lens workspace, opens the source rail and
+    /// positions it for that lens. Wrapping the binding (rather than observing `selectedWorkspace`
+    /// globally) confines this to the bar's own control: the programmatic scan actions assign
+    /// `selectedWorkspace` directly and so never trip it, keeping their chosen scan folder intact.
+    /// Internal so the toolbar (ContentView+Toolbar.swift) can drive it.
+    var workspaceSelection: Binding<Workspace> {
         Binding(
-            get: { selectedBottomTab },
-            set: { newTab in
-                let previousTab = selectedBottomTab
-                selectedBottomTab = newTab
+            get: { selectedWorkspace },
+            set: { newWorkspace in
+                let previous = selectedWorkspace
+                selectedWorkspace = newWorkspace
                 // All duplicate-review / guided-review teardown & restore decisions go through the
                 // reducer (CompareReviewReducer): an abandoned review — left Compare while inactive,
                 // banner and Done button gone — is torn down like Done (ending the guided review AND
                 // restoring the auto-pinned provider); returning to Compare re-focuses the two copies
                 // (the shared left pane was reset to the rail root while away).
-                reviewCoordinator.dispatchReview(.tabSwitched(toCompare: newTab == .differences, fromCompare: previousTab == .differences))
-                if newTab == .tidy {
-                    presentTidyRail(for: selectedTidyLens)
+                reviewCoordinator.dispatchReview(
+                    .tabSwitched(toCompare: newWorkspace == .compare, fromCompare: previous == .compare)
+                )
+                // Re-home the rail on every entry into a lens, including lens→lens: Organize wants
+                // the loose-files inbox and the rest want the provider root, so carrying one lens's
+                // folder into the next would scan the wrong place.
+                if newWorkspace != previous {
+                    presentTidyRail(for: newWorkspace)
                 }
-            }
-        )
-    }
-
-    /// Binding for the Tidy lens tabs, which TidyView renders. Wraps the stored lens with the same
-    /// side effect the tabs carried when they lived up here: choosing a lens opens the source rail
-    /// and points it at that lens's folder (root, or the TODO inbox for Organize). Wrapping the
-    /// binding rather than observing `selectedTidyLens` keeps the programmatic scan actions — which
-    /// assign the lens directly — from re-homing the rail out from under their chosen scan folder.
-    private var tidyLensSelection: Binding<TidyLens> {
-        Binding(
-            get: { selectedTidyLens },
-            set: { newLens in
-                selectedTidyLens = newLens
-                presentTidyRail(for: newLens)
             }
         )
     }
@@ -1869,7 +1851,7 @@ struct ContentView: View {
     /// leaves behind belongs to `DifferencesView`, which the placeholders don't render. Internal so
     /// the split-layout extension can gate the collapsed frame on it.
     var compareBottomListActive: Bool {
-        selectedBottomTab == .differences && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
+        selectedWorkspace == .compare && (!syncManager.differences.isEmpty || reviewStore.isReviewing)
     }
 
     /// The Compare bottom pane is collapsed to its header strip right now: the user asked for it,
@@ -1894,19 +1876,19 @@ struct ContentView: View {
         // above the diff so it shows even when the two copies are identical (empty diff → the
         // "Everything is in sync" placeholder). Hidden the moment either pane is navigated away
         // from the reviewed copies, so the scoped trash can't fire against the wrong folder.
-        if selectedBottomTab == .differences, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
+        if selectedWorkspace == .compare, let review = duplicateReview, reviewCoordinator.duplicateReviewActive(review) {
             reviewCoordinator.duplicateReviewBanner(review)
                 .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
         }
         // An active review keeps the view mounted through an empty live list: an external
         // change resolving the last live difference mid-review must not vanish the session.
-        if selectedBottomTab == .tidy {
+        if let lens = selectedLens {
             // The single-source hub. Tidy owns its own cards — including the lens tabs, which head
             // the workspace they switch; the Storage lens (folded in) renders its own read-only
             // surface beneath them. Compare | Tidy itself lives in the window toolbar.
             TidyView(
                 syncManager: syncManager,
-                lens: tidyLensSelection,
+                lens: lens,
                 providerName: tidyProviderName,
                 scanTargetFolder: tidyScanRootExpanded,
                 onFindDuplicates: findDuplicatesAction,

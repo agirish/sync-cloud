@@ -726,7 +726,7 @@ struct AppearanceSettingsTab: View {
 
             SettingsSection(
                 "List density",
-                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, the Compare table, every Tidy lens, and the Activity Log and Sync History windows — so more fits on screen."
+                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, the Compare table, every lens workspace, and the Activity Log and Sync History windows — so more fits on screen."
             ) {
                 Picker("List density", selection: $listDensityRaw) {
                     ForEach(ListDensity.allCases) { density in
@@ -1472,12 +1472,12 @@ struct TidySettingsTab: View {
                 }
                 .help("The folder (relative to the provider root) Organize scans for loose files by default — e.g. “TODO”. Navigate the source rail into another folder to scan that instead.")
                 SettingsRow("Remembered rules") {
-                    Text("Now live in Tidy ▸ Automations")
+                    Text("Now live in the Automations workspace")
                         .foregroundStyle(.secondary)
                 }
-                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Tidy tab's Automations lens.")
+                .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
             }, caption: {
-                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Filing to remember are saved as automations (Tidy ▸ Automations). Changes apply on the next scan.")
+                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
             })
 
             SettingsSection(

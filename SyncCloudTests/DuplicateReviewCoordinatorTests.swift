@@ -31,8 +31,7 @@ private final class Harness {
     var leftId = "icloud"
     var rightId = "dropbox"
     var pendingSwapProviderChanges = 0
-    var tab: ContentView.BottomTab = .tidy
-    var lens: TidyLens = .duplicates
+    var workspace: Workspace = .duplicates
 
     // Live-context stand-ins (ContentView resolves these from providers + pane state).
     var currentLeftPath = ""
@@ -59,8 +58,7 @@ private final class Harness {
             rightProviderId: Binding(get: { self.rightId }, set: { self.rightId = $0 }),
             pendingSwapProviderChanges: Binding(get: { self.pendingSwapProviderChanges },
                                                 set: { self.pendingSwapProviderChanges = $0 }),
-            selectedBottomTab: Binding(get: { self.tab }, set: { self.tab = $0 }),
-            selectedTidyLens: Binding(get: { self.lens }, set: { self.lens = $0 }),
+            selectedWorkspace: Binding(get: { self.workspace }, set: { self.workspace = $0 }),
             accentColor: .blue,
             glassLevel: .frosted,
             currentLeftPath: { self.currentLeftPath },
@@ -200,7 +198,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(review.restore == SavedCompareState(
             leftProviderId: "icloud", rightProviderId: "dropbox",
             leftRelativePath: "", rightRelativePath: ""))
-        #expect(harness.tab == .differences)
+        #expect(harness.workspace == .compare)
         #expect(harness.refreshCount == 1)
     }
 
@@ -259,11 +257,11 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
             keep: duplicateCopy(path: "/scan/root/Docs", keeper: true),
             delete: duplicateCopy(path: "/scan/rootBackup/Docs", keeper: false))
 
-        // Refused outright: no review, no pin, no seeding, no tab switch, no rescan.
+        // Refused outright: no review, no pin, no seeding, no workspace switch, no rescan.
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.isEmpty)
         #expect(harness.pendingSwapProviderChanges == 0)
-        #expect(harness.tab == .tidy)
+        #expect(harness.workspace == .duplicates)
         #expect(harness.refreshCount == 0)
     }
 
@@ -389,7 +387,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
 
         #expect(harness.trashConfirmedFor == [review.deletePath])
         #expect(harness.duplicateReview == review)   // still up for a retry
-        #expect(harness.tab == .tidy)
+        #expect(harness.workspace == .duplicates)
         #expect(harness.appliedPlans.isEmpty)        // no restore ran
         #expect(harness.refreshCount == 0)
     }
@@ -411,7 +409,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.syncManager.banner?.message.contains("no longer what the scan saw") == true)
         #expect(harness.duplicateReview == review)   // kept, not torn down
         #expect(harness.appliedPlans.isEmpty)
-        #expect(harness.tab == .tidy)
+        #expect(harness.workspace == .duplicates)
     }
 
     /// The success path, end to end on a real temp tree: the confirmed trash actually removes the
@@ -443,7 +441,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
                          duplicateCopy(path: copy.path, keeper: false)],
                 reclaimableBytes: 1234)
         ]
-        harness.tab = .differences
+        harness.workspace = .compare
         harness.trashConfirmAnswer = true
 
         harness.coordinator.trashRightCopy(review)
@@ -456,8 +454,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         // Back to the Duplicates list, with that copy dropped from its group (the group had two
         // copies, so removing one leaves only the keeper and the group disappears).
         await waitUntil("the review is torn down") { harness.duplicateReview == nil }
-        #expect(harness.tab == .tidy)
-        #expect(harness.lens == .duplicates)
+        #expect(harness.workspace == .duplicates)
         #expect(harness.syncManager.duplicateGroups.isEmpty)
         // And the pre-review Compare setup came back (the pinned right pane released).
         #expect(harness.rightId == "dropbox")
@@ -485,7 +482,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
         let harness = Harness(fileManager: stat)
         harness.tidyProviderRoot = root.path
-        harness.tab = .differences
+        harness.workspace = .compare
         harness.trashConfirmAnswer = true
         let first = harness.installReview()   // Docs (keep) ↔ Backup/Docs (delete candidate)
 
@@ -504,7 +501,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(harness.duplicateReview == second)
         // …and the superseded review's compare state was never replayed over it.
         #expect(harness.appliedPlans.isEmpty)
-        #expect(harness.tab == .differences)
+        #expect(harness.workspace == .compare)
     }
 
     /// The same window, entered through the other control that sits in it: "Done" is rendered
@@ -524,7 +521,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         let stat = GatedKeeperStat(holding: root.appendingPathComponent("Docs").path)
         let harness = Harness(fileManager: stat)
         harness.tidyProviderRoot = root.path
-        harness.tab = .differences
+        harness.workspace = .compare
         harness.trashConfirmAnswer = true
         let review = harness.installReview()
 
@@ -541,7 +538,7 @@ private func duplicateCopy(path: String, keeper: Bool) -> DuplicateCopy {
         #expect(FileManager.default.fileExists(atPath: review.deletePath))
         #expect(harness.duplicateReview == nil)
         #expect(harness.appliedPlans.count == 1, "only Done's own restore ran")
-        #expect(harness.tab == .differences, "an abandoned trash must not yank the user back to Tidy")
+        #expect(harness.workspace == .compare, "an abandoned trash must not yank the user back to Tidy")
     }
 
     // MARK: dispatchReview — returning to Compare mid-review

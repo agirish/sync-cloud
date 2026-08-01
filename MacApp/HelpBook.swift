@@ -98,7 +98,7 @@ enum HelpBook {
                     .bullets([
                         "The two panes — pick any two cloud folders, or two folders inside the same provider.",
                         "The differences list — what a scan found, and which way a copy would go.",
-                        "Cleanup tools — Tidy removes duplicate copies; Filing sorts loose files into folders.",
+                        "Cleanup tools — Duplicates removes redundant copies; Organize sorts loose files into folders.",
                     ]),
                     .tip("Nothing is copied, moved, or removed until you ask, and every action can be undone with ⌘Z."),
                 ],
@@ -187,11 +187,11 @@ enum HelpBook {
             )),
         ]),
         Section(title: "Cleanup tools", topics: [
-            Topic(id: "tidy-duplicates", title: "Tidy up duplicates", systemImage: "doc.on.doc", article: Article(
-                intro: "Tidy finds files with identical contents under different names or folders and offers to trash the extra copies — keeping the best one.",
+            Topic(id: "tidy-duplicates", title: "Clear out duplicates", systemImage: "doc.on.doc", article: Article(
+                intro: "Duplicates finds files with identical contents under different names or folders and offers to trash the extra copies — keeping the best one.",
                 blocks: [
                     .bullets([
-                        "Scan a pane for duplicates from the Tidy tab.",
+                        "Scan a folder for duplicates from the Duplicates workspace.",
                         "SyncCloud picks a keeper — shortest path, cleanest name — and marks the rest.",
                         "Review the groups, then move the extras to the Trash.",
                     ]),
@@ -207,7 +207,7 @@ enum HelpBook {
                         "On-device content signals handle files whose name says nothing on its own.",
                         "Accept a suggestion to move the file, or remember a rule so similar files file themselves next time.",
                     ]),
-                    .tip("Cloud AI is opt-in and needs a key (Settings ▸ Tidy). Without it, filing runs entirely on-device."),
+                    .tip("Cloud AI is opt-in and needs a key (Settings ▸ Tidy). Without it, Organize runs entirely on-device."),
                 ],
                 related: ["tidy-duplicates", "sync-preferences"]
             )),

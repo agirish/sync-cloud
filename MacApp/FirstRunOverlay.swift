@@ -54,11 +54,11 @@ enum FirstRunWelcome {
              title: "Copy & move differences",
              blurb: "Send files either direction with a click. SyncCloud confirms before it writes, resolves name collisions, and every action can be undone with ⌘Z."),
         Page(art: .tidy,
-             title: "Tidy up duplicates",
-             blurb: "The Tidy tab finds duplicate files and picks which copies to remove — and never trashes the last copy of anything."),
+             title: "Clear out duplicates",
+             blurb: "The Duplicates workspace finds duplicate files and picks which copies to remove — and never trashes the last copy of anything."),
         Page(art: .filing,
              title: "File loose files automatically",
-             blurb: "Filing sorts stray files into the folders where they belong, using on-device content signals — or AI, when you turn it on in Settings."),
+             blurb: "Organize sorts stray files into the folders where they belong, using on-device content signals — or AI, when you turn it on in Settings."),
     ]
 }
 

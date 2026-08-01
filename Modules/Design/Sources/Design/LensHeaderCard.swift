@@ -9,9 +9,13 @@ import SwiftUI
 /// The alternative (swapping the search row in where the pills are) would hide the exact counts
 /// you're watching change as you type, which is most of the value of filtering here.
 public enum LensHeaderMetrics {
-    /// Row 1 — the lens tabs, this lens's actions, and the search toggle. 27pt is a 12pt tab
-    /// label (15pt line) plus its 6pt vertical padding; the active tab's underline is an
-    /// `.overlay`, which adds ZERO height, so it must not enter this sum.
+    /// Row 1 — the lens's name, its actions, and the search toggle. 27pt is a 12pt label
+    /// (15pt line) plus its 6pt vertical padding.
+    ///
+    /// This row used to hold the lens tabs. They moved to the window's workspace bar, and the
+    /// row did **not** go with them: it now names the lens the tabs used to select, which is the
+    /// one thing their removal would otherwise have deleted from the screen. Keeping the row also
+    /// keeps `restingHeight` at 81 — the pane's header↔list boundary is pinned to it.
     public static let tabRow: CGFloat = 27
     /// Row 2 — the scanned-folder chip, the stat pills, and the trailing detail / "N of M".
     /// 22pt is a `.standard` `Pill` (12pt semibold number + 2×4pt padding, capsule).
@@ -39,21 +43,19 @@ public enum LensHeaderMetrics {
     }
 }
 
-/// The one header card of a lensed workspace: lens tabs and controls on row 1, a summary of what
-/// the lens found on row 2, and an expanding search below — 81pt tall at rest, in every lens and
-/// every state.
+/// The one header card of a lensed workspace: the lens's name and controls on row 1, a summary of
+/// what the lens found on row 2, and an expanding search below — 81pt tall at rest, in every lens
+/// and every state.
 ///
 /// **Ungated by design.** The card it replaces rendered only once a lens had results, and the two
 /// lenses that had no card at all (Rename, Automations) pinned a bare row inside their *content*
 /// card instead — so the header under the tabs was two unrelated mechanisms landing at 42 / 53 /
 /// 83 / 115pt depending on lens and state. Being present in the empty and scanning states is what
-/// makes the height a promise rather than a coincidence, and it's why the tabs can ride row 1:
-/// the objection that kept them off the old card (`fd63c8b` — a results-gated card would shift
-/// the tabs the moment a scan landed) dies with the gate.
+/// makes the height a promise rather than a coincidence.
 ///
 /// The host supplies the slots; the card owns the geometry, the search toggle's placement (last
 /// on row 1, mirroring Compare's `standardHeaderControls`), and the field/chips rows.
-public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing: View>: View {
+public struct LensHeaderCard<Title: View, Actions: View, Summary: View, Trailing: View>: View {
     @Binding private var searchText: String
     @Binding private var isSearchExpanded: Bool
     private let searchPlaceholder: String
@@ -67,7 +69,7 @@ public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing:
     private let hue: LiquidGlassHue
     private let tint: Double
 
-    private let tabs: () -> Tabs
+    private let title: () -> Title
     private let actions: () -> Actions
     private let summary: () -> Summary
     private let trailing: () -> Trailing
@@ -78,7 +80,8 @@ public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing:
     ///   - searchHelp: names what this lens searches, for the toggle's tooltip and a11y label.
     ///   - chips: the parsed tokens of the live query. Empty ⇒ no chip row, so the card only
     ///     grows the extra 30pt once a token actually parses.
-    ///   - tabs: row 1 leading — the lens picker.
+    ///   - title: row 1 leading — the lens's name, which is what tells you where you are now
+    ///     that the tabs no longer do.
     ///   - actions: row 1 trailing, before the search toggle — this lens's controls.
     ///   - summary: row 2 leading — the scanned-folder chip and stat pills.
     ///   - trailing: row 2 trailing — the detail line or "N of M" filtered count.
@@ -94,7 +97,7 @@ public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing:
         level: GlassLevel,
         hue: LiquidGlassHue = .blue,
         tint: Double = 0,
-        @ViewBuilder tabs: @escaping () -> Tabs,
+        @ViewBuilder title: @escaping () -> Title,
         @ViewBuilder actions: @escaping () -> Actions = { EmptyView() },
         @ViewBuilder summary: @escaping () -> Summary = { EmptyView() },
         @ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
@@ -110,7 +113,7 @@ public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing:
         self.level = level
         self.hue = hue
         self.tint = tint
-        self.tabs = tabs
+        self.title = title
         self.actions = actions
         self.summary = summary
         self.trailing = trailing
@@ -123,7 +126,7 @@ public struct LensHeaderCard<Tabs: View, Actions: View, Summary: View, Trailing:
     public var body: some View {
         VStack(alignment: .leading, spacing: LensHeaderMetrics.rowGap) {
             HStack(spacing: 8) {
-                tabs()
+                title()
                 Spacer(minLength: 8)
                 actions()
                 ExpandingSearchToggle(

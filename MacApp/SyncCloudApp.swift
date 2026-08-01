@@ -73,6 +73,21 @@ struct SyncCloudApp: App {
             // calls noted above are harmless.
             LiquidGlass.migrateLegacyAppearance()
 
+            // Carry the two-level `Compare | Tidy` + lens selection onto the flat workspace bar,
+            // before any @AppStorage reads it. Without this the retired raw values ("Tidy", and
+            // the lens the session ended in) simply fail to resolve and @AppStorage falls back to
+            // its default — silently, which would drop anyone mid-task in a lens onto Compare.
+            // Idempotent: it only writes when the new key is absent, so the repeat App.init calls
+            // noted above are harmless.
+            Workspace.migrateSelection(in: .standard)
+            // One `Tidy` entry covered all five lenses; fan it out so a deliberate "keep the rail
+            // up" survives them becoming peers.
+            if let migrated = TopPaneVisibility.migratingOverridesRaw(
+                UserDefaults.standard.string(forKey: TopPaneVisibility.overridesKey) ?? ""
+            ) {
+                UserDefaults.standard.set(migrated, forKey: TopPaneVisibility.overridesKey)
+            }
+
             // Main-thread hitch reporting, when the diagnostic flag is set. Installed here rather
             // than from a view so it covers the whole session — including launch, which is where a
             // wedged `getxattr` once cost the app every one of its windows. Idempotent, so the

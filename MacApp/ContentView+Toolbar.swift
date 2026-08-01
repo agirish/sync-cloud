@@ -99,67 +99,119 @@ extension ContentView {
         )
     }
 
-    /// The primary tabs — a boxed segmented control. It rides the toolbar's leading region, which
-    /// `.hiddenTitleBar` leaves empty save for the traffic lights, so the tabs cost no content
-    /// height at all. Narrow enough (~120pt) that it and the trailing utility pill clear the
-    /// window's 600pt `minWidth` together; the Tidy lens tabs deliberately stay out of here, since
-    /// adding their ~300pt would overflow that minimum and macOS would silently collapse them
-    /// behind an overflow chevron.
-    var primaryTabPicker: some View {
-        // A custom two-button segmented control rather than `Picker(.segmented)`: the native control
-        // renders neutral inside a macOS 26 glass toolbar group and ignores `.tint`, so the selected
-        // tab could never carry the app accent. These plain buttons draw their own accent fill, which
-        // the glass group leaves alone. The binding's setter still runs (it opens the Tidy rail).
-        let selection = primaryTabSelection
-        // The DEEPENED accent, which is what makes the white label below legible: filled with the
-        // raw accent this pill stranded white text at ~2.1–2.7:1 on Amber/Cyan/Green.
+    /// The workspace bar — one flat row of every workspace, riding the toolbar's leading region,
+    /// which `.hiddenTitleBar` leaves empty save for the traffic lights, so it costs no content
+    /// height at all.
+    ///
+    /// This replaces the two-level `Compare | Tidy` picker plus the lens tabs that used to head
+    /// the Tidy workspace. The old arrangement kept the lens tabs *out* of here deliberately —
+    /// their ~300pt would have overflowed the window's 600pt `minWidth` and macOS would have
+    /// folded them behind a chevron. Flattening does not repeal that constraint, it inherits it,
+    /// which is what ``WorkspaceBarMetrics`` is for: below the width where six labels fit, every
+    /// segment sheds its label at once and the glyphs carry the bar.
+    var workspaceBar: some View {
+        // Custom buttons rather than `Picker(.segmented)`: the native control renders neutral
+        // inside a macOS 26 glass toolbar group and ignores `.tint`, so the selected segment could
+        // never carry the app accent. These draw their own accent fill, which the group leaves
+        // alone. The binding's setter still runs (it opens the source rail).
+        let selection = workspaceSelection
+        // The DEEPENED accent, which is what makes the white label legible: filled with the raw
+        // accent this pill stranded white text at ~2.1–2.7:1 on Amber/Cyan/Green.
         let accentFill = glassHue.accentFillColor
         let onAccent = glassHue.onAccentLabelColor
-        return HStack(spacing: 4) {
-            ForEach(BottomTab.allCases, id: \.self) { tab in
-                let isSelected = selection.wrappedValue == tab
-                Button {
-                    selection.wrappedValue = tab
-                } label: {
-                    Text(tab.title)
-                        .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                        .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(
-                            isSelected ? AnyShapeStyle(accentFill) : AnyShapeStyle(Color.clear),
-                            in: Capsule()
-                        )
-                        .contentShape(Capsule())
+        let style = workspaceBarStyle
+        return HStack(spacing: WorkspaceBarMetrics.segmentGap) {
+            ForEach(Array(Workspace.allCases.enumerated()), id: \.element) { index, workspace in
+                // Compare is the only workspace with two panes; the rest put a lens where its
+                // second provider goes. The rule says so — it is the one real grouping in the bar.
+                if index == 1 {
+                    Divider().frame(height: 14).padding(.horizontal, 4)
                 }
-                // The selected segment already carries the accent fill, so it takes the ring;
-                // the unselected one washes the capsule it would fill if you clicked it.
-                .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accentFill))
-                // These two Buttons stand in for a `Picker(.segmented)` (which renders neutral in a
-                // macOS 26 glass toolbar group), so they have to restate the selected-state semantics
-                // the Picker gave VoiceOver for free. No `.help`: it would only echo the visible label.
-                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                workspaceSegment(workspace, selection: selection, style: style,
+                                 accentFill: accentFill, onAccent: onAccent)
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Workspace")
-        // Inset the segments inside an outer container capsule so the selected pill floats within it
-        // with a gap on every side, instead of filling the control edge-to-edge.
+        // Inset the segments inside an outer container capsule so the selected pill floats within
+        // it with a gap on every side, instead of filling the control edge-to-edge.
         .padding(3)
         .background(Capsule().fill(.quaternary.opacity(0.5)))
         .fixedSize()
     }
 
-    /// The window toolbar — the window-level controls, and only those: which workspace you're in
-    /// (Compare | Tidy), and the three utilities (Info, Logs, Settings). Everything else lives where
-    /// it acts: Scan is in each pane header, Find Duplicates in the Tidy ▸ Duplicates lens, the file
-    /// actions are the panes' contextual action bar, and the Tidy lens tabs head the Tidy workspace.
+    @ViewBuilder
+    private func workspaceSegment(
+        _ workspace: Workspace,
+        selection: Binding<Workspace>,
+        style: WorkspaceBarStyle,
+        accentFill: Color,
+        onAccent: Color
+    ) -> some View {
+        let isSelected = selection.wrappedValue == workspace
+        Button {
+            selection.wrappedValue = workspace
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: workspace.symbol)
+                    .font(.system(size: 12, weight: .medium))
+                if style == .full {
+                    Text(workspace.title)
+                        .scaledFont(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                }
+            }
+            .foregroundStyle(isSelected ? AnyShapeStyle(onAccent) : AnyShapeStyle(Color.secondary))
+            .padding(.horizontal, style == .full ? 12 : 10)
+            .padding(.vertical, 4)
+            .background(
+                isSelected ? AnyShapeStyle(accentFill) : AnyShapeStyle(Color.clear),
+                in: Capsule()
+            )
+            .contentShape(Capsule())
+        }
+        // The selected segment already carries the accent fill, so it takes the ring; the
+        // unselected ones wash the capsule they would fill if you clicked them.
+        .buttonStyle(.hoverAffordance(isSelected ? .filled : .segment, tint: accentFill))
+        // Once the label is shed the glyph is the only thing naming this workspace, so the name
+        // has to survive somewhere reachable — the tooltip for a mouse, the a11y label otherwise.
+        .help(workspace.title)
+        .accessibilityLabel(workspace.title)
+        // These Buttons stand in for a `Picker(.segmented)` (which renders neutral in a macOS 26
+        // glass toolbar group), so they restate the selected-state semantics the Picker gave
+        // VoiceOver for free.
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    /// Whether the bar can spell its segments out at the window's current width.
+    ///
+    /// The label widths are measured, not assumed: the app scales its own type (Settings ▸ Text
+    /// size), so a hard-coded table would be correct at exactly one setting and would silently
+    /// overflow at the larger ones — which is the failure that hides the control entirely.
+    /// Measured at semibold because that is the selected segment's weight, and the widest.
+    private var workspaceBarStyle: WorkspaceBarStyle {
+        // Before the first geometry callback there is no width to reason about. Start narrow:
+        // a bar that begins as glyphs and gains labels is a cosmetic settle, where one that
+        // begins too wide is a toolbar that overflows on launch.
+        guard contentWidth > 0 else { return .iconOnly }
+        let font = NSFont.systemFont(ofSize: 12 * FontSize.resolved().scale, weight: .semibold)
+        let widths = Workspace.allCases.map { workspace in
+            (workspace.title as NSString)
+                .size(withAttributes: [.font: font])
+                .width
+        }
+        return WorkspaceBarMetrics.style(contentWidth: contentWidth, labelWidths: widths)
+    }
+
+    /// The window toolbar — the window-level controls, and only those: which workspace you're in,
+    /// and the three utilities (Info, Logs, Settings). Everything else lives where it acts: Scan is
+    /// in each pane header, Find Duplicates in the Duplicates workspace, and the file actions are
+    /// the panes' contextual action bar.
     @ToolbarContentBuilder
     var mainToolbar: some ToolbarContent {
-        // `.navigation` puts the tabs immediately after the traffic lights. There's no window title
+        // `.navigation` puts the bar immediately after the traffic lights. There's no window title
         // competing for the space — the window is `.hiddenTitleBar`.
         ToolbarItem(placement: .navigation) {
-            primaryTabPicker
+            workspaceBar
         }
 
         // A leading flexible spacer keeps the utility pill trailing (macOS 26's grouped toolbar no
@@ -169,8 +221,9 @@ extension ContentView {
         }
 
         ToolbarItemGroup(placement: .primaryAction) {
-            // Info inspector toggle — available on every tab (Compare shows both-sides status; Tidy
-            // shows the single source), so opening Info never yanks the Tidy rail over to Compare.
+            // Info inspector toggle — available on every workspace (Compare shows both-sides
+            // status; a lens shows the single source), so opening Info never yanks the rail over
+            // to Compare.
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { showInspector.toggle() }
             } label: {

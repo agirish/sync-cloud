@@ -151,27 +151,6 @@ private let _syncCloudTestsAppIntentsDependency: Any.Type = (any AppIntent).self
         #expect(ContentView.paneProvidersChanged(old: old, new: new, leftId: "iCloud", rightId: "Dropbox"))
     }
 
-    // MARK: BottomTab persistence format
-
-    @Test func testBottomTabRawValuesAreAStablePersistenceFormat() {
-        // The selected bottom tab is persisted via @AppStorage("selectedBottomTab") using these raw
-        // values, so a user relaunches into the tab they left. Renaming a case's rawValue would
-        // silently drop every user back to the Differences default — the display label (`title`)
-        // is separate for exactly this reason ("Differences" persists, but shows as "Compare").
-        #expect(ContentView.BottomTab.differences.rawValue == "Differences")
-        #expect(ContentView.BottomTab.tidy.rawValue == "Tidy")
-        #expect(ContentView.BottomTab.differences.title == "Compare")
-    }
-
-    @Test func testBottomTabRestoresFromStoredRawValue() {
-        // Round-trip every case, and confirm an unrecognized stored value fails the
-        // RawRepresentable init — which is what makes @AppStorage fall back to its default.
-        for tab in ContentView.BottomTab.allCases {
-            #expect(ContentView.BottomTab(rawValue: tab.rawValue) == tab)
-        }
-        #expect(ContentView.BottomTab(rawValue: "NotATab") == nil)
-    }
-
     // MARK: Collision prompt wording (file vs. folder, and where-from/where-to)
 
     private static func collision(isMove: Bool = false, isDirectory: Bool = false) -> FileCollision {

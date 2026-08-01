@@ -34,8 +34,7 @@ struct DuplicateReviewCoordinator {
     /// seeding order is load-bearing: it must be bumped BEFORE `applyProviderPinAssignments`
     /// writes any id, so each suppressed onChange finds a positive counter to decrement.
     @Binding var pendingSwapProviderChanges: Int
-    @Binding var selectedBottomTab: ContentView.BottomTab
-    @Binding var selectedTidyLens: TidyLens
+    @Binding var selectedWorkspace: Workspace
 
     /// The banner icon's tint (the host's glass accent).
     let accentColor: Color
@@ -134,7 +133,7 @@ struct DuplicateReviewCoordinator {
             keeperRelativePath: keepRel, redundantRelativePath: deleteRel, restore: restore)
 
         Logger.shared.info("Comparing duplicate copies — keep \(keepPath) · delete candidate \(deletePath)")
-        selectedBottomTab = .differences
+        selectedWorkspace = .compare
         refreshAction()
     }
 
@@ -339,8 +338,7 @@ struct DuplicateReviewCoordinator {
             let removed = await syncManager.deleteItems(at: [review.deletePath])
             guard removed > 0 else { return }
             Logger.shared.info("Trashed the right duplicate copy \(review.deletePath)")
-            selectedBottomTab = .tidy
-            selectedTidyLens = .duplicates
+            selectedWorkspace = .duplicates
             syncManager.removeResolvedDuplicateCopy(atPath: review.deletePath)
             // End the guided review, drop the duplicate review, and restore the pre-review Compare
             // setup — all via the reducer (it reads review.restore before clearing duplicateReview).
