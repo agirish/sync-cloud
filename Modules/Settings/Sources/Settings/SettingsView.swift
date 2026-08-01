@@ -738,7 +738,7 @@ struct AppearanceSettingsTab: View {
 
             SettingsSection(
                 "List density",
-                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists throughout SyncCloud — the file panes, the Compare table, every lens workspace, and the Activity Log and Sync History windows — so more fits on screen."
+                caption: "Comfortable keeps the standard spacing. Compact tightens rows in lists across SyncCloud — the file panes, the Compare table, every lens workspace, and the Activity Log and Sync History windows — so more fits on screen."
             ) {
                 Picker("List density", selection: $listDensityRaw) {
                     ForEach(ListDensity.allCases) { density in
