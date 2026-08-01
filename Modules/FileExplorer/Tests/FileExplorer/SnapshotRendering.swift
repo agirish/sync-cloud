@@ -2,12 +2,13 @@ import AppKit
 import SnapshotTesting
 import SwiftUI
 
-// NOTE: This helper is intentionally duplicated (verbatim) in the FileExplorer and Dashboard
-// test targets — SPM offers no clean way to share test-support code across packages without
+// NOTE: This helper is intentionally duplicated (verbatim) in the other three test
+// targets — SPM offers no clean way to share test-support code across packages without
 // minting a production library product, and the harness must stay test-only. If you change
 // this file, change the copies too:
 //   Modules/Design/Tests/DesignTests/SnapshotRendering.swift
 //   Modules/Dashboard/Tests/Dashboard/SnapshotRendering.swift
+//   Modules/Settings/Tests/Settings/SnapshotRendering.swift
 
 /// Renders a SwiftUI view to an `NSImage` offscreen at a FIXED size, in the given appearance,
 /// and asserts it against a committed reference under `__Snapshots__/`.

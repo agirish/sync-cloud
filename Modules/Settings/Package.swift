@@ -10,7 +10,10 @@ let package = Package(
     dependencies: [
         .package(path: "../Sync"),
         .package(path: "../Events"),
-        .package(path: "../Design")
+        .package(path: "../Design"),
+        // Test-only: visual snapshot regression net, same as Design/FileExplorer/Dashboard.
+        // The library product below does NOT depend on it.
+        .package(url: "https://github.com/pointfreeco/swift-snapshot-testing", from: "1.18.0")
     ],
     targets: [
         .target(
@@ -18,7 +21,10 @@ let package = Package(
             dependencies: ["Sync", "Events", "Design"]),
         .testTarget(
             name: "SettingsTests",
-            dependencies: ["Settings", "Design", "Sync"],
+            dependencies: [
+                "Settings", "Design", "Sync",
+                .product(name: "SnapshotTesting", package: "swift-snapshot-testing")
+            ],
             path: "Tests/Settings")
     ]
 )

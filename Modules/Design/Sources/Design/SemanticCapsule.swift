@@ -117,3 +117,22 @@ public struct SemanticCapsuleStyle: Equatable, Sendable {
         Color(red: r, green: g, blue: b)
     }
 }
+
+public extension View {
+    /// The flat semantic-capsule surface: `PillVariant.standard`'s geometry with a SOLID
+    /// `SemanticCapsuleStyle` fill in place of `pillSurface(_:tint:)`'s 14% tint wash.
+    ///
+    /// Shared rather than re-derived per caller, and that is the whole reason it is here: the
+    /// differences count pill (`StatPill`) and the Appearance tab's accent preview have to paint
+    /// the same capsule, or the preview quietly stops previewing what ships. A lookalike with its
+    /// own paddings is exactly the drift `PaneActionBar`'s old private capsule caused.
+    ///
+    /// Deliberately surface-only — the caller sets `style.content` itself, because only the caller
+    /// knows which of its runs are non-text indicators allowed to take
+    /// `AccentLabel.dimmedOnFillOpacity` and which are text that may not.
+    func semanticCapsuleSurface(_ style: SemanticCapsuleStyle) -> some View {
+        padding(.horizontal, PillVariant.standard.horizontalPadding)
+            .padding(.vertical, PillVariant.standard.verticalPadding)
+            .background(style.fill, in: Capsule(style: .continuous))
+    }
+}

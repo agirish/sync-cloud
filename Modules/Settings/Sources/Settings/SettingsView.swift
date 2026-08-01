@@ -654,19 +654,8 @@ struct AppearanceSettingsTab: View {
                 .labelsHidden()
             }
 
-            SettingsSection("Accent color") {
-                // Twelve hues share this row; the tighter spacing gives each swatch more room.
-                HStack(spacing: 5) {
-                    ForEach(LiquidGlassHue.allCases) { hue in
-                        HueOptionView(
-                            hue: hue,
-                            isSelected: selectedHue == hue,
-                            action: { selectedHueRaw = hue.rawValue }
-                        )
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
+            AccentColorSection(selectedHue: selectedHue,
+                               onSelect: { selectedHueRaw = $0.rawValue })
 
             SettingsSection("Glass effect", caption: glassLevel.detail) {
                 Picker("Glass effect", selection: $glassLevelRaw) {
@@ -752,7 +741,9 @@ struct AppearanceSettingsTab: View {
 }
 
 /// A selectable hue option for the liquid glass accent color.
-private struct HueOptionView: View {
+/// Internal rather than file-private: `AccentColorSection` (the accent picker's own file) builds
+/// the row of these, and the snapshot tests render it.
+struct HueOptionView: View {
     let hue: LiquidGlassHue
     let isSelected: Bool
     let action: () -> Void

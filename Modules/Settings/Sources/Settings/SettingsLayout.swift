@@ -37,7 +37,15 @@ enum SettingsSheetMetrics {
     /// sections, so the sheet grows by exactly 28pt and the safety margin is left where it was.
     /// Paying for the air out of the margin instead would have left the tab one caption line
     /// from scrolling again.
-    static let baseSize = CGSize(width: 760, height: 688)
+    ///
+    /// 688 → 758 when the accent preview strip and its caption landed. Same arithmetic, measured
+    /// the same way: Appearance went 604 → 674pt at the default text size (a 44pt strip, the 8pt
+    /// stack gap above it, and ~18pt for the caption the section never had), so the sheet takes
+    /// the whole 70pt and the margin returns to the 39pt it had before. The tab had only 24pt of
+    /// slack over the 15pt floor `appearanceKeepsRoomForACopyEdit` enforces, so the strip could
+    /// not have been absorbed — this is the "raise it deliberately" branch that test asks for,
+    /// not a silent overflow.
+    static let baseSize = CGSize(width: 760, height: 758)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a

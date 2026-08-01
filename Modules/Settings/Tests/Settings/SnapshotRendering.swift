@@ -8,7 +8,7 @@ import SwiftUI
 // this file, change the copies too:
 //   Modules/Design/Tests/DesignTests/SnapshotRendering.swift
 //   Modules/FileExplorer/Tests/FileExplorer/SnapshotRendering.swift
-//   Modules/Settings/Tests/Settings/SnapshotRendering.swift
+//   Modules/Dashboard/Tests/Dashboard/SnapshotRendering.swift
 
 /// Renders a SwiftUI view to an `NSImage` offscreen at a FIXED size, in the given appearance,
 /// and asserts it against a committed reference under `__Snapshots__/`.

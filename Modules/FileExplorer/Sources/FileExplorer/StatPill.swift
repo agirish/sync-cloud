@@ -171,16 +171,17 @@ struct DetailRunCapsule: ViewModifier {
 
 /// Either the shared tint wash (`pillSurface`) or a flat semantic fill. Split out because the two
 /// produce different view types and a ternary can't choose between them inline.
+///
+/// Both arms are now Design's, so neither can drift on its own: the flat arm's paddings and capsule
+/// moved to `semanticCapsuleSurface(_:)` when the Appearance tab's accent preview needed to paint
+/// this same pill from a package that cannot import FileExplorer.
 private struct StatPillSurface: ViewModifier {
     let semantic: SemanticCapsuleStyle?
     let tint: Color
 
     func body(content: Content) -> some View {
         if let semantic {
-            content
-                .padding(.horizontal, PillVariant.standard.horizontalPadding)
-                .padding(.vertical, PillVariant.standard.verticalPadding)
-                .background(semantic.fill, in: Capsule(style: .continuous))
+            content.semanticCapsuleSurface(semantic)
         } else {
             content.pillSurface(.standard, tint: tint)
         }
