@@ -93,7 +93,7 @@ the display awake, 5/6 fail with it asleep. Heavy CPU load starves it the same w
 a harness-level `.transaction { $0.animation = nil }` **loses** to an explicit `withAnimation` at
 the state change, so the nil has to be where that call reads it.
 
-**See.** `92e2bdf` — *Decide the column reveal's tests by the code, not the machine's power state*;
+**See.** `6ecc245d` — *Decide the column reveal's tests by the code, not the machine's power state*;
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.
 
 ### 2. Fixed pumps and fixed sleeps
@@ -124,7 +124,7 @@ process-wide.** `.defaultAppStorage` isolates the stored *values*, not the chang
 write in one suite fires another suite's `onChange` driver even with separate suites.
 
 **Fix.** `@Suite(.serialized)` on anything that writes process-wide state, with the reason in the
-doc comment — there are 28 of them, and each says why it needs it. For values, use a per-mount
+doc comment — there are 32 of them, and each says why it needs it. For values, use a per-mount
 scratch defaults suite rather than the standard domain.
 
 **See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;

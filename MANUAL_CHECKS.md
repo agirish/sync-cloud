@@ -13,6 +13,7 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Space types normally in text fields.** Type a phrase with spaces into the
   Differences search field, and into a Settings-overlay text field (⌘,) → spaces
   appear in the text; Quick Look does not open.
+
 ## Banners & progress (Waves 1C, 2D)
 
 - [ ] **Banner auto-dismiss after ✕.** Hover a success banner, close it with ✕, then
