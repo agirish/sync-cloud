@@ -132,9 +132,64 @@
 
 <div class="timeline">
 
+  <!-- v2.8 -->
+  <article class="rel">
+    <div class="rel-head"><span class="v">v2.8</span><span class="tag latest">Latest</span></div>
+    <p class="lede">A destination picker of our own, a preview beside the columns, and a pane bar you arrange yourself.</p>
+    <div class="grp">
+      <h3>Removed</h3>
+      <ul class="flist">
+        <li><span class="ic">✕</span><span><b>Cross-pane drag &amp; drop is gone.</b> It never worked in a shipped build — a SwiftUI gesture on a list row beat AppKit's drag tracking, so the drop was routed away before it could land. Rather than leave a broken affordance in place it has been removed, and Help and the shortcuts panel no longer teach it. Use the transfer buttons or the new destination picker.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Data safety</h3>
+      <ul class="flist">
+        <li><span class="ic">🛡</span><span><b>Three ways a mutation path could destroy what it was saving</b> are closed.</span></li>
+        <li><span class="ic">⚠</span><span><b>A move says what it is about to collide with</b> before you confirm it, rather than after.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Sending files somewhere</h3>
+      <ul class="flist">
+        <li><span class="ic">📁</span><span><b>Organize gets a destination picker of its own</b> instead of the system panel — built on the Settings panel's shape, floated over the window rather than buried in a sheet, dressed in the app's own surfaces, and opaque so what is behind it stops bleeding through.</span></li>
+        <li><span class="ic">→</span><span><b>The Tidy rail can send a file somewhere</b>, and a cross-pane transfer now says where it actually puts things.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Preview</h3>
+      <ul class="flist">
+        <li><span class="ic">👁</span><span><b>A selected file previews beside the columns</b> — in the Tidy rail and now the comparison panes too, with the toggle in the pane header.</span></li>
+        <li><span class="ic">▥</span><span>The preview is <b>pinned beside the column stack</b> rather than squeezed inside it, so it keeps its width instead of fighting the columns for it; the action bar stays off the preview it now shares a pane with.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>A pane bar you arrange</h3>
+      <ul class="flist">
+        <li><span class="ic">▤</span><span><b>The pane bar is a canvas you arrange yourself</b>, with a customize sheet that fits inside the window it belongs to and tells its track when there is more to show. Every drop on the track lands somewhere.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Performance</h3>
+      <ul class="flist">
+        <li><span class="ic">⚡</span><span><b>The file panes stop re-rendering on unrelated state</b>, the inspector's stat moves off the main thread rather than merely out of the render pass, and the panes stop re-arming a timer and re-statting every frame.</span></li>
+        <li><span class="ic">⧉</span><span><b>Three caches stop paying for work they had already done</b>, the merge planner stops re-asking what the directory walk already told it, and the hash cache is sized above the trees it serves — below that size it returned nothing at all.</span></li>
+        <li><span class="ic">▸</span><span>A row's fonts resolve once per pane instead of once per row, bulk progress is throttled to one update per percent, and the pane bar computes the rung it needs instead of building ten to find it.</span></li>
+      </ul>
+    </div>
+    <div class="grp">
+      <h3>Fixes</h3>
+      <ul class="flist">
+        <li><span class="ic">✓</span><span>The Tidy rail stops striking out and badging rows with comparison state it has no business showing.</span></li>
+        <li><span class="ic">␣</span><span><b>Space previews the file the app says is current.</b> The overlay cards stop throwing away the Clear setting, and a superseded metadata load can no longer claim the memo ahead of the current one.</span></li>
+      </ul>
+    </div>
+    <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.7...v2.8">v2.7...v2.8</a></p>
+  </article>
+
   <!-- v2.7 -->
   <article class="rel">
-    <div class="rel-head"><span class="v">v2.7</span><span class="tag latest">Latest</span></div>
+    <div class="rel-head"><span class="v">v2.7</span><span class="tag">Columns</span></div>
     <p class="lede">Browse your folders in columns.</p>
     <div class="grp">
       <h3>Columns</h3>

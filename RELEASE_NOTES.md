@@ -5,6 +5,69 @@ User-facing changes, newest first. For the full commit history see the
 
 ---
 
+## v2.8
+
+A destination picker of our own, a preview beside the columns, and a pane bar you
+arrange yourself.
+
+### Removed
+- **Cross-pane drag & drop is gone.** It never worked in a shipped build — a SwiftUI
+  gesture on a list row beat AppKit's drag tracking, so the drop was routed away
+  before it could land. Rather than leave a broken affordance in place, it has been
+  removed, and Help and the shortcuts panel no longer teach it. Use the transfer
+  buttons or the new destination picker.
+
+### Data safety
+- **Three ways a mutation path could destroy what it was saving** are closed.
+- **A move says what it is about to collide with** before you confirm it, rather
+  than after.
+
+### Sending files somewhere
+- **Organize gets a destination picker of its own** instead of the system panel —
+  built on the Settings panel's shape, floated over the window rather than buried
+  in a sheet, dressed in the app's own surfaces, and opaque so what is behind it
+  stops bleeding through.
+- **The Tidy rail can send a file somewhere**, and a cross-pane transfer now says
+  where it actually puts things.
+
+### Preview
+- **A selected file previews beside the columns** — in the Tidy rail and, now, in
+  the comparison panes too, with the toggle in the pane header.
+- The preview is pinned beside the column stack rather than squeezed inside it, so
+  it keeps its width instead of fighting the columns for it. The action bar stays
+  off the preview it now shares a pane with.
+- The Tidy rail draws columns, a lone column fills its area, and columns are lifted
+  off their width floor.
+
+### A pane bar you arrange
+- **The pane bar is a canvas you arrange yourself**, with a customize sheet that
+  fits inside the window it belongs to and tells its track when there is more to
+  show. Every drop on the track lands somewhere, and the sheet's drops aim at pills
+  rather than past them.
+
+### Performance
+- **The file panes stop re-rendering on unrelated state**, the inspector's stat
+  moves off the main thread rather than merely out of the render pass, and the panes
+  stop re-arming a timer and re-statting every frame.
+- **Three caches stop paying for work they had already done**, the merge planner
+  stops re-asking what the directory walk already told it, and the hash cache is
+  sized above the trees it is meant to serve — below that size it returned nothing
+  at all.
+- A row's fonts are resolved once per pane instead of once per row, bulk-operation
+  progress is throttled to one update per percent, and the pane bar computes the
+  rung it needs instead of building ten to find it.
+
+### Fixes
+- The Tidy rail stops striking out and badging rows with comparison state it has no
+  business showing.
+- **Space previews the file the app says is current.**
+- The overlay cards stop throwing away the Clear setting, and a superseded metadata
+  load can no longer claim the memo ahead of the current one.
+
+**Full changelog:** [`v2.7...v2.8`](https://github.com/agirish/sync-cloud/compare/v2.7...v2.8)
+
+---
+
 ## v2.7
 
 Browse your folders in columns.
