@@ -456,6 +456,12 @@ public class FileSyncManager: ObservableObject {
     /// by salient filename tokens, which token-less names ("IMG_0007", "Scan 12") don't have — this
     /// set is what stops those files from being re-offered the folder they just rejected.
     public var filingSessionRejections: [String: Set<String>] = [:]
+    /// Suggestion ids with a "Try another" re-ask currently in flight. The button fires an
+    /// unstructured Task per click, so two rapid clicks would run two classifier round-trips
+    /// for the same card and whichever RETURNED last would win — `tryAnotherFolder` checks-and-
+    /// inserts here at entry (removing via defer) and ignores re-entrant calls for the same
+    /// suggestion. Internal so tests can pin the guard without racing real clicks.
+    var filingTryAnotherInFlight: Set<String> = []
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
@@ -995,6 +1001,17 @@ public class FileSyncManager: ObservableObject {
     /// Used by the app-level guard to prevent accidental termination during critical tasks.
     /// Not `@Published`: the quit guard reads it imperatively; no view observes it.
     public var activeFileOperationsCount = 0
+    /// Monotonic count of file operations ever STARTED. Bumped alongside every
+    /// `activeFileOperationsCount` increment and never decremented, so a long async pass can
+    /// tell that an operation ran even when it started AND finished during the pass —
+    /// re-checking `activeFileOperationsCount == 0` alone cannot see that window. The scan-time
+    /// checksum pass captures this at entry and discards its batch if it moved by commit time.
+    internal private(set) var fileOperationsEpoch = 0
+
+    /// Records that a file operation began (see `fileOperationsEpoch`).
+    private func noteFileOperationBegan() {
+        fileOperationsEpoch += 1
+    }
     /// Real-time progress tracker for the currently active bulk file operation.
     @Published public var activeProgress: Progress? = nil
     /// Short-lived banner for in-app operation completion toasts. The severity drives the UI's
@@ -1093,6 +1110,7 @@ public class FileSyncManager: ObservableObject {
     /// there is shared and unconditional.
     public func preCountFileOperation() {
         activeFileOperationsCount += 1
+        noteFileOperationBegan()
     }
 
     /// Reverts a `preCountFileOperation()` whose operation will never be enqueued — the user
@@ -1112,7 +1130,10 @@ public class FileSyncManager: ObservableObject {
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
         if !alreadyCounted {
-            await MainActor.run { self.activeFileOperationsCount += 1 }
+            await MainActor.run {
+                self.activeFileOperationsCount += 1
+                self.noteFileOperationBegan()
+            }
         }
 
         let previousTask = fileOperationTask
