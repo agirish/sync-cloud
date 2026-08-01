@@ -368,25 +368,39 @@ public struct PaneHeader: View {
     /// The original ladder, searched by `ViewThatFits`, for the header that has no provider capsule.
     ///
     /// Kept for the one case the computed rung cannot serve — see `navCluster` — and clamped to the
-    /// deepest rung that changes anything rather than run to a hard-coded ten. `PaneBarLayout.plan`
-    /// is idempotent past `maxDepth` (`PaneBarArrangementTests` pins that), so the rungs this drops
+    /// deepest rung that changes anything rather than run to a hard-coded count. `PaneBarLayout.plan`
+    /// is idempotent past `maxDepth` (`PaneBarArrangementTests` pins that), so the slots this clamps
     /// were duplicates of the last one.
-    /// Ten literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a `ForEach` over
-    /// rungs is a SINGLE child and the ladder silently collapses to one rung. `terminal` is at most 9
-    /// for any arrangement the palette can build, and clamping the surplus to it costs nothing —
-    /// those rungs were duplicates of the last either way.
+    ///
+    /// Seventeen literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a
+    /// `ForEach` over rungs is a SINGLE child and the ladder silently collapses to one rung.
+    /// Seventeen because that is what covers the deepest ladder any arrangement can build — see
+    /// `PaneBarLadder.searchedSlotCount`, which owns that arithmetic and MUST match the literal
+    /// count here. (An earlier version declared ten, on the false premise that `terminal` never
+    /// exceeds 9; spacers are duplicate-exempt, so a spacer-heavy arrangement runs `terminal` up
+    /// to 16 and the bar skipped every rung between 8 and full compaction.) Building seventeen
+    /// candidate bars per layout pass is the cost `navCluster`'s computed rung exists to avoid;
+    /// it is paid here only for the rare provider-less header, which is why this path may afford
+    /// full coverage where the common path computes a single rung.
     private func searchedLadder(_ ladder: PaneBarLadder) -> some View {
         ViewThatFits(in: .horizontal) {
-            barVariant(0, ladder)
-            barVariant(min(1, ladder.terminal), ladder)
-            barVariant(min(2, ladder.terminal), ladder)
-            barVariant(min(3, ladder.terminal), ladder)
-            barVariant(min(4, ladder.terminal), ladder)
-            barVariant(min(5, ladder.terminal), ladder)
-            barVariant(min(6, ladder.terminal), ladder)
-            barVariant(min(7, ladder.terminal), ladder)
-            barVariant(min(8, ladder.terminal), ladder)
-            barVariant(ladder.terminal, ladder)
+            barVariant(ladder.searchedRung(forSlot: 0), ladder)
+            barVariant(ladder.searchedRung(forSlot: 1), ladder)
+            barVariant(ladder.searchedRung(forSlot: 2), ladder)
+            barVariant(ladder.searchedRung(forSlot: 3), ladder)
+            barVariant(ladder.searchedRung(forSlot: 4), ladder)
+            barVariant(ladder.searchedRung(forSlot: 5), ladder)
+            barVariant(ladder.searchedRung(forSlot: 6), ladder)
+            barVariant(ladder.searchedRung(forSlot: 7), ladder)
+            barVariant(ladder.searchedRung(forSlot: 8), ladder)
+            barVariant(ladder.searchedRung(forSlot: 9), ladder)
+            barVariant(ladder.searchedRung(forSlot: 10), ladder)
+            barVariant(ladder.searchedRung(forSlot: 11), ladder)
+            barVariant(ladder.searchedRung(forSlot: 12), ladder)
+            barVariant(ladder.searchedRung(forSlot: 13), ladder)
+            barVariant(ladder.searchedRung(forSlot: 14), ladder)
+            barVariant(ladder.searchedRung(forSlot: 15), ladder)
+            barVariant(ladder.searchedRung(forSlot: 16), ladder)
         }
     }
 

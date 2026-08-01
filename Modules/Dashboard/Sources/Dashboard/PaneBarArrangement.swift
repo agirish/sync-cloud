@@ -413,6 +413,32 @@ struct PaneBarLadder {
         PaneBarLayout.height(of: plan(forRung: rung), controlSize: controlSize(forRung: rung))
     }
 
+    // MARK: The searched ladder's slots
+
+    /// How many literal children `PaneHeader.searchedLadder` declares, and the deepest ladder they
+    /// must cover.
+    ///
+    /// `ViewThatFits` takes a `ViewBuilder`, and a `ForEach` inside one is a SINGLE child — the
+    /// ladder silently collapses to one rung — so the searched path must declare a fixed count of
+    /// literal children, whatever the arrangement. That count has to cover the deepest ladder any
+    /// arrangement can build: `PaneBarArrangement.maxItems` is 16 and spacers are exempt from the
+    /// duplicate rule, so a stored arrangement can carry 15 fixed spaces beside the pinned scan
+    /// control — 15 sheddable items, `maxDepth` 15, `terminal` 16. Seventeen slots (rungs 0
+    /// through 15, then the terminal) therefore cover every rung of every ladder.
+    ///
+    /// The previous count was ten, justified by a comment claiming "`terminal` is at most 9 for
+    /// any arrangement the palette can build" — false for exactly the spacer-heavy case above, and
+    /// the no-provider header jumped from rung 8 straight to full compaction at intermediate
+    /// widths. `PaneBarLadderTests.theSearchedSlotsCoverTheDeepestLadderAnyArrangementCanBuild`
+    /// pins the arithmetic against the worst arrangement the normalizer permits.
+    static let searchedSlotCount = 17
+
+    /// The rung the searched ladder's literal child at `slot` draws. Slots past `terminal` clamp
+    /// to it: those children are duplicates of the terminal rung, which `ViewThatFits` walks past
+    /// at no behavioural cost — the cost of *building* them is why the searched ladder is reserved
+    /// for the rare no-provider header (see `PaneHeader.navCluster`).
+    func searchedRung(forSlot slot: Int) -> Int { min(slot, terminal) }
+
     /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
     /// rule, and the narrowest rung when nothing does.
     ///
