@@ -137,6 +137,15 @@ import Sync
         #expect(session.verdict(for: queue[1].id) == nil)
     }
 
+    /// A verdict for an id outside the queue (stale after a rescan regenerated row UUIDs) is
+    /// refused — same membership rule `record` enforces for outcomes.
+    @Test func verdictForAnUnknownIdIsRefused() throws {
+        let queue = [diff("a")]
+        var session = try #require(ReviewSession(queue: queue, isMove: false))
+        session.recordVerdict(.identical, for: UUID())
+        #expect(session.verdicts.isEmpty)
+    }
+
     @Test func pendingPreservesQueueOrderAroundDecisions() throws {
         let queue = [diff("a"), diff("b"), diff("c")]
         var session = try #require(ReviewSession(queue: queue, isMove: false))
@@ -161,5 +170,79 @@ import Sync
         #expect(store.isReviewing)
         store.session = nil
         #expect(!store.isReviewing)
+    }
+
+    private func diff(_ relativePath: String) -> FileDifference {
+        FileDifference(
+            relativePath: relativePath, leftItemPath: "/l/\(relativePath)",
+            rightItemPath: "/r/\(relativePath)", type: .missingOnRight,
+            action: .copyToRight, description: "test")
+    }
+
+    /// The A3 race: `syncFile` is an unbounded await, and exiting review + starting a NEW
+    /// session over the same un-rescanned set keeps the SAME difference ids — so a membership
+    /// check can't tell the sessions apart. The stale outcome must be dropped by the token
+    /// guard, leaving the replacement session untouched.
+    @Test func staleOutcomeAgainstAReplacedSessionIsDropped() throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a"), diff("b")]
+        let old = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = old
+        let staleToken = old.sessionToken   // captured before the "await", as reviewPrimary does
+
+        // Exit + restart over the SAME queue (identical ids), before the old outcome lands.
+        let replacement = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = replacement
+
+        #expect(!store.apply(.copied, for: queue[0].id, token: staleToken))
+        let session = try #require(store.session)
+        #expect(session.outcome(for: queue[0].id) == nil, "the stale outcome must not advance the new session")
+        #expect(session.current?.id == queue[0].id)
+        #expect(session.sessionToken == replacement.sessionToken)
+    }
+
+    /// The counterpart: a LATE outcome for the STILL-CURRENT session applies normally — the
+    /// token guard drops cross-session strays, not slow same-session copies.
+    @Test func lateOutcomeForTheSameSessionStillApplies() throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a"), diff("b")]
+        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = session
+
+        #expect(store.apply(.copied, for: queue[0].id, token: session.sessionToken))
+        #expect(store.session?.outcome(for: queue[0].id) == .copied)
+        #expect(store.session?.current?.id == queue[1].id)
+    }
+
+    /// Verdicts take the same guard: a hash finishing after exit + restart must not label an
+    /// item in the replacement session.
+    @Test func staleVerdictAgainstAReplacedSessionIsDropped() throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a")]
+        let old = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = old
+        let staleToken = old.sessionToken
+
+        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+
+        #expect(!store.recordVerdict(.identical, for: queue[0].id, token: staleToken))
+        #expect(store.session?.verdict(for: queue[0].id) == nil)
+
+        // And with the live token it lands.
+        let liveToken = try #require(store.session?.sessionToken)
+        #expect(store.recordVerdict(.identical, for: queue[0].id, token: liveToken))
+        #expect(store.session?.verdict(for: queue[0].id) == .identical)
+    }
+
+    /// A decision arriving after Exit tore the session down (no replacement) stays dropped.
+    @Test func outcomeAfterTeardownIsDropped() throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a")]
+        let session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.session = session
+        store.endSession()
+
+        #expect(!store.apply(.copied, for: queue[0].id, token: session.sessionToken))
+        #expect(store.session == nil)
     }
 }
