@@ -43,6 +43,36 @@ import Testing
         return SettingsSheetMetrics.contentOpening(textScale: scale) - height
     }
 
+    /// A 1280×800-class display's window, spelled out so the fixture is an argument rather than
+    /// a magic number: an 800pt-tall screen loses 24pt to the menu bar and ~36pt to the window's
+    /// title bar, leaving ~740pt of window content — which is what `ContentView.settingsOverlay`'s
+    /// `GeometryReader` hands to `SettingsView` as `availableSize`.
+    ///
+    /// **The Dock is deliberately excluded, and that limits what every test using this can
+    /// claim.** With a default bottom Dock (~75pt) the window is ~665pt, the opening ~572pt, and
+    /// Appearance's 634pt tab scrolls even at the default text size. So what is pinned here is
+    /// "a 1280×800 display with the Dock hidden or side-parked", not "a 1280×800 display".
+    /// Trimming the tab for the smallest configuration conceivable was rejected — the fix for a
+    /// bottom-Dock user is the scroll fallback.
+    private static let smallDisplayWindow = CGSize(width: 1280, height: 800 - 24 - 36)
+
+    /// The margin Appearance has left at one text size against a chosen accent hue, measured
+    /// through the tab's own `@AppStorage` via `.defaultAppStorage` — `UserDefaults.standard` is
+    /// never touched, so nothing is inherited from the machine or from a neighbouring test.
+    @MainActor
+    private func appearanceMargin(hue: LiquidGlassHue,
+                                  at scale: CGFloat,
+                                  available: CGSize? = nil) -> CGFloat {
+        let test = TestDefaults("hue-\(hue.rawValue)-\(scale)")
+        defer { test.wipe() }
+        test.defaults.set(hue.rawValue, forKey: LiquidGlass.hueKey)
+
+        let height = laidOutHeight(AppearanceSettingsTab().defaultAppStorage(test.defaults),
+                                   width: SettingsSheetMetrics.contentWidth(textScale: scale, available: available),
+                                   scale: scale)
+        return SettingsSheetMetrics.contentOpening(textScale: scale, available: available) - height
+    }
+
     @MainActor
     @Test func appearanceFitsItsOpeningWithoutScrolling() async throws {
         let height = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
@@ -125,7 +155,7 @@ import Testing
     /// scroll fallback, not a sheet trimmed for the smallest configuration conceivable.
     @MainActor
     @Test func appearanceFitsA1280x800Display() async throws {
-        let window = CGSize(width: 1280, height: 800 - 24 - 36)
+        let window = Self.smallDisplayWindow
         let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: window)
         // The premise that gives this test teeth: the small display genuinely clamps the sheet,
         // so this opening is NOT the unclamped one every other fit test measures against.
@@ -137,6 +167,34 @@ import Testing
 
         #expect(height <= opening,
                 "Appearance lays out at \(height)pt but a 1280×800 display's clamped opening is \(opening)pt — it scrolls on small screens.")
+    }
+
+    /// Every accent hue, because the caption is part of the layout and one hue's is longer.
+    ///
+    /// `AppearanceSettingsTab` reads the hue from `@AppStorage` defaulting to `.blue`, so every
+    /// other fit test in this file measures the SHORT caption. `.none` needs a sentence of its
+    /// own — a swatch labelled "None" over a visibly coloured button has to explain itself — and
+    /// at 121 characters that sentence wrapped to a second line, ~13pt the tab did not have. It
+    /// put a `.none` user's tab at exactly its clamped opening, zero margin, and no test could
+    /// see it: the caption and the sheet-fitting work landed thirty seconds apart, neither aware
+    /// of the other.
+    ///
+    /// Parameterised over `allCases` rather than pinning `.none` as "the worst case", so a
+    /// future hue with a long `displayName` is covered by construction. Over the raw VALUES
+    /// because `LiquidGlassHue` is not `Sendable` and so cannot cross into a test argument;
+    /// resolving it inside keeps a failure naming the hue that broke.
+    @MainActor
+    @Test(arguments: LiquidGlassHue.allCases.map(\.rawValue))
+    func appearanceFitsEveryAccentHue(_ rawValue: String) async throws {
+        let hue = try #require(LiquidGlassHue(rawValue: rawValue))
+
+        let margin = appearanceMargin(hue: hue, at: 1)
+        #expect(margin >= 15,
+                "Appearance has \(margin)pt of slack with the \(rawValue) accent — its caption is costing a line.")
+
+        let clamped = appearanceMargin(hue: hue, at: 1, available: Self.smallDisplayWindow)
+        #expect(clamped >= 0,
+                "Appearance overflows a 1280×800 display's clamped opening by \(-clamped)pt with the \(rawValue) accent.")
     }
 
     /// The rule the case above rests on, stated directly so a regression names the cause rather
