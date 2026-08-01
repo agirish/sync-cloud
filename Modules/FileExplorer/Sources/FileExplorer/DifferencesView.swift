@@ -1304,19 +1304,22 @@ public struct DifferencesView: View {
         guard let session = reviewStore.session, !reviewStore.isActing else { return }
         reviewStore.isActing = true
         let isMove = session.isMove
-        // Captured BEFORE the unbounded await below: exiting review and starting a new session
-        // over the same un-rescanned set keeps the difference ids, so only the token can tell
-        // the store this outcome belongs to the torn-down session, not the new one.
-        let token = session.sessionToken
         Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
         Task { @MainActor in
-            // confirmed: the review card IS the per-item confirmation UI — re-running the
-            // transferConfirmer here doubled every accept, and an Escape on that redundant
-            // prompt was recorded as a deliberate Skip in the session tally.
-            let succeeded = await syncManager.syncFile(item, isMove: isMove, confirmed: true)
-            reviewStore.isActing = false
-            // Not copied = failure or Skip at the collision prompt; both already told the user.
-            applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id, token: token)
+            // `decide` captures the session token BEFORE starting the sync and applies the
+            // outcome under it — exiting review and starting a new session over the same
+            // un-rescanned set keeps the difference ids, so only the token can tell the store
+            // this outcome belongs to the torn-down session, not the new one. It also clears
+            // `isActing`.
+            let applied = await reviewStore.decide(for: item.id) {
+                // confirmed: the review card IS the per-item confirmation UI — re-running the
+                // transferConfirmer here doubled every accept, and an Escape on that redundant
+                // prompt was recorded as a deliberate Skip in the session tally.
+                let succeeded = await syncManager.syncFile(item, isMove: isMove, confirmed: true)
+                // Not copied = failure or Skip at the collision prompt; both already told the user.
+                return succeeded ? .copied : .skipped
+            }
+            if applied, reviewStore.session?.isComplete == true { finishReview() }
         }
     }
 

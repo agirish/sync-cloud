@@ -3,26 +3,27 @@ import Foundation
 import Sync
 @testable import FileExplorer
 
+/// A queue item for the review tests. One helper for both suites in this file.
+private func diff(
+    _ relativePath: String,
+    id: UUID = UUID(),
+    type: FileDifference.DifferenceType = .missingOnRight,
+    action: FileDifference.SyncAction = .copyToRight
+) -> FileDifference {
+    FileDifference(
+        id: id,
+        relativePath: relativePath,
+        leftItemPath: "/l/\(relativePath)",
+        rightItemPath: "/r/\(relativePath)",
+        type: type,
+        action: action,
+        description: "test"
+    )
+}
+
 /// Coverage for the guided-review state machine: cursor advancement (including the wrap that
 /// jumping around creates), outcome bookkeeping, jump rules, and the header's counts.
 @Suite struct ReviewSessionTests {
-
-    private func diff(
-        _ relativePath: String,
-        id: UUID = UUID(),
-        type: FileDifference.DifferenceType = .missingOnRight,
-        action: FileDifference.SyncAction = .copyToRight
-    ) -> FileDifference {
-        FileDifference(
-            id: id,
-            relativePath: relativePath,
-            leftItemPath: "/l/\(relativePath)",
-            rightItemPath: "/r/\(relativePath)",
-            type: type,
-            action: action,
-            description: "test"
-        )
-    }
 
     /// Decides the CURRENT item — the common path a Copy/Skip on the card takes.
     private func decide(_ session: inout ReviewSession, _ outcome: ReviewSession.Outcome) throws {
@@ -162,21 +163,10 @@ import Sync
     @Test func isReviewingTracksTheSession() {
         let store = ReviewSessionStore()
         #expect(!store.isReviewing)
-        store.session = ReviewSession(
-            queue: [FileDifference(
-                relativePath: "a", leftItemPath: "/l/a", rightItemPath: "/r/a",
-                type: .missingOnRight, action: .copyToRight, description: "test")],
-            isMove: false)
+        store.session = ReviewSession(queue: [diff("a")], isMove: false)
         #expect(store.isReviewing)
         store.session = nil
         #expect(!store.isReviewing)
-    }
-
-    private func diff(_ relativePath: String) -> FileDifference {
-        FileDifference(
-            relativePath: relativePath, leftItemPath: "/l/\(relativePath)",
-            rightItemPath: "/r/\(relativePath)", type: .missingOnRight,
-            action: .copyToRight, description: "test")
     }
 
     /// The A3 race: `syncFile` is an unbounded await, and exiting review + starting a NEW
@@ -232,6 +222,66 @@ import Sync
         let liveToken = try #require(store.session?.sessionToken)
         #expect(store.recordVerdict(.identical, for: queue[0].id, token: liveToken))
         #expect(store.session?.verdict(for: queue[0].id) == .identical)
+    }
+
+    /// The A3 defect itself, at the seam that owns it. The store's token check is only as good
+    /// as WHEN the token was read: reading it after the decision's await (what `reviewPrimary`
+    /// used to do) reads the session that exists on RETURN, so an exit + restart over the same
+    /// un-rescanned set — same difference ids — would have the replacement's token compared
+    /// against itself and pass. `decide` reads it before `perform` starts, so the outcome is
+    /// dropped. Every other test in this file stays green if that capture moves; this one does
+    /// not.
+    @Test func decideCapturesTheTokenBeforeTheAwaitNotAfter() async throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a"), diff("b")]
+        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.isActing = true
+
+        let replacement = try #require(ReviewSession(queue: queue, isMove: false))
+        let applied = await store.decide(for: queue[0].id) {
+            // Exit + restart lands WHILE the copy is out — the window the token exists for.
+            store.session = replacement
+            await Task.yield()
+            return .copied
+        }
+
+        #expect(!applied, "an outcome from the torn-down session must not advance its replacement")
+        let session = try #require(store.session)
+        #expect(session.sessionToken == replacement.sessionToken)
+        #expect(session.outcome(for: queue[0].id) == nil)
+        #expect(session.current?.id == queue[0].id)
+        // Cleared regardless: the card must re-enable even when the outcome is dropped.
+        #expect(!store.isActing)
+    }
+
+    /// The counterpart: an ordinary slow decision on the still-live session applies and advances.
+    @Test func decideAppliesAnOutcomeToTheSessionItStartedUnder() async throws {
+        let store = ReviewSessionStore()
+        let queue = [diff("a"), diff("b")]
+        store.session = try #require(ReviewSession(queue: queue, isMove: false))
+        store.isActing = true
+
+        let applied = await store.decide(for: queue[0].id) {
+            await Task.yield()
+            return .copied
+        }
+
+        #expect(applied)
+        #expect(store.session?.outcome(for: queue[0].id) == .copied)
+        #expect(store.session?.current?.id == queue[1].id)
+        #expect(!store.isActing)
+    }
+
+    /// No session at all (Exit before the decision even started): nothing to decide against.
+    @Test func decideWithNoSessionDoesNotRunTheDecision() async {
+        let store = ReviewSessionStore()
+        var ran = false
+        let applied = await store.decide(for: UUID()) {
+            ran = true
+            return .copied
+        }
+        #expect(!applied)
+        #expect(!ran)
     }
 
     /// A decision arriving after Exit tore the session down (no replacement) stays dropped.
