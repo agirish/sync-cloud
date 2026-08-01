@@ -398,6 +398,7 @@ struct PaneColumnsView: View {
     /// refuses a preview unless a full column fits beside it, and `previewPaneWidth` caps the
     /// preview at the pane minus one column, so the stack's viewport is never narrower than
     /// `columnWidth`.
+    ///
     /// The animation is taken from the environment rather than written here so a host that cannot
     /// run one can say so — see `paneColumnRevealAnimation`. Read once, before the closure, so both
     /// attempts scroll with the value this update carried — the opposite of the TARGET, which each
