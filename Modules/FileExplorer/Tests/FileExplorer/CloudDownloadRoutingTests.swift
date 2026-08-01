@@ -49,15 +49,36 @@ struct CloudDownloadRoutingTests {
         #expect(PaneToken(isLeft: false, isSingleSource: true) == .singleSource)
     }
 
-    /// Repeat downloads of the SAME file must re-key the row's `.task(id:)` — `id` is fresh per
-    /// request, which is what un-wedged the "second download never re-triggers the poll" latch.
-    @Test func repeatRequestsForTheSamePathCarryDistinctIdentity() {
-        let first = CloudDownloadRequest(path: "/iCloud/big.mov", paneToken: .left)
-        let second = CloudDownloadRequest(path: "/iCloud/big.mov", paneToken: .left)
+    /// Repeat downloads of the SAME file must re-key the row's badge task, and this pins that
+    /// claim where `.task(id:)` can actually be reasoned about: it re-runs exactly when its id
+    /// compares unequal, so the key's `==` IS the behaviour.
+    ///
+    /// (It replaces an assertion that two fresh `UUID()`s differ, which was true of `UUID` rather
+    /// than of anything this code does.)
+    @Test func aRepeatDownloadReKeysTheRowsBadgeTask() {
+        let path = "/iCloud/big.mov"
+        let first = CloudDownloadRequest(path: path, paneToken: .left)
+        let second = CloudDownloadRequest(path: path, paneToken: .left)
 
-        #expect(first.requestID != second.requestID)
-        #expect(first.idIfWatching("/iCloud/big.mov") == first.requestID)
-        #expect(second.idIfWatching("/iCloud/big.mov") == second.requestID)
+        let idle = FileRowView.BadgeID(path: path, awaitingDownloadID: nil)
+        let watchingFirst = FileRowView.BadgeID(path: path, awaitingDownloadID: first.idIfWatching(path))
+        let watchingSecond = FileRowView.BadgeID(path: path, awaitingDownloadID: second.idIfWatching(path))
+
+        // Arming the watch re-resolves the badge, and so does concluding it (idle → watching → idle).
+        #expect(idle != watchingFirst)
+        // The case a Bool could not express: a second download arriving while the first is still in
+        // flight moves the latch straight from one request to the next, with no idle in between.
+        #expect(watchingFirst != watchingSecond)
+    }
+
+    /// A row the pane is not watching keeps a stable key, so nothing re-stats while another file
+    /// downloads.
+    @Test func anUnwatchedRowsBadgeKeyIsStable() {
+        let request = CloudDownloadRequest(path: "/iCloud/big.mov", paneToken: .left)
+        let other = "/iCloud/notes.txt"
+
+        #expect(FileRowView.BadgeID(path: other, awaitingDownloadID: request.idIfWatching(other))
+                == FileRowView.BadgeID(path: other, awaitingDownloadID: nil))
     }
 
     /// Only the requested file's row watches; every other row sees nil.

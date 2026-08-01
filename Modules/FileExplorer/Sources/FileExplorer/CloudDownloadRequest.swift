@@ -1,4 +1,5 @@
 import Foundation
+import Sync
 
 /// Which pane a download request came from, for notification scoping.
 ///
@@ -51,9 +52,106 @@ struct CloudDownloadRequest: Equatable, Sendable {
         return request.paneToken == paneToken ? request : nil
     }
 
-    /// This request's identity if it is watching `path`, nil otherwise — what a row hands its
-    /// poll task as the task id.
+    /// This request's identity if it is watching `path`, nil otherwise — what the pane hands the
+    /// row for that file as part of its badge task id, so the badge re-resolves when this request
+    /// is armed and again when it concludes.
     func idIfWatching(_ path: String) -> UUID? {
         self.path == path ? requestID : nil
+    }
+
+    /// Whether a watch that has just finished for THIS request may drop the pane's latch.
+    ///
+    /// Identity, never path. A path can recur: the user clicks Download, the attempts run out, and
+    /// they click Download on the SAME file again — which cancels the old watch and re-arms the
+    /// latch with a fresh request for the identical path. A guard that compared paths would then
+    /// let the finishing OLD watch clear the latch the NEW one had just taken, killing a watch that
+    /// had barely started. Comparing `requestID` cannot be fooled by a repeat, and a cancelled
+    /// watch (whose latch has already moved on) fails it for free.
+    func concludes(latch: CloudDownloadRequest?) -> Bool {
+        latch?.requestID == requestID
+    }
+}
+
+/// The bounded poll that watches a requested download materialize.
+///
+/// **There is exactly one poller per download, and it is the pane** (`FileTreeView`). It briefly
+/// was two — the row ran a 10 × 1 s poll and the preview column's Download button ran its own
+/// 20 × 1.5 s one for the same request — which meant two `CloudOnlyBadgeCache.forget` calls, and
+/// every forget bumps the memo generation, invalidating every in-flight badge stat in BOTH panes.
+/// That is verbatim the harm the pane-scoped request payload exists to prevent.
+///
+/// The pane is the owner rather than the row because the row may never be realized: offscreen in a
+/// long list, or scrolled off, or in a column the user navigated away from — and a preview-started
+/// download does not need the row on screen at all. A watch owned by the row therefore had no
+/// bound on its lifetime, so the pane's latch could stick forever and the poll could finally run
+/// minutes late, for a download long since finished. Owned by the pane it always concludes within
+/// `attempts × interval` of the request, whatever the list is showing.
+///
+/// Materialization has no public completion callback, so a short bounded poll is the cheap honest
+/// option: the badge clears the moment the check says the content is local, and if it never does
+/// (the download stalled or failed) the badge correctly stays.
+enum CloudDownloadPoll {
+    /// ~10 s of watching, which is the whole budget: a download that has not landed by then is one
+    /// the next republish should report on, not one worth holding a poll open for.
+    static let attempts = 10
+    static let interval = Duration.seconds(1)
+
+    /// The whole watch as the pane runs it: forget the memo's pre-download answer, poll, record the
+    /// landed one, and decide whether the latch may be dropped. Returns that decision.
+    ///
+    /// Extracted from `FileTreeView` — which is left holding two lines — because the properties
+    /// that regressed here are properties of the SEQUENCE, not of any one step: that a download
+    /// costs exactly ONE `forget` (two pollers meant two, and each invalidates every in-flight
+    /// badge stat in both panes), that a watch which found nothing leaves the memo alone, and that
+    /// only the request the latch still holds may clear it. None of those are observable from a
+    /// view, and all three are one edit away from silently coming back.
+    ///
+    /// - Parameter latch: read at the END, deliberately: it is the pane's live latch, and what
+    ///   matters is which request it holds *now* — after ten seconds in which the user may have
+    ///   asked for the same file again.
+    @MainActor
+    static func watch(
+        _ request: CloudDownloadRequest,
+        attempts: Int = attempts,
+        interval: Duration = interval,
+        isCloudOnly: @Sendable (String) async -> Bool = { path in
+            await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        },
+        latch: @MainActor () -> CloudDownloadRequest?
+    ) async -> Bool {
+        // On the way in, not the way out: the answer the memo holds is the pre-download one, and a
+        // row recycling mid-download would otherwise read "cloud-only" straight back out of cache
+        // and undo the watch's result.
+        CloudOnlyBadgeCache.forget(request.path)
+        let landed = await run(path: request.path, attempts: attempts, interval: interval,
+                               isCloudOnly: isCloudOnly)
+        // Only on landing. A watch that ran out of attempts observed nothing new — writing
+        // anything there would claim the file had materialized when the badge should stay.
+        if landed { CloudOnlyBadgeCache.record(request.path, isCloudOnly: false) }
+        return request.concludes(latch: latch())
+    }
+
+    /// Polls until the content lands or the attempts run out. Returns whether it landed.
+    ///
+    /// `isCloudOnly` is injectable for the same reason `CloudOnlyBadgeCache.isCloudOnly`'s stat is:
+    /// the real one is a detached `lstat` against a provider, and a test needs the loop without the
+    /// filesystem. `nonisolated` so the sleeps do not park the main actor.
+    nonisolated static func run(
+        path: String,
+        attempts: Int = attempts,
+        interval: Duration = interval,
+        isCloudOnly: @Sendable (String) async -> Bool = { path in
+            await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
+        }
+    ) async -> Bool {
+        for _ in 0..<attempts {
+            // Cancel-safe: `Task.sleep` throws on cancellation, and the check after the probe
+            // catches a cancellation that landed while it was out.
+            guard (try? await Task.sleep(for: interval)) != nil else { return false }
+            let stillCloudOnly = await isCloudOnly(path)
+            if Task.isCancelled { return false }
+            if !stillCloudOnly { return true }
+        }
+        return false
     }
 }

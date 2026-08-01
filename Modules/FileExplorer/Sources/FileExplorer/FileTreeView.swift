@@ -8,23 +8,21 @@ import Sync
 
 extension Notification.Name {
     /// Posted after a cloud-only "Download" request is accepted, carrying a `CloudDownloadRequest`
-    /// in `object`. The row displaying that file listens and re-checks its cloud badge while the
-    /// content materializes — the context menu and the row are separate views with no shared state,
-    /// and without this the badge lingered until the row was recycled.
+    /// in `object`. The PANE listens (one subscription, not one per row) and watches the content
+    /// materialize on the requester's behalf: the row context menu, the preview column's Download
+    /// button and the row showing that file are separate views with no shared state, and without
+    /// this the badge lingered until the row was recycled.
     ///
     /// The payload names the posting pane (`CloudDownloadRequest.paneToken`): both panes default to
     /// the same provider, so the same absolute path can be on screen twice, and a bare-path post
     /// was latched by BOTH panes — twin rows polling, and a duplicate `forget` bumping the memo
     /// generation app-wide.
+    ///
+    /// There is deliberately no matching "poll concluded" notification. The pane runs the watch
+    /// itself, so it needs no one to tell it the watch is over; the two views that care read the
+    /// latch they are already handed (`FileRowView.awaitingDownloadID`,
+    /// `ColumnPreviewColumn.awaitingDownloadPath`).
     static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
-
-    /// Posted by the watching row when its bounded poll finishes — the content landed, or the
-    /// attempt was exhausted — carrying the `CloudDownloadRequest.requestID` in `object`. The pane
-    /// listens and drops its awaiting latch. Without this the latch held the LAST request forever:
-    /// a recycled row re-ran a long-concluded poll on every realization, and the stale state lived
-    /// on for no one. Cancellation deliberately does not post — a row scrolled offscreen mid-poll
-    /// must resume watching when it is realized again.
-    static let cloudDownloadPollConcluded = Notification.Name("SyncCloudCloudDownloadPollConcluded")
 }
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
@@ -142,9 +140,10 @@ public struct FileTreeView: View, Equatable {
     /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
-    /// The download request THIS pane is watching, so the row showing that file — and only that
-    /// row, in only this pane — polls for its content landing. Cleared when the row reports its
-    /// poll concluded (`.cloudDownloadPollConcluded`).
+    /// The download request THIS pane is watching, and the pane's own watch is what clears it —
+    /// see `watchRequestedDownload()`. While it is set, the row showing that file re-resolves its
+    /// badge and the preview column showing that file says "Downloading…"; both read it from here
+    /// rather than watching anything themselves.
     ///
     /// One subscription here rather than one per row. `FileRowView` used to observe
     /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
@@ -155,7 +154,21 @@ public struct FileTreeView: View, Equatable {
     /// This pane's identity for download-notification scoping — the receiving side of
     /// `CloudDownloadRequest.paneToken`. Computed from facts already compared by `==`, so it adds
     /// nothing the pane could fail to notice.
-    private var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
+    ///
+    /// Not `private`: `FileTreeViewPaneNameTests` pins it, because a receiver hardcoded to one
+    /// token is a mutation nothing else in the suite can see — the routing helper it feeds is
+    /// tested, but only against tokens a test made up.
+    var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
+
+    /// The root a republish's badge-memo clear is scoped to: the folder this pane is actually
+    /// showing, which is where the memo's keys for it come from.
+    ///
+    /// `currentPath`, NOT `rootPath`. The two diverge whenever a pane is focused on a subfolder —
+    /// `rootPath` stays the provider root while `currentPath` follows the focus — and the tree that
+    /// just republished holds only what is under `currentPath`. Scoping to `rootPath` would clear
+    /// entries no row of this pane can currently serve, which is the over-broad clear this scoping
+    /// exists to stop. Named and non-private so `FileTreeViewPaneNameTests` can pin the choice.
+    var badgeMemoRoot: String { currentPath }
 
     public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil) {
         self.tree = tree
@@ -322,20 +335,13 @@ public struct FileTreeView: View, Equatable {
                         awaitingDownload = request
                     }
                 }
-                // The watching row says its poll is over (landed or exhausted) — drop the latch so
-                // the row stops re-polling on every realization, and so the NEXT request for the
-                // same file is a state change the row's `.task(id:)` can see.
-                .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadPollConcluded)) { note in
-                    if let concluded = note.object as? UUID, concluded == awaitingDownload?.requestID {
-                        awaitingDownload = nil
-                    }
-                }
                 // A republish is the moment every other fact on a row is refreshed, so it is the
                 // moment the cloud-only memo stops being allowed to speak for them too. `PaneTree`
                 // compares by publish stamp, so this fires once per publish rather than per render.
                 // Scoped to this pane's root: the memo is process-wide, and an unscoped clear wiped
-                // the answers the OTHER pane's rows were still relying on.
-                .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: currentPath) }
+                // the answers the OTHER pane's rows were still relying on. See `badgeMemoRoot` for
+                // why that root is `currentPath` rather than `rootPath`.
+                .onChange(of: tree) { _, _ in CloudOnlyBadgeCache.clear(underRoot: badgeMemoRoot) }
 
             switch emptyState {
             case .none:
@@ -397,6 +403,39 @@ public struct FileTreeView: View, Equatable {
                 .allowsHitTesting(false)
             }
         }
+        // The pane's own download watch — see `watchRequestedDownload()`. On the ZStack rather than
+        // on `presentation`, which is an if/else over the view mode: switching Tree↔Columns swaps
+        // that branch for a different view, which would tear this task down and start it over from
+        // attempt zero (a second `forget` and a fresh ten seconds) mid-download.
+        .task(id: awaitingDownload?.requestID) { await watchRequestedDownload() }
+    }
+
+    /// Watches the download this pane latched, then drops the latch.
+    ///
+    /// **The pane polls, not the row and not the preview column.** Both of those used to, for the
+    /// same request: the row ran ten one-second probes and the preview column's Download button ran
+    /// twenty at 1.5 s, each preceded by its own `CloudOnlyBadgeCache.forget`. Two forgets means two
+    /// generation bumps, and a bump invalidates every in-flight badge stat in BOTH panes — the very
+    /// harm the pane-scoped request payload was added to remove. One owner, one forget.
+    ///
+    /// It also bounds the latch. Owned by the row, the watch only ran when that row was realized,
+    /// so a request for a row offscreen in a long list (or in a column the user has navigated away
+    /// from — and a preview-started download need not have its row on screen at all) left the latch
+    /// set indefinitely, and then ran a full ten-second poll minutes later for a download that had
+    /// long since finished. Here it always concludes within `CloudDownloadPoll`'s budget of the
+    /// request, whatever the list happens to be showing.
+    ///
+    /// The result is published through the memo rather than back to the row directly: `record`ing
+    /// the landed answer, then dropping the latch, re-keys that row's badge task (see
+    /// `FileRowView.BadgeID`) which re-reads it — one dictionary hit, no second syscall.
+    /// The steps live in `CloudDownloadPoll.watch` so that "one forget per download", "record only
+    /// what landed" and the identity-guarded conclusion are testable; the latch is read through a
+    /// closure because only this view can see it, and only at the END — a repeat download of the
+    /// same file cancels this task and re-arms the latch with a fresh request for the identical
+    /// path, and a cancelled task still runs everything after its last `await`.
+    private func watchRequestedDownload() async {
+        guard let request = awaitingDownload else { return }
+        if await CloudDownloadPoll.watch(request, latch: { awaitingDownload }) { awaitingDownload = nil }
     }
 
     /// Placeholder for states the user fixes in Settings (missing root, disabled provider):
@@ -901,9 +940,19 @@ struct FileRowView: View {
     /// The pane's resolved fonts. Handed down rather than derived per row — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
     /// The identity of the download request the pane is watching for THIS row; nil when it is not
-    /// this row's file (or nothing is being watched). Also the watcher's `.task(id:)` key, which
-    /// is why it is the request's UUID rather than a `Bool`: a SECOND download of the same file
-    /// arrives as a fresh UUID and re-fires the poll, where an identical `true` never re-keyed it.
+    /// this row's file (or nothing is being watched). Part of the badge task's `.task(id:)` key, so
+    /// the badge re-resolves when the pane arms a watch for this file and again when that watch
+    /// concludes — by which point the pane has recorded the fresh answer in the memo, making the
+    /// second resolve a dictionary hit.
+    ///
+    /// The request's UUID rather than a `Bool` because two requests can follow each other with no
+    /// gap between them: downloading the same file again while a watch is in flight moves the latch
+    /// from one request straight to the next, which a `Bool` would not report as a change at all.
+    ///
+    /// The row does not poll. It briefly did — ten one-second detached `lstat`s of its own, plus
+    /// its own `CloudOnlyBadgeCache.forget` — which duplicated the preview column's watch for a
+    /// preview-started download and tied the watch's lifetime to whether this row was ever
+    /// realized. The pane owns it now: see `FileTreeView.watchRequestedDownload()`.
     ///
     /// Supplied by the pane rather than discovered here. Every row used to hold its own
     /// `.onReceive(NotificationCenter…)` subscription for the download notice — one live Combine
@@ -911,6 +960,16 @@ struct FileRowView: View {
     /// most one row per session could ever receive anything. The pane holds the single
     /// subscription now and hands the answer down.
     var awaitingDownloadID: UUID? = nil
+
+    /// The badge task's `.task(id:)` key: this row's path, and the pane's watch for it.
+    ///
+    /// A named type, and not private, because "the badge re-resolves when the watch concludes" is
+    /// otherwise a claim about SwiftUI's re-firing that no test can reach. `.task(id:)` re-runs
+    /// exactly when this value compares unequal, so pinning `==` pins the behaviour.
+    struct BadgeID: Equatable {
+        let path: String
+        let awaitingDownloadID: UUID?
+    }
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
@@ -963,44 +1022,19 @@ struct FileRowView: View {
         }
         .padding(.vertical, densityMetrics.flatRowVerticalPadding)
         .contentShape(Rectangle())
-        // One keyed task for the badge, and it consults the memo first — so the syscall happens
+        // ONE keyed task for the badge, and it consults the memo first — so the syscall happens
         // once per path per republish rather than once per realization. `List` realizes and
         // discards rows continuously while scrolling, which is what made "once per realization"
         // expensive.
-        .task(id: node.id) {
+        //
+        // The pane's watch for this row is part of the key (see `BadgeID`), which is the whole of
+        // this row's involvement in a download: the pane forgets the memo, polls, records the
+        // answer and drops its latch, and that last step re-keys this task to re-read it. Both
+        // re-reads are cheap — the one on arming stats a file the user just clicked, the one on
+        // conclusion is a dictionary hit.
+        .task(id: BadgeID(path: node.id, awaitingDownloadID: awaitingDownloadID)) {
             guard !node.isDirectory else { isCloudOnly = false; return }
             isCloudOnly = await CloudOnlyBadgeCache.isCloudOnly(atPath: node.id)
-        }
-        // Polls the lstat once a second for ~10 s after the pane says a download was requested for
-        // this row: materialization is asynchronous and has no public completion callback, so a
-        // short bounded poll is the cheap honest option. The badge clears the moment the check says
-        // the content is local; if it never does (the download stalled or failed), the badge
-        // correctly stays. Cancel-safe: the keyed `.task` is cancelled when the row disappears, and
-        // `Task.sleep` throws on cancellation.
-        //
-        // The memo is forgotten on the way in, not on the way out: the answer it holds is the
-        // pre-download one, and leaving it there would let the row re-read "cloud-only" from cache
-        // the moment it recycled, undoing the poll's result.
-        .task(id: awaitingDownloadID) {
-            guard let requestID = awaitingDownloadID, isCloudOnly, !node.isDirectory else { return }
-            let path = node.id
-            CloudOnlyBadgeCache.forget(path)
-            for _ in 0..<10 {
-                guard (try? await Task.sleep(nanoseconds: 1_000_000_000)) != nil else { return }
-                let stillCloudOnly = await Task.detached { MaterializationStatus.isCloudOnly(atPath: path) }.value
-                if Task.isCancelled { return }
-                if !stillCloudOnly {
-                    CloudOnlyBadgeCache.record(path, isCloudOnly: false)
-                    isCloudOnly = false
-                    break
-                }
-            }
-            // Landed or exhausted — either way the watch is over; tell the pane to drop its latch
-            // so this row stops re-running a finished poll on every realization, and so the next
-            // request for this file is a change `.task(id:)` can see. The cancellation returns
-            // above deliberately DON'T post: a row scrolled offscreen mid-poll keeps the latch and
-            // resumes watching when it is realized again.
-            NotificationCenter.default.post(name: .cloudDownloadPollConcluded, object: requestID)
         }
     }
 
