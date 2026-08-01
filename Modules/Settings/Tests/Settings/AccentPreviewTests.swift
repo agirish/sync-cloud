@@ -261,7 +261,11 @@ import Testing
 
         let none = AccentColorSection.caption(for: .none)
         #expect(none.hasPrefix("None. "))
-        #expect(none.contains("macOS accent color"),
+        // "macOS accent" rather than "macOS accent color": the claim being pinned is that the
+        // caption attributes the visible colour to the system accent, and this sentence is on a
+        // one-line height budget (see `caption(for:)`), so it must be free to drop a word
+        // without failing a test that never cared about that word.
+        #expect(none.contains("macOS accent"),
                 "None's caption must explain why a coloured button is still showing: \(none)")
         // The claim an earlier caption got wrong: selection FOLLOWS the system accent under
         // `.none` — the pane wash paints `glassHue.accentColor`, which for `.none` IS

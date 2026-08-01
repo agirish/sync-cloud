@@ -45,12 +45,23 @@ struct AccentColorSection: View {
     /// the surface tint wash opts out. An earlier caption said "the panes get no wash", which
     /// described the background but read as a claim about SELECTION — false, and exactly the kind
     /// of unexplained mismatch the strip below would then appear to contradict.
+    ///
+    /// **Kept to one line at the settings column's 547pt**, which is a layout constraint on the
+    /// prose and not a style note. Appearance is the tab that has to fit a small display's
+    /// clamped opening, and it has ~13pt of margin there — a caption line is ~13pt, so a
+    /// two-line caption here is the whole budget. The version this replaced ran 121 characters
+    /// and wrapped, putting a `.none` user's tab at exactly its opening with zero margin while
+    /// every fit test measured the default hue and saw nothing. `appearanceFitsEveryAccentHue`
+    /// now measures the worst case; the one-line budget is about 108 characters, and the right
+    /// response to exceeding it is to shorten the sentence, not to widen the test.
     static func caption(for hue: LiquidGlassHue) -> String {
         guard hue != .none else {
             // `.none` is not "no accent anywhere": it defers to the system accent, which is why
             // the strip below still renders a filled button. Saying so is the whole job of this
             // case — an unexplained coloured button under a swatch labelled "None" reads as a bug.
-            return "None. Filled controls, selection, and the seam chrome follow your macOS accent color; the glass background is not tinted."
+            // "The glass is untinted" is the short form of what the doc comment above records in
+            // full: `gradientColors` are clear AND the surface tint wash opts out.
+            return "None. Your macOS accent, used for filled controls, selection, and the seam chrome; the glass is untinted."
         }
         return "\(hue.displayName). Used for filled controls, selection, and the seam chrome."
     }
