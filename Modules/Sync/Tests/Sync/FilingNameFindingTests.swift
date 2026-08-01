@@ -93,6 +93,55 @@ import Events
         #expect(manager.nameScanProvider == .oneDrive)
     }
 
+    @MainActor
+    @Test func aScanThatOptsOutOfTheNameCheckTouchesNeitherHalfOfThePair() async throws {
+        // The opt-out half of the pairing invariant: a caller that does not ask for the name
+        // check must leave BOTH the results and the ruleset exactly as it found them. The
+        // cancellation half is below.
+        let root = try makeCanonicalTempRoot(prefix: "FilingNamesPairing")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try write(root.appendingPathComponent("Downloads/a.pdf"))
+
+        let manager = FileSyncManager()
+        // Stand in for a completed OneDrive scan: results, and the ruleset that produced them.
+        manager.riskyNames = [RiskyName(id: "/prev/tail ", relativePath: "tail ",
+                                        currentName: "tail ", sanitizedName: "tail",
+                                        reason: "a trailing space", isDirectory: false)]
+        manager.nameScanProvider = .oneDrive
+
+        // A scan that opts out of the name check must not touch either half of the pair.
+        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                            providerRoot: root)
+
+        #expect(manager.nameScanProvider == .oneDrive)
+        #expect(manager.riskyNames.count == 1)
+    }
+
+    @MainActor
+    @Test func aCancelledDetectionPublishesNeitherTheNamesNorTheRuleset() async {
+        // `nameScanProvider` is what "Fix all" sanitizes against, so it must always describe the
+        // names currently on screen. Recording it up front — as the standalone scan did, and as
+        // the first cut of this one did — breaks that: a scan that starts for a DIFFERENT provider
+        // and is then superseded leaves the previous scan's names paired with the new ruleset, and
+        // the bulk fix renames those files against rules that never ran over them.
+        //
+        // Asserted through the injected cancellation check rather than by racing a real Task:
+        // a timing-dependent version of this passes for the wrong reason most of the time, and
+        // this invariant guards a rename.
+        let manager = FileSyncManager()
+        let previous = RiskyName(id: "/prev/tail ", relativePath: "tail ", currentName: "tail ",
+                                 sanitizedName: "tail", reason: "a trailing space", isDirectory: false)
+        manager.riskyNames = [previous]
+        manager.nameScanProvider = .oneDrive
+
+        let hazard = FileNode(id: "/scan/other ", name: "other ", isDirectory: false)
+        await manager.detectRiskyNames(in: [hazard], root: URL(fileURLWithPath: "/scan"),
+                                       provider: .dropBox, isCancelled: { true })
+
+        #expect(manager.nameScanProvider == .oneDrive, "a superseded scan must not re-point the ruleset")
+        #expect(manager.riskyNames == [previous], "…nor replace the names it describes")
+    }
+
     // MARK: The single-file door (the pane row's "Fix name…")
 
     @Test func theOneNodeCheckAgreesWithTheWholeTreeScan() {

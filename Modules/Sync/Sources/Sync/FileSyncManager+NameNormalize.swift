@@ -78,17 +78,25 @@ extension FileSyncManager {
     ///
     /// Detached for the same reason the standalone scan was — flattening and rule-checking a whole
     /// provider on the main actor blocked it for the full pass.
-    func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType) async {
-        // Remembered so a later "Fix all" sanitizes against the same ruleset the scan flagged
-        // against, rather than whichever provider the panes happen to be showing by then.
-        nameScanProvider = provider
+    /// - Parameter isCancelled: the staleness check, injectable so the "publishes nothing, and
+    ///   therefore changes nothing" path can be asserted. Cancellation is otherwise a race no test
+    ///   can stage deterministically, and this invariant is about a bulk RENAME reading the wrong
+    ///   ruleset — not something to leave to a sleep and a hope.
+    func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType,
+                          isCancelled: @Sendable () -> Bool = { Task.isCancelled }) async {
         let risky = await Task.detached(priority: .userInitiated) {
             NameNormalizer.scan(nodes: tree, provider: provider)
         }.value
         // The caller cancels on a newer scan; without this a stale result could land on top of a
         // newer one, which is the same staleness guard `scanNames` carries.
-        if Task.isCancelled { return }
+        if isCancelled() { return }
 
+        // Published together, and only on the path that publishes results. `nameScanProvider` is
+        // what "Fix all" sanitizes against, so it has to describe THESE names: recording it up
+        // front — as the standalone scan did — meant a scan that started and was then cancelled
+        // left the previous scan's results paired with the new scan's ruleset, and the bulk fix
+        // would have renamed those files against rules nobody ran.
+        nameScanProvider = provider
         riskyNames = risky
         completeScan(\.nameScanLifecycle, root: root)
         Logger.shared.info("Filing scan flagged \(risky.count) risky name(s) under \(root.lastPathComponent) for \(provider.rawValue)")

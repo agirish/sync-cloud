@@ -126,15 +126,34 @@ extension Workspace {
         return workspace
     }
 
+    /// Where a stored `selectedWorkspace` that no longer resolves should land.
+    ///
+    /// The flat bar has already retired one of its own cases, and will retire more. A value it
+    /// wrote itself is the easiest kind to forget: the legacy *pair* is obviously someone else's
+    /// format and gets migrated, while `selectedWorkspace` reads like it must already be valid.
+    /// It isn't — `Rename` was a workspace for exactly one commit — and an unresolvable value
+    /// fails silently, so this is the one function that has to keep answering for them.
+    static func migratedWorkspace(_ raw: String) -> Workspace {
+        raw == retiredRenameRawValue ? .filing : .compare
+    }
+
     /// Runs the migration once, at launch, before any view reads the selection.
     ///
-    /// Guarded on the new key's absence rather than on a version marker: once `selectedWorkspace`
-    /// exists it is the truth, and re-running would overwrite a deliberate choice with a stale
-    /// legacy pair. Returns the resolved workspace so a test can assert what a given stored state
-    /// migrates to without reaching back into defaults.
+    /// Returns the resolved workspace so a test can assert what a given stored state migrates to
+    /// without reaching back into defaults; nil when there was nothing to do.
     @discardableResult
     static func migrateSelection(in defaults: UserDefaults) -> Workspace? {
-        guard defaults.string(forKey: defaultsKey) == nil else { return nil }
+        if let stored = defaults.string(forKey: defaultsKey) {
+            // A stored value that still resolves is the truth — re-running over it would replace
+            // a deliberate choice with a stale legacy pair.
+            guard Workspace(rawValue: stored) == nil else { return nil }
+            // One that does NOT resolve is the dangerous case, and the quiet one: @AppStorage
+            // takes its default, so a retired value is indistinguishable from a preference for
+            // Compare. Remap before anything reads the key.
+            let resolved = migratedWorkspace(stored)
+            defaults.set(resolved.rawValue, forKey: defaultsKey)
+            return resolved
+        }
         // Nothing stored at all is a first run, not an upgrade — leave the key unset so
         // @AppStorage uses its own default rather than baking one in here.
         guard defaults.string(forKey: legacyTabKey) != nil

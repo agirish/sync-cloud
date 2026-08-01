@@ -147,6 +147,39 @@ import FileExplorer
         #expect(d.string(forKey: Workspace.defaultsKey) == "Storage")
     }
 
+    @Test func testARetiredValueAlreadyInTheNewKeyIsRemapped() {
+        // The gap the pure-function tests above could not see. `Rename` was a Workspace for one
+        // commit, so anyone who ran it and sat there has "Rename" in `selectedWorkspace` — not in
+        // the legacy pair. The first cut guarded on "is the new key present?" and returned early,
+        // so those users skipped the migration entirely and @AppStorage silently took its default:
+        // dropped on Compare, mid-task, with nothing to explain it. Everything else about that
+        // path was correct, which is exactly why it needed a test through `migrateSelection`
+        // rather than through `migrated(tab:lens:)`.
+        let d = defaults("retired-in-new-key")
+        d.set(Workspace.retiredRenameRawValue, forKey: Workspace.defaultsKey)
+
+        #expect(Workspace.migrateSelection(in: d) == .filing)
+        #expect(d.string(forKey: Workspace.defaultsKey) == Workspace.filing.rawValue)
+    }
+
+    @Test func testAnUnreadableValueInTheNewKeyLandsWhereAFreshInstallWould() {
+        // Not a retired case — corruption, a hand edit, a downgrade-and-back. It must resolve to
+        // the same place an empty install starts rather than staying unresolvable forever.
+        let d = defaults("garbage-in-new-key")
+        d.set("NotAWorkspace", forKey: Workspace.defaultsKey)
+
+        #expect(Workspace.migrateSelection(in: d) == .compare)
+        #expect(d.string(forKey: Workspace.defaultsKey) == Workspace.compare.rawValue)
+    }
+
+    @Test func testEveryRetiredValueIsAccountedForByName() {
+        // The mapping is a lookup on a constant, so the risk is not that it computes wrongly —
+        // it is that a future retirement adds a case here and forgets this function. Pinning both
+        // arms makes that omission a failure rather than a silent fallback to Compare.
+        #expect(Workspace.migratedWorkspace(Workspace.retiredRenameRawValue) == .filing)
+        #expect(Workspace.migratedWorkspace("Differences") == .compare)
+    }
+
     @Test func testMigrationDoesNotReRunOverADeliberateChoice() {
         let d = defaults("norerun")
         d.set("Tidy", forKey: Workspace.legacyTabKey)

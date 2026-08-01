@@ -193,7 +193,7 @@ extension ContentView {
         // a bar that begins as glyphs and gains labels is a cosmetic settle, where one that
         // begins too wide is a toolbar that overflows on launch.
         guard contentWidth > 0 else { return .iconOnly }
-        let font = NSFont.systemFont(ofSize: 12 * FontSize.resolved().scale, weight: .semibold)
+        let font = NSFont.systemFont(ofSize: 12 * appFontScale, weight: .semibold)
         let widths = Workspace.allCases.map { workspace in
             (workspace.title as NSString)
                 .size(withAttributes: [.font: font])

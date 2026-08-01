@@ -59,6 +59,11 @@ struct ContentView: View {
     /// to the duplicate's provider with no banner, no Done button, and no restore snapshot.
     @Binding var duplicateReview: DuplicateCompareContext?
 
+    /// The app's text scale. Read here rather than off `UserDefaults` inside the toolbar because
+    /// the workspace bar's shedding rule depends on it: a direct defaults read produces the right
+    /// answer once and never invalidates, so raising Settings ▸ Text size would leave the bar
+    /// claiming its labels still fit until something unrelated re-rendered it.
+    @Environment(\.appFontScale) var appFontScale
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) var openWindow
 
@@ -1879,9 +1884,11 @@ struct ContentView: View {
         // An active review keeps the view mounted through an empty live list: an external
         // change resolving the last live difference mid-review must not vanish the session.
         if let lens = selectedLens {
-            // The single-source hub. Tidy owns its own cards — including the lens tabs, which head
-            // the workspace they switch; the Storage lens (folded in) renders its own read-only
-            // surface beneath them. Compare | Tidy itself lives in the window toolbar.
+            // The lens workspaces' right-hand slot. ONE construction site for all of them, and
+            // deliberately so: a `switch` with a branch per lens would give each its own view
+            // identity, and TidyView's @State — the per-lens parked queries, the expanded search,
+            // the reclaim tally, the filed/dismissed session flags — would reset on every switch.
+            // Storage renders its own read-only surface beneath the shared header card.
             TidyView(
                 syncManager: syncManager,
                 lens: lens,

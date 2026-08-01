@@ -479,11 +479,9 @@ public struct TidyView: View {
                                                     reclaim: &reclaim)
             }
         }
-        // Same reasoning for the other scanning lenses: a query left over from the previous
-        // results would silently pre-filter the new scan's rows.
-        .onChange(of: syncManager.isScanningNames) { _, isScanning in
-            if isScanning { searchQueries[.rename] = "" }
-        }
+        // Storage keeps its own reset for the same reason. Names do NOT have one here: they are
+        // produced by the Filing scan now, so `isScanningNames` never flips on this path and the
+        // reset rides `isSuggestingFiles` above, alongside the rest of that scan's session state.
         .onChange(of: syncManager.isBuildingStorageLens) { _, isBuilding in
             if isBuilding { searchQueries[.storage] = "" }
         }
@@ -649,7 +647,6 @@ public struct TidyView: View {
     @ViewBuilder
     private var riskyNamesChip: some View {
         let count = riskyFinding.count
-        let willFail = riskyFinding.contains { $0.isDirectory == false }
         Button {
             withAnimation(listSettle) { showingRiskyNames.toggle() }
         } label: {
@@ -663,8 +660,8 @@ public struct TidyView: View {
         .chromeHover()
         .help(showingRiskyNames
               ? "Back to the filing queue."
-              : "\(count) name\(count == 1 ? "" : "s") this provider will not accept"
-                + (willFail ? ", found on the same scan" : "") + ". Shows the fixes.")
+              : "\(count) name\(count == 1 ? "" : "s") this provider will not accept, found on the "
+                + "same scan. Shows the proposed fixes.")
         .accessibilityAddTraits(showingRiskyNames ? [.isButton, .isSelected] : .isButton)
     }
 
@@ -908,13 +905,18 @@ public struct TidyView: View {
         }
     }
 
-    /// Rename's pills, over the filtered rows.
+    /// The risky-names pills.
+    ///
+    /// No count pill: `riskyNamesChip` sits in this same row and carries it. Two capsules reading
+    /// "17 risky names" side by side is what this row looked like the moment the chip arrived —
+    /// and the chip has to be the one that stays, because it is also the control that gets you
+    /// back to the queue. The folder chip names the PROVIDER root rather than Organize's inbox,
+    /// deliberately: the names come from the whole provider while the queue is one folder, and
+    /// that difference in scope is worth stating rather than hiding.
     private func renameSummary(_ risky: [RiskyName]) -> some View {
         let folders = risky.filter(\.isDirectory).count
         return Group {
             scannedFolderChip(syncManager.nameScanRoot?.path)
-            StatPill(count: risky.count, label: risky.count == 1 ? "risky name" : "risky names",
-                     color: SemanticColor.caution, systemImage: NameNormalizeGlyph.risky)
             if folders > 0 {
                 StatPill(count: folders, label: folders == 1 ? "folder" : "folders",
                          color: .secondary, systemImage: "folder")
