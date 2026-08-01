@@ -77,13 +77,40 @@ enum CloudOnlyBadgeCache {
     /// exact-root case, for completeness — only files are recorded, but the memo should not know
     /// that).
     ///
+    /// **A root that is not an absolute path is a no-op, and that is the whole point.**
+    /// `SettingsManager.path(for:)` answers `""` for a provider id it cannot resolve — a removed
+    /// provider, or a pane rendering before the providers are loaded — and `PaneLogic.fullPath`
+    /// maps `""` through to `""`. Without this guard that empty root normalized to a prefix of
+    /// `"/"`, which every absolute key matches: the pane whose provider FAILED to resolve then
+    /// republished its empty tree and wiped the OTHER pane's answers too. That is precisely the
+    /// global wipe this method was added to remove, arriving through a side door. Nothing was
+    /// invalidated on that path, so the generation does not bump either.
+    ///
+    /// `"/"` is exempt from the guard rather than special-cased by it: it passes the absolute test,
+    /// and normalization strips it to the empty string, whose prefix is `"/"` — so a pane genuinely
+    /// rooted at the filesystem root clears every absolute entry, which is the truthful answer for
+    /// that root rather than an accident.
+    ///
+    /// **Matching is case-SENSITIVE, deliberately.** The memo is a `[String: Bool]`, so a lookup
+    /// already is; a case-insensitive clear would drop entries `cached(_:)` can still be asked for
+    /// under a different spelling, and a case-insensitive *miss* would leave entries this clear was
+    /// supposed to take. Today the two spellings always agree by lineage — keys come from the tree
+    /// walk, which descends from the very root string `PaneLogic.fullPath` built — so this costs
+    /// nothing; it is written down because that agreement is an accident of plumbing rather than
+    /// something either side promises.
+    ///
     /// The generation still bumps, exactly as `clear()`'s does: a stat in flight for a path under
     /// this root must not re-adopt the answer this clear just threw away. That the bump also stops
     /// an in-flight stat under the OTHER root from memoizing is deliberate over-invalidation — one
     /// counter, one rare repeated `lstat`, no per-root bookkeeping to get wrong (the same trade
     /// `forget(_:)` already makes for other paths).
     static func clear(underRoot root: String) {
-        let exact = root.hasSuffix("/") ? String(root.dropLast()) : root
+        guard root.hasPrefix("/") else { return }
+        // EVERY trailing separator, not just one: "/root//" must scope like "/root", and dropping a
+        // single character left the prefix "/root//", which matches no key the walk ever produced —
+        // a clear that silently took nothing. "/" strips all the way to "", whose prefix is "/".
+        var exact = root
+        while exact.hasSuffix("/") { exact.removeLast() }
         let prefix = exact + "/"
         known = known.filter { !($0.key == exact || $0.key.hasPrefix(prefix)) }
         generation &+= 1
