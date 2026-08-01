@@ -64,15 +64,13 @@ final class WheelGestureTracker {
     private var travelX: CGFloat = 0
     private var travelY: CGFloat = 0
     private var lastEventAt: TimeInterval = 0
-    /// Where the current gesture is happening: the event's window and its location in that
-    /// window, recorded from the gesture's DRAG events (momentum events carry the same window,
-    /// but their pointer location can wander to another pane while the flick coasts, so they
-    /// must not re-attribute a gesture they never made). `nil` window means the gesture could
-    /// not be attributed — an event with no window, or a test driving `ingest` without one.
+    /// Where the current gesture STARTED: the window and in-window location of the first
+    /// attributable non-momentum event since the gesture began. Written once per gesture and
+    /// frozen for its life — see `ingest`. `nil` means the gesture has no attribution: no event
+    /// carried a window (a test driving `ingest` without one), or the window it was attributed to
+    /// has since been torn down. Those two are deliberately NOT distinguished; both mean scoping
+    /// has nothing to go on, and `shouldHoldHorizontalDrift(for:)` treats them alike.
     private weak var gestureWindow: NSWindow?
-    /// Whether the current gesture carried a window at all, kept apart from `gestureWindow`
-    /// because the weak reference also reads nil when a real window has since been torn down.
-    private var gestureAttributed = false
     private var gestureLocation: NSPoint = .zero
 
     /// True while an in-flight gesture requires the stack to hold its horizontal position:
@@ -92,18 +90,30 @@ final class WheelGestureTracker {
     }
 
     /// The scoped answer a pane's watchdog asks: hold only when a hold-worthy gesture is in
-    /// flight AND that gesture is happening within `view` — the asking stack's own clip.
+    /// flight AND that gesture STARTED within `view`'s stack.
     ///
-    /// A gesture that could not be attributed (no window on the event, or a recorded window
-    /// that has since gone away) holds EVERYWHERE, which is the pre-scoping behavior: the
+    /// A gesture with no attribution holds EVERYWHERE, which is the pre-scoping behavior: the
     /// original leak — a vertical gesture drifting its own pane's stack sideways — must stay
-    /// fixed even when scoping has nothing to go on.
+    /// fixed even when scoping has nothing to go on. That covers both an event that carried no
+    /// window and a window torn down mid-gesture, and the two are deliberately treated alike:
+    /// a distinction neither branch acts on is a comment describing code that does not exist.
+    ///
+    /// Containment is measured against the enclosing SCROLL VIEW, not the clip. The clip's bounds
+    /// exclude the band the horizontal scroller occupies under "Show scroll bars: Always", so a
+    /// gesture whose pointer sat on that strip was inside no pane's clip and held nothing —
+    /// fail-CLOSED, which brought the original vertical-leak drift straight back for that band.
+    /// The scroll view is the principled line as well as the practical one: it is precisely what
+    /// receives the deltas a column's list forwards up, so a gesture anywhere it covers can leak
+    /// into this stack, and one outside it (the pinned preview column, the pane's own chrome)
+    /// cannot. Views with no enclosing scroll view — the tracker's own unit fixtures — fall back
+    /// to their own bounds.
     func shouldHoldHorizontalDrift(for view: NSView,
                                    at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
         guard shouldHoldHorizontalDrift(at: now) else { return false }
-        guard gestureAttributed, let window = gestureWindow else { return true }
-        guard view.window === window else { return false }
-        return view.bounds.contains(view.convert(gestureLocation, from: nil))
+        guard let window = gestureWindow else { return true }
+        let container = view.enclosingScrollView ?? view
+        guard container.window === window else { return false }
+        return container.bounds.contains(container.convert(gestureLocation, from: nil))
     }
 
     /// Feed one scroll-wheel event's fields. A `.began` phase — or a quiet gap on phase-less
@@ -133,16 +143,6 @@ final class WheelGestureTracker {
             reset()
             holdEligible = true
         }
-        // Attribution comes from the gesture's own drag (and ungrouped-wheel) events only.
-        // Momentum events carry the same window but report the pointer's CURRENT location,
-        // which can drift over a different pane while the flick coasts — re-attributing there
-        // would migrate the hold onto a pane the gesture never touched and unguard the one it
-        // did. See `shouldHoldHorizontalDrift(for:)`.
-        if momentumPhase.isEmpty {
-            gestureWindow = window
-            gestureAttributed = window != nil
-            gestureLocation = locationInWindow
-        }
         let isUngrouped = phase.isEmpty && momentumPhase.isEmpty
         if isUngrouped {
             reset()
@@ -159,6 +159,23 @@ final class WheelGestureTracker {
                 verticalDominant = travelY > travelX
             }
         }
+        // Attribution: ONCE per gesture, from its first attributable non-momentum event —
+        // `.began` for a trackpad, the event itself for an ungrouped wheel click (each of which
+        // is its own gesture, and has just reset above). Placed after the resets so a fresh
+        // gesture is attributed to where it starts, not to whatever the last one left behind.
+        //
+        // Frozen for the gesture's life, because AppKit routes a phased gesture to the view it
+        // BEGAN over regardless of where the pointer goes next. Re-attributing on every
+        // `.changed` therefore migrated the hold on any device whose pointer can move during the
+        // gesture: a Magic Mouse vertical swipe started over pane A and drifting into pane B
+        // silently unguarded A — which promptly started drifting sideways, the original jitter
+        // bug — and held B instead, defeating B's own programmatic reveal. Momentum's wandering
+        // pointer is the same failure a beat later and is excluded by the same freeze, plus the
+        // `momentumPhase.isEmpty` test: its deltas are history, not intent.
+        if momentumPhase.isEmpty, gestureWindow == nil, let window {
+            gestureWindow = window
+            gestureLocation = locationInWindow
+        }
         if momentumPhase.contains(.ended) || phase.contains(.cancelled) {
             reset()
         }
@@ -170,6 +187,10 @@ final class WheelGestureTracker {
         holdEligible = false
         travelX = 0
         travelY = 0
+        // Attribution belongs to ONE gesture: clearing it here is what makes the next gesture
+        // re-attribute, and what makes the freeze above a freeze rather than a latch.
+        gestureWindow = nil
+        gestureLocation = .zero
     }
 }
 

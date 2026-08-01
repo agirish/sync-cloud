@@ -856,6 +856,129 @@ import Sync
         #expect(!tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
                 "a horizontal gesture was held against its own pane")
     }
+
+    /// Attribution is frozen at the gesture's START, and the pointer moving mid-DRAG must not
+    /// move it — the failure momentum's exclusion alone does not cover.
+    ///
+    /// AppKit routes a phased gesture to the view it began over however far the pointer travels
+    /// afterwards, and on a Magic Mouse the pointer travels: the hand that swipes also moves the
+    /// device. Re-attributing on every `.changed` therefore handed the hold to whichever pane the
+    /// pointer had reached — unguarding the pane actually leaking (which promptly resumed the
+    /// original sideways jitter) and holding an innocent one against its own programmatic reveal.
+    @Test func testPointerDriftDuringTheDragCannotMigrateTheHold() {
+        let (window, paneA, paneB) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -6,
+                       window: window, locationInWindow: inA, at: 0.01)
+        // Still the same drag — same gesture, same `.changed` phase — but the pointer has slid
+        // over the neighbouring pane.
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -8,
+                       window: window, locationInWindow: inB, at: 0.02)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.03),
+                "the pointer drifting out of pane A unguarded the pane the drag is actually in")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.03),
+                "the pointer drifting into pane B migrated the hold onto a pane the drag never touched")
+    }
+
+    /// The freeze is per gesture, not a latch: the NEXT gesture attributes to where IT starts.
+    /// Without that, one drag in pane A would own the hold for the rest of the session.
+    @Test func testANewGestureAttributesToWhereItStarts() {
+        let (window, paneA, paneB) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                       window: window, locationInWindow: inA, at: 0.01)
+        // A fresh gesture, begun in the other pane.
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inB, at: 0.02)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                       window: window, locationInWindow: inB, at: 0.03)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.04),
+                "the new gesture's own pane was not held — the first gesture latched the attribution")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.04),
+                "the previous gesture's pane is still held — attribution latched instead of re-arming")
+    }
+
+    /// Two panes in two SEPARATE windows, at the same in-window location. Location containment
+    /// alone cannot tell them apart, so this is the only shape in which the window check does any
+    /// work — every other scoped test here builds both panes in one window, where deleting that
+    /// check changes nothing.
+    @Test func testAGestureIsScopedToItsOwnWindow() {
+        let (windowA, paneA, _) = twoPanes()
+        let (windowB, paneB, _) = twoPanes()
+        defer { _ = (windowA, windowB) }
+        let tracker = WheelGestureTracker()
+        let point = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        #expect(paneB.bounds.contains(paneB.convert(point, from: nil)),
+                "the two panes are not at the same in-window point — location alone would discriminate")
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: windowA, locationInWindow: point, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                       window: windowA, locationInWindow: point, at: 0.01)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
+                "the gesture's own pane was not held")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
+                "a gesture in one window held a pane in another — the window check does nothing")
+    }
+
+    /// Two stacks built as real scroll views, each with a band at the bottom the clip's bounds
+    /// exclude — where AppKit puts the horizontal scroller under "Show scroll bars: Always".
+    private func twoScrollingPanes() -> (window: NSWindow, a: NSScrollView, b: NSScrollView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        func pane(x: CGFloat) -> NSScrollView {
+            let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
+            // The band is reserved by AppKit rather than by hand — a clip frame set here is
+            // undone by the scroll view's own tiling, and a legacy always-visible scroller is
+            // the exact configuration ("Show scroll bars: Always") this is about.
+            scroller.scrollerStyle = .legacy
+            scroller.hasHorizontalScroller = true
+            scroller.hasVerticalScroller = false
+            scroller.autohidesScrollers = false
+            scroller.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+            window.contentView?.addSubview(scroller)
+            scroller.tile()
+            return scroller
+        }
+        return (window, pane(x: 0), pane(x: 260))
+    }
+
+    /// The fail-CLOSED counterpart of the unattributable fail-open above: a gesture made with the
+    /// pointer over the stack's own horizontal scroller sits OUTSIDE the clip's bounds, so a
+    /// clip-scoped containment held nothing at all for that band and the original vertical-leak
+    /// drift came back there. Containment is the enclosing scroll view — which is exactly what
+    /// receives the deltas a column's list forwards up.
+    @Test func testAGestureOnTheStacksScrollerBandStillHoldsThatStack() throws {
+        let (window, a, b) = twoScrollingPanes()
+        defer { _ = window }
+        let clipA = a.contentView
+        let band = try #require(a.horizontalScroller?.frame,
+                                "the fixture reserved no scroller band — there is no strip to pin")
+        let onScroller = a.convert(NSPoint(x: band.midX, y: band.midY), to: nil)
+        try #require(!clipA.bounds.contains(clipA.convert(onScroller, from: nil)),
+                     "the fixture point is inside the clip — it pins nothing")
+        try #require(a.bounds.contains(a.convert(onScroller, from: nil)),
+                     "the fixture point is outside the stack's scroll view too — it pins nothing")
+
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: onScroller, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                       window: window, locationInWindow: onScroller, at: 0.01)
+        #expect(tracker.shouldHoldHorizontalDrift(for: clipA, at: 0.02),
+                "a gesture on the stack's own scroller band held nothing — the vertical leak is back for that strip")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: b.contentView, at: 0.02),
+                "widening containment to the scroll view leaked the hold into the other pane")
+    }
 }
 
 /// The lock's enforcement on the stack, over the strandable harness: while a vertical gesture
