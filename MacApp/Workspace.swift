@@ -21,8 +21,6 @@ enum Workspace: String, CaseIterable, Identifiable {
     case filing = "Filing"
     /// Identical content under different names or folders.
     case duplicates = "Duplicates"
-    /// Names the cloud will fight you over.
-    case rename = "Rename"
     /// The rules that file things without asking.
     case automations = "Automations"
     /// Read-only: what is using the space.
@@ -37,7 +35,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .compare: return "Compare"
         case .filing: return "Organize"
         case .duplicates: return "Duplicates"
-        case .rename: return "Rename"
         case .automations: return "Automations"
         case .storage: return "Storage"
         }
@@ -50,7 +47,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .compare: return "arrow.left.arrow.right"
         case .filing: return "folder.badge.gearshape"
         case .duplicates: return "doc.on.doc"
-        case .rename: return "character.cursor.ibeam"
         case .automations: return "wand.and.stars"
         case .storage: return "chart.pie"
         }
@@ -65,7 +61,6 @@ enum Workspace: String, CaseIterable, Identifiable {
         case .compare: return nil
         case .filing: return .filing
         case .duplicates: return .duplicates
-        case .rename: return .rename
         case .automations: return .automations
         case .storage: return .storage
         }
@@ -76,13 +71,16 @@ enum Workspace: String, CaseIterable, Identifiable {
         allCases.filter { $0.lens != nil }
     }
 
-    /// The workspace a lens belongs to — the inverse of `lens`, for the programmatic scan actions
-    /// ("Find Duplicates" from a Compare row) that name a lens rather than a workspace.
+    /// The workspace a lens is shown in, for the programmatic scan actions ("Find Duplicates"
+    /// from a Compare row) that name a lens rather than a workspace.
+    ///
+    /// Not a strict inverse of `lens`, and cannot be: `.rename` has no workspace of its own any
+    /// more. Risky names are a *finding* of Organize's scan rather than a place — the chip only
+    /// exists when the scan turned some up — so a caller naming that lens is asking for Organize.
     init(_ lens: TidyLens) {
         switch lens {
         case .duplicates: self = .duplicates
-        case .rename: self = .rename
-        case .filing: self = .filing
+        case .rename, .filing: self = .filing
         case .automations: self = .automations
         case .storage: self = .storage
         }
@@ -95,6 +93,11 @@ extension Workspace {
 
     /// The defaults key holding the flat selection.
     static let defaultsKey = "selectedWorkspace"
+    /// The raw value `Rename` persisted under, as both a Tidy lens and (briefly) a workspace of
+    /// its own. Kept as a constant because the migration has to keep answering for it long after
+    /// the case is gone — a retired raw value is exactly the kind of thing that stops being
+    /// handled once nothing in the enum names it any more.
+    static let retiredRenameRawValue = "Rename"
     /// The two keys it replaces, read once by ``migrateSelection(in:)`` and then left alone.
     static let legacyTabKey = "selectedBottomTab"
     static let legacyLensKey = "selectedTidyLens"
@@ -109,9 +112,14 @@ extension Workspace {
     /// Anything unrecognised resolves to `.compare`, which is also the default: an unreadable
     /// stored value and no stored value at all should land in the same place.
     static func migrated(tab: String?, lens: String?) -> Workspace {
+        // `Rename` was a workspace in the first flat bar and a Tidy lens before that. It is now a
+        // finding inside Organize, so both spellings land there rather than failing to resolve —
+        // which would silently drop the user on Compare.
+        if tab == retiredRenameRawValue { return .filing }
         guard tab == "Tidy" else { return .compare }
         // On Tidy the lens decided what you were looking at, so it — not the tab — is the
         // workspace. A missing or unrecognised lens takes Tidy's own former default.
+        if lens == retiredRenameRawValue { return .filing }
         guard let lens, let workspace = Workspace(rawValue: lens), workspace != .compare else {
             return .duplicates
         }

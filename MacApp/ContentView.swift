@@ -1302,20 +1302,12 @@ struct ContentView: View {
         return (settings.path(for: id) as NSString).expandingTildeInPath
     }
 
-    /// The provider ruleset a Name Normalizer scan targets — the targeted pane's provider (the left
+    /// The provider ruleset the name check runs against — the targeted pane's provider (the left
     /// rail in single-source; the focused pane in compare). Falls back to OneDrive, the strictest
     /// ruleset, when the type can't be resolved, so nothing risky slips past.
     var tidyProviderType: CloudProvider.ProviderType {
         let id = tidyTargetIsRight ? rightProviderId : leftProviderId
         return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
-    }
-
-    /// Runs the local name scan for the Rename lens's focused folder (triggered by its Scan button).
-    func startNameScanAction() {
-        let root = tidyScanRootExpanded
-        guard !root.isEmpty else { return }
-        Logger.shared.info("User requested name scan for \(root)")
-        syncManager.startNameScan(root: URL(fileURLWithPath: root), provider: tidyProviderType)
     }
 
     /// Toggles the shared Quick Look panel for `url`: opens a preview of that file, or — when the
@@ -1367,7 +1359,11 @@ struct ContentView: View {
         selectedWorkspace = .filing
         syncManager.startFindFilingSuggestions(folder: URL(fileURLWithPath: folder),
                                                providerRoot: URL(fileURLWithPath: root),
-                                               providerName: tidyProviderName)
+                                               providerName: tidyProviderName,
+                                               // Names come back on this pass — see
+                                               // `detectRiskyNames`. The ruleset is the scanned
+                                               // provider's, not whichever pane is focused later.
+                                               nameProvider: tidyProviderType)
     }
 
     /// The per-side values a pane is built from, resolved once per render by `paneContext` so
@@ -1893,7 +1889,6 @@ struct ContentView: View {
                 scanTargetFolder: tidyScanRootExpanded,
                 onFindDuplicates: findDuplicatesAction,
                 onFindFilingSuggestions: findFilingSuggestionsAction,
-                onScanNames: { startNameScanAction() },
                 onNormalizeNames: { names in Task { await syncManager.normalizeNames(names) } },
                 onPreviewAutomations: { only in startAutomationPreviewAction(only: only) },
                 automationDestinationRoot: tidyProviderRootExpanded,

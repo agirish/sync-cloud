@@ -88,6 +88,28 @@ struct PaneActionDelegate: FileActionDelegate {
     func handlePasteExplicit(_ targetDir: FileNode, nodes: [FileNode]) { handler?.pasteItems(nodes, to: targetDir, isCut: false) }
     func handlePasteToPath(_ path: String) { handler?.pasteClipboard(toPath: path) }
     func handleRename(_ node: FileNode) { handler?.beginRename(node) }
+
+    /// This pane's provider ruleset. Falls back to OneDrive — the strictest — when the id can't be
+    /// resolved, matching `tidyProviderType`, so an unresolved provider over-reports rather than
+    /// letting a name that will break a sync pass unflagged.
+    private var paneProviderType: CloudProvider.ProviderType {
+        let id = isLeft ? leftProviderId : rightProviderId
+        return settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
+    }
+
+    func riskyName(for node: FileNode) -> RiskyName? {
+        // The relative path is only used to LABEL the row in the batch list; a single-file fix
+        // renames in place from the absolute path, so the node's own name is the honest value
+        // here rather than a path this delegate would have to reconstruct against a scan root.
+        NameNormalizer.risky(name: node.name, relativePath: node.name, absolutePath: node.id,
+                             isDirectory: node.isDirectory, provider: paneProviderType)
+    }
+
+    func handleFixName(_ node: FileNode) {
+        guard let risky = riskyName(for: node) else { return }
+        Logger.shared.info("User requested a name fix for \(node.id) — \(risky.reason)")
+        Task { await syncManager.normalizeNames([risky]) }
+    }
     func handleCreateFolder(at path: String) { handler?.beginCreateFolder(in: path) }
     func handleGetInfo(for path: String) { onGetInfo(path) }
     func handleSort(_ option: SortOption) { 

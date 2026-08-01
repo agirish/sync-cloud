@@ -19,7 +19,8 @@ enum NameNormalizeGlyph {
 
 // MARK: - Rename lens
 
-/// The "Rename" lens (the former Name Normalizer): scans one provider subtree for cloud-hostile file
+/// Organize's risky-names list (the former Rename lens, and the Name Normalizer before that):
+/// every cloud-hostile file
 /// & folder names, previews the safe replacement for each, and fixes them in one undoable pass.
 /// Its own intro / scanning / results / all-clean states; rendered inside ``TidyView``'s content card.
 struct RenameLens: View {
@@ -35,7 +36,6 @@ struct RenameLens: View {
     let accent: Color
     let densityMetrics: ListDensityMetrics
     /// Kicks off a scan of the focused folder (host owns the root/provider derivation).
-    let onScan: () -> Void
     /// Applies the safe rename to the given rows as one undoable batch (host wires `normalizeNames`).
     let onNormalize: ([RiskyName]) -> Void
     /// Reveals the given absolute path in Finder (host owns the `NSWorkspace` call).
@@ -46,54 +46,14 @@ struct RenameLens: View {
     private var provider: String { providerName ?? "this provider" }
 
     var body: some View {
-        Group {
-            if syncManager.isScanningNames {
-                scanningState
-            } else if !syncManager.hasScannedNames {
-                introState
-            } else if syncManager.riskyNames.isEmpty {
-                cleanState
-            } else {
-                resultsState
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var introState: some View {
-        EmptyStateView(
-            icon: NameNormalizeGlyph.lens,
-            tint: accent,
-            title: "Find risky names in \(provider)",
-            message: "Scan for file and folder names \(provider) can't sync — trailing spaces, forbidden characters, reserved names, and hidden invisible characters — then fix them all in one pass.",
-            caption: "Nothing is renamed without your say-so, and every fix undoes with ⌘Z.",
-            primary: .init("Scan for risky names", systemImage: NameNormalizeGlyph.lens, handler: onScan)
-        )
-    }
-
-    private var scanningState: some View {
-        VStack(spacing: 14) {
-            ProgressView().controlSize(.large)
-            Text(syncManager.nameScanStatus.isEmpty ? "Scanning…" : syncManager.nameScanStatus)
-                .scaledFont(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            Button("Cancel") { syncManager.cancelNameScan() }
-                .controlSize(.regular)
-                .padding(.top, 2)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(30)
-    }
-
-    private var cleanState: some View {
-        EmptyStateView(
-            icon: NameNormalizeGlyph.allSafe,
-            tint: SemanticColor.success,
-            title: "No risky names — every name is cloud-safe",
-            message: "Nothing in \(provider) would trip a cloud sync on its name. Scan again after adding files.",
-            secondary: .init("Scan again", systemImage: "arrow.clockwise", handler: onScan)
-        )
+        // Results only. This list is reached exclusively through Organize's risky-names chip, and
+        // that chip exists only while the finding is non-empty — so the intro, scanning and
+        // all-clear states this lens used to carry are unreachable by construction. They were the
+        // states of a *place* you could visit and find nothing; a finding you can only open when
+        // it has something in it has no such states, and leaving them would have meant a "Scan for
+        // risky names" button wired to a scan that no longer exists on its own.
+        resultsState
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// The list only. Its header row is gone — the shared LensHeaderCard above carries this lens's

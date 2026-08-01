@@ -61,3 +61,19 @@ extension FileActionDelegate {
     /// conformer opts into the fast path by proving it can.
     public func isEquivalent(to other: FileActionDelegate) -> Bool { false }
 }
+
+// MARK: - Fixing one cloud-hostile name in place
+
+/// Rename stopped being a workspace, so the single-file case needs a door of its own: the queue in
+/// Organize is for a batch, and this is for the one file you are looking at right now.
+///
+/// Both are defaulted rather than required. A conformer that has no provider context — every test
+/// stub, and any pane that isn't a real provider view — answers "not risky" and never offers the
+/// item, which is the correct behaviour for them rather than a stub they are forced to write.
+extension FileActionDelegate {
+    /// What is wrong with this node's name for the provider it lives on, or nil when nothing is.
+    /// Asked while the menu is being built — i.e. on open — so it costs nothing per row.
+    func riskyName(for node: FileNode) -> RiskyName? { nil }
+    /// Applies that fix, through the same undoable path the batch uses.
+    func handleFixName(_ node: FileNode) {}
+}

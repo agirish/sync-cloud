@@ -122,6 +122,9 @@ import AppKit
         let decoded = TopPaneVisibility.decodeOverrides(migrated)
         #expect(decoded["Tidy"] == nil)
         #expect(decoded["Differences"] == false)
-        #expect(decoded["Rename"] == true)
+        #expect(decoded["Storage"] == true)
+        // Rename is not a workspace, so the fan-out must not mint a key for it — an override for
+        // a place that cannot be selected is a row of dead state that would outlive every reader.
+        #expect(decoded[Workspace.retiredRenameRawValue] == nil)
     }
 }

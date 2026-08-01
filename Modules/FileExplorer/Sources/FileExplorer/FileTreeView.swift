@@ -713,6 +713,16 @@ struct FileContextMenu: View {
                 Button(action: { delegate.handleRename(singleNode) }) {
                     Label("Rename", systemImage: "pencil")
                 }
+                // Offered only when this provider will actually reject the name — a finding, not a
+                // standing menu item. The check runs here, while the menu is being built on open,
+                // rather than in the row: `FileContextMenu` is constructed per row and the pane's
+                // render budget is the app's tightest.
+                if let risky = delegate.riskyName(for: singleNode) {
+                    Button(action: { delegate.handleFixName(singleNode) }) {
+                        Label("Fix name…", systemImage: NameNormalizeGlyph.lens)
+                    }
+                    .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
+                }
                 
                 if singleNode.isDirectory {
                     SharedFileMenuItems.newFolder(at: singleNode.id, delegate: delegate)

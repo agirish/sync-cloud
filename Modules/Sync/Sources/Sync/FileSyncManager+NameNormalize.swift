@@ -68,6 +68,32 @@ extension FileSyncManager {
         Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s)")
     }
 
+    /// Flags provider-hostile names on a tree the caller has **already walked**.
+    ///
+    /// Rename stopped being a place of its own. A name the cloud will reject is something you hit
+    /// a handful of times a year, and a tab you have to remember to visit is a check nobody runs —
+    /// so instead of asking, the Filing scan reports. It already walks the whole provider to learn
+    /// its folder taxonomy, and the detector is pure, so the names come back on that pass over a
+    /// tree that is already in memory: no second walk, no second button.
+    ///
+    /// Detached for the same reason the standalone scan was — flattening and rule-checking a whole
+    /// provider on the main actor blocked it for the full pass.
+    func detectRiskyNames(in tree: [FileNode], root: URL, provider: CloudProvider.ProviderType) async {
+        // Remembered so a later "Fix all" sanitizes against the same ruleset the scan flagged
+        // against, rather than whichever provider the panes happen to be showing by then.
+        nameScanProvider = provider
+        let risky = await Task.detached(priority: .userInitiated) {
+            NameNormalizer.scan(nodes: tree, provider: provider)
+        }.value
+        // The caller cancels on a newer scan; without this a stale result could land on top of a
+        // newer one, which is the same staleness guard `scanNames` carries.
+        if Task.isCancelled { return }
+
+        riskyNames = risky
+        completeScan(\.nameScanLifecycle, root: root)
+        Logger.shared.info("Filing scan flagged \(risky.count) risky name(s) under \(root.lastPathComponent) for \(provider.rawValue)")
+    }
+
     /// Clears the current results (e.g. when switching providers), cancelling any in-flight scan so
     /// it can't republish stale results after the switch.
     public func clearNameScan() {

@@ -205,7 +205,6 @@ public struct TidyView: View {
     private let onFindDuplicates: () -> Void
     private let onFindFilingSuggestions: () -> Void
     /// Kicks off a Name Normalizer scan of the focused folder (host owns the root/provider deriving).
-    private let onScanNames: () -> Void
     /// Applies the safe rename to the given risky names as one undoable batch.
     private let onNormalizeNames: ([RiskyName]) -> Void
     /// Kicks off an Automations dry-run preview of the focused folder (host owns the root deriving).
@@ -244,7 +243,6 @@ public struct TidyView: View {
         scanTargetFolder: String? = nil,
         onFindDuplicates: @escaping () -> Void,
         onFindFilingSuggestions: @escaping () -> Void = {},
-        onScanNames: @escaping () -> Void = {},
         onNormalizeNames: @escaping ([RiskyName]) -> Void = { _ in },
         onPreviewAutomations: @escaping (UUID?) -> Void = { _ in },
         automationDestinationRoot: String? = nil,
@@ -264,7 +262,6 @@ public struct TidyView: View {
         self.scanTargetFolder = scanTargetFolder
         self.onFindDuplicates = onFindDuplicates
         self.onFindFilingSuggestions = onFindFilingSuggestions
-        self.onScanNames = onScanNames
         self.onNormalizeNames = onNormalizeNames
         self.onPreviewAutomations = onPreviewAutomations
         self.automationDestinationRoot = automationDestinationRoot
@@ -285,27 +282,49 @@ public struct TidyView: View {
         (ListDensity(rawValue: listDensityRaw) ?? .comfortable).metrics
     }
 
+    /// Whether Organize is showing its risky-names finding instead of the filing queue.
+    ///
+    /// Rename is no longer a place, so this is not a lens selection — it is which of Organize's
+    /// two lists is on screen. Gated on the finding still being non-empty so fixing the last
+    /// risky name drops you back to the queue rather than stranding you on an empty list whose
+    /// only route out is a chip that no longer exists.
+    @State private var showingRiskyNames = false
+
+    /// The lens whose grammar, pills, actions and content are on screen right now.
+    ///
+    /// `lens` is where you ARE; this is what you are LOOKING AT. They differ in exactly one case:
+    /// Organize showing its risky names, which reuses `.rename`'s whole apparatus — its search
+    /// grammar, its "N of M", its list — because that apparatus is still correct. What it does not
+    /// reuse is the title: the header keeps saying Organize, because you have not gone anywhere.
+    private var effectiveLens: TidyLens {
+        (lens == .filing && showingRiskyNames && !syncManager.riskyNames.isEmpty) ? .rename : lens
+    }
+
+    /// The risky names Organize's scan turned up. Empty is the common case, and an empty finding
+    /// renders nothing at all — not a greyed chip, not a zero.
+    private var riskyFinding: [RiskyName] { syncManager.riskyNames }
+
     // MARK: Search state
 
     /// This lens's query. Written through to `searchQueries`, so switching tabs parks the query
     /// rather than carrying it into a grammar that would read it differently.
     private var searchText: Binding<String> {
-        Binding(get: { searchQueries[lens] ?? "" }, set: { searchQueries[lens] = $0 })
+        Binding(get: { searchQueries[effectiveLens] ?? "" }, set: { searchQueries[effectiveLens] = $0 })
     }
 
     private var isSearchExpanded: Binding<Bool> {
         Binding(
-            get: { searchExpandedLenses.contains(lens) },
+            get: { searchExpandedLenses.contains(effectiveLens) },
             set: { expanded in
-                if expanded { searchExpandedLenses.insert(lens) } else { searchExpandedLenses.remove(lens) }
+                if expanded { searchExpandedLenses.insert(effectiveLens) } else { searchExpandedLenses.remove(effectiveLens) }
             }
         )
     }
 
-    private var query: String { searchQueries[lens] ?? "" }
+    private var query: String { searchQueries[effectiveLens] ?? "" }
     /// True when this lens's list is narrowed by anything — the cue for the "N of M" readout.
     private var isFiltered: Bool {
-        !query.isEmpty || (lens == .duplicates && filter != .all)
+        !query.isEmpty || (effectiveLens == .duplicates && filter != .all)
     }
 
     /// The parsed tokens of this lens's query, as chips. Each lens's own grammar answers, so a
@@ -314,7 +333,7 @@ public struct TidyView: View {
         func items<C: DimmableTokenChip>(_ chips: [C], label: (C) -> String, word: (C) -> String) -> [TokenChipsRow.Item] {
             chips.map { TokenChipsRow.Item(label: label($0), word: word($0), isActive: $0.isActive) }
         }
-        switch lens {
+        switch effectiveLens {
         case .duplicates:
             return items(DuplicateSearch.chips(query), label: \.label, word: \.raw)
         case .rename:
@@ -353,7 +372,7 @@ public struct TidyView: View {
     /// parses a query and walks a collection.
     private var filteredRows: FilteredRows {
         var rows = FilteredRows()
-        switch lens {
+        switch effectiveLens {
         case .duplicates:
             let q = DuplicateSearch.parse(query)
             rows.duplicates = syncManager.duplicateGroups.filter { filter.matches($0) && q.matches($0) }
@@ -441,6 +460,11 @@ public struct TidyView: View {
                 pendingRememberPrompt = nil   // a new scan retires any dangling teach prompt
                 pendingRuleOffer = nil
                 searchQueries[.filing] = ""
+                // The finding belongs to the scan that produced it. Staying on the names list
+                // across a rescan would show the previous scan's answer under the new scan's
+                // header, and its query would survive into a list it no longer describes.
+                showingRiskyNames = false
+                searchQueries[.rename] = ""
             }
         }
         // A fresh Duplicates scan starts a fresh reclaim session, so "… freed this session" only ever
@@ -479,8 +503,8 @@ public struct TidyView: View {
         LensHeaderCard(
             searchText: searchText,
             isSearchExpanded: isSearchExpanded,
-            searchPlaceholder: TidyLensSearch.placeholder(for: lens),
-            searchHelp: TidyLensSearch.help(for: lens),
+            searchPlaceholder: TidyLensSearch.placeholder(for: effectiveLens),
+            searchHelp: TidyLensSearch.help(for: effectiveLens),
             chips: searchChips,
             onRemoveChip: removeSearchChip,
             accent: glassHue.accentColor,
@@ -501,6 +525,9 @@ public struct TidyView: View {
     /// would have left the column with no statement of what it is showing: the counts beneath say
     /// how many, never of what. So the row keeps its height and says the name instead.
     private var lensTitle: some View {
+        // `lens`, deliberately, NOT `effectiveLens`: Organize showing its risky names is still
+        // Organize. A title that flipped to "Rename" would re-announce the place this change
+        // removed, and would make a filter look like a navigation.
         Text(lens.title)
             .scaledFont(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.primary)
@@ -556,7 +583,7 @@ public struct TidyView: View {
     /// empty row 1 keeps the tabs and the height exactly where they are.
     @ViewBuilder
     private func lensActions(rows: FilteredRows) -> some View {
-        switch lens {
+        switch effectiveLens {
         case .duplicates:
             if hasResults, !syncManager.isFindingDuplicates {
                 filterMenu
@@ -564,8 +591,10 @@ public struct TidyView: View {
                 applyAllButton(rows.duplicates)
             }
         case .rename:
-            if syncManager.hasScannedNames, !syncManager.riskyNames.isEmpty, !syncManager.isScanningNames {
-                rescanNamesButton
+            // Rescans through FILING: the names are a product of that scan now, so a separate
+            // "scan names" button would be a second source of truth for one list.
+            if !syncManager.riskyNames.isEmpty, !syncManager.isSuggestingFiles {
+                rescanFilingButton
                 fixAllButton(rows.risky)
             }
         case .filing:
@@ -591,7 +620,7 @@ public struct TidyView: View {
     /// card rather than swapping itself in over this row.
     @ViewBuilder
     private func lensSummary(rows: FilteredRows) -> some View {
-        switch lens {
+        switch effectiveLens {
         case .duplicates:
             if hasResults { duplicatesSummary(rows.duplicates) }
         case .rename:
@@ -603,6 +632,40 @@ public struct TidyView: View {
         case .storage:
             if let report = syncManager.storageLensReport { storageSummary(report) }
         }
+        // Rendered for BOTH of Organize's states — it is the way in and the way back out. Keyed on
+        // `lens`, not `effectiveLens`, for exactly that reason: gating it on the effective lens
+        // would remove the only control that returns you to the queue.
+        if lens == .filing, !riskyFinding.isEmpty { riskyNamesChip }
+    }
+
+    /// Organize's risky-names finding.
+    ///
+    /// **A finding, not a category.** It carries its own count in the label, wears caution rather
+    /// than the accent — it reports a condition, it does not offer a filter — and at zero it is
+    /// *absent*, not greyed and not showing "0". That absence is the whole argument for folding
+    /// Rename in here: cloud-hostile names are something you hit a few times a year, so a
+    /// permanent tab spent bar width every day to serve a rare event, and — worse — a tab you have
+    /// to remember to visit is a check nobody runs. Reporting beats asking.
+    @ViewBuilder
+    private var riskyNamesChip: some View {
+        let count = riskyFinding.count
+        let willFail = riskyFinding.contains { $0.isDirectory == false }
+        Button {
+            withAnimation(listSettle) { showingRiskyNames.toggle() }
+        } label: {
+            StatPill(count: count,
+                     label: count == 1 ? "risky name" : "risky names",
+                     color: SemanticColor.caution,
+                     systemImage: "character.cursor.ibeam",
+                     trailingSystemImage: showingRiskyNames ? "chevron.up" : "chevron.down")
+        }
+        .buttonStyle(.plain)
+        .chromeHover()
+        .help(showingRiskyNames
+              ? "Back to the filing queue."
+              : "\(count) name\(count == 1 ? "" : "s") this provider will not accept"
+                + (willFail ? ", found on the same scan" : "") + ". Shows the fixes.")
+        .accessibilityAddTraits(showingRiskyNames ? [.isButton, .isSelected] : .isButton)
     }
 
     /// Row 2's trailing edge: "N of M" whenever this lens's list is narrowed, so a shortened list
@@ -610,7 +673,7 @@ public struct TidyView: View {
     @ViewBuilder
     private func lensTrailing(rows: FilteredRows) -> some View {
         if isFiltered {
-            switch lens {
+            switch effectiveLens {
             case .duplicates: ofMLabel(rows.duplicates.count, syncManager.duplicateGroups.count)
             case .rename: ofMLabel(rows.risky.count, syncManager.riskyNames.count)
             case .filing: ofMLabel(rows.filing.count, syncManager.filingSuggestions.count)
@@ -964,13 +1027,6 @@ public struct TidyView: View {
         }
     }
 
-    private var rescanNamesButton: some View {
-        rescanButton(moved: targetMoved(from: syncManager.nameScanRoot?.path),
-                     movedIcon: NameNormalizeGlyph.lens, disabled: syncManager.isScanningNames,
-                     action: onScanNames,
-                     movedHelp: "Scan “\(scanTargetName)” for risky names — the folder now focused above")
-    }
-
     private var hasStorageReport: Bool { syncManager.storageLensReport != nil }
 
     private var reanalyzeStorageButton: some View {
@@ -1021,7 +1077,7 @@ public struct TidyView: View {
     @ViewBuilder
     private func contentCard(rows: FilteredRows) -> some View {
         VStack(spacing: 0) {
-            switch lens {
+            switch effectiveLens {
             case .duplicates: duplicatesContent(dupGroups: rows.duplicates)
             case .rename: renameContent(risky: rows.risky)
             case .filing: filingContent(filing: rows.filing)
@@ -1213,7 +1269,7 @@ public struct TidyView: View {
                 providerName: providerName,
                 accent: glassHue.accentColor,
                 densityMetrics: densityMetrics,
-                onScan: onScanNames,
+
                 onNormalize: onNormalizeNames,
                 onReveal: { path in NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) },
                 onQuickLook: onQuickLook.map { ql in { path in ql(URL(fileURLWithPath: path)) } }

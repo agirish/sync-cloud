@@ -17,7 +17,6 @@ import FileExplorer
         #expect(Workspace.compare.rawValue == "Differences")
         #expect(Workspace.filing.rawValue == "Filing")
         #expect(Workspace.duplicates.rawValue == "Duplicates")
-        #expect(Workspace.rename.rawValue == "Rename")
         #expect(Workspace.automations.rawValue == "Automations")
         #expect(Workspace.storage.rawValue == "Storage")
 
@@ -39,13 +38,17 @@ import FileExplorer
         for workspace in Workspace.allCases where workspace != .compare {
             #expect(workspace.lens != nil, "\(workspace.rawValue) must resolve to a lens")
         }
-        // The mapping round-trips, so `Workspace(lens)` and `workspace.lens` cannot drift apart.
-        for lens in TidyLens.allCases {
+        // Every lens EXCEPT `.rename` round-trips. Rename deliberately does not: it has no
+        // workspace of its own — it is a finding inside Organize — so a caller naming that lens is
+        // asking for Organize. Asserted rather than skipped, because a silent identity here would
+        // mean the flat bar had grown a sixth segment again.
+        for lens in TidyLens.allCases where lens != .rename {
             #expect(Workspace(lens).lens == lens)
         }
-        // And every lens is reachable: a lens with no workspace would be dead code the bar can
-        // never select.
-        #expect(Set(Workspace.lensWorkspaces.compactMap(\.lens)) == Set(TidyLens.allCases))
+        #expect(Workspace(.rename) == .filing)
+        // Every workspace's lens is reachable, and no workspace claims `.rename`.
+        #expect(Set(Workspace.lensWorkspaces.compactMap(\.lens))
+                == Set(TidyLens.allCases).subtracting([.rename]))
     }
 
     @Test func testBarOrderPutsCompareFirstAndKeepsTheLensGroupTogether() {
@@ -72,7 +75,8 @@ import FileExplorer
         // these was reachable in 2.8, so each has to land somewhere deliberate.
         #expect(Workspace.migrated(tab: "Differences", lens: "Duplicates") == .compare)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Duplicates") == .duplicates)
-        #expect(Workspace.migrated(tab: "Tidy", lens: "Rename") == .rename)
+        // Rename is a finding inside Organize now, not a place — see the retired-value tests.
+        #expect(Workspace.migrated(tab: "Tidy", lens: "Rename") == .filing)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Filing") == .filing)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Automations") == .automations)
         #expect(Workspace.migrated(tab: "Tidy", lens: "Storage") == .storage)
@@ -81,9 +85,17 @@ import FileExplorer
     @Test func testOnTidyTheLensDecidesNotTheTab() {
         // The tab said "Tidy" for all five lenses, so migrating on the tab alone would collapse
         // five distinct places into one — the exact information the flat bar exists to keep.
-        let migrated = ["Duplicates", "Rename", "Filing", "Automations", "Storage"]
-            .map { Workspace.migrated(tab: "Tidy", lens: $0) }
-        #expect(Set(migrated).count == 5)
+        // Four survive as destinations, not five: Rename folded into Organize, so those two share
+        // one. That collision is the only one allowed, and naming it here is what stops a future
+        // mapping bug from hiding behind a merely-smaller count.
+        let lenses = ["Duplicates", "Rename", "Filing", "Automations", "Storage"]
+        let migrated = lenses.map { Workspace.migrated(tab: "Tidy", lens: $0) }
+        #expect(Set(migrated).count == 4)
+        #expect(Workspace.migrated(tab: "Tidy", lens: "Rename")
+                == Workspace.migrated(tab: "Tidy", lens: "Filing"))
+        // Every OTHER pair is still distinct.
+        let others = lenses.filter { $0 != "Rename" }.map { Workspace.migrated(tab: "Tidy", lens: $0) }
+        #expect(Set(others).count == others.count)
     }
 
     @Test func testUnrecognisedInputLandsWhereAnEmptyDefaultWould() {
@@ -98,6 +110,25 @@ import FileExplorer
         // "Differences" is a Workspace raw value too; it must not be read as a *lens* and let
         // someone on Tidy resolve to Compare through the lens arm.
         #expect(Workspace.migrated(tab: "Tidy", lens: "Differences") == .duplicates)
+    }
+
+    @Test func testTheRetiredRenameValueResolvesToOrganizeFromBothSpellings() {
+        // `Rename` persisted twice over: as a TidyLens (2.8 and earlier) and, for one commit, as a
+        // Workspace of its own. Both spellings are still on disk in the wild, and NEITHER resolves
+        // any more — @AppStorage would silently take its default and drop the user on Compare,
+        // which is nowhere near what they were doing. This is the only mapping in the table whose
+        // source case no longer exists in the enum, which is exactly why it needs pinning.
+        #expect(Workspace(rawValue: Workspace.retiredRenameRawValue) == nil)
+        #expect(Workspace.migrated(tab: "Tidy", lens: "Rename") == .filing)
+        #expect(Workspace.migrated(tab: "Rename", lens: nil) == .filing)
+        #expect(Workspace.migrated(tab: "Rename", lens: "Rename") == .filing)
+    }
+
+    @Test func testRenameIsNotABarSegment() {
+        // The bar is five now. A sixth segment reappearing means the fold was undone somewhere.
+        #expect(Workspace.allCases.count == 5)
+        #expect(!Workspace.allCases.contains { $0.title == "Rename" })
+        #expect(!Workspace.allCases.contains { $0.rawValue == Workspace.retiredRenameRawValue })
     }
 
     // MARK: Migration is one-shot

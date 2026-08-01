@@ -62,11 +62,17 @@ extension FileSyncManager {
 
     /// Starts a cancellable Filing scan, replacing any in-flight one. `providerName` resolves the
     /// `{provider}` token in automation destinations that steer the suggestions.
+    ///
+    /// `nameProvider` is the ruleset the same pass checks names against (see
+    /// ``detectRiskyNames(in:root:provider:)``). Optional so callers that only want suggestions —
+    /// the CLI, tests — opt out rather than being forced to name a provider they don't have.
     public func startFindFilingSuggestions(folder: URL, providerRoot: URL, providerName: String? = nil,
+                                           nameProvider: CloudProvider.ProviderType? = nil,
                                            options: FilingOptions = .init()) {
         filingScanTask = restartedScanTask(replacing: filingScanTask) { [weak self] in
             await self?.findFilingSuggestions(folder: folder, providerRoot: providerRoot,
-                                              providerName: providerName, options: options)
+                                              providerName: providerName, nameProvider: nameProvider,
+                                              options: options)
         }
     }
 
@@ -77,6 +83,7 @@ extension FileSyncManager {
     /// suggested homes.
     public func findFilingSuggestions(
         folder: URL, providerRoot: URL, providerName: String? = nil,
+        nameProvider: CloudProvider.ProviderType? = nil,
         options: FilingOptions = .init(), fileManager fm: FileManaging? = nil
     ) async {
         guard !isSuggestingFiles else { return }
@@ -104,6 +111,15 @@ extension FileSyncManager {
         updateScan(\.filingScanLifecycle, epoch: epoch, status: FilingScanPhase.learningFolders.status)
         let taxonomy = await Self.buildTree(url: providerRoot, sortOption: .name, fileManager: fileManager, maxDepth: nil)
         if Task.isCancelled { return }
+
+        // Names, on the pass that is already here. This walk covers the whole provider — the same
+        // ground the standalone Rename scan used to cover — so folding the check in loses no
+        // coverage, only the trip. Published before the suggestions so the finding is on screen
+        // as soon as it is known rather than waiting on classification.
+        if let nameProvider {
+            await detectRiskyNames(in: taxonomy, root: providerRoot, provider: nameProvider)
+            if Task.isCancelled { return }
+        }
 
         // The user's rules steer the suggestions. Automations are the one rule system; the legacy
         // remembered-rule store (F3) is consulted only until the one-time migration into
