@@ -367,39 +367,83 @@ public struct PaneHeader: View {
 
     /// The original ladder, searched by `ViewThatFits`, for the header that has no provider capsule.
     ///
-    /// Kept for the one case the computed rung cannot serve — see `navCluster`. It runs to a fixed
-    /// count of literal children, one per slot: `PaneBarLayout.plan` is idempotent past `maxDepth`
-    /// (`PaneBarArrangementTests` pins that), so the slots past a given ladder's `terminal` clamp
-    /// to it and are duplicates of the last rung.
+    /// Kept for the one case the computed rung cannot serve — see `navCluster` — and it must declare
+    /// enough literal children to cover the deepest ladder ANY arrangement can build, because
+    /// `ViewThatFits` takes a `ViewBuilder` and a `ForEach` over rungs is a SINGLE child (the ladder
+    /// silently collapses to one rung). `PaneBarLadder.searchedSlotCount` owns that arithmetic and
+    /// MUST match the literal count here; `PaneBarLadderTests.theSearchedLadderDeclaresOneChildPerSlot`
+    /// counts the children of this very view rather than trusting this sentence.
     ///
-    /// Literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a `ForEach` over
-    /// rungs is a SINGLE child and the ladder silently collapses to one rung. The count is
-    /// `PaneBarLadder.searchedSlotCount`, which owns the arithmetic for how deep any arrangement's
-    /// ladder can go and MUST match the number of literals here — a contract that is now checked
-    /// rather than asserted in prose: `PaneBarLadderTests.theSearchedLadderDeclaresOneChildPerSlot`
-    /// counts the children of this very view. (An earlier version declared ten, on the false
-    /// premise that `terminal` never exceeds 9; spacers are duplicate-exempt, so a spacer-heavy
-    /// arrangement runs `terminal` up to 16 and the bar skipped every rung between 8 and full
-    /// compaction.)
+    /// **Only the slots that draw a different bar build one.** A slot past `terminal` would redraw
+    /// the terminal rung, and `ViewThatFits` can never choose it: an identical-width child sits
+    /// ahead of it and wins first-fit. So those slots are `Color.clear` stand-ins of exactly the
+    /// terminal rung's size — they measure like the bar they replace and cost nothing to build. The
+    /// LAST slot always draws for real, because `ViewThatFits` renders its last child when nothing
+    /// fits, and that fallback has to be a bar rather than a hole. `PaneBarLadder.searchedSlotDrawsBar`
+    /// is the rule; `searchedSlotIsInert` is why it is safe.
+    ///
+    /// This matters because the provider-less header is not the rare case the slot count implies:
+    /// `provider` is nil for BOTH panes until `discoverProviders()` fills `availableProviders`, and
+    /// indefinitely for a pane pointed at a disabled or unmounted provider — so this path runs at
+    /// launch, when a stall is most visible, and rebuilds on every `ContentView` body evaluation.
+    /// Seventeen bars per pane there is precisely the cost `navCluster`'s computed rung exists to
+    /// avoid (see its 4,805 ms / 831 ms note). Measured offscreen in Release — one whole body
+    /// evaluation and layout of this header with the DEFAULT arrangement, whose `terminal` is 6, so
+    /// seven rungs differ and eight slots draw. Best of three interleaved A/B rounds, each the
+    /// minimum of 60 passes (this Mac is also the CI runner, and contention only ever adds time):
+    ///
+    ///     250pt   120 ms -> 34 ms      600pt   232 -> 129      900pt   252 -> 137
+    ///
+    /// The header WITH a capsule, which this change does not touch, measured 10–18 ms throughout and
+    /// is the control that says the harness is comparing like with like.
+    ///
+    /// Why not compute the rung here as `navCluster` does? Because that needs the offered width
+    /// before the height is settled, and here the bar is the row's own height authority — there is
+    /// no provider capsule to be the taller thing, so a container pinned to one rung's height
+    /// reports the wrong row height for every other rung. A `GeometryReader` cannot supply it
+    /// (greedy in both axes, and reports nothing about its content), and taking the width through
+    /// `.onGeometryChange` into `@State` would write view state from a layout callback — which in
+    /// this codebase has already produced an AppKit layout loop, and would genuinely feed back here:
+    /// the bar's minimum width is what the row offers `sparseTitle`, whose own `ViewThatFits` then
+    /// changes the width the bar is offered.
     func searchedLadder(_ ladder: PaneBarLadder) -> some View {
         ViewThatFits(in: .horizontal) {
-            barVariant(ladder.searchedRung(forSlot: 0), ladder)
-            barVariant(ladder.searchedRung(forSlot: 1), ladder)
-            barVariant(ladder.searchedRung(forSlot: 2), ladder)
-            barVariant(ladder.searchedRung(forSlot: 3), ladder)
-            barVariant(ladder.searchedRung(forSlot: 4), ladder)
-            barVariant(ladder.searchedRung(forSlot: 5), ladder)
-            barVariant(ladder.searchedRung(forSlot: 6), ladder)
-            barVariant(ladder.searchedRung(forSlot: 7), ladder)
-            barVariant(ladder.searchedRung(forSlot: 8), ladder)
-            barVariant(ladder.searchedRung(forSlot: 9), ladder)
-            barVariant(ladder.searchedRung(forSlot: 10), ladder)
-            barVariant(ladder.searchedRung(forSlot: 11), ladder)
-            barVariant(ladder.searchedRung(forSlot: 12), ladder)
-            barVariant(ladder.searchedRung(forSlot: 13), ladder)
-            barVariant(ladder.searchedRung(forSlot: 14), ladder)
-            barVariant(ladder.searchedRung(forSlot: 15), ladder)
-            barVariant(ladder.searchedRung(forSlot: 16), ladder)
+            searchedSlot(0, ladder)
+            searchedSlot(1, ladder)
+            searchedSlot(2, ladder)
+            searchedSlot(3, ladder)
+            searchedSlot(4, ladder)
+            searchedSlot(5, ladder)
+            searchedSlot(6, ladder)
+            searchedSlot(7, ladder)
+            searchedSlot(8, ladder)
+            searchedSlot(9, ladder)
+            searchedSlot(10, ladder)
+            searchedSlot(11, ladder)
+            searchedSlot(12, ladder)
+            searchedSlot(13, ladder)
+            searchedSlot(14, ladder)
+            searchedSlot(15, ladder)
+            searchedSlot(16, ladder)
+        }
+    }
+
+    /// One child of the searched ladder: the bar at this slot's rung, or — where that bar would be a
+    /// duplicate `ViewThatFits` can never choose — a stand-in that measures the same and draws
+    /// nothing. See `searchedLadder` for why the duplicates are unreachable and why the last slot
+    /// never becomes one.
+    ///
+    /// An `if` inside a `ViewBuilder` is one `_ConditionalContent` child either way, so this stays
+    /// one child per slot and the ladder keeps its rungs — unlike a `ForEach`, which would collapse
+    /// all seventeen into one.
+    @ViewBuilder
+    private func searchedSlot(_ slot: Int, _ ladder: PaneBarLadder) -> some View {
+        if ladder.searchedSlotDrawsBar(slot) {
+            barVariant(ladder.searchedRung(forSlot: slot), ladder)
+        } else {
+            Color.clear
+                .frame(width: ladder.width(forRung: ladder.terminal),
+                       height: ladder.height(forRung: ladder.terminal))
         }
     }
 
