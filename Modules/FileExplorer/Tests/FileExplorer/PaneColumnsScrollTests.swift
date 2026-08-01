@@ -751,6 +751,92 @@ import Sync
         #expect(tracker.shouldHoldHorizontalDrift(at: 0.03),
                 "`.ended` was read as an ungrouped event and cleared the decision early")
     }
+
+    // MARK: - Scoping the hold to the gesture's own pane
+    //
+    // One app-wide monitor feeds one tracker, but up to three column stacks consult it (both
+    // comparison panes and the Tidy rail). Unscoped, a vertical flick in pane A — its momentum
+    // keeping `lastEventAt` fresh — made pane B's watchdog revert B's own programmatic reveal,
+    // so the deepest column stayed hidden. The scoped query answers per asking view.
+
+    /// Two sibling panes in one window, for the scoped queries below.
+    private func twoPanes() -> (window: NSWindow, paneA: NSView, paneB: NSView) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let paneA = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let paneB = NSView(frame: NSRect(x: 260, y: 0, width: 200, height: 100))
+        window.contentView?.addSubview(paneA)
+        window.contentView?.addSubview(paneB)
+        return (window, paneA, paneB)
+    }
+
+    /// The regression C9 fixes: a vertical gesture holds the pane it is in, and ONLY that pane.
+    @Test func testAGestureHoldsOnlyThePaneItIsIn() {
+        let (window, paneA, paneB) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                       window: window, locationInWindow: inA, at: 0.01)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
+                "the gesture's own pane was not held — the original leak is back")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
+                "a gesture in pane A held pane B — its programmatic reveal will be reverted")
+    }
+
+    /// Momentum events carry the gesture's window but the pointer's CURRENT location, which can
+    /// wander over the other pane while the flick coasts. The hold must stay with the pane the
+    /// drag happened in — migrating would unguard the leaking pane and hold an innocent one.
+    @Test func testMomentumCannotMigrateTheHoldToThePaneThePointerWandersOver() {
+        let (window, paneA, paneB) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        let inB = paneB.convert(NSPoint(x: 40, y: 40), to: nil)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 0, dy: -12,
+                       window: window, locationInWindow: inA, at: 0.01)
+        tracker.ingest(phase: .ended, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0.02)
+        tracker.ingest(phase: [], momentumPhase: .changed, dx: 0, dy: -4,
+                       window: window, locationInWindow: inB, at: 0.05)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.06),
+                "momentum's wandering pointer unguarded the pane the gesture was made in")
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.06),
+                "momentum's wandering pointer migrated the hold onto a pane the gesture never touched")
+    }
+
+    /// A gesture the monitor could not attribute (no window on the event, or a test driving
+    /// `ingest` without one) holds EVERYWHERE — the pre-scoping behavior, so the original
+    /// same-pane leak stays fixed even when scoping has nothing to go on.
+    @Test func testAnUnattributableGestureHoldsEverywhere() {
+        let (window, paneA, paneB) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: 0.01)
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
+                "an unattributable vertical gesture stopped holding — the original leak is back")
+        #expect(tracker.shouldHoldHorizontalDrift(for: paneB, at: 0.02),
+                "an unattributable vertical gesture stopped holding — the original leak is back")
+    }
+
+    /// The scoped query still answers false outside a hold-worthy gesture, whatever the location.
+    @Test func testTheScopedQueryStillReleasesForAHorizontalGesture() {
+        let (window, paneA, _) = twoPanes()
+        defer { _ = window }
+        let tracker = WheelGestureTracker()
+        let inA = paneA.convert(NSPoint(x: 40, y: 40), to: nil)
+        tracker.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                       window: window, locationInWindow: inA, at: 0)
+        tracker.ingest(phase: .changed, momentumPhase: [], dx: -18, dy: 2,
+                       window: window, locationInWindow: inA, at: 0.01)
+        #expect(!tracker.shouldHoldHorizontalDrift(for: paneA, at: 0.02),
+                "a horizontal gesture was held against its own pane")
+    }
 }
 
 /// The lock's enforcement on the stack, over the strandable harness: while a vertical gesture
@@ -889,6 +975,62 @@ import Sync
                 "the hold fought a moving scroll \(fightSets) times — per-turn bounding is gone")
         // More than the strand's own set: the hold really did engage and fight (once per turn).
         #expect(fightSets > 1, "the fixture never engaged the hold at all — nothing was pinned")
+    }
+
+    /// C9, at the enforcement level: two stacks share the app's one lock, a vertical gesture is
+    /// located in pane A, and both clips drift horizontally — A's drift is the gesture's leak
+    /// and must be reverted; B's is B's own business (its programmatic reveal, in the app) and
+    /// must be left exactly where B put it. A's revert landing proves the enforcement machinery
+    /// ran, so B's untouched origin is not a vacuous absence.
+    @Test func testAGestureInOnePaneDoesNotHoldTheOtherPanesStack() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 200),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        defer { _ = window }
+        let lock = WheelGestureTracker()
+        func addPane(x: CGFloat) -> (clip: NSClipView, watchdog: PaneColumnsOverscrollReturn.WatchdogView) {
+            let scroller = NSScrollView(frame: NSRect(x: x, y: 0, width: 200, height: 100))
+            let clip = StrandableClipView()
+            clip.automaticallyAdjustsContentInsets = false
+            scroller.contentView = clip
+            let document = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 100))
+            scroller.documentView = document
+            let watchdog = PaneColumnsOverscrollReturn.WatchdogView()
+            watchdog.axisLock = lock
+            document.addSubview(watchdog)
+            window.contentView?.addSubview(scroller)
+            return (clip, watchdog)
+        }
+        let paneA = addPane(x: 0)
+        let paneB = addPane(x: 260)
+        await pump(seconds: 0.3)
+        try #require(paneA.watchdog.resolvedScroller != nil, "pane A's watchdog failed to arm")
+        try #require(paneB.watchdog.resolvedScroller != nil, "pane B's watchdog failed to arm")
+
+        // A vertical drag in pane A, dated ahead of the wall clock so the lock reads "in
+        // flight" however late enforcement lands (the same shape as the tests above).
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        let inA = paneA.clip.convert(NSPoint(x: 20, y: 20), to: nil)
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: window, locationInWindow: inA, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: window, locationInWindow: inA, at: ahead + 0.01)
+
+        // Pane B scrolls itself — the programmatic reveal's stand-in — and pane A drifts from
+        // the gesture's leaked deltas. Both land on legal origins, so the quiescence return
+        // never moves either; only the hold's enforcement can.
+        paneB.clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
+        paneA.clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
+        try #require(paneA.clip.bounds.origin.x == 9, "fixture failed to strand pane A")
+        try #require(paneB.clip.bounds.origin.x == 9, "fixture failed to scroll pane B")
+
+        let deadline = Date().addingTimeInterval(60)
+        while paneA.clip.bounds.origin.x != 0, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+        #expect(paneA.clip.bounds.origin.x == 0,
+                "the gesture's own pane was never held — the original leak is back")
+        #expect(paneB.clip.bounds.origin.x == 9,
+                "a vertical gesture in pane A reverted pane B's own scroll — B's reveal is defeated again")
     }
 
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {

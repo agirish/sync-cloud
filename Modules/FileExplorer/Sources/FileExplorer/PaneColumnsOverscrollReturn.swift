@@ -24,7 +24,8 @@ final class WheelGestureTracker {
         let tracker = WheelGestureTracker()
         NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
             tracker.ingest(phase: event.phase, momentumPhase: event.momentumPhase,
-                           dx: event.scrollingDeltaX, dy: event.scrollingDeltaY)
+                           dx: event.scrollingDeltaX, dy: event.scrollingDeltaY,
+                           window: event.window, locationInWindow: event.locationInWindow)
             return event
         }
         return tracker
@@ -38,6 +39,12 @@ final class WheelGestureTracker {
     /// programmatic scroll (the drill's own auto-scroll after a click). The same window also
     /// SEGMENTS phase-less devices: a mouse wheel's events carry no `.began`, so a quiet gap
     /// longer than this starts a fresh, undecided gesture.
+    ///
+    /// Recency is a TIMING answer to what was partly a SCOPING problem: shortening this window
+    /// once stood in for the fact that a gesture in one pane held every pane's stack. The
+    /// cross-pane half is now solved properly — `shouldHoldHorizontalDrift(for:)` holds only
+    /// the pane the gesture is inside — so this window's remaining job is the same-pane one
+    /// described above, and it must not be shortened further to paper over a scoping gap again.
     static let staleness: TimeInterval = 0.1
 
     /// How much accumulated travel decides a gesture's axis. Deciding on the FIRST nonzero
@@ -57,14 +64,46 @@ final class WheelGestureTracker {
     private var travelX: CGFloat = 0
     private var travelY: CGFloat = 0
     private var lastEventAt: TimeInterval = 0
+    /// Where the current gesture is happening: the event's window and its location in that
+    /// window, recorded from the gesture's DRAG events (momentum events carry the same window,
+    /// but their pointer location can wander to another pane while the flick coasts, so they
+    /// must not re-attribute a gesture they never made). `nil` window means the gesture could
+    /// not be attributed — an event with no window, or a test driving `ingest` without one.
+    private weak var gestureWindow: NSWindow?
+    /// Whether the current gesture carried a window at all, kept apart from `gestureWindow`
+    /// because the weak reference also reads nil when a real window has since been torn down.
+    private var gestureAttributed = false
+    private var gestureLocation: NSPoint = .zero
 
     /// True while an in-flight gesture requires the stack to hold its horizontal position:
     /// the gesture is vertical-dominant, or it is open but has not yet earned a verdict — an
     /// undecided opening is held too, so a vertical scroll cannot leak even its first frames.
     /// The cost is a `decisionTravel`-sized dead zone at the start of a horizontal swipe, which
     /// is how Finder's own axis lock feels.
+    ///
+    /// This is the UNSCOPED answer — "is a hold-worthy gesture in flight anywhere in the app".
+    /// A watchdog guarding one pane's stack must ask `shouldHoldHorizontalDrift(for:)` instead:
+    /// there are up to three column stacks alive at once (two comparison panes and the Tidy
+    /// rail), and one app-wide monitor feeds them all, so an unscoped hold in pane B during a
+    /// vertical flick in pane A reverted B's own programmatic reveal — the deepest column
+    /// stayed hidden whenever the other pane happened to be coasting.
     func shouldHoldHorizontalDrift(at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
         (verticalDominant || (!decided && holdEligible)) && now - lastEventAt < Self.staleness
+    }
+
+    /// The scoped answer a pane's watchdog asks: hold only when a hold-worthy gesture is in
+    /// flight AND that gesture is happening within `view` — the asking stack's own clip.
+    ///
+    /// A gesture that could not be attributed (no window on the event, or a recorded window
+    /// that has since gone away) holds EVERYWHERE, which is the pre-scoping behavior: the
+    /// original leak — a vertical gesture drifting its own pane's stack sideways — must stay
+    /// fixed even when scoping has nothing to go on.
+    func shouldHoldHorizontalDrift(for view: NSView,
+                                   at now: TimeInterval = CFAbsoluteTimeGetCurrent()) -> Bool {
+        guard shouldHoldHorizontalDrift(at: now) else { return false }
+        guard gestureAttributed, let window = gestureWindow else { return true }
+        guard view.window === window else { return false }
+        return view.bounds.contains(view.convert(gestureLocation, from: nil))
     }
 
     /// Feed one scroll-wheel event's fields. A `.began` phase — or a quiet gap on phase-less
@@ -84,6 +123,7 @@ final class WheelGestureTracker {
     /// undecided-hold applies to it, because a discrete click is deliberate where a touch-down
     /// is noisy, and a sub-threshold hold would leave a slow precision wheel permanently held.
     func ingest(phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, dx: CGFloat, dy: CGFloat,
+                window: NSWindow? = nil, locationInWindow: NSPoint = .zero,
                 at now: TimeInterval = CFAbsoluteTimeGetCurrent()) {
         if now - lastEventAt >= Self.staleness {
             reset()
@@ -92,6 +132,16 @@ final class WheelGestureTracker {
         if phase.contains(.began) {
             reset()
             holdEligible = true
+        }
+        // Attribution comes from the gesture's own drag (and ungrouped-wheel) events only.
+        // Momentum events carry the same window but report the pointer's CURRENT location,
+        // which can drift over a different pane while the flick coasts — re-attributing there
+        // would migrate the hold onto a pane the gesture never touched and unguard the one it
+        // did. See `shouldHoldHorizontalDrift(for:)`.
+        if momentumPhase.isEmpty {
+            gestureWindow = window
+            gestureAttributed = window != nil
+            gestureLocation = locationInWindow
         }
         let isUngrouped = phase.isEmpty && momentumPhase.isEmpty
         if isUngrouped {
@@ -265,7 +315,12 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         /// runloop turn, and the lock's 100ms recency ends even that.
         private func holdAgainstVerticalGestureLeak() {
             guard let scroller = observedScroller else { return }
-            guard axisLock.shouldHoldHorizontalDrift() else {
+            // Scoped to THIS stack's clip: an app-wide lock held every pane's stack, so a
+            // vertical flick in one pane (its momentum keeping the lock fresh) made the OTHER
+            // pane's watchdog revert that pane's own programmatic reveal — the deepest column
+            // stayed hidden. The gesture's own pane must still hold, and does: the lock
+            // answers true exactly for the clip the gesture is inside.
+            guard axisLock.shouldHoldHorizontalDrift(for: scroller.contentView) else {
                 restX = scroller.contentView.bounds.origin.x
                 return
             }
@@ -287,7 +342,7 @@ struct PaneColumnsOverscrollReturn: NSViewRepresentable {
         private func enforceHold() {
             guard let scroller = observedScroller else { return }
             let clip = scroller.contentView
-            guard axisLock.shouldHoldHorizontalDrift() else { return }
+            guard axisLock.shouldHoldHorizontalDrift(for: clip) else { return }
             guard clip.bounds.origin.x != restX else { return }
             clip.setBoundsOrigin(NSPoint(x: restX, y: clip.bounds.origin.y))
             scroller.reflectScrolledClipView(clip)
