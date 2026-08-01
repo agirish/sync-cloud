@@ -63,7 +63,7 @@ import Design
 
     private static func header(_ providerName: String?,
                                mode: PaneViewMode? = .columns,
-                               collapse: Bool = false) -> some View {
+                               collapse: Bool = false) -> PaneHeader {
         PaneHeader(
             title: "Left",
             provider: providerName.map {
@@ -78,12 +78,16 @@ import Design
             viewMode: mode.map { .constant($0) }, onNewFolder: {})
     }
 
-    /// The ladder a full Columns header actually builds — the same `availableItems` the view derives,
-    /// restated here because that property is private to the view.
-    private static var columnsLadder: PaneBarLadder {
+    /// The ladder a full Columns header actually builds.
+    ///
+    /// `available` is read off a real `PaneHeader` rather than restated, because the arithmetic under
+    /// test is per-ladder: a hand-copied list keeps every assertion below green while the header
+    /// quietly builds a different ladder. `ceiling` likewise comes from the icon-size preference's
+    /// own mapping instead of a literal `.small`.
+    private static func columnsLadder(_ view: PaneHeader = header("iCloud Drive")) -> PaneBarLadder {
         PaneBarLadder(arrangement: .default,
-                      available: [.backForward, .sort, .hiddenFiles, .viewMode, .scan, .newFolder, .preview],
-                      ceiling: .small)
+                      available: view.availableItems,
+                      ceiling: PaneBarIconSize.regular.ceiling)
     }
 
     // MARK: - The arithmetic against the drawn bar
@@ -97,7 +101,7 @@ import Design
     /// first control to the trailing edge of its last.
     @Test(arguments: [(CGFloat(250), true), (CGFloat(900), false)])
     func aRungOccupiesTheWidthTheLadderComputes(width: CGFloat, isNarrow: Bool) {
-        let ladder = Self.columnsLadder
+        let ladder = Self.columnsLadder()
         let rung = isNarrow ? ladder.terminal : 0
         let drawn = barRings(Self.header("iCloud Drive"), width: width)
         #expect(!drawn.isEmpty)
@@ -133,7 +137,7 @@ import Design
     /// between. This is what catches an arithmetic drift that the overflow guard would sit through:
     /// a bar that fits but is not the bar any rung describes.
     @Test func theDrawnBarIsAlwaysSomeRungOfTheLadder() {
-        let ladder = Self.columnsLadder
+        let ladder = Self.columnsLadder()
         let widths = (0...ladder.terminal).map { ladder.width(forRung: $0) }
         for width in stride(from: CGFloat(250), through: 900, by: 25) {
             let drawn = barRings(Self.header("iCloud Drive"), width: width)
@@ -153,7 +157,7 @@ import Design
     /// the bar *wider*. A `rung(fitting:)` that sorted by width, or that returned the narrowest rung
     /// that fits, would pick a different bar than the search it replaces.
     @Test func theLadderIsNotMonotonicAndIsWalkedInOrder() {
-        let ladder = Self.columnsLadder
+        let ladder = Self.columnsLadder()
         // Rung 2 sheds the preview toggle and gains ⋯ — measurably wider than rung 1, which sheds
         // nothing. If this ever stops being true the test has lost its subject, not found a bug.
         #expect(ladder.width(forRung: 2) > ladder.width(forRung: 1))
@@ -168,7 +172,7 @@ import Design
     /// Nothing fits: the ladder answers its narrowest rung rather than running off the end. This is
     /// the 250pt pane's case, and the reason the header can hand `ViewThatFits` a fallback at all.
     @Test func nothingFitsGivesTheNarrowestRung() {
-        let ladder = Self.columnsLadder
+        let ladder = Self.columnsLadder()
         #expect(ladder.rung(fitting: 0) == ladder.terminal)
         #expect(ladder.rung(fitting: ladder.width(forRung: ladder.terminal)) == ladder.terminal)
         // And the terminal rung is genuinely the narrowest — the property the fallback relies on.
@@ -209,10 +213,70 @@ import Design
         #expect(PaneBarLayout.width(of: .sort, pill: pill, compactsViewMode: false) == pill.width)
     }
 
+    /// The header with NO provider takes the *searched* ladder, not the computed rung — a second code
+    /// path, and one nothing else here covers. It has to obey the same trailing-edge rule.
+    ///
+    /// It exists because that header has no provider capsule, so the bar itself is what decides the
+    /// row's height, and the computed path's container cannot report a height derived from its
+    /// content. This is reachable in the app: `ContentView` passes
+    /// `availableProviders.first(where:)`, which is nil whenever a pane's provider has been disabled
+    /// or has not loaded yet.
+    @Test func theHeaderWithNoProviderStillFitsItsPane() {
+        for width in stride(from: CGFloat(250), through: 900, by: 25) {
+            let drawn = barRings(Self.header(nil), width: width)
+            guard let trailing = drawn.map(\.maxX).max() else { continue }
+            #expect(trailing <= width - Self.contentInset + 0.5,
+                    "no-provider header at \(width)pt: bar ends at \(trailing)")
+        }
+    }
+
+    /// The computed path pins its container to the NARROWEST rung's height (17pt) while the widest
+    /// rung draws a 26pt view-switch ground — so the ground overflows its box by design.
+    ///
+    /// Focus rings say nothing about paint, and an overflow that gets clipped would look exactly like
+    /// a correct layout to every other assertion in this file. So read the bitmap: measured 26.0pt,
+    /// the ground's full height, which is what says nothing clips it.
+    @Test func theTallestRungIsNotClippedByThePinnedContainer() {
+        let width: CGFloat = 900
+        let view = Self.header("iCloud Drive")
+            .frame(width: width, height: LiquidGlass.headerHeight)
+            .background(Color.white)
+        let host = NSHostingView(rootView: AnyView(view))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: LiquidGlass.headerHeight)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            Issue.record("no bitmap"); return
+        }
+        host.cacheDisplay(in: host.bounds, to: rep)
+
+        let bar = barRings(Self.header("iCloud Drive"), width: width)
+        guard let first = bar.min(by: { $0.minX < $1.minX }) else { Issue.record("no rings"); return }
+        let scale = CGFloat(rep.pixelsHigh) / LiquidGlass.headerHeight
+        let x0 = max(0, Int(((first.minX - 3) * scale).rounded()))
+        let x1 = min(rep.pixelsWide, Int(((first.maxX + 3) * scale).rounded()))
+        var minY = rep.pixelsHigh, maxY = -1
+        for x in x0..<x1 {
+            for y in 0..<rep.pixelsHigh {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let lum = (c.redComponent + c.greenComponent + c.blueComponent) / 3
+                guard c.alphaComponent > 0.05, lum < 0.97 else { continue }
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        let painted = CGFloat(maxY - minY + 1) / scale
+        let ladder = Self.columnsLadder()
+        #expect(painted == ladder.height(forRung: 0),
+                "switch ground painted \(painted)pt, rung 0 is \(ladder.height(forRung: 0))pt — clipped by the pin?")
+    }
+
     /// Only the view switch is taller than a pill, and only while it is uncompacted. The header pins
     /// its bar container to this, so a wrong answer here moves the breadcrumb.
     @Test func onlyTheUncompactedSwitchIsTallerThanAPill() {
-        let ladder = Self.columnsLadder
+        let ladder = Self.columnsLadder()
         let pillHeight = PaneNavMetrics.pill(.mini).height
         #expect(ladder.height(forRung: ladder.terminal) == pillHeight)
         #expect(ladder.height(forRung: 1) == pillHeight + 6)
@@ -229,33 +293,52 @@ import Design
     /// Small text size the breadcrumb can sit 1pt higher, because the bar's container is now pinned to
     /// the narrowest rung's height and a 0.9-scaled provider name is shorter than a rung carrying the
     /// view switch. No control moves.
+    /// One golden row, as data rather than a string to be re-parsed.
+    ///
+    /// The keys used to be `"columns-icloud|0.9|250"`, split apart and force-unwrapped at read time.
+    /// That was two hazards for nothing: a malformed key crashed the whole test host on a `!`, and the
+    /// provider name came from `parts[0] == "columns-icloud" ? … : longName`, so ANY key that was not
+    /// exactly that string silently tested the long name instead. Adding a third fixture would have
+    /// looked like a golden mismatch rather than a typo.
+    private struct Golden {
+        let name: String
+        let scale: CGFloat
+        let width: CGFloat
+        let rings: String
+    }
+
     @Test func theLadderRendersItsGolden() {
-        for (key, expected) in Self.golden {
-            let parts = key.split(separator: "|")
-            let name = parts[0] == "columns-icloud" ? "iCloud Drive" : "Marketing Team Shared Archive Drive"
-            let scale = CGFloat(Double(parts[1])!)
-            let width = CGFloat(Int(parts[2])!)
-            let view = Self.header(name).environment(\.appFontScale, scale)
-            #expect(fingerprint(view, width: width) == expected, "\(key)")
+        for row in Self.golden {
+            let view = Self.header(row.name).environment(\.appFontScale, row.scale)
+            #expect(fingerprint(view, width: row.width) == row.rings,
+                    "\(row.name) @ scale \(row.scale), width \(row.width)")
         }
     }
 
-    private static let golden: [String: String] = [
-        "columns-icloud|0.9|250": "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13",
-        "columns-icloud|0.9|410": "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13",
-        "columns-icloud|0.9|490": "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13",
-        "columns-icloud|0.9|710": "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,515/37x13 49,515/58x13 110,515/44x13",
-        "columns-icloud|1.0|250": "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15",
-        "columns-icloud|1.0|330": "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15",
-        "columns-icloud|1.0|410": "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-icloud|1.0|490": "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-icloud|1.0|570": "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-icloud|1.0|710": "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-long|1.0|250": "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15",
-        "columns-long|1.0|410": "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15",
-        "columns-long|1.0|490": "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15",
-        "columns-long|1.0|570": "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-long|1.0|650": "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15",
-        "columns-long|1.0|710": "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15",
+    private static let iCloud = "iCloud Drive"
+    private static let longName = "Marketing Team Shared Archive Drive"
+
+    private static let golden: [Golden] = goldenTable.map {
+        Golden(name: $0.0, scale: $0.1, width: $0.2, rings: $0.3)
+    }
+
+    private static let goldenTable: [(String, CGFloat, CGFloat, String)] = [
+        (iCloud, 0.9, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/37x13 49,508/58x13 110,508/44x13"),
+        (iCloud, 0.9, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 0.9, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 0.9, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,515/37x13 49,515/58x13 110,515/44x13"),
+        (iCloud, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 330, "157,481/27x17 190,481/27x17 223,481/27x17 256,481/27x17 289,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (iCloud, 1.0, 410, "212,481/23x17 238,481/23x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 490, "197,481/23x17 223,481/23x17 255,481/27x17 288,481/27x17 321,481/27x17 354,481/27x17 387,481/27x17 420,481/27x17 453,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 570, "223,479/29x20 255,479/29x20 293,479/33x20 332,479/33x20 371,479/33x20 410,479/33x20 449,479/33x20 488,479/33x20 527,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (iCloud, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 250, "77,481/27x17 110,481/27x17 143,481/27x17 176,481/27x17 209,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 410, "237,481/27x17 270,481/27x17 303,481/27x17 336,481/27x17 369,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 490, "317,481/27x17 350,481/27x17 383,481/27x17 416,481/27x17 449,481/27x17 10,508/39x15 52,508/63x15 117,508/47x15"),
+        (longName, 1.0, 570, "372,481/23x17 398,481/23x17 430,481/27x17 463,481/27x17 496,481/27x17 529,481/27x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 650, "357,481/23x17 383,481/23x17 415,481/27x17 448,481/27x17 481,481/27x17 514,481/27x17 547,481/27x17 580,481/27x17 613,481/23x17 10,514/39x15 52,514/63x15 117,514/47x15"),
+        (longName, 1.0, 710, "363,479/29x20 395,479/29x20 433,479/33x20 472,479/33x20 511,479/33x20 550,479/33x20 589,479/33x20 628,479/33x20 667,479/29x20 10,514/39x15 52,514/63x15 117,514/47x15"),
     ]
+
 }

@@ -139,12 +139,32 @@ public struct PaneHeader: View {
                     }
                     .layoutPriority(2)
                 } else {
-                    Image(systemName: "folder")
-                        .scaledFont(.title2)
-                        .foregroundStyle(.secondary)
-                    Text(title)
-                        .scaledFont(.headline)
-                        .foregroundStyle(.secondary)
+                    // The sparse state — a pane whose provider was disabled or has not loaded — gets
+                    // the same degradation ladder the capsule has, and for the same reason: the glyph
+                    // yields first, the name is the identity anchor and only truncates.
+                    //
+                    // It had none, and it did not fit. As two bare `HStack` children with no line
+                    // limit, the title wrapped rather than truncating (so its minimum width was its
+                    // longest WORD) and the icon never yielded at all, which put 233pt of content in a
+                    // 250pt pane's 222pt of space: the bar ran 10.5pt past the pane's trailing edge —
+                    // the one failure the ladder exists to prevent, in the one state nothing tested.
+                    // Truncation alone cannot close it (icon + spacings + the bar's 171pt minimum
+                    // exceed 222 whatever the title does), so the icon has to be sheddable too.
+                    //
+                    // Pre-existing, not a regression: the ten-rung ladder drew this identically.
+                    // `PaneBarLadderTests.theHeaderWithNoProviderStillFitsItsPane` is what caught it.
+                    // `.layoutPriority(2)`, exactly as the capsule above carries it, is the load-bearing
+                    // half. Without it this content is sized in the same pass as the greedy bar
+                    // container, so it simply takes its IDEAL width, the bar is handed whatever is
+                    // left, and a greedy child that is offered less than its minimum overflows in
+                    // silence rather than pushing back. The priority is what makes the row offer this
+                    // side `available - the bar's minimum` — which is the width the ladder above then
+                    // steps down through.
+                    ViewThatFits(in: .horizontal) {
+                        sparseTitle(showsIcon: true)
+                        sparseTitle(showsIcon: false)
+                    }
+                    .layoutPriority(2)
                 }
                 // There was a `Spacer` here, and it was what welded the bar to the trailing edge:
                 // while it existed, no arrangement could put a control next to the provider name.
@@ -198,6 +218,27 @@ public struct PaneHeader: View {
         // symmetric vertical padding; the narrow cases gain real air and stop breaking the line.
         .frame(height: LiquidGlass.headerHeight)
         .contentSurface(hue: glassHue, tint: surfaceTint)
+    }
+
+    /// The no-provider header's leading content: a folder glyph and the pane's title.
+    ///
+    /// Two rungs, mirroring the provider capsule's: `showsIcon` false is what a 250pt pane gets, where
+    /// the icon plus its 12pt gap is the difference between fitting and running the bar off the
+    /// trailing edge. The title carries a line limit so it truncates instead of wrapping — a wrapping
+    /// `Text` reports its longest word as its minimum width and so cannot compress at all.
+    private func sparseTitle(showsIcon: Bool) -> some View {
+        HStack(spacing: 12) {
+            if showsIcon {
+                Image(systemName: "folder")
+                    .scaledFont(.title2)
+                    .foregroundStyle(.secondary)
+            }
+            Text(title)
+                .scaledFont(.headline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 
     /// The provider capsule. UX H2's hue washes behind it (`hue.soft`) in both appearances so the
@@ -330,9 +371,13 @@ public struct PaneHeader: View {
     /// deepest rung that changes anything rather than run to a hard-coded ten. `PaneBarLayout.plan`
     /// is idempotent past `maxDepth` (`PaneBarArrangementTests` pins that), so the rungs this drops
     /// were duplicates of the last one.
+    /// Ten literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a `ForEach` over
+    /// rungs is a SINGLE child and the ladder silently collapses to one rung. `terminal` is at most 9
+    /// for any arrangement the palette can build, and clamping the surplus to it costs nothing —
+    /// those rungs were duplicates of the last either way.
     private func searchedLadder(_ ladder: PaneBarLadder) -> some View {
         ViewThatFits(in: .horizontal) {
-            barVariant(min(0, ladder.terminal), ladder)
+            barVariant(0, ladder)
             barVariant(min(1, ladder.terminal), ladder)
             barVariant(min(2, ladder.terminal), ladder)
             barVariant(min(3, ladder.terminal), ladder)
@@ -346,6 +391,14 @@ public struct PaneHeader: View {
     }
 
     /// The computed rung, with the narrowest rung behind it as the layout engine's veto.
+    ///
+    /// The fallback is the NARROWEST rung, not the next one down: if the arithmetic ever overestimates
+    /// what fits, the bar does not step down one rung, it drops all the way to compact. That is the
+    /// deliberate trade — a bar that over-compacts is visibly wrong and every control stays reachable
+    /// in ⋯, whereas a bar that overflows the pane's trailing edge has no symptom at all. Widening
+    /// this to `{rung, rung + 1, terminal}` would soften the landing at the cost of building a third
+    /// bar on every layout pass, which is the cost this whole change exists to remove; the arithmetic
+    /// is checked against the drawn bar by `PaneBarLadderTests` instead.
     ///
     /// Branched rather than always emitting both, because at the narrowest pane widths the computed
     /// rung *is* the terminal one, and a `ViewThatFits` of two identical children would build the bar
@@ -379,7 +432,11 @@ public struct PaneHeader: View {
 
     /// Which items this particular header can offer at all. A header with no view-mode binding has
     /// no View control to place; the Tidy rail has no Columns mode, so no preview to toggle.
-    private var availableItems: [PaneBarItem] {
+    ///
+    /// Internal rather than private so `PaneBarLadderTests` can build its ladder from the same list
+    /// the view does. Restated by hand, a test keeps passing against a ladder the header stopped
+    /// building the moment this list changes — and the arithmetic it is checking is per-ladder.
+    var availableItems: [PaneBarItem] {
         var available: [PaneBarItem] = [.backForward, .sort, .hiddenFiles]
         if viewMode != nil { available.append(.viewMode) }
         if onCollapse != nil { available.append(.collapse) }
