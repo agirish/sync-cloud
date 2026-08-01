@@ -171,7 +171,8 @@ struct PaneColumnsView: View {
                 // a file click start the stack scrolling.
                 ColumnPreviewColumn(
                     item: previewTarget,
-                    actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance)
+                    actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
+                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource))
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag
                     // that could not work while the preview lived in the scroll view: pinned to the

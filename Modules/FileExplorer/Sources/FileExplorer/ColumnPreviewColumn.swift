@@ -122,6 +122,11 @@ struct ColumnPreviewColumn: View {
     /// comparison pane. `0` where there is no bar — the Tidy rail. See the call site in
     /// `PaneColumnsView` for the measurement.
     var actionBarClearance: CGFloat = 0
+    /// The pane this preview belongs to, so a download started HERE also puts the pane's row for
+    /// the same file into the awaiting state (the notification is pane-scoped — see
+    /// `CloudDownloadRequest`). `nil` for hosts with no pane around them (tests), which skips the
+    /// post but never the cache `forget`.
+    var paneToken: PaneToken? = nil
 
     /// The height the bar's band actually needs: its own height plus the padding the overlay adds
     /// around it. Only the BOTTOM edge is reserved. The bar flips to the top when the selected row is
@@ -160,7 +165,18 @@ struct ColumnPreviewColumn: View {
     @State private var hasSettled = false
     /// Bumped to re-probe the same path — after a download is requested.
     @State private var probeGeneration = 0
-    @State private var isWatchingDownload = false
+    /// The path the in-flight download watch is polling, nil when there is none. Live `@State`,
+    /// which is the point: the old staleness guard compared the poll's `path` argument against a
+    /// captured copy of `item` — two values frozen at the same instant, so the guard was a
+    /// tautology and the watch outlived the selection it was started for. Reads of `@State`
+    /// inside an escaping closure go through the live box, so THIS comparison can actually fail.
+    @State private var watchedDownloadPath: String?
+    /// The watch itself, kept so a selection change can cancel it instead of leaving a poll
+    /// running against a file the column no longer shows.
+    @State private var downloadWatchTask: Task<Void, Never>?
+
+    /// Whether the "Downloading…" state applies to the file on screen right now.
+    private var isWatchingDownload: Bool { watchedDownloadPath == item.path }
 
     /// Shared by the two date rows; `DateFormatter` is expensive to construct and `body` is not the
     /// place to do it (the same reason `DetailsSidebar` keeps one).
@@ -210,6 +226,19 @@ struct ColumnPreviewColumn: View {
             guard !Task.isCancelled else { return }
             hasSettled = true
         }
+        // The selection moved on: the download watch (if any) is about a file this column no
+        // longer shows, so it must actually STOP — not merely fall out of sync. The task handle
+        // is cancelled rather than abandoned; the watcher also re-checks `watchedDownloadPath`
+        // (live state) at every resumption, so whichever signal lands first ends it.
+        .onChange(of: item.path) { _, _ in cancelDownloadWatch() }
+        .onDisappear { cancelDownloadWatch() }
+    }
+
+    /// Tears down the in-flight download watch, if any.
+    private func cancelDownloadWatch() {
+        downloadWatchTask?.cancel()
+        downloadWatchTask = nil
+        watchedDownloadPath = nil
     }
 
     // MARK: - Preview area
@@ -316,27 +345,43 @@ struct ColumnPreviewColumn: View {
         let path = item.path
         do {
             try MaterializationStatus.download(atPath: path)
-            isWatchingDownload = true
-            Task { await watchDownload(path: path) }
+            // Mirror the row-menu download path (`FileContextMenu`): drop the memo's pre-download
+            // answer so the pane's row re-stats instead of reading "cloud-only" until the next
+            // republish, and — when this preview knows its pane — put that row into the same
+            // awaiting state a row-menu download would, so its badge clears as the content lands.
+            CloudOnlyBadgeCache.forget(path)
+            if let paneToken {
+                NotificationCenter.default.post(
+                    name: .cloudDownloadRequested,
+                    object: CloudDownloadRequest(path: path, paneToken: paneToken))
+            }
+            cancelDownloadWatch()
+            watchedDownloadPath = path
+            downloadWatchTask = Task { await watchDownload(path: path) }
         } catch {
             Logger.shared.warning("[preview] no download API for \(path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
     }
 
-    /// Polls until the placeholder materializes, then re-probes so the preview mounts. Bounded, and
-    /// abandoned outright if the selection has moved on to another file.
+    /// Polls until the placeholder materializes, then re-probes so the preview mounts. Bounded,
+    /// cancelled by `cancelDownloadWatch` when the selection moves on, and belt-and-braces checked
+    /// against `watchedDownloadPath` — the LIVE box, not a captured copy — at every resumption.
     private func watchDownload(path: String) async {
         for _ in 0..<Self.downloadPollLimit {
             try? await Task.sleep(for: Self.downloadPollInterval)
-            guard item.path == path else { return }
+            guard !Task.isCancelled, watchedDownloadPath == path else { return }
             if await ColumnPreviewProbe.read(path: path).source != .cloudOnly {
-                isWatchingDownload = false
+                guard !Task.isCancelled, watchedDownloadPath == path else { return }
+                watchedDownloadPath = nil
+                downloadWatchTask = nil
                 probeGeneration += 1
                 return
             }
         }
-        isWatchingDownload = false
+        guard watchedDownloadPath == path else { return }
+        watchedDownloadPath = nil
+        downloadWatchTask = nil
     }
 }
 
