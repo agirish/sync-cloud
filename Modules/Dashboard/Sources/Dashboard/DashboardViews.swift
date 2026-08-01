@@ -367,22 +367,21 @@ public struct PaneHeader: View {
 
     /// The original ladder, searched by `ViewThatFits`, for the header that has no provider capsule.
     ///
-    /// Kept for the one case the computed rung cannot serve — see `navCluster` — and clamped to the
-    /// deepest rung that changes anything rather than run to a hard-coded count. `PaneBarLayout.plan`
-    /// is idempotent past `maxDepth` (`PaneBarArrangementTests` pins that), so the slots this clamps
-    /// were duplicates of the last one.
+    /// Kept for the one case the computed rung cannot serve — see `navCluster`. It runs to a fixed
+    /// count of literal children, one per slot: `PaneBarLayout.plan` is idempotent past `maxDepth`
+    /// (`PaneBarArrangementTests` pins that), so the slots past a given ladder's `terminal` clamp
+    /// to it and are duplicates of the last rung.
     ///
-    /// Seventeen literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a
-    /// `ForEach` over rungs is a SINGLE child and the ladder silently collapses to one rung.
-    /// Seventeen because that is what covers the deepest ladder any arrangement can build — see
-    /// `PaneBarLadder.searchedSlotCount`, which owns that arithmetic and MUST match the literal
-    /// count here. (An earlier version declared ten, on the false premise that `terminal` never
-    /// exceeds 9; spacers are duplicate-exempt, so a spacer-heavy arrangement runs `terminal` up
-    /// to 16 and the bar skipped every rung between 8 and full compaction.) Building seventeen
-    /// candidate bars per layout pass is the cost `navCluster`'s computed rung exists to avoid;
-    /// it is paid here only for the rare provider-less header, which is why this path may afford
-    /// full coverage where the common path computes a single rung.
-    private func searchedLadder(_ ladder: PaneBarLadder) -> some View {
+    /// Literals rather than a loop, because `ViewThatFits` takes a `ViewBuilder`: a `ForEach` over
+    /// rungs is a SINGLE child and the ladder silently collapses to one rung. The count is
+    /// `PaneBarLadder.searchedSlotCount`, which owns the arithmetic for how deep any arrangement's
+    /// ladder can go and MUST match the number of literals here — a contract that is now checked
+    /// rather than asserted in prose: `PaneBarLadderTests.theSearchedLadderDeclaresOneChildPerSlot`
+    /// counts the children of this very view. (An earlier version declared ten, on the false
+    /// premise that `terminal` never exceeds 9; spacers are duplicate-exempt, so a spacer-heavy
+    /// arrangement runs `terminal` up to 16 and the bar skipped every rung between 8 and full
+    /// compaction.)
+    func searchedLadder(_ ladder: PaneBarLadder) -> some View {
         ViewThatFits(in: .horizontal) {
             barVariant(ladder.searchedRung(forSlot: 0), ladder)
             barVariant(ladder.searchedRung(forSlot: 1), ladder)
@@ -437,7 +436,11 @@ public struct PaneHeader: View {
     /// shedding rungs still apply, because a bar that overflows the pane is worse than small glyphs.
     /// The terminal rung sheds everything sheddable, so an arrangement of any length still has a
     /// variant that fits rather than falling off the end.
-    private func barVariant(_ rung: Int, _ ladder: PaneBarLadder) -> some View {
+    ///
+    /// Internal rather than private for the same reason `availableItems` is: `PaneBarLadderTests`
+    /// checks that the searched ladder draws *this* bar at each rung by comparing the two laid out,
+    /// which is only an honest check if it is the view's own variant and not a restatement of it.
+    func barVariant(_ rung: Int, _ ladder: PaneBarLadder) -> some View {
         barContent(ladder.controlSize(forRung: rung),
                    depth: ladder.depth(forRung: rung),
                    arrangement: ladder.arrangement,
