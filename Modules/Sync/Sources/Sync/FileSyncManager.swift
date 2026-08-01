@@ -1020,7 +1020,9 @@ public class FileSyncManager: ObservableObject {
     internal private(set) var fileOperationsEpoch = 0
 
     /// Records that a file operation is about to run (see `fileOperationsEpoch`). Called from
-    /// `enqueueFileOperation` only — every path that touches the disk goes through it.
+    /// `enqueueFileOperation` only — that is the serial queue every user file operation is
+    /// routed through. (The orphaned-temp sweep is the one filesystem write that is not; it
+    /// trashes only age-gated `.tmp_<UUID>` staging artifacts and has never bumped the epoch.)
     private func noteFileOperationBegan() {
         fileOperationsEpoch += 1
     }
@@ -1146,7 +1148,8 @@ public class FileSyncManager: ObservableObject {
         _ operation: @escaping @Sendable () async -> T
     ) async -> T {
         // The epoch moves HERE, unconditionally — this is the last point before the work is
-        // queued, and every mutating path in the app reaches the disk through this call. The
+        // queued, and every user file operation (transfers, undo/redo, bulk sync, duplicates,
+        // name normalization, automations, filing) reaches the disk through this call. The
         // count moves here only when the caller didn't already pre-count it (see
         // `preCountFileOperation`, which deliberately runs earlier).
         await MainActor.run {
