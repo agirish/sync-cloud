@@ -81,6 +81,11 @@ struct PaneColumnsView: View {
     @State private var dragPreviewWidth: CGFloat?
     @State private var dragPreviewAnchor: CGFloat?
 
+    /// How long after a reveal the second attempt is made. Past the 0.18s scroll animation, so a
+    /// first attempt that DID land has finished moving and the retry is a no-op — see
+    /// `revealDeepestColumn`.
+    static let revealRetryDelay: TimeInterval = 0.25
+
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var columnWidth: CGFloat {
         PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
@@ -140,7 +145,8 @@ struct PaneColumnsView: View {
         let stackWidth = paneWidth - previewWidth
 
         HStack(spacing: 0) {
-            scrollingColumns(stackWidth: stackWidth, paneWidth: paneWidth)
+            scrollingColumns(stackWidth: stackWidth, paneWidth: paneWidth,
+                             showsPreview: showsPreview)
                 .frame(width: stackWidth)
             if showsPreview, let previewTarget {
                 // The pane's action bar is an overlay across the WHOLE pane, so on a comparison pane
@@ -177,8 +183,13 @@ struct PaneColumnsView: View {
     }
 
     /// The Miller-column stack itself, scrolling horizontally within `stackWidth`.
+    ///
+    /// - Parameter showsPreview: whether the preview is taking room from this stack right now. Not
+    ///   used for layout — `stackWidth` already carries that — but as a scroll trigger; see the
+    ///   second driver below.
     @ViewBuilder
-    private func scrollingColumns(stackWidth: CGFloat, paneWidth: CGFloat) -> some View {
+    private func scrollingColumns(stackWidth: CGFloat, paneWidth: CGFloat,
+                                  showsPreview: Bool) -> some View {
         // Below two minimum columns there is no room for a second one, so the pane shows a single
         // column that replaces its contents as you drill and `‹` walks back out.
         //
@@ -225,23 +236,90 @@ struct PaneColumnsView: View {
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
-            //
-            // Deferred a runloop turn: `onChange` fires while SwiftUI is applying the update that
-            // ADDS the new column, so scrolling to its id from here targets a column the stack has
-            // not laid out yet — the scroll lands short and the freshly opened column sits
-            // half-off the edge until something else moves it. A turn's delay costs nothing
-            // visually; the scroll has its own 0.18s animation either way.
-            //
-            // One driver, not two. The preview is no longer part of the scroll content, so a file
-            // click has nothing to scroll to — it narrows the scroll view instead, and AppKit keeps
-            // the contents put.
             .onChange(of: browsePath) { _, path in
-                guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
-                DispatchQueue.main.async {
-                    withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
-                }
+                revealDeepestColumn(proxy, path: path)
+            }
+            // The second driver: the preview arriving or leaving.
+            //
+            // The preview is pinned OUTSIDE the scroll view, so it does not scroll into or out of
+            // the content — it takes points off the stack's VIEWPORT while AppKit keeps the clip's
+            // origin exactly where it was. Whatever occupied the points it now covers is simply
+            // hidden, and that is the deepest column: the one holding the very file the preview
+            // was raised to describe.
+            //
+            // Nothing else corrected this, and each near-miss is worth stating so it isn't
+            // re-attempted:
+            //
+            // - The `browsePath` driver above cannot. Clicking a file in the deepest column
+            //   truncates the stack to that column's own depth, which is a no-op, so `browsePath`
+            //   compares equal and the driver never fires. (Not *always* equal: `truncate` also
+            //   clears the forward stack, so the same click after a `‹` does move the value and
+            //   did scroll correctly — which is why this read as intermittent.)
+            // - `PaneColumnsOverscrollReturn` cannot. Narrowing the clip GROWS the legal scroll
+            //   range, so the stale origin stays legal and `legalOrigin` finds nothing to clamp.
+            //   On the way back out it does apply, but only after 0.14s of quiescence plus a 0.25s
+            //   animation; driving both directions from here lands the same position immediately
+            //   and makes it deterministic rather than a bounce.
+            //
+            // Reported as "Tidy works, Compare doesn't". That was pure geometry, not two code
+            // paths — a full-width rail has room to spare after the preview takes its 420pt, so a
+            // shallow stack stays wholly visible; half a window does not. Measured at the same
+            // three-column stack: a 690pt pane narrows to 270 with the deepest column at 420…630
+            // (entirely hidden), a 1400pt rail narrows to 980 and keeps it. Both are pinned in
+            // `ColumnPreviewRevealTests` so the rail cannot regress the day someone drills deeper.
+            .onChange(of: showsPreview) { _, _ in
+                revealDeepestColumn(proxy, path: browsePath)
+            }
+            // And once the preview's own divider settles. Growing the preview walks the seam left
+            // across the deepest column, re-hiding exactly what the driver above reveals.
+            //
+            // Keyed on the STORED width, which is what makes this the drag's end rather than its
+            // every frame: a live drag renders from `dragPreviewWidth` and writes the preference
+            // only in `onEnded`. Scrolling per frame would put a programmatic scroll inside a live
+            // gesture — the shape that recursed `enforceHold` to depth 1839 and killed a shipped
+            // build — and would be pointless besides, since mid-drag the seam is under the user's
+            // own cursor and they can see exactly where it is.
+            .onChange(of: storedPreviewWidth) { _, _ in
+                revealDeepestColumn(proxy, path: browsePath)
             }
         }
+    }
+
+    /// Brings the deepest column back to the trailing edge of whatever room the stack has — the
+    /// seam the preview sits against, or the pane's own edge when there is none.
+    ///
+    /// Deferred, which every caller needs for the same reason in a different guise: `onChange`
+    /// fires while SwiftUI is still applying the update, so the geometry the scroll resolves
+    /// against is the OLD one. A drill would target a column the stack has not laid out yet and
+    /// land short, leaving the fresh column half off the edge; a preview would resolve `.trailing`
+    /// against the viewport width it is in the middle of taking 420pt away from.
+    ///
+    /// **Issued TWICE, and that is not belt-and-braces.** A too-early scroll does not land short
+    /// here — it is silently dropped and never retried. Measured: with the deferral removed
+    /// entirely, `.trailing` resolves against the full 690pt viewport, which a 630pt stack already
+    /// fits, so SwiftUI concludes no scrolling is required and the stack sits at origin 0 forever.
+    /// One runloop turn is *usually* enough to avoid that, but it is a race, not a guarantee: the
+    /// same build produced that exact stuck-at-0 result in 4 of 14 full-suite runs and passed the
+    /// other 10. A second attempt after the layout has certainly settled costs nothing when the
+    /// first one worked — `scrollTo` on a stack already at its trailing edge moves nothing — and is
+    /// the difference between "usually reveals the column" and "reveals it".
+    ///
+    /// The window it opens is the price: a deliberate scroll made within `revealRetryDelay` of
+    /// opening a preview gets overridden. That is a quarter-second after the click that raised the
+    /// preview, aimed at the column the user just clicked in, so the correction lands where they
+    /// were already looking.
+    ///
+    /// `anchor: .trailing` always yields a WHOLE column rather than a sliver: `showsPreviewColumn`
+    /// refuses a preview unless a full column fits beside it, and `previewPaneWidth` caps the
+    /// preview at the pane minus one column, so the stack's viewport is never narrower than
+    /// `columnWidth`.
+    private func revealDeepestColumn(_ proxy: ScrollViewProxy, path: PaneBrowsePath) {
+        guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
+        func scroll() {
+            withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(deepest, anchor: .trailing) }
+        }
+        DispatchQueue.main.async(execute: scroll)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay, execute: scroll)
     }
 
     /// Whether this pane is wide enough to hold a preview column at all — the gate on *offering* the
