@@ -251,6 +251,70 @@ import Foundation
         #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
+    /// The counterpart to the test above, and the pin on a deliberate asymmetry: the orphaned-temp
+    /// sweep writes to the filesystem mid-hash without going through `enqueueFileOperation` and
+    /// without moving the epoch, and the batch must still commit. That is not an oversight —
+    /// `sweepOrphanedTempArtifacts` only ever REMOVES age-gated `.tmp_<UUID>` artifacts, and a
+    /// removal cannot make a differing pair hash identical (it can only fail the read). Making it
+    /// bump the epoch would void the checksum batch on essentially every refresh, since the sweep
+    /// runs at the tail of the same refresh that spawned the pass. This test fails if someone
+    /// "fixes" the sweep into the epoch blind.
+    @MainActor
+    @Test func testOrphanSweepDuringTheHashDoesNotDiscardTheBatch() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        // A real orphaned staging artifact, old enough to reap, under its own root — so the thing
+        // the sweep trashes is never one of the files being hashed.
+        let fm = FileManager.default
+        let root = try makeCanonicalTempRoot(prefix: "AutoVerifySweep")
+        defer { try? fm.removeItem(at: root) }
+        let orphan = root.appendingPathComponent(".tmp_\(UUID().uuidString)")
+        try "partial".write(to: orphan, atomically: true, encoding: .utf8)
+        try fm.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-(OrphanSweeper.minimumAge + 60))],
+            ofItemAtPath: orphan.path
+        )
+        manager.rawLeftTree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+
+        // Start the pass; its first checksum stat parks on the gate.
+        let pass = Task { @MainActor in
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }
+        await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                _ = gate.entered.wait(timeout: .now() + 10)
+                cont.resume()
+            }
+        }
+
+        let epochBefore = manager.fileOperationsEpoch
+        #expect(manager.sweepOrphanedTempArtifacts(), "the sweep must have been allowed to look")
+
+        // Bounded premise-wait: the removal is detached, and the whole point of the test is that it
+        // lands INSIDE the hash window. Require it rather than carrying on against a maybe — an
+        // un-required wait would leave the assertions below passing for the wrong reason forever.
+        var trashed = false
+        for _ in 0..<200 {
+            if !fm.fileExists(atPath: orphan.path) { trashed = true; break }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        try #require(trashed, "the sweep must have trashed the artifact while the hash was parked")
+
+        // It took part in neither mechanism: not the epoch, not the operation queue.
+        #expect(manager.fileOperationsEpoch == epochBefore)
+        #expect(manager.activeFileOperationsCount == 0)
+
+        gate.release.signal()
+        await pass.value
+
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "a removal-only sweep cannot falsify an identical verdict, so the batch must commit")
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
+    }
+
     @MainActor
     @Test func testDisabledToggleIsANoOp() async throws {
         let fixture = try makeFixture()

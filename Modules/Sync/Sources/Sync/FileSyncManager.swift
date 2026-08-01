@@ -1021,8 +1021,11 @@ public class FileSyncManager: ObservableObject {
 
     /// Records that a file operation is about to run (see `fileOperationsEpoch`). Called from
     /// `enqueueFileOperation` only — that is the serial queue every user file operation is
-    /// routed through. (The orphaned-temp sweep is the one filesystem write that is not; it
-    /// trashes only age-gated `.tmp_<UUID>` staging artifacts and has never bumped the epoch.)
+    /// routed through. (The orphaned-temp sweep is the one filesystem write that is not, and
+    /// deliberately so: it only ever REMOVES age-gated `.tmp_<UUID>` staging artifacts, and a
+    /// removal cannot make a differing pair hash identical, which is the whole failure this
+    /// counter exists to catch. `sweepOrphanedTempArtifacts` carries the full reasoning and the
+    /// cost of the naive fix.)
     private func noteFileOperationBegan() {
         fileOperationsEpoch += 1
     }
