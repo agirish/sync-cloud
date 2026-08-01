@@ -838,6 +838,45 @@ final class Flag: @unchecked Sendable {
         #expect(best?.newSegments == [], "labeled against the snapshot: Docs/Fresh existed when the re-ask was issued")
     }
 
+    /// The other arm of the same snapshot rule. When the full existing-folder set was never
+    /// captured, the labeling falls back to the (capped) taxonomy list — and THAT list must be
+    /// the pre-await snapshot too. The sibling test above always has a non-empty
+    /// `filingLastExistingFolders`, so it never reaches this branch: reverting the fallback to a
+    /// live `filingLastTaxonomyFolders` read leaves it green while the confirmation lies again.
+    @MainActor
+    @Test func tryAnotherFolderFallsBackToTheSnapshottedTaxonomyList() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+        manager.filingClassifier = { _, files in
+            // Another provider's scan lands mid-round-trip and swaps the taxonomy list.
+            await MainActor.run {
+                manager.filingLastProviderRoot = "/other"
+                manager.filingLastTaxonomyFolders = ["Zebra"]
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        // Both folders already exist, and only the taxonomy list knows it — the full set was
+        // never captured, which is exactly what puts the fallback arm in play.
+        manager.filingLastTaxonomyFolders = ["Docs", "Docs/Fresh"]
+        manager.filingLastExistingFolders = []
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0012.HEIC", fileName: "IMG_0012.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        await manager.tryAnotherFolder(for: s)
+
+        let best = manager.filingSuggestions.first?.best
+        #expect(best?.path == "/p/Docs/Fresh")
+        #expect(best?.newSegments == [],
+                "the fallback must use the taxonomy list snapshotted pre-await, not the swapped one")
+    }
+
     /// Each "Try another" click fires its own unstructured Task; without a guard two rapid
     /// clicks run two classifier round-trips for the same card and whichever RETURNS last wins.
     /// A second call while the first is parked at the classifier must be a no-op.
