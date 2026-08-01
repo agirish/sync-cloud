@@ -161,6 +161,23 @@ struct AccentPreviewStrip: View {
         // control VoiceOver was just told does not exist, where Space fired the empty action.
         // `.focusable(false)` closes exactly that third path. Outside the button style on
         // purpose: styles decorate focus, they do not grant it, so the modifier composes.
+        //
+        // **This is a modifier whose behaviour has to be trusted, and it is not assertable
+        // here**: an offscreen `NSHostingView` has an empty accessibility tree and no key window
+        // to walk focus through, and this is the only `.focusable(false)` in the repo — the one
+        // other `.focusable` GRANTS focus. So it is verified by hand, and MANUAL_CHECKS.md
+        // ▸ "Keyboard & focus" now carries the entry; without that the promised pass has no home.
+        //
+        // The structurally-guaranteed alternative is better and is deliberately NOT taken here:
+        // this chip is a picture of a button, so rendering the label with the button's resting
+        // surface applied to a non-`Button` container would remove it from every input path by
+        // construction, with no modifier semantics to trust — exactly how the count pill below
+        // is built (`semanticCapsuleSurface`, no `Button` anywhere). That needs a resting-surface
+        // modifier on `ActionBarButtonStyle`'s side: its body renders from a
+        // `ButtonStyle.Configuration`, which has no public initializer, so the visual cannot be
+        // reached from outside a real `Button` today. Hand-drawing it in Settings instead is the
+        // one thing this strip must never do — see the type's doc comment on why both chips are
+        // the SHIPPING components rather than lookalikes.
         .focusable(false)
     }
 

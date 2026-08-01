@@ -13,6 +13,19 @@ Check items off as you verify them, and note anything that misbehaves.
 - [ ] **Space types normally in text fields.** Type a phrase with spaces into the
   Differences search field, and into a Settings-overlay text field (⌘,) → spaces
   appear in the text; Quick Look does not open.
+- [ ] **Tab skips the accent preview chip.** Requires Full Keyboard Access (System
+  Settings ▸ Accessibility ▸ Keyboard ▸ Full Keyboard Access, on). Open Settings (⌘,)
+  ▸ Appearance and Tab through the tab's controls → focus goes from the accent
+  swatches straight to the Glass effect picker, never landing on the "Copy 12 to
+  iCloud" chip in the preview strip; pressing Space while stepping past it does
+  nothing. That chip is a *picture* of a button — it is inert to the pointer
+  (`allowsHitTesting(false)`) and hidden from VoiceOver
+  (`accessibilityElement(children: .ignore)`), so focus landing on it would put the
+  cursor on a control assistive readers were just told does not exist, where Space
+  fires an empty action. `.focusable(false)` in `AccentPreview.swift` is what closes
+  that third path, and it CANNOT be asserted from a test: an offscreen
+  `NSHostingView` has an empty accessibility tree and no key window to walk focus
+  through. This entry is the whole verification, so it needs a real hands-on pass.
 
 ## Banners & progress (Waves 1C, 2D)
 
