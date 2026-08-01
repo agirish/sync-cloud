@@ -263,6 +263,31 @@ import Testing
         #expect(none.hasPrefix("None. "))
         #expect(none.contains("macOS accent color"),
                 "None's caption must explain why a coloured button is still showing: \(none)")
+        // The claim an earlier caption got wrong: selection FOLLOWS the system accent under
+        // `.none` — the pane wash paints `glassHue.accentColor`, which for `.none` IS
+        // `Color.accentColor` (`FileTreeView.rowSelectionBackground`). What goes away is the
+        // glass background tint, not the wash on selected rows.
+        #expect(none.contains("selection"),
+                "None's caption must say selection follows the macOS accent too: \(none)")
+        #expect(!none.lowercased().contains("no wash") && !none.contains("get no"),
+                "None's caption is claiming the panes lose their selection wash again: \(none)")
+    }
+
+    /// The spoken label takes the same `.none` branch the sighted caption does: "None accent on a
+    /// filled button" is the exact self-contradiction `caption(for:)` exists to avoid, and it was
+    /// still being spoken to the one audience that could not see the strip explain itself.
+    @Test func thePreviewLabelSpeaksTheSystemAccentForNone() {
+        let none = AccentPreviewStrip.accessibilityLabel(for: .none)
+
+        #expect(none != "Preview: None accent on a filled button and a count pill.",
+                "the `.none` label is back to the self-contradicting generic form")
+        #expect(!none.contains("None"), "spoken label still names 'None' as if it were a colour: \(none)")
+        #expect(none.contains("macOS accent"),
+                "the `.none` label must attribute the sample's colour to the system accent: \(none)")
+
+        // The fixed hues keep the generic form, hue named.
+        #expect(AccentPreviewStrip.accessibilityLabel(for: .cyan)
+                == "Preview: Cyan accent on a filled button and a count pill.")
     }
 
     // The image snapshot of the full accent section lives in `SettingsSnapshotTests` — a
