@@ -12,11 +12,20 @@ import Testing
 /// what SwiftUI actually lays out. The shipped grouped-Form version measured 884pt into a 436pt
 /// opening, which is how a control ended up cut in half by the sheet's bottom edge.
 ///
-/// Only Appearance's *fit* is pinned. It is the tab that motivated the change and the tallest
-/// one that can be made to fit, and it reads nothing but `@AppStorage` — so its height is a
-/// property of the layout rather than of the machine's data. Providers grows with the Mac's
-/// provider list and is expected to scroll; General reaches for SMAppService on appear, which a
-/// `swift test` host can block on. Tidy is here for a different reason — see below.
+/// Appearance carries the detailed budget — it is the tab that motivated the change and the
+/// tallest one that can be made to fit (`appearanceIsTheTallestTabThatMustFit`), and it reads
+/// nothing but `@AppStorage`, so its height is a property of the layout rather than of the
+/// machine's data. But it is no longer the only tab with a fit assertion: the sheet shrank 58pt
+/// for all six, so General, Sync and Advanced are checked too
+/// (`everyMustFitTabFitsTheClampedOpening`).
+///
+/// Two tabs are still excluded, for reasons that are properties of those tabs: Providers grows
+/// with the Mac's provider list, and Tidy is long by nature and expected to scroll — see
+/// `tidyLaysOutWithoutReachingForTheKeychain`, which is here for a different reason again.
+/// General was previously excluded as well, on the grounds that it "reaches for SMAppService on
+/// appear, which a `swift test` host can block on". Measured, that does not bite in this
+/// harness: the reads are in `.task`, which an offscreen `NSHostingView` driven only by
+/// `layoutSubtreeIfNeeded` never fires. It is measured here like the rest.
 @Suite struct SettingsLayoutTests {
 
     /// The content column: the sheet minus the rail and the divider between them.
@@ -275,6 +284,72 @@ import Testing
         let height = laidOutHeight(TidySettingsTab(syncManager: nil), width: Self.contentWidth)
 
         #expect(height > 0)
+    }
+
+    // MARK: - The other tabs
+
+    /// The tabs that must fit, and the height each lays out at. Appearance is measured by the
+    /// tests above; these three were never measured at all.
+    ///
+    /// Providers and Tidy are absent for reasons that are properties of those tabs rather than
+    /// oversights: Providers grows with the Mac's provider list, so its height is a property of
+    /// the machine's data, and Tidy is long by nature and is expected to scroll (see
+    /// `tidyLaysOutWithoutReachingForTheKeychain`).
+    @MainActor
+    private func mustFitTabs(_ settings: SettingsManager) -> [(String, AnyView)] {
+        [("General", AnyView(GeneralSettingsTab().environmentObject(settings))),
+         ("Appearance", AnyView(AppearanceSettingsTab())),
+         ("Sync", AnyView(SyncSettingsTab(syncManager: nil).environmentObject(settings))),
+         ("Advanced", AnyView(AdvancedSettingsTab(syncManager: nil, onResetAllSettings: nil)))]
+    }
+
+    /// EVERY tab that must fit, against the opening a 1280×800 display actually gives.
+    ///
+    /// The gap this closes: the suite asserted a fit for Appearance alone, while the 758 → 700
+    /// change shrank the opening by 58pt for all six tabs. The chrome trims gave each tab back
+    /// only ~18–26pt of that, so every other tab came out a net 32–40pt WORSE off than before —
+    /// and if Sync or Advanced had been within that of its old opening it would now scroll with
+    /// nothing to say so. (Measured, they are not: Sync and Advanced sit far under. That is the
+    /// answer this test exists to keep true, not a reason it was unnecessary.)
+    @MainActor
+    @Test func everyMustFitTabFitsTheClampedOpening() async throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let settings = SettingsManager(autoDiscover: false,
+                                       userDefaults: test.defaults,
+                                       cloudStorageLister: { [] })
+        let opening = SettingsSheetMetrics.contentOpening(textScale: 1, available: Self.smallDisplayWindow)
+        let width = SettingsSheetMetrics.contentWidth(textScale: 1, available: Self.smallDisplayWindow)
+
+        for (name, tab) in mustFitTabs(settings) {
+            let height = laidOutHeight(tab, width: width)
+
+            #expect(height <= opening,
+                    "\(name) lays out at \(height)pt in a 1280×800 display's \(opening)pt opening — it scrolls.")
+        }
+    }
+
+    /// The claim `SettingsSheetMetrics.baseSize` is derived from — "Appearance is the tallest tab
+    /// that can be made to fit" — stated as an assertion rather than a comment.
+    ///
+    /// It is load-bearing for the whole sizing argument: every bound on `baseSize` is measured
+    /// against Appearance, so if some other must-fit tab were taller, the sheet would be sized
+    /// against the wrong tab and that tab would scroll while all the fit tests stayed green.
+    @MainActor
+    @Test func appearanceIsTheTallestTabThatMustFit() async throws {
+        let test = TestDefaults()
+        defer { test.wipe() }
+        let settings = SettingsManager(autoDiscover: false,
+                                       userDefaults: test.defaults,
+                                       cloudStorageLister: { [] })
+        let appearance = laidOutHeight(AppearanceSettingsTab(), width: Self.contentWidth)
+
+        for (name, tab) in mustFitTabs(settings) where name != "Appearance" {
+            let height = laidOutHeight(tab, width: Self.contentWidth)
+
+            #expect(height <= appearance,
+                    "\(name) lays out at \(height)pt, taller than Appearance's \(appearance)pt — baseSize is being sized against the wrong tab.")
+        }
     }
 
     // MARK: - Sizing
