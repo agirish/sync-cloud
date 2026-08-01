@@ -212,6 +212,41 @@ import Sync
         mounted.window.layoutIfNeeded()
     }
 
+    /// A one-shot flag a queued block can set — a mutable local captured by an escaping closure
+    /// would not be, and the whole point here is to observe the QUEUE, not the wall clock.
+    private final class Marker {
+        var fired = false
+    }
+
+    /// How far the stack's origin ever strays from `origin` before a marker queued NOW drains.
+    ///
+    /// This is how an ABSENCE is bounded here, and it replaces a fixed `pump(seconds: 2.0)`.
+    /// A reveal is scheduled as one main-queue hop plus a `revealRetryDelay` retry; a marker
+    /// queued after the trigger's own layout change has already been observed therefore has a
+    /// strictly later deadline than anything that trigger scheduled, and the main queue drains
+    /// them in that order. Under load both slip together, which is exactly what a wall-clock
+    /// window cannot do — this file's own `settle` documents that trap, and these two absence
+    /// tests were the last places still falling into it: a reveal landing at t=2.1s made them
+    /// pass with the bug fully present, and nothing would ever have flagged it.
+    ///
+    /// The whole interval is sampled, not just its end, so a stack that moves and is put back
+    /// still counts as a failure.
+    private func maxOriginDrift(_ mounted: Mounted, from origin: CGFloat) async -> CGFloat {
+        let marker = Marker()
+        // Past the retry AND its 0.18s animation, so a retry that fired is not merely queued but
+        // has visibly moved the clip.
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.3) {
+            MainActor.assumeIsolated { marker.fired = true }
+        }
+        let clip = mounted.stack.contentView
+        var worst: CGFloat = 0
+        _ = await wait(mounted.window, upTo: 30) {
+            worst = max(worst, abs(clip.bounds.origin.x - origin))
+            return marker.fired
+        }
+        return max(worst, abs(clip.bounds.origin.x - origin))
+    }
+
     private func scrollViews(_ view: NSView) -> [NSScrollView] {
         var found: [NSScrollView] = []
         func walk(_ v: NSView) {
@@ -225,6 +260,7 @@ import Sync
     /// Mounts the pane at `paneWidth` with `depth + 1` columns open, after the drill's own
     /// auto-scroll has settled.
     private func mount(paneWidth: CGFloat, depth: Int) async throws -> Mounted {
+        let opened = depth
         let box = Box()
         let defaults = ScratchDefaults("column-preview-reveal")
         let tree = Self.tree(depth: depth)
@@ -237,7 +273,7 @@ import Sync
         window.contentView = host
         window.layoutIfNeeded()
 
-        box.browsePath = Self.browsePath(depth: depth)
+        box.browsePath = Self.browsePath(depth: opened)
         // Long enough for the columns to exist at all; the drill's own auto-scroll is then waited
         // out by `settle` below, not by this.
         await pump(window, seconds: 0.3)
@@ -246,11 +282,11 @@ import Sync
             scrollViews(window.contentView!).first { !($0.documentView is NSTableView) },
             "no stack scroll view")
         let mounted = Mounted(window: window, box: box, stack: stack, defaults: defaults,
-                              depth: depth)
+                              depth: opened)
         // The drill scrolls the stack too. Letting it finish before the preview opens keeps the
         // two from being read as one movement — and keeps a late-landing drill from being mistaken
         // for the reveal under test.
-        await wait(window, upTo: 25) { self.columnFrames(mounted).count == depth + 1 }
+        await wait(window, upTo: 25) { self.columnFrames(mounted).count == opened + 1 }
         await settle(mounted)
         return mounted
     }
@@ -465,11 +501,17 @@ import Sync
 
         // Another pane's preview divider commits: the shared key changes, this viewport does not.
         mounted.defaults.set(470.0, forKey: PaneViewMode.previewColumnWidthDefaultsKey)
-        // Absence has no observable to wait on, so hold a window comfortably past the reveal's
-        // deferred hop (one runloop turn), its 0.25s retry, and its 0.18s animation.
-        await pump(mounted.window, seconds: 2.0)
-        #expect(clip.bounds.origin.x == 0,
-                "a preview-width commit scrolled a pane whose preview is hidden, to x \(clip.bounds.origin.x)")
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
+                "a preview-width commit scrolled a pane whose preview is hidden")
+
+        // The positive control. Absence proves nothing unless the same fixture can be shown to
+        // move at all: open this pane's own preview and the reveal must fire. Without this, a
+        // pane that had quietly stopped revealing for any reason would satisfy the assertion
+        // above forever.
+        #expect(await openPreview(mounted, viewportWas: clip.bounds.width),
+                "no preview appeared — the pane's own reveal path is dead, so the absence above proves nothing")
+        #expect(clip.bounds.origin.x > 0,
+                "this pane's own preview did not reveal its deepest column — the absence above is vacuous")
     }
 
     /// Closing the preview GROWS the viewport, so a scrolled-back origin stays legal — and must
@@ -501,9 +543,17 @@ import Sync
         let content = mounted.stack.documentView?.frame.width ?? 0
         #expect(content > clip.bounds.width,
                 "the stack fits its restored viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible, so this is vacuous")
-        await pump(mounted.window, seconds: 2.0)
-        #expect(clip.bounds.origin.x == 0,
-                "closing the preview yanked a scrolled-back stack to x \(clip.bounds.origin.x)")
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
+                "closing the preview yanked a scrolled-back stack away from x 0")
+
+        // The positive control, as in the preview-width test above: re-open the preview and the
+        // RISING edge must still reveal. Absence and presence are driven by the same handler
+        // here, so a handler that had stopped firing altogether would pass the assertion above
+        // for entirely the wrong reason.
+        #expect(await openPreview(mounted, viewportWas: clip.bounds.width),
+                "the preview did not re-open — the absence above proves nothing")
+        #expect(clip.bounds.origin.x > 0,
+                "the rising edge stopped revealing — the falling-edge absence above is vacuous")
     }
 
     /// A Tidy rail — full width, and deep enough that the rail overflows too.
@@ -515,5 +565,150 @@ import Sync
     /// defect the comparison pane hit at three.
     @Test func testATidyWidthRailRevealsTheColumnThePreviewDescribes() async throws {
         try await expectDeepestColumnVisible(paneWidth: 1400, depth: 4)
+    }
+
+    /// NARROWING the columns shrinks every stack's content, which can only reduce occlusion — so
+    /// there is nothing for a reveal to correct, and firing anyway drags a pane the user scrolled
+    /// back somewhere they did not ask to be. Same asymmetry as the preview's falling edge, from
+    /// the other divider, in a pane that never touched the drag.
+    @Test func testNarrowingTheColumnsLeavesAScrolledBackStackWhereItWas() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        let contentBefore = mounted.stack.documentView?.frame.width ?? 0
+        #expect(contentBefore > clip.bounds.width,
+                "fixture does not overflow its viewport (content \(contentBefore)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible")
+        #expect(clip.bounds.origin.x > 0, "the drill never revealed, so the scroll-back proves nothing")
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+
+        // The other pane's column divider commits NARROWER: 210 → 180.
+        mounted.defaults.set(180.0, forKey: PaneViewMode.columnWidthDefaultsKey)
+        await wait(mounted.window, upTo: 25) {
+            (mounted.stack.documentView?.frame.width ?? 0) < contentBefore
+        }
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content < contentBefore,
+                "the narrower width never reached the layout (content \(content)pt, was \(contentBefore)pt) — nothing below measures a narrowing")
+        // The shrunken stack must STILL overflow, or origin 0 is the only legal origin and the
+        // absence below holds however wrongly the driver behaves.
+        #expect(content > clip.bounds.width,
+                "the narrowed stack fits its viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible, so this is vacuous")
+
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
+                "narrowing the columns scrolled a stack the user had deliberately scrolled back")
+    }
+
+    /// The trade the column-width driver's un-gated reach deliberately accepts, pinned so it stays
+    /// a decision rather than a surprise: WIDENING the columns really does pull every pane —
+    /// including a preview-less one whose user had scrolled back — to its deepest column, because
+    /// the shared width genuinely grew that pane's content past its own edge.
+    ///
+    /// The counterpart of the narrowing test above: together they say the driver fires on exactly
+    /// one edge, and nothing here would notice if it were gated on `showsPreview` by mistake.
+    @Test func testWideningTheColumnsPullsAScrolledBackPreviewlessPaneToItsDeepestColumn() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        #expect(clip.bounds.width > 690 - PaneViewMode.minimumPreviewColumnWidth,
+                "a preview took room from this pane — the premise of a preview-less pane is gone")
+        let contentBefore = mounted.stack.documentView?.frame.width ?? 0
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+
+        mounted.defaults.set(260.0, forKey: PaneViewMode.columnWidthDefaultsKey)
+        await wait(mounted.window, upTo: 25) {
+            (mounted.stack.documentView?.frame.width ?? 0) > contentBefore
+        }
+        await wait(mounted.window, upTo: 25) { clip.bounds.origin.x > 0 }
+        await settle(mounted)
+
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > contentBefore,
+                "the wider width never reached the layout (content \(content)pt) — nothing below measures a widening")
+        #expect(content > clip.bounds.width,
+                "the widened stack does not overflow its viewport — the reveal is unobservable here")
+        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
+        let visible = visibleSpan(mounted)
+        #expect(deepest.maxX <= visible.upperBound + 1,
+                "widening the columns left the deepest column off screen in a preview-less pane: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// NARROWING the preview hands the stack's viewport points back, which can only un-hide the
+    /// deepest column — the same edge argument the `showsPreview` falling edge already makes, and
+    /// the preview-width driver was missing it.
+    @Test func testNarrowingThePreviewLeavesAScrolledBackStackWhereItWas() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        let full = clip.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+        let narrow = clip.bounds.width
+        try #require(narrow < full, "the preview never narrowed the viewport")
+
+        await scrollBack(mounted, toX: 0)
+        try #require(clip.bounds.origin.x == 0, "fixture failed to scroll the stack back")
+
+        // The preview divider commits NARROWER: 420 → 360, giving the stack 60pt back.
+        mounted.defaults.set(360.0, forKey: PaneViewMode.previewColumnWidthDefaultsKey)
+        await wait(mounted.window, upTo: 25) { clip.bounds.width > narrow }
+        #expect(clip.bounds.width > narrow,
+                "the narrower preview never reached the layout (viewport \(clip.bounds.width)pt, was \(narrow)pt) — nothing below measures it")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the stack fits its grown viewport (content \(content)pt in \(clip.bounds.width)pt) — a wrong reveal would be invisible, so this is vacuous")
+
+        #expect(await maxOriginDrift(mounted, from: 0) == 0,
+                "narrowing the preview scrolled a stack the user had deliberately scrolled back")
+    }
+
+    /// The one case the preview's un-driven falling edge really does leave to someone else: an
+    /// origin the GROWN viewport made illegal. Nothing pinned it, which made the trade a promise
+    /// rather than a behavior — the falling-edge reveal was removed *because* something else
+    /// covers this, so the two have to be pinned together or the removal is a stranding.
+    ///
+    /// **Who actually corrects it is not what the driver's comment used to claim.** Measured by
+    /// mutation: delete `legalOrigin`'s clamp outright and this test still passes. A real pane's
+    /// clip re-constrains itself the moment its frame grows, so the correction is AppKit's and it
+    /// is immediate — there is no 0.14s-quiescence bounce on this path. The watchdog is the
+    /// backstop for a clip that does NOT self-correct, and its own coverage of this exact shape
+    /// is pinned where it can be killed, in `PaneColumnsOverscrollReturnCycleTests`.
+    ///
+    /// What this test therefore pins is the user-visible promise: after a close, the stack rests
+    /// somewhere legal rather than stranded past the end.
+    @Test func testClosingThePreviewLeavesTheStackAtALegalOrigin() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 3)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+
+        let full = clip.bounds.width
+        #expect(await openPreview(mounted, viewportWas: full), "no preview appeared")
+        let narrow = clip.bounds.width
+        try #require(narrow < full, "the preview never narrowed the viewport")
+
+        // The reveal parks the stack at its far end, which is exactly the resting position that
+        // a growing viewport makes illegal — no synthetic scroll needed.
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        let farEnd = content - narrow
+        try #require(abs(clip.bounds.origin.x - farEnd) <= 1,
+                     "the stack is not resting at its far end (\(clip.bounds.origin.x), far end \(farEnd)) — this test's premise is gone")
+
+        mounted.box.selection = []
+        await wait(mounted.window, upTo: 25) { clip.bounds.width > narrow }
+        let grown = clip.bounds.width
+        #expect(grown > narrow, "the preview never closed — nothing below measures the falling edge")
+        let legalMax = content - grown
+        let tolerance = PaneColumnsOverscrollReturn.WatchdogView.tolerance
+        try #require(farEnd > legalMax + tolerance,
+                     "the grown viewport did not strand the origin (\(farEnd) vs legal max \(legalMax)) — there is nothing to clamp")
+
+        let landed = await wait(mounted.window, upTo: 25) {
+            abs(clip.bounds.origin.x - legalMax) <= tolerance
+        }
+        #expect(landed,
+                "an origin the grown viewport made illegal was left stranded at \(clip.bounds.origin.x), legal max \(legalMax)")
     }
 }
