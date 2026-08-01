@@ -47,8 +47,10 @@ struct ReviewCardView: View {
     /// Liveness token for the in-flight Verify. Re-minted wherever `.task(id: item.id)` resets
     /// state, so a verify completing after the card advanced compares its captured token against
     /// the LIVE `@State` (the completion closure captures the view struct, whose `@State` reads
-    /// go through the live storage box) and drops its writes — otherwise a large pair's late
-    /// return would clear the CURRENT item's spinner mid-hash and defeat the re-entrancy guard.
+    /// go through the live storage box) and drops its SPINNER write — otherwise a large pair's
+    /// late return would clear the CURRENT item's spinner mid-hash and defeat the re-entrancy
+    /// guard. Only the spinner: the verdict is reported either way and guarded on the session
+    /// token instead (see `applyVerifyCompletion`).
     /// NOT comparable to a captured copy of itself: that is a tautology (the inert guard
     /// ColumnPreviewColumn.watchDownload shipped with) — one side must be the live property.
     @State private var verifyToken = UUID()
@@ -357,16 +359,51 @@ struct ReviewCardView: View {
                 // Keyed on (path, mtime, size), so an edited file is bypassed rather than served.
                 cache: ContentHashCache.shared
             )
-            // Live @State read (the closure's captured struct reads through the live storage
-            // box), never a captured copy — see `verifyToken`. If the card advanced while the
-            // hash ran, `.task(id:)` re-minted the token and already reset `isVerifying` for
-            // the NEW item; writing anything here would clobber that item's state.
-            guard verifyToken == token else { return }
-            let verdict: ReviewSession.VerifyVerdict =
-                same == true ? .identical : (same == false ? .differed : .unverifiable)
-            onVerdict(item.id, verdict, sessionToken)
-            isVerifying = false
+            // `verifyToken` here is a live @State read (the closure's captured struct reads
+            // through the live storage box), never a captured copy — see `verifyToken`. It
+            // decides ONLY the spinner write; the verdict is reported either way.
+            Self.applyVerifyCompletion(
+                sameContent: same,
+                liveToken: verifyToken,
+                startedToken: token,
+                report: { onVerdict(item.id, $0, sessionToken) },
+                clearSpinner: { isVerifying = false }
+            )
         }
+    }
+
+    /// Routes a finished Verify: what the completion is allowed to write back to the card.
+    ///
+    /// The verdict is reported UNCONDITIONALLY. It is already session-guarded downstream —
+    /// `onVerdict` carries the session token and `ReviewSessionStore.recordVerdict` drops a
+    /// verdict whose session was replaced — so a completion from a card that has since advanced
+    /// still describes the item it actually hashed, and dropping it here would throw away a
+    /// legitimate result: verify a large pair, click another row, click back, and `.task(id:)`
+    /// has re-minted the token twice, leaving the user with no spinner and no answer.
+    ///
+    /// The SPINNER is what the token guards. `isVerifying` belongs to whatever item the card
+    /// shows now; once `.task(id:)` re-minted the token it has already reset the flag for the
+    /// NEW item, and a late completion writing `false` would clear that item's spinner mid-hash
+    /// (the D14 bug) — so only a completion whose token is still live may touch it.
+    ///
+    /// Split out of the view so the rule is testable: the call site above is a single call, so
+    /// the two decisions cannot drift apart without changing this function.
+    /// - Parameters:
+    ///   - sameContent: `FileContentVerifier`'s answer — nil when a side couldn't be hashed.
+    ///   - liveToken: the card's CURRENT `verifyToken`.
+    ///   - startedToken: the token captured when this verify started.
+    static func applyVerifyCompletion(
+        sameContent: Bool?,
+        liveToken: UUID,
+        startedToken: UUID,
+        report: (ReviewSession.VerifyVerdict) -> Void,
+        clearSpinner: () -> Void
+    ) {
+        let verdict: ReviewSession.VerifyVerdict =
+            sameContent == true ? .identical : (sameContent == false ? .differed : .unverifiable)
+        report(verdict)
+        guard liveToken == startedToken else { return }
+        clearSpinner()
     }
 
     // MARK: Facts
