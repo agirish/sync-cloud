@@ -28,6 +28,7 @@ import Sync
 /// 420pt, so a shallow stack stays wholly visible and the missing scroll driver never shows;
 /// half a window does not. Pin both, so the rail cannot quietly regress the day someone drills
 /// one column deeper than this fixture does.
+///
 /// **`.serialized` is load-bearing, not tidiness.** Two tests here assert a stack STAYS where the
 /// user put it, and two others commit a new `columnWidthDefaultsKey` / `previewColumnWidthDefaultsKey`
 /// — the very preferences whose change fires a reveal in every pane. Those keys are process-wide by
@@ -186,10 +187,15 @@ import Sync
     ///
     /// **Never sufficient on its own.** Stillness cannot distinguish "the scroll has finished" from
     /// "the scroll has not started yet", and both are common here: the reveal is deferred a runloop
-    /// turn and then animates for 0.18s. Waiting only for quiescence is what made these tests pass
-    /// with two mounted panes in the suite and fail with three — the third pane's contention pushed
-    /// the deferred hop past the quiet window, so a stack that had not moved yet read as settled.
-    /// Callers wait for the movement they expect FIRST, then use this to wait out its animation.
+    /// turn, and issued again after `revealRetryDelay`. Waiting only for quiescence is what made
+    /// these tests pass with two mounted panes in the suite and fail with three — the third pane's
+    /// contention pushed the deferred hop past the quiet window, so a stack that had not moved yet
+    /// read as settled. Callers wait for the movement they expect FIRST, then use this to wait out
+    /// whatever is still coming.
+    ///
+    /// (NOT the reveal's 0.18s ease — this harness sets `paneColumnRevealAnimation` to `nil`, so
+    /// each attempt lands in one step. The deferral and the retry are what remain ambiguous, and
+    /// they are unaffected by that.)
     ///
     /// A fixed sleep is what all of this replaces, and it is why the first version passed under
     /// `--filter` and failed in the full suite: 1.5s is ample on an idle machine and nowhere near
@@ -233,8 +239,10 @@ import Sync
     /// still counts as a failure.
     private func maxOriginDrift(_ mounted: Mounted, from origin: CGFloat) async -> CGFloat {
         let marker = Marker()
-        // Past the retry AND its 0.18s animation, so a retry that fired is not merely queued but
-        // has visibly moved the clip.
+        // Past the retry, plus margin, so a retry that fired is not merely queued but has visibly
+        // moved the clip. The margin does NOT have to cover the reveal's 0.18s ease: this harness
+        // sets `paneColumnRevealAnimation` to `nil`, so a scroll that fires lands in one step —
+        // which leaves this window with more slack than it needs, not less.
         DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.3) {
             MainActor.assumeIsolated { marker.fired = true }
         }
@@ -375,6 +383,19 @@ import Sync
                 "the deepest column is hidden behind the preview: \(report)")
         #expect(deepest.minX >= visible.lowerBound - 1,
                 "the deepest column is cut off on its leading edge: \(report)")
+    }
+
+    /// The easing the APP gets — the one value in this file no other test here can see.
+    ///
+    /// Making the animation injectable put the shipped behaviour behind a knob, and every other
+    /// test in this suite turns that knob off. So a default that drifted to `nil` would delete the
+    /// reveal's animation for real users — the stack would jump to the deepest column instead of
+    /// sliding to it — while every case below stayed green, because none of them ever reads the
+    /// default. Verified by mutation: setting the default to `nil` fails this test and only this
+    /// test.
+    @Test func testTheShippedRevealAnimationIsTheEasedOne() {
+        #expect(EnvironmentValues().paneColumnRevealAnimation == .easeOut(duration: 0.18),
+                "the reveal's shipped animation changed — the app now scrolls differently than the 0.18s ease this suite's harness deliberately opts out of")
     }
 
     /// A comparison pane — half a window, three columns. The reported failure: measured before the
