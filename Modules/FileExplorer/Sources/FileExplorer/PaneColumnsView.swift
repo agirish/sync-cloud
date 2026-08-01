@@ -49,10 +49,10 @@ struct PaneColumnsView: View {
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
     /// holding it may not be this one) and only the host can see both sides.
     let onBackgroundDeselect: (Int?) -> Void
-    /// Path of the file a Download was requested for, so that one row polls for its content
-    /// landing. Owned by the hosting `FileTreeView`, which holds the pane's single subscription —
-    /// see `FileRowView.isAwaitingDownload`.
-    var awaitingDownloadPath: String?
+    /// The download request this pane is watching, so that one row polls for its content
+    /// landing. Owned by the hosting `FileTreeView`, which holds the pane's single (pane-scoped)
+    /// subscription — see `FileRowView.awaitingDownloadID`.
+    var awaitingDownload: CloudDownloadRequest?
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
 
@@ -472,7 +472,7 @@ struct PaneColumnsView: View {
             density: density,
             showsChevron: node.isDirectory,
             fonts: fonts,
-            isAwaitingDownload: awaitingDownloadPath == node.id
+            awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
         )
         .tag(node.id)
         // Single click opens a folder's column, per the decision — the one real change to the
@@ -753,15 +753,15 @@ struct ColumnRowView: View {
     let showsChevron: Bool
     /// The pane's resolved fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
-    /// See `FileRowView.isAwaitingDownload`. Threaded through rather than observed here for the
+    /// See `FileRowView.awaitingDownloadID`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
-    var isAwaitingDownload: Bool = false
+    var awaitingDownloadID: UUID? = nil
 
     var body: some View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        fonts: fonts, isAwaitingDownload: isAwaitingDownload)
+                        fonts: fonts, awaitingDownloadID: awaitingDownloadID)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(fonts.chevron)

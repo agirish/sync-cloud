@@ -7,11 +7,24 @@ import SwiftUI
 import Sync
 
 extension Notification.Name {
-    /// Posted after a cloud-only "Download" request is accepted, carrying the file's absolute path
+    /// Posted after a cloud-only "Download" request is accepted, carrying a `CloudDownloadRequest`
     /// in `object`. The row displaying that file listens and re-checks its cloud badge while the
     /// content materializes — the context menu and the row are separate views with no shared state,
     /// and without this the badge lingered until the row was recycled.
+    ///
+    /// The payload names the posting pane (`CloudDownloadRequest.paneToken`): both panes default to
+    /// the same provider, so the same absolute path can be on screen twice, and a bare-path post
+    /// was latched by BOTH panes — twin rows polling, and a duplicate `forget` bumping the memo
+    /// generation app-wide.
     static let cloudDownloadRequested = Notification.Name("SyncCloudCloudDownloadRequested")
+
+    /// Posted by the watching row when its bounded poll finishes — the content landed, or the
+    /// attempt was exhausted — carrying the `CloudDownloadRequest.requestID` in `object`. The pane
+    /// listens and drops its awaiting latch. Without this the latch held the LAST request forever:
+    /// a recycled row re-ran a long-concluded poll on every realization, and the stale state lived
+    /// on for no one. Cancellation deliberately does not post — a row scrolled offscreen mid-poll
+    /// must resume watching when it is realized again.
+    static let cloudDownloadPollConcluded = Notification.Name("SyncCloudCloudDownloadPollConcluded")
 }
 
 /// Recursive tree view for one comparison pane (left or right); context menu and actions go through the delegate.
@@ -129,14 +142,20 @@ public struct FileTreeView: View, Equatable {
     /// `.quickLookPreview` — the host's presenter (spacebar) is not reachable through the
     /// delegate, and the shared QL panel only ever shows one preview at a time anyway.
     @State private var quickLookItem: URL?
-    /// The path of the file a Download was last requested for, so that row — and only that row —
-    /// polls for its content landing.
+    /// The download request THIS pane is watching, so the row showing that file — and only that
+    /// row, in only this pane — polls for its content landing. Cleared when the row reports its
+    /// poll concluded (`.cloudDownloadPollConcluded`).
     ///
     /// One subscription here rather than one per row. `FileRowView` used to observe
     /// `.cloudDownloadRequested` itself, which meant a live Combine subscription per VISIBLE ROW,
     /// churned as the list recycled them, to deliver a notice that at most one row per session
     /// ever acts on.
-    @State private var awaitingDownloadPath: String?
+    @State private var awaitingDownload: CloudDownloadRequest?
+
+    /// This pane's identity for download-notification scoping — the receiving side of
+    /// `CloudDownloadRequest.paneToken`. Computed from facts already compared by `==`, so it adds
+    /// nothing the pane could fail to notice.
+    private var paneToken: PaneToken { PaneToken(isLeft: isLeft, isSingleSource: isSingleSource) }
 
     public init(tree: PaneTree, otherTree: PaneTree, isLoading: Bool, currentPath: String, selection: Binding<Set<String>>, otherSelection: Set<String>, isLeft: Bool, delegate: FileActionDelegate, diffIndex: DiffStatusIndex = .empty, otherPaneName: String? = nil, rootPathIsValid: Bool = true, providerIsEnabled: Bool = true, hasOnlyHiddenEntries: Bool = false, rootPath: String? = nil, onOpenSettings: (() -> Void)? = nil, isSingleSource: Bool = false, placement: PaneBarPlacement? = nil, onBarEdgeFlip: (() -> Void)? = nil, isActivePane: Bool = true, viewMode: PaneViewMode = .tree, childrenIndex: PaneChildrenIndex? = nil, browsePath: Binding<PaneBrowsePath> = .constant(PaneBrowsePath()), onColumnNavigate: ((PaneBrowsePath) -> Void)? = nil, onBackgroundDeselect: ((Int?) -> Void)? = nil) {
         self.tree = tree
@@ -295,9 +314,21 @@ public struct FileTreeView: View, Equatable {
     public var body: some View {
         ZStack {
             presentation
-                // The pane's single subscription for the whole list — see `awaitingDownloadPath`.
+                // The pane's single subscription for the whole list — see `awaitingDownload`.
+                // Scoped: another pane's request (the same absolute path can be on screen in both
+                // panes) is ignored rather than latched.
                 .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadRequested)) { note in
-                    awaitingDownloadPath = note.object as? String
+                    if let request = CloudDownloadRequest.accepted(from: note, paneToken: paneToken) {
+                        awaitingDownload = request
+                    }
+                }
+                // The watching row says its poll is over (landed or exhausted) — drop the latch so
+                // the row stops re-polling on every realization, and so the NEXT request for the
+                // same file is a state change the row's `.task(id:)` can see.
+                .onReceive(NotificationCenter.default.publisher(for: .cloudDownloadPollConcluded)) { note in
+                    if let concluded = note.object as? UUID, concluded == awaitingDownload?.requestID {
+                        awaitingDownload = nil
+                    }
                 }
                 // A republish is the moment every other fact on a row is refreshed, so it is the
                 // moment the cloud-only memo stops being allowed to speak for them too. `PaneTree`
@@ -402,7 +433,7 @@ public struct FileTreeView: View, Equatable {
                 placement: placement, onBarEdgeFlip: onBarEdgeFlip,
                 onQuickLook: { quickLookItem = $0 },
                 onBackgroundDeselect: onBackgroundDeselect ?? { _ in },
-                awaitingDownloadPath: awaitingDownloadPath,
+                awaitingDownload: awaitingDownload,
                 fonts: rowFonts
             )
             .contentSurface(hue: glassHue, tint: surfaceTint)
@@ -509,7 +540,7 @@ public struct FileTreeView: View, Equatable {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
             fonts: rowFonts,
-            isAwaitingDownload: awaitingDownloadPath == node.id
+            awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
         )
         .tag(node.id)
         .contextMenu {
@@ -702,8 +733,14 @@ struct FileContextMenu: View {
                             try MaterializationStatus.download(atPath: singleNode.id)
                             Logger.shared.info("Requested download of cloud-only file: \(singleNode.id)")
                             // Tell the row to watch for the content landing so its cloud badge
-                            // clears; on the failure path the badge (correctly) stays.
-                            NotificationCenter.default.post(name: .cloudDownloadRequested, object: singleNode.id)
+                            // clears; on the failure path the badge (correctly) stays. Scoped to
+                            // THIS pane — the twin row the other pane may show for the same path
+                            // must not start a second poll.
+                            NotificationCenter.default.post(
+                                name: .cloudDownloadRequested,
+                                object: CloudDownloadRequest(
+                                    path: singleNode.id,
+                                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource)))
                         } catch {
                             Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
                         }
@@ -853,14 +890,17 @@ struct FileRowView: View {
     let density: ListDensity
     /// The pane's resolved fonts. Handed down rather than derived per row — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
-    /// True while the pane is watching a download this row requested.
+    /// The identity of the download request the pane is watching for THIS row; nil when it is not
+    /// this row's file (or nothing is being watched). Also the watcher's `.task(id:)` key, which
+    /// is why it is the request's UUID rather than a `Bool`: a SECOND download of the same file
+    /// arrives as a fresh UUID and re-fires the poll, where an identical `true` never re-keyed it.
     ///
     /// Supplied by the pane rather than discovered here. Every row used to hold its own
     /// `.onReceive(NotificationCenter…)` subscription for the download notice — one live Combine
     /// subscription per visible row, created and torn down as the list recycles them, so that at
     /// most one row per session could ever receive anything. The pane holds the single
-    /// subscription now and hands the answer down as a `Bool`.
-    var isAwaitingDownload: Bool = false
+    /// subscription now and hands the answer down.
+    var awaitingDownloadID: UUID? = nil
 
     private var densityMetrics: ListDensityMetrics { density.metrics }
 
@@ -931,8 +971,8 @@ struct FileRowView: View {
         // The memo is forgotten on the way in, not on the way out: the answer it holds is the
         // pre-download one, and leaving it there would let the row re-read "cloud-only" from cache
         // the moment it recycled, undoing the poll's result.
-        .task(id: isAwaitingDownload) {
-            guard isAwaitingDownload, isCloudOnly, !node.isDirectory else { return }
+        .task(id: awaitingDownloadID) {
+            guard let requestID = awaitingDownloadID, isCloudOnly, !node.isDirectory else { return }
             let path = node.id
             CloudOnlyBadgeCache.forget(path)
             for _ in 0..<10 {
@@ -942,9 +982,15 @@ struct FileRowView: View {
                 if !stillCloudOnly {
                     CloudOnlyBadgeCache.record(path, isCloudOnly: false)
                     isCloudOnly = false
-                    return
+                    break
                 }
             }
+            // Landed or exhausted — either way the watch is over; tell the pane to drop its latch
+            // so this row stops re-running a finished poll on every realization, and so the next
+            // request for this file is a change `.task(id:)` can see. The cancellation returns
+            // above deliberately DON'T post: a row scrolled offscreen mid-poll keeps the latch and
+            // resumes watching when it is realized again.
+            NotificationCenter.default.post(name: .cloudDownloadPollConcluded, object: requestID)
         }
     }
 
