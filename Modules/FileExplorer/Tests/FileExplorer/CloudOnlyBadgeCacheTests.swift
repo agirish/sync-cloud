@@ -161,6 +161,98 @@ import Foundation
         #expect(CloudOnlyBadgeCache.cached("/rootling/y.bin") == true)
     }
 
+    /// The regression this guard exists for: `SettingsManager.path(for:)` answers `""` for a
+    /// provider id it cannot resolve, `PaneLogic.fullPath` passes `""` through, and the empty root
+    /// then normalized to the prefix `"/"` — which EVERY absolute key matches. A pane whose
+    /// provider failed to resolve republished its empty tree and wiped the other pane's answers:
+    /// the global wipe the scoping was added to remove, through a side door.
+    @MainActor
+    @Test func anEmptyRootClearsNothing() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/right/c.bin", isCloudOnly: false)
+
+        CloudOnlyBadgeCache.clear(underRoot: "")
+
+        #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
+        #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == false)
+    }
+
+    /// Same guard, stated as a rule rather than as one input: only an ABSOLUTE root scopes a clear.
+    /// A relative string cannot be a prefix of a key the walk produced, so matching it would either
+    /// take nothing or — as `""` did — take everything.
+    @MainActor
+    @Test func aRelativeRootClearsNothing() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "left")
+
+        #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == true)
+    }
+
+    /// A no-op clear must not bump the generation either: nothing was invalidated, so a stat in
+    /// flight across it still holds this memo's best available truth and may memoize.
+    ///
+    /// This is the mutation guard for the two tests above — a `clear(underRoot:)` that returned
+    /// early but still bumped would pass them while quietly costing every in-flight stat.
+    @MainActor
+    @Test func aStatSpanningAnEmptyRootClearIsStillMemoized() async {
+        CloudOnlyBadgeCache.clear()
+        let path = "/fixture/spanning-noop.bin"
+
+        let answer = await CloudOnlyBadgeCache.isCloudOnly(
+            atPath: path, stat: statThatInvalidates { CloudOnlyBadgeCache.clear(underRoot: "") })
+
+        #expect(answer)
+        #expect(CloudOnlyBadgeCache.cached(path) == true)
+    }
+
+    /// The filesystem root is exempt from the absolute-path guard rather than special-cased by it:
+    /// a pane genuinely rooted at `/` covers every absolute entry, and saying so is the truthful
+    /// answer for that root. (It is also how the tests above reset the table.)
+    @MainActor
+    @Test func theFilesystemRootClearsEveryAbsoluteEntry() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/left/a.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/right/c.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/")
+
+        #expect(CloudOnlyBadgeCache.cached("/left/a.bin") == nil)
+        #expect(CloudOnlyBadgeCache.cached("/right/c.bin") == nil)
+    }
+
+    /// Every trailing separator is normalized away, not just one: dropping a single character from
+    /// `/root//` left the prefix `/root//`, which matches no key the tree walk ever produced — a
+    /// clear that silently took nothing.
+    @MainActor
+    @Test func aScopedClearNormalizesRepeatedTrailingSeparators() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/root/x.bin", isCloudOnly: true)
+        CloudOnlyBadgeCache.record("/rootling/y.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/root//")
+
+        #expect(CloudOnlyBadgeCache.cached("/root/x.bin") == nil)
+        #expect(CloudOnlyBadgeCache.cached("/rootling/y.bin") == true)
+    }
+
+    /// Matching is case-SENSITIVE, and that is a decision rather than an oversight: the memo is a
+    /// dictionary, so `cached(_:)` already is. Keys come from the tree walk and roots from
+    /// `PaneLogic.fullPath`; today they agree by lineage (the walk descends from that very root
+    /// string), which is an accident of plumbing worth pinning so a future case-folding of either
+    /// side shows up here rather than as a badge that never refreshes.
+    @MainActor
+    @Test func aScopedClearIsCaseSensitive() {
+        CloudOnlyBadgeCache.clear()
+        CloudOnlyBadgeCache.record("/root/x.bin", isCloudOnly: true)
+
+        CloudOnlyBadgeCache.clear(underRoot: "/Root")
+
+        #expect(CloudOnlyBadgeCache.cached("/root/x.bin") == true)
+    }
+
     /// A scoped clear preserves the generation semantics: a stat in flight when it lands must not
     /// memoize its now-stale answer — same contract as the whole-table `clear()`.
     @MainActor
