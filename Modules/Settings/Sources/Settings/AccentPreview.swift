@@ -37,12 +37,20 @@ struct AccentColorSection: View {
     /// selection wash (`FileTreeView`), and the seam chrome (`ContentView`'s swap button and rail
     /// spine). The tint wash is deliberately not listed — it has its own section and its own
     /// caption directly below.
+    ///
+    /// `.none` keeps all three of those uses — they resolve `Color.accentColor`, the macOS accent,
+    /// because `LiquidGlassHue.none.accentColor` IS the system accent (the selection wash paints
+    /// `glassHue.accentColor` like everything else; see `FileTreeView.rowSelectionBackground`).
+    /// What `.none` actually removes is the glass background: its `gradientColors` are clear and
+    /// the surface tint wash opts out. An earlier caption said "the panes get no wash", which
+    /// described the background but read as a claim about SELECTION — false, and exactly the kind
+    /// of unexplained mismatch the strip below would then appear to contradict.
     static func caption(for hue: LiquidGlassHue) -> String {
         guard hue != .none else {
             // `.none` is not "no accent anywhere": it defers to the system accent, which is why
             // the strip below still renders a filled button. Saying so is the whole job of this
             // case — an unexplained coloured button under a swatch labelled "None" reads as a bug.
-            return "None. Filled controls follow your macOS accent color, and the panes get no wash."
+            return "None. Filled controls, selection, and the seam chrome follow your macOS accent color; the glass background is not tinted."
         }
         return "\(hue.displayName). Used for filled controls, selection, and the seam chrome."
     }
@@ -97,7 +105,18 @@ struct AccentPreviewStrip: View {
         // tree (rather than hidden) because the sample is the section's answer to "what does this
         // change?", and read as a sample so VoiceOver never offers a button that does nothing.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Preview: \(hue.displayName) accent on a filled button and a count pill.")
+        .accessibilityLabel(Self.accessibilityLabel(for: hue))
+    }
+
+    /// The strip's spoken label, with the same `.none` branch `AccentColorSection.caption(for:)`
+    /// takes and for the same reason: "None accent on a filled button" is the self-contradiction
+    /// the sighted caption special-cases — VoiceOver users were the only ones still getting it.
+    /// A static helper rather than an inline ternary so `AccentPreviewTests` pins the branch.
+    static func accessibilityLabel(for hue: LiquidGlassHue) -> String {
+        guard hue != .none else {
+            return "Preview: your macOS accent color on a filled button and a count pill."
+        }
+        return "Preview: \(hue.displayName) accent on a filled button and a count pill."
     }
 
     /// `PaneActionBar`'s transfer button, to the property: it passes
@@ -121,6 +140,13 @@ struct AccentPreviewStrip: View {
         // the colour they are choosing. Blocking hit-testing keeps it at full strength and also
         // keeps the pointer from lifting/re-inking a button that has nothing to do.
         .allowsHitTesting(false)
+        // …and out of the keyboard focus order too. `allowsHitTesting` only blocks the POINTER,
+        // and `accessibilityElement(children: .ignore)` on the strip only hides the button from
+        // assistive readers — Full Keyboard Access still tabbed onto it, landing focus on a
+        // control VoiceOver was just told does not exist, where Space fired the empty action.
+        // `.focusable(false)` closes exactly that third path. Outside the button style on
+        // purpose: styles decorate focus, they do not grant it, so the modifier composes.
+        .focusable(false)
     }
 
     /// The differences count pill: `StatPill`'s semantic path, which is a number, a label and the
