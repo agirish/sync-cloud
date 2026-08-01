@@ -70,10 +70,15 @@ struct AccentColorSection: View {
 /// A live sample of the accent in use: the pane action bar's filled transfer button beside the
 /// differences count pill, on a neutral ground.
 ///
-/// Both chips are the SHIPPING components, not lookalikes — `ActionBarButtonStyle` at `.primary`
-/// and `SemanticCapsuleStyle.onAccent`, reached through Design. That is the point of the strip
-/// rather than a nicety: a hand-drawn preview would be free to show a livelier pairing than the
-/// app can actually render, and the pairing is exactly what a user is here to judge.
+/// Both chips are the SHIPPING surfaces, not lookalikes — `actionBarButtonSurface(.primary…)`,
+/// which is the paint `ActionBarButtonStyle` puts on a real button, and `semanticCapsuleSurface`
+/// with `SemanticCapsuleStyle.onAccent`. That is the point of the strip rather than a nicety: a
+/// hand-drawn preview would be free to show a livelier pairing than the app can actually render,
+/// and the pairing is exactly what a user is here to judge.
+///
+/// Both are surfaces rather than controls, which is the other half of the design: neither chip is
+/// a `Button`, so neither is reachable by pointer, keyboard, or assistive reader by construction
+/// rather than by modifiers that switch those paths off one at a time.
 ///
 /// **Previews the SELECTED hue, never the hovered one.** Hover-preview is livelier and was
 /// rejected: the strip would then show something that is not the current setting, so a glance
@@ -140,45 +145,37 @@ struct AccentPreviewStrip: View {
     /// `.primary` deepens its tint internally, so handing it the already-deepened fill is a no-op
     /// rather than a double-darkening — `AccentFill.deepened` never lightens and returns an
     /// already-dark colour unchanged. Passing the deepened value anyway keeps this call readable
-    /// as "the fill the app paints", and keeps the hover shadow the same colour the app's is.
+    /// as "the fill the app paints".
+    ///
+    /// **There is no `Button` here, by construction.** The chip is a picture of a control, and the
+    /// only thing that makes it one is `ActionBarButtonSurface` — the paint `.actionBar(.primary…)`
+    /// puts on a real button, pinned at its resting phase. A view that was never a button has no
+    /// input path to close.
+    ///
+    /// That replaced three modifiers talking an inert `Button` out of three separate paths:
+    /// `allowsHitTesting(false)` for the pointer, the strip's `accessibilityElement(children:
+    /// .ignore)` for assistive readers, and `.focusable(false)` for Full Keyboard Access, which
+    /// otherwise tabbed onto a control VoiceOver was just told did not exist and fired its empty
+    /// action on Space. The last one was the reason to do this: it was the repo's only
+    /// `.focusable(false)`, its behaviour could only be trusted rather than asserted (an offscreen
+    /// `NSHostingView` has an empty accessibility tree and no key window to walk focus through),
+    /// and a MANUAL_CHECKS.md entry was carrying the whole verification. None of the three is
+    /// needed now, and none can silently stop working.
+    ///
+    /// Note it is still not `.disabled`: the surface honours `isEnabled` and would drop to
+    /// `ActionBarMetrics.disabledOpacity`, showing a washed-out version of the colour being chosen.
+    /// It rests at full strength because nothing can press or hover it, not because it is exempt.
+    ///
+    /// The count pill below is built the same way (`semanticCapsuleSurface`, no `Button` anywhere).
+    /// Hand-drawing either one in Settings is the one thing this strip must never do — see the
+    /// type's doc comment on why both chips are the SHIPPING components rather than lookalikes.
     private var transferButton: some View {
-        Button(action: {}) {
-            // "arrow.right" is `TransferGlyph.copy(toRight:)` — spelled out because that type
-            // lives in FileExplorer, which Settings does not depend on.
-            Label("Copy 12 to iCloud", systemImage: "arrow.right")
-        }
-        .buttonStyle(.actionBar(.primary,
-                                tint: hue.accentFillColor,
-                                onTint: hue.onAccentLabelColor))
-        // Inert, but NOT `.disabled` — a disabled control drops to
-        // `ActionBarMetrics.disabledOpacity`, which would show the user a washed-out version of
-        // the colour they are choosing. Blocking hit-testing keeps it at full strength and also
-        // keeps the pointer from lifting/re-inking a button that has nothing to do.
-        .allowsHitTesting(false)
-        // …and out of the keyboard focus order too. `allowsHitTesting` only blocks the POINTER,
-        // and `accessibilityElement(children: .ignore)` on the strip only hides the button from
-        // assistive readers — Full Keyboard Access still tabbed onto it, landing focus on a
-        // control VoiceOver was just told does not exist, where Space fired the empty action.
-        // `.focusable(false)` closes exactly that third path. Outside the button style on
-        // purpose: styles decorate focus, they do not grant it, so the modifier composes.
-        //
-        // **This is a modifier whose behaviour has to be trusted, and it is not assertable
-        // here**: an offscreen `NSHostingView` has an empty accessibility tree and no key window
-        // to walk focus through, and this is the only `.focusable(false)` in the repo — the one
-        // other `.focusable` GRANTS focus. So it is verified by hand, and MANUAL_CHECKS.md
-        // ▸ "Keyboard & focus" now carries the entry; without that the promised pass has no home.
-        //
-        // The structurally-guaranteed alternative is better and is deliberately NOT taken here:
-        // this chip is a picture of a button, so rendering the label with the button's resting
-        // surface applied to a non-`Button` container would remove it from every input path by
-        // construction, with no modifier semantics to trust — exactly how the count pill below
-        // is built (`semanticCapsuleSurface`, no `Button` anywhere). That needs a resting-surface
-        // modifier on `ActionBarButtonStyle`'s side: its body renders from a
-        // `ButtonStyle.Configuration`, which has no public initializer, so the visual cannot be
-        // reached from outside a real `Button` today. Hand-drawing it in Settings instead is the
-        // one thing this strip must never do — see the type's doc comment on why both chips are
-        // the SHIPPING components rather than lookalikes.
-        .focusable(false)
+        // "arrow.right" is `TransferGlyph.copy(toRight:)` — spelled out because that type
+        // lives in FileExplorer, which Settings does not depend on.
+        Label("Copy 12 to iCloud", systemImage: "arrow.right")
+            .actionBarButtonSurface(.primary,
+                                    tint: hue.accentFillColor,
+                                    onTint: hue.onAccentLabelColor)
     }
 
     /// The differences count pill: `StatPill`'s semantic path, which is a number, a label and the
