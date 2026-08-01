@@ -476,6 +476,43 @@ public struct AutomationsLens: View {
 
 // MARK: - Rule card
 
+/// The echo-suppression decision behind `AutomationRuleCard`'s enable switch, extracted so both
+/// directions can be unit-tested.
+///
+/// The card mirrors `rule.enabled` into local `@State` (the switch needs a plain `Binding`), which
+/// means an EXTERNAL write to `rule.enabled` — an import, a bulk toggle, an undo — flows into
+/// `isEnabled` and out through its `onChange` as if the user had flipped the switch: a
+/// `setAutomationRule` model write the user never made. This is the same `lastApplied` idiom the
+/// launch-at-login toggle uses (`SettingsView.lastAppliedLaunchAtLogin`): remember the last value
+/// set programmatically and let `onChange` skip its echo, while a genuine gesture — which by
+/// definition moves the switch AWAY from the last applied value — still goes through.
+struct AutomationToggleEchoGuard {
+    /// The last value `isEnabled` is known to hold for a non-gesture reason (init, an external
+    /// model write we mirrored, or a user gesture we already forwarded).
+    private var lastApplied: Bool
+
+    init(enabled: Bool) {
+        lastApplied = enabled
+    }
+
+    /// The switch moved to `value`. Returns whether that is a genuine gesture to forward to
+    /// `onToggle` (false when it is the echo of a mirrored external write).
+    mutating func shouldForwardSwitchChange(to value: Bool) -> Bool {
+        guard value != lastApplied else { return false }
+        lastApplied = value
+        return true
+    }
+
+    /// `rule.enabled` changed to `value` while the switch shows `mirror`. Returns whether the
+    /// mirror must be re-synced; a `true` also marks the resulting `isEnabled` write as
+    /// programmatic so `shouldForwardSwitchChange` swallows its echo.
+    mutating func shouldResyncMirror(to value: Bool, mirror: Bool) -> Bool {
+        guard value != mirror else { return false }
+        lastApplied = value
+        return true
+    }
+}
+
 /// One automation as a card: enable toggle, name, its conditions as chips, its destination as a pill,
 /// and Preview-this-rule / Edit / Delete.
 private struct AutomationRuleCard: View {
@@ -496,6 +533,9 @@ private struct AutomationRuleCard: View {
     /// Mirrors `rule.enabled` so the switch binds to local `@State` (a plain `Binding`) rather than a
     /// captured closure — the latter trips Swift 6's `@Sendable`-setter check on `Binding(set:)`.
     @State private var isEnabled: Bool
+    /// Tells a user's flip apart from the echo of an external `rule.enabled` write — see
+    /// `AutomationToggleEchoGuard`.
+    @State private var echoGuard: AutomationToggleEchoGuard
 
     init(rule: AutomationRule, accent: Color, canPreview: Bool, previewHelp: String,
          densityMetrics: ListDensityMetrics,
@@ -511,6 +551,7 @@ private struct AutomationRuleCard: View {
         self.onEdit = onEdit
         self.onDelete = onDelete
         _isEnabled = State(initialValue: rule.enabled)
+        _echoGuard = State(initialValue: AutomationToggleEchoGuard(enabled: rule.enabled))
     }
 
     private var completeConditions: [AutomationCondition] { rule.conditions.filter { $0.isComplete } }
@@ -525,9 +566,16 @@ private struct AutomationRuleCard: View {
                 // switches — name whose rule this one enables.
                 .accessibilityLabel("Rule \(rule.name.isEmpty ? "Untitled rule" : rule.name) enabled")
                 .padding(.top, 1)
-                .onChange(of: isEnabled) { _, newValue in onToggle(newValue) }
+                // Forward genuine gestures only: the resync below routes external `rule.enabled`
+                // writes through this same onChange, and echoing those back out as `onToggle`
+                // turned every import/bulk-toggle/undo into a model write the user never made.
+                .onChange(of: isEnabled) { _, newValue in
+                    if echoGuard.shouldForwardSwitchChange(to: newValue) { onToggle(newValue) }
+                }
                 .onChange(of: rule.enabled) { _, newValue in
-                    if newValue != isEnabled { isEnabled = newValue }
+                    if echoGuard.shouldResyncMirror(to: newValue, mirror: isEnabled) {
+                        isEnabled = newValue
+                    }
                 }
             VStack(alignment: .leading, spacing: 7) {
                 nameRow
