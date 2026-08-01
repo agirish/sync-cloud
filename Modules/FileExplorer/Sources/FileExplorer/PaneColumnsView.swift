@@ -49,9 +49,10 @@ struct PaneColumnsView: View {
     /// the same reason `onNavigate` is: clearing the selection is a two-pane decision (the pane
     /// holding it may not be this one) and only the host can see both sides.
     let onBackgroundDeselect: (Int?) -> Void
-    /// The download request this pane is watching, so that one row polls for its content
-    /// landing. Owned by the hosting `FileTreeView`, which holds the pane's single (pane-scoped)
-    /// subscription — see `FileRowView.awaitingDownloadID`.
+    /// The download request this pane is watching. Owned — and polled — by the hosting
+    /// `FileTreeView`, which holds the pane's single (pane-scoped) subscription; read here by the
+    /// row whose file it names (`FileRowView.awaitingDownloadID`) and by the preview column showing
+    /// that file (`ColumnPreviewColumn.awaitingDownloadPath`).
     var awaitingDownload: CloudDownloadRequest?
     /// The pane's resolved row fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
@@ -177,7 +178,8 @@ struct PaneColumnsView: View {
                 ColumnPreviewColumn(
                     item: previewTarget,
                     actionBarClearance: placement == nil ? 0 : ColumnPreviewColumn.actionBarClearance,
-                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource))
+                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource),
+                    awaitingDownloadPath: awaitingDownload?.path)
                     .frame(width: previewWidth)
                     // On the preview's LEADING edge, and it resizes the preview. This is the drag
                     // that could not work while the preview lived in the scroll view: pinned to the
