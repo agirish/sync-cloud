@@ -38,6 +38,10 @@ public struct DifferencesView: View {
     /// Hover state for the count pill: a slight grow signals the pill is clickable (post-scan only).
     @State private var isCountPillHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Read here rather than inside `LabelMetrics` because a `ScaledFont` cannot see the
+    /// environment — the same reason `Text.scaledFont(_:scale:)` takes the scale as an argument.
+    /// The header ladder measures its rungs at this scale.
+    @Environment(\.appFontScale) private var appFontScale
     /// Drives the count pill's freshness palette. Read from the environment rather than from the
     /// Theme setting, so it follows System just as well as an explicit Light/Dark.
     @Environment(\.colorScheme) private var colorScheme
@@ -219,13 +223,7 @@ public struct DifferencesView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .tint(glassHue.accentColor)
-            // Match the top action bar's glass pills: capsule shape, the taller `.large` control
-            // height, but the label font pinned to the top bar's ~13pt `.body` (otherwise `.large`
-            // would scale the text up too). Result: same pill height AND same text size.
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
-            .scaledFont(.body)
+            .modifier(HeaderCardChrome(tint: glassHue.accentColor))
             .bottomSectionCard(surfaceStyle, level: glassLevel, hue: glassHue, tint: surfaceTint)
 
             // Table card: review card / progress (during ops) sits above the differences table.
@@ -346,7 +344,9 @@ public struct DifferencesView: View {
     /// fact, because a single Scan drives both panes, so they could only ever differ mid-scan.
     /// It lives here now: the count and its age are one statement ("576 differences, as of 29
     /// minutes ago"), and staleness lands on the very number it undermines.
-    private struct CountPillDressing {
+    /// Internal rather than private because `standardHeaderRow` takes one, and that row is internal
+    /// so `HeaderLadderTests` can render the row the ladder prices.
+    struct CountPillDressing {
         let semantic: SemanticCapsuleStyle
         /// The family the AGE RUN wears, or nil when there is nothing to report. The capsule around
         /// it is the accent in every state — this is the only thing freshness changes.
@@ -532,44 +532,149 @@ public struct DifferencesView: View {
     /// read as a fourth button, and the search and collapse controls sit behind a hairline because
     /// they change nothing on disk.
     ///
-    /// `ViewThatFits` picks the widest row that fits; see `HeaderCompaction` for the ladder. The
-    /// gap between the scope and action zones states a `minLength` so the seam stays visible on a
+    /// The rung is **computed**, not searched; see `HeaderLadder` for why, and for the arithmetic.
+    /// The gap between the scope and action zones states a `minLength` so the seam stays visible on a
     /// full row — not to make the ladder work, which it does with a bare `Spacer()` too: a Spacer's
     /// ideal width is its minLength, so a candidate row reports a finite width to compare against
     /// despite being infinitely flexible afterwards. `ActionBarLadderTests` pins that behaviour,
     /// since the intuition runs the other way and a regression there would clip instead of shed.
+    ///
+    /// The whole row sits inside `withScanFreshness` rather than just the count pill, and that hoist
+    /// is load-bearing rather than tidying. The pill's age run ("29m ago", and the inset capsule it
+    /// grows when the scan goes stale) is worth up to 12pt of the row's width, and it changes on a
+    /// 30s `TimelineView` tick that does NOT re-run this `body`. With the ladder measured out here
+    /// the rung would have been computed against an age the pill had since stopped drawing; measured
+    /// inside, the arithmetic and the pill always see the same `dressing`.
     private func standardHeader(targets: DifferenceActionTargets, sorted: [FileDifference],
                                 sections: [DifferenceGrouping.Section]) -> some View {
-        // One row per `HeaderCompaction` case, widest first. Spelled out rather than looped:
-        // `ViewThatFits` counts a `ForEach` as a SINGLE child, so a loop here would collapse the
-        // whole ladder into one candidate and defeat the mechanism.
+        withScanFreshness { dressing in
+            let ladder = HeaderLadder(
+                facts: headerFacts(dressing: dressing, targets: targets, sections: sections),
+                scale: appFontScale)
+            GeometryReader { proxy in
+                // `.leading` is (leading, centre): a `GeometryReader` parks its content in its
+                // top-left corner, where the row used to take the card's own leading alignment and
+                // the vertical centring of the height it is pinned to below.
+                hedged(ladder.rung(fitting: proxy.size.width), ladder,
+                       dressing: dressing, targets: targets, sorted: sorted, sections: sections)
+                    .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+            }
+            // A `GeometryReader` reports nothing about its content and is greedy in BOTH axes, so the
+            // two things the `ViewThatFits` it replaced *did* report have to be restated: the
+            // narrowest rung's width, which is what the card reserves before anything may squeeze the
+            // row, and a height — without which this row would stretch to fill the card and the card
+            // would grow with it. The height is `ActionBarMetrics.height` because the filter menu is
+            // an action-bar capsule and is on the row at every rung, so it is the row's height
+            // authority at every width; `HeaderLadderTests.theRowIsAlwaysTheActionBarHeight` pins
+            // that against the drawn row at every rung and every font scale.
+            .frame(minWidth: ladder.width(of: ladder.terminal),
+                   minHeight: ActionBarMetrics.height,
+                   maxHeight: ActionBarMetrics.height)
+        }
+        // OUTSIDE `withScanFreshness`, and that placement is the whole point. It rode on
+        // `countPillToggle` until the row moved inside the TimelineView; the reasoning is unchanged
+        // and it has to stay out here to keep holding.
         //
-        // That makes the list a hand-maintained mirror of the enum, so `HeaderCompactionTests`
-        // asserts the two have the same length — add a rung and this stops compiling green rather
-        // than silently never rendering it.
-        ViewThatFits(in: .horizontal) {
-            standardHeaderRow(.full, targets: targets, sorted: sorted, sections: sections)
-            standardHeaderRow(.foldVerify, targets: targets, sorted: sorted, sections: sections)
-            standardHeaderRow(.foldReview, targets: targets, sorted: sorted, sections: sections)
-            standardHeaderRow(.shortReverse, targets: targets, sorted: sorted, sections: sections)
-            standardHeaderRow(.glyphFilter, targets: targets, sorted: sorted, sections: sections)
-            standardHeaderRow(.shortPrimary, targets: targets, sorted: sorted, sections: sections)
+        // Belt-and-braces against a `hasScanned` reset that keeps this view mounted: in practice
+        // invalidateComparisonState() also empties `differences` and unmounts us, and the remount
+        // resets this @State. Deliberately NOT wired to plain re-Compares on the same roots
+        // (hasScanned stays true): expansion persisting there is a remembered preference, not a leak.
+        //
+        // Inside the closure it was quietly disarmed for the one caller it was written for.
+        // `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and `hasScanned` in a single
+        // transaction, so `withScanFreshness` swaps its TimelineView branch for the else branch on the
+        // very change this watches — a handler torn down by its own trigger cannot be relied on to
+        // fire. Out here it hangs off the branch SWITCH rather than off either branch, and observes
+        // unconditionally.
+        .onChange(of: syncManager.hasScanned) { _, hasScanned in
+            if !hasScanned {
+                showItemCounts = false
+                isCountPillHovered = false
+            }
         }
     }
 
-    /// The compaction rungs `headerRows` actually instantiates, in the order it instantiates them.
-    /// Kept next to that `ViewThatFits` so the two are edited together, and read by
-    /// `HeaderCompactionTests` to catch a rung added to the enum but not to the view.
+    /// The computed rung, with the narrowest rung behind it as the layout engine's veto.
+    ///
+    /// The fallback is the NARROWEST rung, not the next one down: if the arithmetic ever
+    /// overestimates what fits, the bar does not step down one rung, it drops all the way to
+    /// `.shortPrimary`. That is the deliberate trade — an over-compacted row is visibly wrong and
+    /// every action stays reachable, whereas a row that overflows the card clips its trailing
+    /// controls with no symptom at all. Widening this to three children would soften the landing at
+    /// the cost of building a third toolbar on every layout pass, which is the cost this change
+    /// exists to remove.
+    ///
+    /// Branched rather than always emitting both, because at the narrowest widths the computed rung
+    /// *is* the terminal one and a `ViewThatFits` of two identical children would build the row
+    /// twice for nothing. The branch is outside the `ViewThatFits` on purpose: an `if` inside its
+    /// `ViewBuilder` is one `_ConditionalContent` child, not two, and the ladder would collapse.
+    @ViewBuilder
+    private func hedged(_ compaction: HeaderCompaction, _ ladder: HeaderLadder,
+                        dressing: CountPillDressing,
+                        targets: DifferenceActionTargets,
+                        sorted: [FileDifference],
+                        sections: [DifferenceGrouping.Section]) -> some View {
+        if compaction >= ladder.terminal {
+            standardHeaderRow(ladder.terminal, facts: ladder.facts, dressing: dressing,
+                              targets: targets, sorted: sorted, sections: sections)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                standardHeaderRow(compaction, facts: ladder.facts, dressing: dressing,
+                                  targets: targets, sorted: sorted, sections: sections)
+                standardHeaderRow(ladder.terminal, facts: ladder.facts, dressing: dressing,
+                                  targets: targets, sorted: sorted, sections: sections)
+            }
+        }
+    }
+
+    /// Snapshots everything `HeaderLadder` needs to price the row, from the same values the row is
+    /// about to draw with. One place, so the measured row and the drawn row cannot describe
+    /// different headers.
+    private func headerFacts(dressing: CountPillDressing,
+                             targets: DifferenceActionTargets,
+                             sections: [DifferenceGrouping.Section]) -> HeaderLadder.Facts {
+        HeaderLadder.Facts(
+            differencesCount: syncManager.differences.count,
+            detail: dressing.detail,
+            detailIsCapsuled: dressing.detailStyle != nil,
+            chevronSymbol: CountPillChevron.symbol(hasScanned: syncManager.hasScanned,
+                                                   expanded: showItemCounts),
+            itemCountsText: (syncManager.hasScanned && showItemCounts) ? itemCountsText : nil,
+            sectionCount: sections.count,
+            filterName: selectedFilter.displayName(leftName: paneNames.left, rightName: paneNames.right),
+            isSelectionScoped: targets.isSelectionScoped,
+            targetCount: targets.targets.count,
+            verifiableCount: targets.verifiableCount,
+            copyToLeftCount: targets.copyToLeftCount,
+            copyToRightCount: targets.copyToRightCount,
+            reverseIsMajority: targets.dominantCopyDirection == .copyToLeft,
+            leftName: paneNames.left,
+            rightName: paneNames.right,
+            isMove: modifierTracker.isMoveModifierPressed,
+            showsCollapseToggle: isCollapsed != nil && reviewStore.session == nil)
+    }
+
+    /// The compaction rungs the ladder walks, in order. Read by `HeaderLadder.rung(fitting:)` to
+    /// choose one and by `HeaderCompactionTests` to catch a rung added to the enum but not here.
     static let renderedCompactionLadder: [HeaderCompaction] =
         [.full, .foldVerify, .foldReview, .shortReverse, .glyphFilter, .shortPrimary]
 
-    private func standardHeaderRow(_ compaction: HeaderCompaction,
-                                   targets: DifferenceActionTargets,
-                                   sorted: [FileDifference],
-                                   sections: [DifferenceGrouping.Section]) -> some View {
+    /// Internal, not private, so `HeaderLadderTests` can render the very row `HeaderLadder` prices.
+    /// The arithmetic is only worth anything while it is checked against this view.
+    ///
+    /// It takes `facts` — the same snapshot the ladder was priced from — rather than reading
+    /// `showItemCounts` again for the totals readout. The readout is the one run on this row whose
+    /// presence AND text both come from view state, so having the drawn string and the measured
+    /// string be literally the same value is what stops the two drifting.
+    func standardHeaderRow(_ compaction: HeaderCompaction,
+                           facts: HeaderLadder.Facts,
+                           dressing: CountPillDressing,
+                           targets: DifferenceActionTargets,
+                           sorted: [FileDifference],
+                           sections: [DifferenceGrouping.Section]) -> some View {
         HStack(spacing: 10) {
-            countPillToggle                                     // STATE
-            itemCountsReadout
+            countPillToggle(dressing)                           // STATE
+            itemCountsReadout(facts.itemCountsText)
             ActionBarDivider()
             foldAllToggle(compaction, sections: sections)       // SCOPE
             filterMenu(compaction, sections: sections)
@@ -596,8 +701,12 @@ public struct DifferencesView: View {
     /// The count pill is a toggle for the per-side item totals: click to reveal them inline,
     /// click again to collapse. No-op until a scan has run (nothing meaningful to show) —
     /// so the chevron affordance is also withheld pre-scan: no invitation on a dead control.
-    private var countPillToggle: some View {
-        withScanFreshness { dressing in
+    ///
+    /// Takes its `dressing` as an argument rather than reaching for `withScanFreshness` itself: the
+    /// header's whole row now sits inside that `TimelineView` so the ladder can price the age run it
+    /// is about to draw (see `standardHeader`), and a second, nested subscription here would tick the
+    /// pill on its own schedule.
+    private func countPillToggle(_ dressing: CountPillDressing) -> some View {
         Button {
             guard syncManager.hasScanned else { return }
             withAnimation(.easeInOut(duration: 0.15)) { showItemCounts.toggle() }
@@ -637,43 +746,28 @@ public struct DifferencesView: View {
         }
         // Two facts, two lines: what a click does, then when this was last scanned. The exact
         // timestamp only exists here — the pill's age run is bucketed and cannot answer "when?".
-        .help([syncManager.hasScanned
-               ? "\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)"
-               : "Scan to see per-side item totals",
+        .help([syncManager.hasScanned ? itemCountsText : "Scan to see per-side item totals",
                dressing.help].compactMap { $0 }.joined(separator: "\n"))
         // StatPill collapses itself to one element labeled "N Differences"; the value/hint
         // ride on the button so VoiceOver conveys the toggle state and what a click does.
         .accessibilityValue(syncManager.hasScanned ? (showItemCounts ? "expanded" : "collapsed") : "")
         .accessibilityHint(syncManager.hasScanned ? "Shows or hides the per-side item totals" : "")
-        }
-        // OUTSIDE `withScanFreshness`, and that placement is the whole point.
-        //
-        // Belt-and-braces against a `hasScanned` reset that keeps this view mounted: in practice
-        // invalidateComparisonState() also empties `differences` and unmounts us, and the remount
-        // resets this @State. Deliberately NOT wired to plain re-Compares on the same roots
-        // (hasScanned stays true): expansion persisting there is a remembered preference, not a leak.
-        //
-        // It lived inside the closure until now, which quietly disarmed it for the one caller it
-        // was written for. `invalidateDifferencesForPaneRetarget()` clears `lastScanDate` and
-        // `hasScanned` in a single transaction, so `withScanFreshness` swaps its TimelineView branch
-        // for the else branch on the very change this watches — a handler torn down by its own
-        // trigger cannot be relied on to fire. Out here it hangs off the branch SWITCH rather than
-        // off either branch, and observes unconditionally.
-        .onChange(of: syncManager.hasScanned) { _, hasScanned in
-            if !hasScanned {
-                showItemCounts = false
-                isCountPillHovered = false
-            }
-        }
     }
 
-    /// The per-side totals the count pill reveals. `hasScanned` keeps it from ever reading
-    /// "0 · 0" pre-scan, and the pill's `.help` still spells out the full text on hover when
-    /// this truncates.
+    /// The per-side totals, in the one place both the readout and the pill's tooltip read them —
+    /// and the ladder measures them.
+    private var itemCountsText: String {
+        "\(syncManager.leftItemCount.formatted()) \(paneNames.left) · "
+            + "\(syncManager.rightItemCount.formatted()) \(paneNames.right)"
+    }
+
+    /// The per-side totals the count pill reveals, or nothing when it is collapsed. `headerFacts`
+    /// owns the "is there anything to show" rule — `hasScanned` keeps it from ever reading "0 · 0"
+    /// pre-scan — and the pill's `.help` still spells out the full text on hover when this truncates.
     @ViewBuilder
-    private var itemCountsReadout: some View {
-        if syncManager.hasScanned, showItemCounts {
-            Text("\(syncManager.leftItemCount.formatted()) \(paneNames.left) · \(syncManager.rightItemCount.formatted()) \(paneNames.right)")
+    private func itemCountsReadout(_ text: String?) -> some View {
+        if let text {
+            Text(text)
                 .scaledFont(.caption)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)

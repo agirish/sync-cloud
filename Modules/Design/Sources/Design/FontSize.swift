@@ -305,6 +305,57 @@ extension ScaledFont {
     }
 }
 
+/// The AppKit side of a `ScaledFont`, for measuring text without laying it out.
+///
+/// Kept next to `resolved(scale:)` rather than derived by a caller, and for the same reason the type
+/// exists at all: `Font` is opaque, so nothing outside this file can recover the point size and
+/// weight a `ScaledFont` was built from. A measurement that restated them would be a second opinion
+/// about the font, and would keep agreeing with the drawn text only by luck.
+public extension ScaledFont {
+    /// The point size this renders at under `scale` — what an `NSImageSymbolConfiguration` needs.
+    func pointSize(scale: CGFloat) -> CGFloat {
+        FontSize.scaledPointSize(pointSize, scale: scale)
+    }
+
+    /// The `NSFont` this resolves to at `scale`.
+    ///
+    /// `monospacedDigitSystemFont` on the digits path is not a nicety: measured, "1" is 5.93pt in
+    /// the proportional face and 7.87pt in the monospaced-digit one, so a count pill measured with
+    /// the wrong face is out by 2pt per digit.
+    func nsFont(scale: CGFloat) -> NSFont {
+        let size = pointSize(scale: scale)
+        let appKitWeight = Self.appKitWeight(weight)
+        if usesMonospacedDigits {
+            return NSFont.monospacedDigitSystemFont(ofSize: size, weight: appKitWeight)
+        }
+        if design == .monospaced {
+            return NSFont.monospacedSystemFont(ofSize: size, weight: appKitWeight)
+        }
+        return NSFont.systemFont(ofSize: size, weight: appKitWeight)
+    }
+
+    /// The symbol weight an `Image(systemName:)` drawn in this font renders at. No `scale`
+    /// parameter: scaling changes a symbol's point size, never its weight.
+    var symbolWeight: NSFont.Weight { Self.appKitWeight(weight) }
+
+    /// `Font.Weight` is not enumerable, so this compares against its static members. Anything
+    /// unrecognised falls back to `.regular`, which is what an unspecified weight renders as.
+    private static func appKitWeight(_ weight: Font.Weight) -> NSFont.Weight {
+        switch weight {
+        case .ultraLight: return .ultraLight
+        case .thin: return .thin
+        case .light: return .light
+        case .regular: return .regular
+        case .medium: return .medium
+        case .semibold: return .semibold
+        case .bold: return .bold
+        case .heavy: return .heavy
+        case .black: return .black
+        default: return .regular
+        }
+    }
+}
+
 public extension View {
     /// Applies `font`, resized to the ambient `appFontScale`.
     ///
