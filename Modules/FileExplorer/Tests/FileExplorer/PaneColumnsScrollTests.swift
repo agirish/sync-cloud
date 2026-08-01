@@ -1045,9 +1045,17 @@ import Sync
         // hop won the race in time. Recency decay is WheelGestureTrackerTests' subject, pinned
         // there with the same explicit timestamps; this test's subject is the enforcement
         // plumbing — notification → coalesced hop → revert to the held rest.
+        //
+        // ATTRIBUTED to this stack, deliberately. Driving `ingest` with no window took the
+        // unattributed `return true` fallback instead, so the whole scoped path — window match,
+        // scroll-view containment — was untested from the enforcement side and this test would
+        // have passed with it removed entirely.
+        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
         let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: window, locationInWindow: inStack, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: window, locationInWindow: inStack, at: ahead + 0.01)
 
         // One leaked horizontal delta strands the stack sideways.
         clip.setBoundsOrigin(NSPoint(x: 9, y: 0))
@@ -1092,10 +1100,15 @@ import Sync
         // revert to 0 comes back half a point off, forever. Dated ahead of the wall clock like
         // the leaked-drift test above, so the "engaged and fought" bound below cannot starve
         // when a loaded main queue drains the enforcement hops past the lock's real recency
-        // window.
+        // window. Attributed to this stack for the same reason the test above is: the ONLY
+        // regression net for the depth-1839 recursion crash must run through the scoped path the
+        // app actually takes, not the unattributed fallback.
+        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
         let ahead = CFAbsoluteTimeGetCurrent() + 3600
-        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0, at: ahead)
-        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12, at: ahead + 0.01)
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: window, locationInWindow: inStack, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: window, locationInWindow: inStack, at: ahead + 0.01)
         // Counted from here: mounting alone racks up setBoundsOrigin calls, and a lower bound
         // that includes them held even with enforceHold's revert deleted (a mutation run
         // proved it).
