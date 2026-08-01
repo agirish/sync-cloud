@@ -257,10 +257,13 @@ import Sync
         return found
     }
 
-    /// Mounts the pane at `paneWidth` with `depth + 1` columns open, after the drill's own
-    /// auto-scroll has settled.
-    private func mount(paneWidth: CGFloat, depth: Int) async throws -> Mounted {
-        let opened = depth
+    /// Mounts the pane at `paneWidth` over a `depth`-deep tree, with `(openTo ?? depth) + 1`
+    /// columns open, after the drill's own auto-scroll has settled.
+    ///
+    /// - Parameter openTo: how far down to open, when that must be shallower than the tree is
+    ///   deep — a test that drills further has to leave itself somewhere to drill to.
+    private func mount(paneWidth: CGFloat, depth: Int, openTo: Int? = nil) async throws -> Mounted {
+        let opened = openTo ?? depth
         let box = Box()
         let defaults = ScratchDefaults("column-preview-reveal")
         let tree = Self.tree(depth: depth)
@@ -663,6 +666,63 @@ import Sync
 
         #expect(await maxOriginDrift(mounted, from: 0) == 0,
                 "narrowing the preview scrolled a stack the user had deliberately scrolled back")
+    }
+
+    /// The reveal's 0.25s retry must speak for the stack as it is when the retry RUNS.
+    ///
+    /// Resolving the target once at fire time let a retry scroll to a column that had stopped
+    /// being the deepest one: drill a→b at t=0 (attempts at t=0 and t=0.25), drill b→c at t=0.10
+    /// (t=0.10 and t=0.35), and the t=0.25 retry aimed at b. b is still a real, non-last column,
+    /// so that is no no-op — the stack visibly jerked BACKWARDS a column's width until t=0.35
+    /// corrected it.
+    ///
+    /// Measured as MONOTONICITY, because that is what the defect breaks and what a final-position
+    /// assertion cannot see: both drills move the stack forward, so a correct run never retreats,
+    /// and the stale retry is the only thing that can make it.
+    @Test func testALateRetryFollowsTheStackAsItIsWhenItRuns() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        // Three 210pt columns fit a 690pt pane, so nothing has revealed yet — every point of
+        // movement below belongs to one of the two drills.
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        // The gap is not a race: the second drill is a main-queue continuation with an earlier
+        // deadline than the first reveal's retry, so it drains first however loaded the machine.
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        mounted.box.browsePath = Self.browsePath(depth: 4)
+
+        // Queued, not timed — same reason as `maxOriginDrift`. Past both retries and their
+        // animations.
+        let marker = Marker()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.6) {
+            MainActor.assumeIsolated { marker.fired = true }
+        }
+        var peak = clip.bounds.origin.x
+        var worstRetreat: CGFloat = 0
+        _ = await wait(mounted.window, upTo: 30) {
+            let x = clip.bounds.origin.x
+            peak = max(peak, x)
+            worstRetreat = max(worstRetreat, peak - x)
+            return marker.fired
+        }
+        await settle(mounted)
+
+        #expect(worstRetreat <= 2,
+                "the stack walked \(worstRetreat)pt backwards mid-drill — a retry scrolled to a stack that no longer existed")
+
+        // The positive control: the drills really did travel, so the monotonicity above was not
+        // measured on a stack that never moved.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 5, "the fixture opened \(frames.count) columns, expected 5")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its viewport — nothing here could have retreated")
+        let deepest = try #require(frames.last, "no deepest column")
+        let visible = visibleSpan(mounted)
+        #expect(deepest.maxX <= visible.upperBound + 1,
+                "the drill never revealed its deepest column: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
     }
 
     /// The one case the preview's un-driven falling edge really does leave to someone else: an

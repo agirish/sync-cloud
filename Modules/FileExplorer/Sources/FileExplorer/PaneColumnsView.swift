@@ -244,8 +244,8 @@ struct PaneColumnsView: View {
             }
             .scrollDisabled(spansStack)
             // Keep the deepest column in view as you drill, like Finder.
-            .onChange(of: browsePath) { _, path in
-                revealDeepestColumn(proxy, path: path)
+            .onChange(of: browsePath) { _, _ in
+                revealDeepestColumn(proxy)
             }
             // The second driver: the preview ARRIVING — the rising edge only.
             //
@@ -297,7 +297,7 @@ struct PaneColumnsView: View {
             // `ColumnPreviewRevealTests` so the rail cannot regress the day someone drills deeper.
             .onChange(of: showsPreview) { _, isShowing in
                 guard isShowing else { return }
-                revealDeepestColumn(proxy, path: browsePath)
+                revealDeepestColumn(proxy)
             }
             // And once the preview's own divider settles. Growing the preview walks the seam left
             // across the deepest column, re-hiding exactly what the driver above reveals.
@@ -321,7 +321,7 @@ struct PaneColumnsView: View {
             // the falling edge of `showsPreview` was making.
             .onChange(of: storedPreviewWidth) { previous, current in
                 guard showsPreview, current > previous else { return }
-                revealDeepestColumn(proxy, path: browsePath)
+                revealDeepestColumn(proxy)
             }
             // And once the COLUMN divider settles, for the same reason: widening the columns
             // grows every column in the stack, pushing the deepest column's trailing edge right
@@ -354,7 +354,7 @@ struct PaneColumnsView: View {
             // surprise.
             .onChange(of: storedColumnWidth) { previous, current in
                 guard current > previous else { return }
-                revealDeepestColumn(proxy, path: browsePath)
+                revealDeepestColumn(proxy)
             }
         }
     }
@@ -378,6 +378,17 @@ struct PaneColumnsView: View {
     /// first one worked — `scrollTo` on a stack already at its trailing edge moves nothing — and is
     /// the difference between "usually reveals the column" and "reveals it".
     ///
+    /// **Each attempt resolves its own target**, from `browsePath` as it reads when that attempt
+    /// runs — never from the stack the reveal was scheduled against. Resolving once at fire time
+    /// let the 0.25s retry speak for a stack that no longer existed: drill a→b at t=0 (attempts at
+    /// t=0 and t=0.25), drill b→c at t=0.10 (t=0.10 and t=0.35), and the t=0.25 retry scrolled to
+    /// b's trailing edge. That is not a harmless no-op — b is still a real, non-last column, so
+    /// the stack visibly jerked BACKWARDS a column's width until t=0.35 put it right. Four drivers
+    /// now schedule these, so more paths reach that overlap, not fewer. Reading the binding from
+    /// the deferred block is the same live read `DeferredColumnNavigation`'s staleness check makes
+    /// one screen below, for the same reason: the block carries no memory of what happened after
+    /// it was queued, so it must ask.
+    ///
     /// The window it opens is the price: a deliberate scroll made within `revealRetryDelay` of
     /// opening a preview gets overridden. That is a quarter-second after the click that raised the
     /// preview, aimed at the column the user just clicked in, so the correction lands where they
@@ -389,11 +400,12 @@ struct PaneColumnsView: View {
     /// `columnWidth`.
     /// The animation is taken from the environment rather than written here so a host that cannot
     /// run one can say so — see `paneColumnRevealAnimation`. Read once, before the closure, so both
-    /// attempts scroll with the value this update carried.
-    private func revealDeepestColumn(_ proxy: ScrollViewProxy, path: PaneBrowsePath) {
-        guard let deepest = path.columnDirectories(treeRoot: treeRoot).last else { return }
+    /// attempts scroll with the value this update carried — the opposite of the TARGET, which each
+    /// attempt re-resolves for the reason given above.
+    private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         func scroll() {
+            guard let deepest = browsePath.columnDirectories(treeRoot: treeRoot).last else { return }
             withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
         }
         DispatchQueue.main.async(execute: scroll)
