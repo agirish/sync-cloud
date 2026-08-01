@@ -7,6 +7,13 @@ validates the exact commit being tagged), on a self-hosted runner
 10x on a private repo, and the hosted toolchain lags the one this repo is
 developed against).
 
+**A red run is not automatically a red commit.** The runner is this Mac, and several
+mechanisms here fail tests for reasons unrelated to the code — throttled CoreAnimation on
+an unattended machine, fixed pumps under contention, process-wide state across parallel
+suites. Before bisecting, work through
+[flaky-tests.md](flaky-tests.md#first-is-it-a-flake-or-a-regression); it records the
+mechanisms this repo has actually hit and how to tell one from a regression.
+
 ## Scope
 
 - All seven packages: `Modules/{Sync, Events, Settings, Design, Dashboard,
