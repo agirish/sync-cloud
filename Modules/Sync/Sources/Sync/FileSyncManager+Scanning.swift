@@ -301,6 +301,32 @@ extension FileSyncManager {
     /// Nothing is lost by waiting: an orphan is still an orphan at the next refresh, and only
     /// a quiescent moment can tell an orphan from a staging file in use.
     ///
+    /// Deliberately outside `enqueueFileOperation`, and deliberately does NOT bump
+    /// `fileOperationsEpoch` — this is the one filesystem write in the app that is neither, and
+    /// that is a decision, not an oversight. The epoch exists so the scan-time checksum pass
+    /// (`autoVerifySameSizePairs`) can tell that something REWROTE the bytes it hashed: a verdict
+    /// taken before a copy/move/replace is a false claim about the file now sitting at that path,
+    /// and folding it into `verifiedSameDifferenceIds` hides a real difference. A removal cannot
+    /// produce that failure. The sweep's only mutation is `trashItem`, a rename of a whole
+    /// artifact away from its path: it never creates, truncates, or overwrites, so it cannot
+    /// touch the bytes behind any OTHER path, and against a path it does take, the hash either
+    /// fails outright (`nil`, never counted identical) or completes against the inode it already
+    /// opened — a true statement about the bytes that were there. No sequence of removals turns a
+    /// genuinely differing pair into an "identical" verdict, which is the only thing the epoch
+    /// defends against.
+    ///
+    /// Joining in would cost real behaviour for that non-problem. This runs at the tail of EVERY
+    /// refresh (`refreshTreesAndScan`), the same moment the checksum pass is hashing — the pass is
+    /// spawned unstructured a few lines earlier, inside the `scanDirectories` this sweep follows —
+    /// so a bump here would discard that batch on essentially every refresh that finds an orphan
+    /// on disk, and nothing pins the order of the two, so it would do so nondeterministically.
+    /// Routing it through `enqueueFileOperation` is worse still: the non-zero
+    /// `activeFileOperationsCount` would bounce the user's own Verify All ("Wait for the current
+    /// operation to finish before verifying") and hold the app-level quit guard, and the queue's
+    /// completion handler sends `refreshSubject` — a whole extra double-pane walk and scan for
+    /// background hygiene nobody asked for. Pinned by
+    /// `AutoVerifyOnScanTests.testOrphanSweepDuringTheHashDoesNotDiscardTheBatch`.
+    ///
     /// - Returns: Whether the sweep was allowed to look. Removal itself is detached, so this is
     ///   the only part of the decision a caller (or a test) can observe synchronously — without
     ///   it, "nothing was swept" and "nothing has been swept YET" are indistinguishable, and a
