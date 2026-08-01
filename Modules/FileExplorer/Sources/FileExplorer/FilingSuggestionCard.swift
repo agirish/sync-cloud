@@ -19,6 +19,10 @@ struct FilingSuggestionCard: View {
     var onPreview: (() -> Void)? = nil
     /// Reject the current folder and get a different suggestion. nil hides the button.
     var onTryAnother: (() -> Void)? = nil
+    /// True while this card's re-ask is out at the classifier. The manager ignores a re-entrant
+    /// "Try another" for the same card, so without this the second click is silently inert — the
+    /// button must look busy rather than look ready and do nothing.
+    var isTryAnotherBusy: Bool = false
 
     @AppStorage(LiquidGlass.hueKey) private var glassHueRaw: String = LiquidGlassHue.blue.rawValue
     private var hueAccent: Color { (LiquidGlassHue(rawValue: glassHueRaw) ?? .blue).accentColor }
@@ -309,6 +313,7 @@ struct FilingSuggestionCard: View {
             if best != nil, let onTryAnother {
                 Button(action: onTryAnother) { Label("Try another", systemImage: "arrow.triangle.2.circlepath") }
                     .controlSize(.small)
+                    .disabled(isTryAnotherBusy)
                     .help("Reject this folder and suggest a different one — remembered for next time")
             }
             if let onPreview {

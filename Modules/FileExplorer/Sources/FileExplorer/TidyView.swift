@@ -1368,7 +1368,8 @@ public struct TidyView: View {
                 syncManager.dismissFilingSuggestion(suggestion)
             },
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
-            onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } }
+            onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
+            isTryAnotherBusy: syncManager.filingTryAnotherInFlight.contains(suggestion.id)
         )
     }
 

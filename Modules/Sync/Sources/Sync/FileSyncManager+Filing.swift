@@ -654,6 +654,13 @@ extension FileSyncManager {
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []
         filingSessionRejections = [:]
+        // The re-ask guard too. `tryAnotherFolder` releases its own id in a `defer`, but only if
+        // it returns: `FilingClassifier` has no timeout, so a round-trip that never comes back
+        // leaves the id latched forever and every later "Try another" for that card is a silent
+        // no-op. Clearing here is the recovery hatch — switching providers (or rescanning) is
+        // what the user reaches for when a card stops responding, and the suggestions those ids
+        // belong to are being thrown away on this same line anyway.
+        filingTryAnotherInFlight = []
     }
 
     // MARK: Apply
