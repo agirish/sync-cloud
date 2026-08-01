@@ -533,6 +533,12 @@ extension FileSyncManager {
     /// re-asks the backend for a genuinely different folder (excluding everything rejected).
     public func tryAnotherFolder(for suggestion: FilingSuggestion) async {
         guard let rejected = suggestion.best else { return }
+        // One re-ask per card at a time: the button fires an unstructured Task per click, and a
+        // second click while the classifier is out would start a second round-trip whose
+        // late-returning result overwrote the first's. Re-entrant calls for the same suggestion
+        // are ignored — the first click's answer is the one the card shows.
+        guard filingTryAnotherInFlight.insert(suggestion.id).inserted else { return }
+        defer { filingTryAnotherInFlight.remove(suggestion.id) }
         // The persisted (token-keyed) rejection is best-effort — token-less filenames can't store
         // one. The session set, keyed by file path, is what guarantees the click always takes
         // effect: the rejected folder never comes back for this file, whatever its name.
@@ -563,6 +569,14 @@ extension FileSyncManager {
             replaceFilingSuggestion(suggestion.id, candidates: [])   // card falls back to "Choose a folder…"
             return
         }
+        // Snapshot the cached folder sets at the same point `root` was validated: a Filing scan
+        // of another provider (or `clearFiling()`) during the classifier round-trip swaps or
+        // empties them, and reading the live properties after the await would label the verdict
+        // against the WRONG provider's folders — an emptied set marks EVERY segment new, so the
+        // "Creates N new folders." confirmation lies. Everything after the await uses only
+        // these locals, which are consistent with the validated `root` by construction.
+        let taxonomyFolders = filingLastTaxonomyFolders
+        let existingFoldersSnapshot = filingLastExistingFolders
         // "Try another" is a re-ask, not a scan, so it may only BORROW the status line while the
         // Filing lens is idle. Writing it unconditionally overwrote a running rescan's own phase
         // text, and the `defer` then blanked the line while that scan was still going — leaving the
@@ -584,11 +598,12 @@ extension FileSyncManager {
                                        ext: (suggestion.fileName as NSString).pathExtension.lowercased(),
                                        year: Self.modificationYear(suggestion.modificationDate),
                                        contentSnippet: nil, excludedRelativePaths: excluded)
-        let verdicts = await classifier(filingLastTaxonomyFolders, [file])
+        let verdicts = await classifier(taxonomyFolders, [file])
         // Mark new-vs-existing against the FULL folder set (uncapped), so a real folder beyond the
         // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
-        // to the classifier if the full set wasn't captured.
-        let existingFolders = filingLastExistingFolders.isEmpty ? Set(filingLastTaxonomyFolders) : filingLastExistingFolders
+        // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
+        // see above.
+        let existingFolders = existingFoldersSnapshot.isEmpty ? Set(taxonomyFolders) : existingFoldersSnapshot
         if let verdict = verdicts[suggestion.filePath],
            let dest = FilingEngine.destination(from: verdict, providerRoot: root,
                                                existingRelative: existingFolders),
