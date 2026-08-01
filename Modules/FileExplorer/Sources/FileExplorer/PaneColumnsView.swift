@@ -266,15 +266,28 @@ struct PaneColumnsView: View {
             // - `PaneColumnsOverscrollReturn` cannot. Narrowing the clip GROWS the legal scroll
             //   range, so the stale origin stays legal and `legalOrigin` finds nothing to clamp.
             //
-            // The FALLING edge is deliberately NOT driven. Closing the preview grows the
-            // viewport, so a manually scrolled-back origin is usually still legal, and the right
-            // behavior is to stay exactly where the user put it — this handler used to reveal
-            // unconditionally, which yanked the whole stack to the deepest column on every
-            // preview close and clobbered that scroll-back. The one case a close does break —
-            // an origin the grown viewport pushed out of range, i.e. the stack was resting at
-            // its far end — is exactly `PaneColumnsOverscrollReturn`'s clamp: it lands after
-            // 0.14s of quiescence plus a 0.25s animation, a bounce rather than an instant snap,
-            // which is the price of never jumping a legal origin the user chose.
+            // The FALLING edge is deliberately NOT driven — the first application of THE RULE the
+            // three geometry drivers below all follow:
+            //
+            //   **Reveal only on the edge that can newly OCCLUDE the deepest column** — the
+            //   stack's content growing, or its viewport shrinking. The opposite edge can only
+            //   ever un-hide content, so there is nothing for a reveal to correct there, and
+            //   firing anyway force-scrolls a stack the user may have deliberately scrolled back.
+            //
+            // Closing the preview grows the viewport, so a manually scrolled-back origin is
+            // usually still legal, and the right behavior is to stay exactly where the user put
+            // it — this handler used to reveal unconditionally, which yanked the whole stack to
+            // the deepest column on every preview close and clobbered that scroll-back.
+            //
+            // The one case a close does break is an origin the grown viewport pushed out of
+            // range, i.e. the stack was resting at its far end. That is corrected by the clip
+            // itself: `NSClipView` re-constrains its bounds when its frame grows, so the stack
+            // lands on the nearest legal origin immediately. This comment used to hand the case
+            // to `PaneColumnsOverscrollReturn`'s clamp and describe a 0.14s-quiescence bounce;
+            // that is not what happens here — measured by deleting `legalOrigin`'s clamp, after
+            // which `ColumnPreviewRevealTests`' close test still passes. The watchdog is the
+            // backstop for the clip that does NOT self-correct (a phase-less gesture's leftovers),
+            // and `PaneColumnsOverscrollReturnCycleTests` pins it against exactly this shape.
             //
             // Reported as "Tidy works, Compare doesn't". That was pure geometry, not two code
             // paths — a full-width rail has room to spare after the preview takes its 420pt, so a
@@ -301,8 +314,13 @@ struct PaneColumnsView: View {
             // the Tidy rail): ending a drag in one pane fired this handler in every pane, and a
             // pane whose preview is hidden had its viewport untouched by that drag — revealing
             // there force-scrolled a stack the user may have deliberately scrolled back.
-            .onChange(of: storedPreviewWidth) { _, _ in
-                guard showsPreview else { return }
+            //
+            // And gated on the GROWING edge, per THE RULE above: a drag that NARROWS the preview
+            // hands the stack's viewport points back, which can only un-hide the deepest column,
+            // so there is nothing to correct and a reveal there is the same unasked-for scroll
+            // the falling edge of `showsPreview` was making.
+            .onChange(of: storedPreviewWidth) { previous, current in
+                guard showsPreview, current > previous else { return }
                 revealDeepestColumn(proxy, path: browsePath)
             }
             // And once the COLUMN divider settles, for the same reason: widening the columns
@@ -317,14 +335,25 @@ struct PaneColumnsView: View {
             // width is also one shared key, but it changes the CONTENT geometry of every pane's
             // stack — a preview-less pane's deepest column is pushed past the pane edge by the
             // same drag — so every pane has a real occlusion to correct, and firing everywhere
-            // is legitimate. An occlusion pre-check ("skip when the deepest column is already
-            // fully visible") was considered and rejected as unobservable: SwiftUI clamps clip
-            // origins to the legal band, so "deepest column fully visible" coincides exactly
-            // with "already at the reveal's target", where `scrollTo` moves nothing anyway. The
-            // honest residual trade-off: a pane whose user scrolled back (deepest column
-            // occluded by choice) is brought to its deepest column when any pane's column
-            // divider commits — the same trade the preview divider's driver makes.
-            .onChange(of: storedColumnWidth) { _, _ in
+            // is legitimate.
+            //
+            // Gated on the GROWING edge, per THE RULE above. NARROWING the columns shrinks every
+            // stack's content, which can only reduce occlusion: measured, four 300pt columns in a
+            // 690pt pane are 1200pt of content, and a drag down to 260 leaves 1040 — nothing that
+            // was visible is hidden by it. Firing anyway yanked a pane the user had scrolled back
+            // to x=0 forward to x=350, from a drag made in the OTHER pane, which is precisely the
+            // asymmetry the `showsPreview` driver above was fixed for.
+            //
+            // What is deliberately NOT here is an occlusion pre-check ("skip when the deepest
+            // column is already fully visible"). The edge guard is the cheap, observable half of
+            // that idea; the rest would need the laid-out column frames, which this handler
+            // cannot see. The honest residual trade-off it leaves: a pane whose user scrolled
+            // back (deepest column occluded by choice) is still brought to its deepest column
+            // when any pane's column divider commits WIDER — the same trade the preview
+            // divider's driver makes, and pinned as a test so it stays a decision rather than a
+            // surprise.
+            .onChange(of: storedColumnWidth) { previous, current in
+                guard current > previous else { return }
                 revealDeepestColumn(proxy, path: browsePath)
             }
         }
