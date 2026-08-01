@@ -283,6 +283,112 @@ import Design
         #expect(ladder.height(forRung: 0) == PaneNavMetrics.pill(.small).height + 6)
     }
 
+    // MARK: - The searched ladder's coverage
+
+    /// The default arrangement plus six fixed spaces — a bar the palette can build today, and the
+    /// shape that broke the old searched ladder: spacers are exempt from the duplicate rule, so
+    /// they run `maxDepth` past the nine rungs the old ten-literal `ViewThatFits` covered.
+    private static let spacerHeavy = PaneBarArrangement(
+        PaneBarArrangement.default.items + Array(repeating: .space, count: 6))
+
+    private static func spacerHeavyLadder() -> PaneBarLadder {
+        PaneBarLadder(arrangement: spacerHeavy,
+                      available: header(nil).availableItems,
+                      ceiling: PaneBarIconSize.regular.ceiling)
+    }
+
+    /// The slot arithmetic the searched ladder's literal children are built from, checked against
+    /// the DEEPEST ladder the arrangement normalizer permits: 15 duplicate-exempt spaces beside
+    /// the pinned scan control, which is `maxDepth` 15 and so `terminal` 16.
+    ///
+    /// The old ladder declared ten literals under a comment claiming "`terminal` is at most 9 for
+    /// any arrangement the palette can build" — false exactly here, and this is the assertion that
+    /// was missing: set `searchedSlotCount` back to 10 and the coverage set loses rungs 9…15.
+    @Test func theSearchedSlotsCoverTheDeepestLadderAnyArrangementCanBuild() {
+        let worst = PaneBarArrangement(Array(repeating: PaneBarItem.space, count: 15) + [.scan])
+        #expect(worst.items.count == PaneBarArrangement.maxItems)
+
+        let ladder = PaneBarLadder(arrangement: worst, available: [.scan], ceiling: .small)
+        // The deepest terminal possible: every slot count below `terminal + 1` skips a rung here.
+        #expect(ladder.terminal == 16)
+        #expect(ladder.terminal + 1 == PaneBarLadder.searchedSlotCount)
+
+        let covered = Set((0..<PaneBarLadder.searchedSlotCount).map { ladder.searchedRung(forSlot: $0) })
+        #expect(covered == Set(0...ladder.terminal),
+                "slots cover \(covered.sorted()), ladder runs 0...\(ladder.terminal)")
+
+        // And a palette-reachable spacer-heavy bar is covered the same way, its surplus slots
+        // clamping to the terminal rung as duplicates.
+        let six = Self.spacerHeavyLadder()
+        #expect(six.terminal > 9, "\(six.terminal) — the shape that falsified the old comment")
+        let sixCovered = Set((0..<PaneBarLadder.searchedSlotCount).map { six.searchedRung(forSlot: $0) })
+        #expect(sixCovered == Set(0...six.terminal))
+    }
+
+    /// Every rung of a spacer-heavy ladder is a DIFFERENT bar — sheds one more item — right up to
+    /// the terminal. This is what makes skipping rungs 9…terminal−1 a real behaviour hole rather
+    /// than dropped duplicates: the old ladder jumped from rung 8 straight to full compaction.
+    @Test func aSpacerHeavyLadderChangesAtEveryRung() {
+        let ladder = Self.spacerHeavyLadder()
+        #expect(ladder.terminal > 9)
+
+        for rung in 1..<ladder.terminal {
+            #expect(ladder.plan(forRung: rung) != ladder.plan(forRung: rung + 1),
+                    "rungs \(rung) and \(rung + 1) draw the same bar — a duplicate inside the ladder")
+        }
+        // Rungs 0 and 1 share a plan on purpose; what changes between them is the control size.
+        #expect(ladder.plan(forRung: 0) == ladder.plan(forRung: 1))
+        #expect(ladder.controlSize(forRung: 0) != ladder.controlSize(forRung: 1))
+    }
+
+    /// The end-to-end claim, on drawn pixels: with a spacer-heavy arrangement, the no-provider
+    /// header steps through the deep rungs (9…terminal−1) at intermediate widths instead of
+    /// jumping from rung 8 to full compaction. Reverting `searchedLadder` to its ten literals
+    /// fails this — the deep rungs' spans never appear at any width.
+    ///
+    /// Only first-fit-REACHABLE rungs are demanded: the ladder is not monotonic, so a rung wider
+    /// than everything before it can never be chosen (see `theLadderIsNotMonotonicAndIsWalkedInOrder`).
+    /// The deep rungs shed controls with no spaces left on the bar (the spaces go first, by design),
+    /// so a rung's drawn span is ring-to-ring and comparable to its computed width.
+    @Test func theNoProviderHeaderStepsThroughTheDeepRungs() {
+        let defaults = ScratchDefaults("PaneBarLadderTests-spacerHeavy")
+        defaults.set(Self.spacerHeavy.encoded, forKey: PaneBar.arrangementKey)
+        defaults.set(PaneBarIconSize.regular.rawValue, forKey: PaneBar.iconSizeKey)
+        let view = Self.header(nil).defaultAppStorage(defaults)
+
+        let ladder = Self.spacerHeavyLadder()
+        // First-fit-reachable deep rungs: narrower than every slot before them.
+        var reachableDeep: [Int] = []
+        var narrowestSoFar = CGFloat.greatestFiniteMagnitude
+        for rung in 0...ladder.terminal {
+            let width = ladder.width(forRung: rung)
+            if width < narrowestSoFar {
+                narrowestSoFar = width
+                if rung > 8 && rung < ladder.terminal { reachableDeep.append(rung) }
+            }
+        }
+        // The premise: there IS something between rung 8 and the terminal to skip.
+        #expect(!reachableDeep.isEmpty)
+
+        var spans: [CGFloat] = []
+        for width in stride(from: CGFloat(250), through: 900, by: 5) {
+            let drawn = barRings(view, width: width)
+            guard let first = drawn.min(by: { $0.minX < $1.minX }),
+                  let trailing = drawn.map(\.maxX).max() else { continue }
+            spans.append(trailing - first.minX)
+        }
+
+        for rung in reachableDeep {
+            let width = ladder.width(forRung: rung)
+            // With and without the view switch's 3pt capsule ground, exactly as
+            // `theDrawnBarIsAlwaysSomeRungOfTheLadder` accepts either leading edge.
+            let hit = spans.contains { span in
+                abs(span - width) < 0.5 || abs(span + PaneNavMetrics.segmentPadding - width) < 0.5
+            }
+            #expect(hit, "rung \(rung) (\(width)pt) was never drawn at any width 250–900 — the ladder skips it")
+        }
+    }
+
     // MARK: - Golden
 
     /// The laid-out header, pinned whole, at the widths and text sizes that move the ladder.
