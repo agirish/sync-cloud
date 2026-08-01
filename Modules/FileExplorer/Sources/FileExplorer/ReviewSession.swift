@@ -21,6 +21,31 @@ public final class ReviewSessionStore: ObservableObject {
     /// Whether a review session is active — the host's mount condition.
     public var isReviewing: Bool { session != nil }
 
+    /// The ONE way an outcome lands in the store. Id-addressed (the user may have jumped rows
+    /// while a copy ran) and token-guarded: `syncFile` is an unbounded await, and "a session
+    /// exists" is not enough — the user can exit review and start a NEW session over the same
+    /// un-rescanned set (identical difference ids) before the old outcome arrives, and a
+    /// membership check alone would let the stale outcome advance the new session. The token
+    /// must be captured from the session the decision was made against, BEFORE the await.
+    /// - Returns: Whether the outcome was applied (so the caller can check for completion).
+    @discardableResult
+    func apply(_ outcome: ReviewSession.Outcome, for id: UUID, token: UUID) -> Bool {
+        guard var current = session, current.sessionToken == token else { return false }
+        current.record(outcome, for: id)
+        session = current
+        return true
+    }
+
+    /// Records a per-item Verify verdict; same token guard as `apply` — a verdict hashed under
+    /// a torn-down session must not label an item in its replacement.
+    @discardableResult
+    func recordVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID, token: UUID) -> Bool {
+        guard var current = session, current.sessionToken == token else { return false }
+        current.recordVerdict(verdict, for: id)
+        session = current
+        return true
+    }
+
     /// Ends the session immediately. For the host's comparison-changing events (pane swap,
     /// provider switch, root edit): the frozen queue's paths and directions describe the OLD
     /// comparison, and the card would relabel them against the new pane names — backwards.
@@ -56,6 +81,12 @@ struct ReviewSession: Equatable {
         case unverifiable
     }
 
+    /// The session's identity. Two sessions over the same un-rescanned differences are
+    /// content-identical (same queue, same ids), so async work parked across an exit + restart
+    /// can't tell them apart by membership — outcomes and verdicts are guarded on this token
+    /// instead (see `ReviewSessionStore.apply`). Part of the synthesized `==` deliberately:
+    /// value copies of one session share the token, and distinct sessions are distinct.
+    let sessionToken = UUID()
     /// Whether the session moves items instead of copying (move modifier held at entry).
     let isMove: Bool
     /// The frozen review queue, in the table order visible when the session started.
@@ -118,7 +149,10 @@ struct ReviewSession: Equatable {
         return true
     }
 
+    /// Membership-guarded like `record`: a verdict for an id outside the queue (stale after a
+    /// rescan regenerated row UUIDs) must not accrete into the verdicts map.
     mutating func recordVerdict(_ verdict: VerifyVerdict, for id: UUID) {
+        guard queue.contains(where: { $0.id == id }) else { return }
         verdicts[id] = verdict
     }
 

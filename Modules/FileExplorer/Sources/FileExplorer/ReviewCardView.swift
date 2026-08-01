@@ -31,8 +31,10 @@ struct ReviewCardView: View {
     let onPrimary: (FileDifference) -> Void
     /// Skip the given item.
     let onSkip: (FileDifference) -> Void
-    /// Report a per-item content-verification verdict.
-    let onVerdict: (UUID, ReviewSession.VerifyVerdict) -> Void
+    /// Report a per-item content-verification verdict. The last parameter is the token of the
+    /// session the verify was started under (`ReviewSession.sessionToken`), so the host can
+    /// drop a verdict whose session was exited and replaced while the hash ran.
+    let onVerdict: (UUID, ReviewSession.VerifyVerdict, UUID) -> Void
     /// Called on Esc; the host exits the session (the header's Exit button is the other path).
     let onExit: () -> Void
 
@@ -42,6 +44,14 @@ struct ReviewCardView: View {
     /// folder-replace banner on item B during fast ⏎-driven review).
     @State private var loadedFacts: (itemID: UUID, facts: ReviewCardModel.Facts)? = nil
     @State private var isVerifying = false
+    /// Liveness token for the in-flight Verify. Re-minted wherever `.task(id: item.id)` resets
+    /// state, so a verify completing after the card advanced compares its captured token against
+    /// the LIVE `@State` (the completion closure captures the view struct, whose `@State` reads
+    /// go through the live storage box) and drops its writes — otherwise a large pair's late
+    /// return would clear the CURRENT item's spinner mid-hash and defeat the re-entrancy guard.
+    /// NOT comparable to a captured copy of itself: that is a tautology (the inert guard
+    /// ColumnPreviewColumn.watchDownload shipped with) — one side must be the live property.
+    @State private var verifyToken = UUID()
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -103,6 +113,7 @@ struct ReviewCardView: View {
         }
         .task(id: item.id) {
             isVerifying = false
+            verifyToken = UUID()   // orphan any verify still hashing the previous item
             // Deferred one turn: a FocusState write in the same transaction that inserts the
             // view can be silently dropped (same gotcha as the header search field).
             Task { @MainActor in
@@ -331,6 +342,10 @@ struct ReviewCardView: View {
     private func performVerify(_ item: FileDifference) {
         guard !isVerifying else { return }
         isVerifying = true
+        // Both captured BEFORE the unbounded hash: `token` to compare against the live @State
+        // after it, `sessionToken` so the host can drop a verdict from a replaced session.
+        let token = verifyToken
+        let sessionToken = session.sessionToken
         Task { @MainActor in
             let same = await FileContentVerifier.filesHaveSameContent(
                 leftPath: item.leftItemPath,
@@ -342,9 +357,14 @@ struct ReviewCardView: View {
                 // Keyed on (path, mtime, size), so an edited file is bypassed rather than served.
                 cache: ContentHashCache.shared
             )
+            // Live @State read (the closure's captured struct reads through the live storage
+            // box), never a captured copy — see `verifyToken`. If the card advanced while the
+            // hash ran, `.task(id:)` re-minted the token and already reset `isVerifying` for
+            // the NEW item; writing anything here would clobber that item's state.
+            guard verifyToken == token else { return }
             let verdict: ReviewSession.VerifyVerdict =
                 same == true ? .identical : (same == false ? .differed : .unverifiable)
-            onVerdict(item.id, verdict)
+            onVerdict(item.id, verdict, sessionToken)
             isVerifying = false
         }
     }

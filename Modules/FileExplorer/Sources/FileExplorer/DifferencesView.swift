@@ -1046,7 +1046,7 @@ public struct DifferencesView: View {
             focusNudge: reviewFocusNudge,
             onPrimary: { reviewPrimary($0) },
             onSkip: { reviewSkip($0) },
-            onVerdict: { reviewVerdict($1, for: $0) },
+            onVerdict: { reviewVerdict($1, for: $0, token: $2) },
             onExit: { exitReview() }
         )
         .padding(.horizontal, 12)
@@ -1304,6 +1304,10 @@ public struct DifferencesView: View {
         guard let session = reviewStore.session, !reviewStore.isActing else { return }
         reviewStore.isActing = true
         let isMove = session.isMove
+        // Captured BEFORE the unbounded await below: exiting review and starting a new session
+        // over the same un-rescanned set keeps the difference ids, so only the token can tell
+        // the store this outcome belongs to the torn-down session, not the new one.
+        let token = session.sessionToken
         Logger.shared.debug("Review \(isMove ? "move" : "copy"): \(item.relativePath)")
         Task { @MainActor in
             // confirmed: the review card IS the per-item confirmation UI — re-running the
@@ -1312,30 +1316,27 @@ public struct DifferencesView: View {
             let succeeded = await syncManager.syncFile(item, isMove: isMove, confirmed: true)
             reviewStore.isActing = false
             // Not copied = failure or Skip at the collision prompt; both already told the user.
-            applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id)
+            applyReviewOutcome(succeeded ? .copied : .skipped, for: item.id, token: token)
         }
     }
 
     private func reviewSkip(_ item: FileDifference) {
-        guard !reviewStore.isActing else { return }
-        applyReviewOutcome(.skipped, for: item.id)
+        guard let session = reviewStore.session, !reviewStore.isActing else { return }
+        applyReviewOutcome(.skipped, for: item.id, token: session.sessionToken)
     }
 
-    /// The one place session outcomes land. Id-addressed (the user may have jumped rows while
-    /// the copy ran) and guarded on the session still existing — a decision arriving after Exit
-    /// tore the session down is dropped instead of resurrecting it.
-    private func applyReviewOutcome(_ outcome: ReviewSession.Outcome, for id: UUID) {
-        guard var session = reviewStore.session else { return }
-        session.record(outcome, for: id)
-        reviewStore.session = session
-        if session.isComplete { finishReview() }
+    /// The one place session outcomes land. Id-addressed and token-guarded in the store (see
+    /// `ReviewSessionStore.apply`) — a decision arriving after Exit tore the session down is
+    /// dropped instead of resurrecting it, or worse, advancing a REPLACEMENT session whose
+    /// queue happens to carry the same ids.
+    private func applyReviewOutcome(_ outcome: ReviewSession.Outcome, for id: UUID, token: UUID) {
+        guard reviewStore.apply(outcome, for: id, token: token) else { return }
+        if reviewStore.session?.isComplete == true { finishReview() }
     }
 
-    /// Records a per-item Verify verdict; same teardown guard as outcomes.
-    private func reviewVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID) {
-        guard var session = reviewStore.session else { return }
-        session.recordVerdict(verdict, for: id)
-        reviewStore.session = session
+    /// Records a per-item Verify verdict; same token guard as outcomes.
+    private func reviewVerdict(_ verdict: ReviewSession.VerifyVerdict, for id: UUID, token: UUID) {
+        reviewStore.recordVerdict(verdict, for: id, token: token)
     }
 
     /// Tears the session down after the last item was decided, summarizing into a banner.
