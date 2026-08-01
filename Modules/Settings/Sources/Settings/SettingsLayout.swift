@@ -55,6 +55,14 @@ enum SettingsSheetMetrics {
     /// vertical padding), Appearance now lays out at ~640pt, and the sheet returns to being sized
     /// against that measurement instead of carrying 79pt of dead air on large displays.
     /// `appearanceFitsA1280x800Display` is the clamped-opening test that was missing.
+    ///
+    /// This constant is now bounded from BOTH sides, because a lower bound alone could not see
+    /// it: on the 1280×800 fixture 758 and 700 clamp to the same 692pt sheet, so the clamped
+    /// test is blind to the raise, and every unclamped test grows in lockstep with it.
+    /// `appearanceKeepsRoomForACopyEdit` keeps the opening at least 15pt over the measured tab;
+    /// `theSheetIsSizedAgainstTheTallestTabItMustFit` keeps it at most 30pt over. Between them
+    /// "sized against a measurement" is a property a test can fail rather than a claim in a
+    /// comment. If the tab is legitimately trimmed, LOWER this — do not widen the bound.
     static let baseSize = CGSize(width: 760, height: 700)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops

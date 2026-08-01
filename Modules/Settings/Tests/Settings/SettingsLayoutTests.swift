@@ -62,6 +62,30 @@ import Testing
         #expect(margin >= 15, "Only \(margin)pt of slack left below the last control.")
     }
 
+    /// The UPPER bound on `baseSize` — the half of the 1280×800 fix that nothing pinned.
+    ///
+    /// `appearanceFitsA1280x800Display` cannot see this constant: on that fixture window both
+    /// the old 758 and the new 700 clamp to the same 692pt sheet, so the clamped opening is
+    /// identical either way and only the tab's chrome trims are guarded there. Reverting
+    /// `baseSize` to 758 left the whole suite green.
+    ///
+    /// `baseSize`'s own comment says the height is "chosen against a measurement, not a round
+    /// number": the opening clears the tallest must-fit tab with room for a copy edit and *no
+    /// more*. A lower bound alone (`appearanceKeepsRoomForACopyEdit`) only makes that half a
+    /// sentence — it is satisfied by any sheet large enough, including one so large it overflows
+    /// the displays real people use. 758 carried 79pt of dead air over a 634pt tab, and that
+    /// dead air is exactly what pushed the sheet past a 1280×800 ceiling.
+    ///
+    /// Two copy edits of slack is the limit. Past that the sheet is being sized by a round
+    /// number again, and the right response is to lower `baseSize` — not to widen this bound.
+    @MainActor
+    @Test func theSheetIsSizedAgainstTheTallestTabItMustFit() async throws {
+        let margin = appearanceMargin(at: 1)
+
+        #expect(margin <= 30,
+                "The opening carries \(margin)pt over Appearance's laid-out height — baseSize has stopped being sized against that measurement.")
+    }
+
     /// The fit at EVERY text size, not just the default — the gap that let the clipping this
     /// layout was built to fix come back.
     ///
