@@ -44,6 +44,20 @@ struct CloudDownloadRequest: Equatable, Sendable {
         self.requestID = requestID
     }
 
+    /// Announces a download request from `paneToken`'s pane, and hands back what it posted.
+    ///
+    /// The one poster: the row context menu's Download and the preview column's both go through
+    /// here, so the payload cannot drift between two call sites that must agree with
+    /// `accepted(from:paneToken:)` — and the round trip through `NotificationCenter` has one place
+    /// a test can drive it from. Neither call site can be reached by a test itself: both sit behind
+    /// a real `MaterializationStatus` call against a provider placeholder.
+    @discardableResult
+    static func post(path: String, from paneToken: PaneToken) -> CloudDownloadRequest {
+        let request = CloudDownloadRequest(path: path, paneToken: paneToken)
+        NotificationCenter.default.post(name: .cloudDownloadRequested, object: request)
+        return request
+    }
+
     /// The routing decision, extracted so it can be unit-tested: the request carried by
     /// `notification` if it belongs to the pane identified by `paneToken`, nil otherwise
     /// (another pane's request, or a payload this build does not recognise).

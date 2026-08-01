@@ -356,9 +356,7 @@ struct ColumnPreviewColumn: View {
                 Logger.shared.debug("[preview] no pane token for \(path) — download requested unwatched")
                 return
             }
-            NotificationCenter.default.post(
-                name: .cloudDownloadRequested,
-                object: CloudDownloadRequest(path: path, paneToken: paneToken))
+            CloudDownloadRequest.post(path: path, from: paneToken)
         } catch {
             Logger.shared.warning("[preview] no download API for \(path): \(error.localizedDescription) — revealing in Finder")
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])

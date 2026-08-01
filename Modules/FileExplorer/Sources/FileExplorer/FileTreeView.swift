@@ -775,11 +775,9 @@ struct FileContextMenu: View {
                             // clears; on the failure path the badge (correctly) stays. Scoped to
                             // THIS pane — the twin row the other pane may show for the same path
                             // must not start a second poll.
-                            NotificationCenter.default.post(
-                                name: .cloudDownloadRequested,
-                                object: CloudDownloadRequest(
-                                    path: singleNode.id,
-                                    paneToken: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource)))
+                            CloudDownloadRequest.post(
+                                path: singleNode.id,
+                                from: PaneToken(isLeft: isLeft, isSingleSource: isSingleSource))
                         } catch {
                             Logger.shared.warning("Download unavailable for “\(singleNode.name)” — reveal it in Finder to download it (\(error.localizedDescription))")
                         }
