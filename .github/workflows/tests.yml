@@ -1,4 +1,5 @@
-# Package test suites on every push to main, on the self-hosted Mac runner.
+# Package test suites on every push to main or v2.x and on every v* release
+# tag, on the self-hosted Mac runner.
 #
 # Scope: the seven SPM packages only. Machine-pinned image snapshots
 # (*SnapshotTests suites; see Modules/Design/SNAPSHOTS.md) are excluded via
@@ -12,7 +13,10 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, v2.x]
+    # Release tags get the full suite too: cutting v2.9 or v3.0 must not rely
+    # on the branch tip having been the last thing tested.
+    tags: ['v*']
   workflow_dispatch:
 
 # Every commit gets its own verdict: bursts of landings queue and run
