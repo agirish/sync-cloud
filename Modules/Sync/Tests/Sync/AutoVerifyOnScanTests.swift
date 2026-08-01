@@ -156,6 +156,7 @@ import Foundation
         // A complete file operation runs while the hash is parked: count goes 1 → 0, the epoch
         // moves, and — the exact race — `scanRequestGeneration` has NOT been bumped yet.
         let generationBefore = manager.scanRequestGeneration
+        let epochBefore = manager.fileOperationsEpoch
         await manager.enqueueFileOperation { }
         #expect(manager.activeFileOperationsCount == 0)
         #expect(manager.scanRequestGeneration == generationBefore)
@@ -165,6 +166,89 @@ import Foundation
 
         #expect(manager.verifiedSameDifferenceIds.isEmpty, "verdicts hashed across a file operation must be discarded")
         #expect(manager.differences.count == 2)
+        #expect(manager.fileOperationsEpoch > epochBefore, "the operation must have moved the epoch")
+    }
+
+    /// The positive control for the test above, on the SAME gated fixture. `isEmpty` is also
+    /// what you see if the gate broke hashing outright or the candidate filter matched nothing,
+    /// so without this the discard assertion could pass vacuously: park the pass, run NO
+    /// operation, release, and the identical pair must be hidden exactly as on a plain fixture.
+    @MainActor
+    @Test func testGatedFixtureStillVerifiesWhenNoOperationRuns() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        let pass = Task { @MainActor in
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }
+        await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                _ = gate.entered.wait(timeout: .now() + 10)
+                cont.resume()
+            }
+        }
+        let epochBefore = manager.fileOperationsEpoch
+        gate.release.signal()
+        await pass.value
+
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "the gated fixture must still hash and hide the identical pair")
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
+        #expect(manager.fileOperationsEpoch == epochBefore)
+    }
+
+    /// A DECLINED confirmation must not void the batch. `preCountFileOperation()` runs before
+    /// the transfer confirmer so the quit guard and the hashing exclusions see the pending
+    /// transfer, and `cancelPreCountedFileOperation()` puts the count back when the user says
+    /// no — but a monotonic epoch cannot be un-bumped. Bumping it at pre-count time therefore
+    /// discarded a whole pass's verdicts for an operation that never touched the disk, and
+    /// because nothing ran, nothing sent `refreshSubject`: no rescan re-ran the pass, so those
+    /// rows stayed listed as differences until the user rescanned by hand. The epoch moves at
+    /// enqueue time instead, so a decline leaves the batch alone.
+    @MainActor
+    @Test func testDeclinedConfirmationDoesNotVoidTheBatch() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        // A separate mock disk for the transfer: the decline means nothing is ever read from it,
+        // and the fixture's real files stay the checksummer's business alone.
+        let mockFM = MockFileManager()
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
+        try mockFM.createDirectory(at: URL(fileURLWithPath: "/dst"), withIntermediateDirectories: true)
+        mockFM.virtualDisk["/src/a.txt"] = MockFileManager.FileStub(isDirectory: false, attributes: nil, contents: nil)
+
+        let pass = Task { @MainActor in
+            await manager.autoVerifySameSizePairs(scanGeneration: manager.scanRequestGeneration)
+        }
+        await withCheckedContinuation { cont in
+            DispatchQueue.global().async {
+                _ = gate.entered.wait(timeout: .now() + 10)
+                cont.resume()
+            }
+        }
+
+        // The user opens a copy and declines its confirmation while the hash is parked.
+        var prompted = false
+        manager.transferConfirmer = { _ in prompted = true; return false }
+        let copied = await manager.copyItems(
+            nodes: [FileNode(id: "/src/a.txt", name: "a.txt", isDirectory: false)],
+            toPath: "/dst",
+            fileManager: mockFM
+        )
+        #expect(prompted, "the transfer must actually have reached the confirmation prompt")
+        #expect(copied.isEmpty)
+        #expect(manager.activeFileOperationsCount == 0)
+
+        gate.release.signal()
+        await pass.value
+
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "a declined confirmation runs no I/O, so it must not discard the batch")
+        #expect(manager.differences.map(\.id) == [fixture.differed.id])
     }
 
     @MainActor

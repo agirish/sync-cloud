@@ -144,7 +144,8 @@ extension FileSyncManager {
         // unlatched prompt would let them start hashing the very files this transfer is
         // about to overwrite — the same window syncAll/syncFile close with their own latches.
         // `enqueueFileOperation(alreadyCounted: true)`'s completion decrements; a decline
-        // reverts the count here.
+        // reverts the count here. The COUNT only: `fileOperationsEpoch` moves at enqueue time,
+        // because a declined prompt runs no I/O and a monotonic bump can't be taken back.
         preCountFileOperation()
 
         // Confirm before any I/O is queued: this is the seam that lets a mis-clicked
