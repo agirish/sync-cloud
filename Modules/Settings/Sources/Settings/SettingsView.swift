@@ -574,7 +574,19 @@ struct GeneralSettingsTab: View {
                 }
             } catch {
                 Logger.shared.error("Failed to \(enabled ? "register" : "unregister") launch-at-login item: \(error.localizedDescription)")
-                applyLoginItemState(await Self.readStatusOffMain())
+                let status = await Self.readStatusOffMain()
+                // Mirror the success path's re-read: the toggle can move while the failing
+                // round-trip is in flight, and that flip's onChange compared against the stale
+                // `lastApplied` marker and was suppressed. `applyLoginItemState` would overwrite
+                // the flip with the service's state and mark it applied — silently discarding a
+                // gesture — so when the toggle moved, apply ITS position instead; revert to the
+                // real state only when nothing moved.
+                if launchAtLogin != enabled {
+                    loginItemNeedsApproval = (status == .requiresApproval)
+                    updateLoginItem(launchAtLogin)
+                } else {
+                    applyLoginItemState(status)
+                }
             }
         }
     }
