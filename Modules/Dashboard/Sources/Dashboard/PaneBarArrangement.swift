@@ -371,6 +371,10 @@ public enum PaneBarLayout {
 /// of main-thread work and an 831 ms worst-case stall; cutting the ladder to a single rung took the
 /// same interaction to 1,002 ms and 175 ms.
 ///
+/// The provider-less header still searches — it has no computed rung to hand over (see
+/// `PaneHeader.searchedLadder`) — but it builds a bar only for the rungs that differ, which is the
+/// same lesson applied to the case that cannot take the same cure.
+///
 /// So the rung is computed instead of searched. Each rung's width is the sum of the widths of the
 /// views that draw it (`PaneBarLayout.width(of:controlSize:)`), which makes "which rung fits" plain
 /// arithmetic over `PaneNavMetrics`.
@@ -448,6 +452,26 @@ struct PaneBarLadder {
     /// to it — `PaneBarLayout.plan` is idempotent past `maxDepth`, so they are duplicates of the
     /// terminal rung.
     func searchedRung(forSlot slot: Int) -> Int { min(slot, terminal) }
+
+    /// Whether the searched ladder's child at `slot` has to be a real bar.
+    ///
+    /// Slots up to `terminal` each draw a different rung, so they do. Past it they would redraw the
+    /// terminal rung, and building a bar to measure it is the whole cost of this path — so those
+    /// slots become inert stand-ins instead (see `searchedSlotIsInert` for why that is safe).
+    ///
+    /// The **last** slot is always a real bar: `ViewThatFits` renders its last child when nothing
+    /// fits at all, which is the 250pt pane's case, and that fallback must be the terminal bar
+    /// rather than a hole.
+    func searchedSlotDrawsBar(_ slot: Int) -> Bool {
+        slot <= terminal || slot == Self.searchedSlotCount - 1
+    }
+
+    /// Why an inert slot is unreachable, expressed as the property that makes it so: a stand-in has
+    /// exactly the terminal rung's width, and slot `terminal` — a real bar of that same width —
+    /// sits ahead of it. `ViewThatFits` takes the FIRST child that fits, so any offer wide enough
+    /// for a stand-in was already taken by that bar, and any offer too narrow for it falls through
+    /// to the last child, which is real. No offered width can select one.
+    func searchedSlotIsInert(_ slot: Int) -> Bool { !searchedSlotDrawsBar(slot) }
 
     /// The rung an offer of `width` gets — the first one that fits, mirroring `ViewThatFits`'s own
     /// rule, and the narrowest rung when nothing does.

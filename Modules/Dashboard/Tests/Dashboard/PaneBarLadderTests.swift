@@ -291,12 +291,6 @@ import Design
     private static let spacerHeavy = PaneBarArrangement(
         PaneBarArrangement.default.items + Array(repeating: .space, count: 6))
 
-    private static func spacerHeavyLadder() -> PaneBarLadder {
-        PaneBarLadder(arrangement: spacerHeavy,
-                      available: header(nil).availableItems,
-                      ceiling: PaneBarIconSize.regular.ceiling)
-    }
-
     /// The deepest ladder the arrangement normalizer permits: `maxItems` items, all of them
     /// duplicate-exempt spaces except the scan control it forces on and will not shed.
     private static let worstArrangement =
@@ -407,20 +401,35 @@ import Design
         }
     }
 
-    /// Every rung of a spacer-heavy ladder is a DIFFERENT bar — sheds one more item — right up to
-    /// the terminal. This is what makes skipping rungs 9…terminal−1 a real behaviour hole rather
-    /// than dropped duplicates: the old ladder jumped from rung 8 straight to full compaction.
-    @Test func aSpacerHeavyLadderChangesAtEveryRung() {
-        let ladder = Self.spacerHeavyLadder()
-        #expect(ladder.terminal > 9)
-
-        for rung in 1..<ladder.terminal {
-            #expect(ladder.plan(forRung: rung) != ladder.plan(forRung: rung + 1),
-                    "rungs \(rung) and \(rung + 1) draw the same bar — a duplicate inside the ladder")
+    /// The rule this path is built on: a slot draws a real bar exactly where the rung it would draw
+    /// is one no earlier slot draws, and every slot past `terminal` is inert — a stand-in that
+    /// measures like the terminal bar and builds nothing.
+    ///
+    /// That is what keeps the provider-less header from building seventeen bars per layout pass for
+    /// a default arrangement whose ladder has seven rungs. The last slot is the deliberate
+    /// exception: `ViewThatFits` renders its last child when nothing fits, so it stays a real bar.
+    ///
+    /// (This replaces a test that asserted `PaneBarLayout.plan` differs at every rung — true, but
+    /// owned by the arrangement's fold arithmetic and already pinned by `PaneBarArrangementTests`,
+    /// not by anything the searched ladder does.)
+    @Test func theSearchedLadderBuildsABarOnlyWhereTheRungChanges() {
+        for (name, ladder) in Self.ladderFixtures {
+            let last = PaneBarLadder.searchedSlotCount - 1
+            var drawn: [Int] = []
+            for slot in 0..<PaneBarLadder.searchedSlotCount {
+                if ladder.searchedSlotDrawsBar(slot) { drawn.append(slot) }
+                // Inert exactly past the terminal, and never at the fallback slot.
+                #expect(ladder.searchedSlotIsInert(slot) == (slot > ladder.terminal && slot != last),
+                        "\(name): slot \(slot) against terminal \(ladder.terminal)")
+            }
+            // One real bar per rung, plus the terminal bar again as the nothing-fits fallback.
+            #expect(drawn == Array(0...ladder.terminal) + (ladder.terminal == last ? [] : [last]),
+                    "\(name): builds bars at \(drawn)")
+            // The stand-ins measure as the bar they replace, which is what makes them unreachable.
+            for slot in 0..<PaneBarLadder.searchedSlotCount where ladder.searchedSlotIsInert(slot) {
+                #expect(ladder.searchedRung(forSlot: slot) == ladder.terminal)
+            }
         }
-        // Rungs 0 and 1 share a plan on purpose; what changes between them is the control size.
-        #expect(ladder.plan(forRung: 0) == ladder.plan(forRung: 1))
-        #expect(ladder.controlSize(forRung: 0) != ladder.controlSize(forRung: 1))
     }
 
     /// The claim on drawn pixels, exactly: offered a rung's own width, the searched ladder draws
