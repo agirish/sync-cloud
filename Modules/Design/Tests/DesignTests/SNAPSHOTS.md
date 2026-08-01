@@ -14,10 +14,10 @@ visual surfaces that regressed silently in past review rounds. Suites live in fo
   the 400 pt and 250 pt degradation ladder: pill hides, logo drops, name truncates, nav
   cluster steps down to .mini), LogViewer severity rows (comfortable + the compact
   single-line collapse)
-- `Modules/Settings` — `AccentPreviewTests`: the Appearance tab's accent section (swatch row +
+- `Modules/Settings` — `SettingsSnapshotTests`: the Appearance tab's accent section (swatch row +
   live preview strip + caption) at four hues spanning the `AccentFill` deepening range. The
-  colour pairing itself is pinned by painted-pixel assertions in the same suite, not by the
-  image — see that file for what the reference does and does not catch.
+  colour pairing itself is pinned by painted-pixel assertions in `AccentPreviewTests`, not by
+  the image — see the snapshot test's doc comment for what the reference does and does not catch.
 
 Each scenario renders offscreen through `NSHostingView` in a borderless `NSWindow` at a FIXED
 size, once per appearance (`…-light.png` / `…-dark.png`), and is compared with
