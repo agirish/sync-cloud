@@ -45,7 +45,17 @@ enum SettingsSheetMetrics {
     /// slack over the 15pt floor `appearanceKeepsRoomForACopyEdit` enforces, so the strip could
     /// not have been absorbed — this is the "raise it deliberately" branch that test asks for,
     /// not a silent overflow.
-    static let baseSize = CGSize(width: 760, height: 758)
+    ///
+    /// 758 → 700 when the 758 raise turned out to overflow SMALL displays: `resolvedSize` clamps
+    /// the sheet to the host window, and on a 1280×800-class screen the window has ~740pt to give,
+    /// so the sheet resolved to ~692pt, the opening to ~647pt — and the 674pt Appearance tab
+    /// scrolled again. Every fit test passed because all of them measured against the UNCLAMPED
+    /// opening. The strip's 70pt could not stay paid for by height alone, so ~34pt came back out
+    /// of the tab's chrome (see `captionGap`, `sectionPitch`, `pagePaddingV`, and the strip's own
+    /// vertical padding), Appearance now lays out at ~640pt, and the sheet returns to being sized
+    /// against that measurement instead of carrying 79pt of dead air on large displays.
+    /// `appearanceFitsA1280x800Display` is the clamped-opening test that was missing.
+    static let baseSize = CGSize(width: 760, height: 700)
 
     /// Below this, a rail plus a usable content column stops being possible. The sheet stops
     /// shrinking and its content scrolls instead: overflowing a tiny window is better than a
@@ -74,6 +84,31 @@ enum SettingsSheetMetrics {
     /// The title row's height, fixed so the content opening is arithmetic rather than a guess.
     /// 44pt clears `.headline` at the largest text scale (13 × 1.3 = 16.9pt) with padding.
     static let headerHeight: CGFloat = 44
+
+    /// Air between a section's last control and its caption.
+    ///
+    /// Was the section stack's blanket 5pt spacing. Trimmed to 3 — and made its own constant —
+    /// when Appearance had to fit a 1280×800-class display's clamped opening: a caption belongs
+    /// to the group it explains, so tightening it against its controls reads as grouping, not
+    /// cramping, and it spends none of the *between*-section air `sectionTitleAir` exists to
+    /// protect. 2pt × 7 sections is 14 of the ~34pt the tab gave back. The title keeps its full
+    /// 9pt (`5 + sectionTitleAir`) — see `SettingsSection.body`, which now spells both gaps out
+    /// instead of letting one stack spacing set them together.
+    static let captionGap: CGFloat = 3
+
+    /// The gap between sections on a settings page (`SettingsPage`'s stack spacing).
+    ///
+    /// 16 → 14 for the same 1280×800 budget: 2pt × 6 gaps is 12pt of the ~34. This is the one
+    /// trim that works against the System Settings air comparison recorded on `sectionTitleAir`
+    /// (Apple ends groups ~38pt before the next header; we were at ~22 and are now at ~20), so it
+    /// is the first candidate to restore if the budget ever loosens — but a tab that SCROLLS on a
+    /// small display loses all of its air, not 2pt of it.
+    static let sectionPitch: CGFloat = 14
+
+    /// A settings page's own top and bottom inset. 16 → 12 for the 1280×800 budget (8 of the
+    /// ~34): the page sits under the title row's divider and above the sheet's bottom edge, both
+    /// of which already read as boundaries — the inset is the cheapest air on the page.
+    static let pagePaddingV: CGFloat = 12
 
     /// The sheet's size: the base size scaled by the text setting, then clamped to what the host
     /// actually has room for (never below `floorSize`).
@@ -126,12 +161,12 @@ struct SettingsPage<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: SettingsSheetMetrics.sectionPitch) {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 18)
-            .padding(.vertical, 16)
+            .padding(.vertical, SettingsSheetMetrics.pagePaddingV)
         }
         .scrollBounceBehavior(.basedOnSize)
     }
@@ -159,11 +194,15 @@ struct SettingsSection<Content: View, Caption: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        // Spacing 0 with each gap spelled out, rather than one stack spacing for both: the title
+        // keeps its full 9pt of air (`5 + sectionTitleAir` — the System Settings comparison that
+        // constant records) while the caption sits at the tighter `captionGap`. A single spacing
+        // value cannot hold the two apart.
+        VStack(alignment: .leading, spacing: 0) {
             if let title {
                 Text(title)
                     .scaledFont(.subheadline.weight(.semibold))
-                    .padding(.bottom, SettingsSheetMetrics.sectionTitleAir)
+                    .padding(.bottom, 5 + SettingsSheetMetrics.sectionTitleAir)
             }
             VStack(alignment: .leading, spacing: 8) {
                 content
@@ -175,6 +214,9 @@ struct SettingsSection<Content: View, Caption: View>: View {
                 // a `Text` inside a horizontally-flexible stack reports a one-line ideal height
                 // and gets clipped at the second line.
                 .fixedSize(horizontal: false, vertical: true)
+                // On the caption rather than in the stack: an `EmptyView` caption contributes no
+                // child, so a captionless section pays neither the gap nor a stray padding.
+                .padding(.top, SettingsSheetMetrics.captionGap)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

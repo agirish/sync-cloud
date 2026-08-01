@@ -91,7 +91,11 @@ struct AccentPreviewStrip: View {
             countPill
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        // 5, not the 8 the strip landed with: 6 of the ~34pt Appearance gave back to fit a
+        // 1280×800-class display's clamped opening (see `SettingsSheetMetrics.baseSize`). The
+        // chips keep their full size — only their ground tightens — and the AccentPreviewTests
+        // sample points (5pt inside each capsule's edge, at mid-height) stay inside the paint.
+        .padding(.vertical, 5)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
