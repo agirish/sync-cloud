@@ -142,6 +142,24 @@ write in one suite fires another suite's `onChange` driver even with separate su
 doc comment — there are 32 of them, and each says why it needs it. For values, use a per-mount
 scratch defaults suite rather than the standard domain.
 
+**Known residual — recognise it before you bisect.** `.serialized` closes only the *intra*-suite
+half: it stops a suite's own writers overlapping its own assertions. A *different* suite writing
+the same key concurrently is untouched, and swift-testing offers nothing finer — the only real fix
+is nesting the suites under one `.serialized` parent, which costs more wall clock than the flake
+does. So this is deliberately left open. The signature, all four together:
+
+- an **absence** assertion fails ("this must stay where the user put it"), not a positive one;
+- the observed value is the pane's exact **legal extreme** — a scroll offset equal to the far end,
+  never an arbitrary number;
+- it does **not** reproduce under `--filter`, only in the full suite; and
+- the rest of the run is green.
+
+That combination is another suite's mount, not your bug. The live instance is
+`ColumnPreviewRevealTests`' two absence tests against `ColumnPreviewLayoutTests`, which writes all
+three pane-width keys on every mount; the failures land at exactly 150pt and 570pt. Never observed
+in ~20 full-suite runs, so it stays unfixed — **if it does fire, that is the signal to spend the
+restructure**, and worth a line here recording that it finally did.
+
 **See.** `d282ac6` — *Isolate DifferencesView test mounts in per-mount scratch defaults*;
 `Modules/FileExplorer/Tests/FileExplorer/CloudOnlyBadgeCacheTests.swift` for the shape of the note.
 
