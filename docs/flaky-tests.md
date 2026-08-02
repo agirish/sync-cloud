@@ -21,6 +21,13 @@ the single strongest tell. Condition-based waits give up at their deadline, so a
 *spends* its whole ceiling — 25s or 32s per test — before failing. Real geometry bugs fail
 instantly.
 
+But a spent ceiling says only *the condition never held*, not *why*. Starvation and a premise
+that was false from the start are indistinguishable by timing alone — mechanism 7 spends the
+whole deadline without the machine being loaded at all. Two things separate them. **Was the rest
+of the suite slow too?** Starvation is never selective. And **did the suite's other tests of the
+same shape survive?** `ColumnDrillSourceTests` has two tests that wait on the same deferred
+navigation and run within 50ms of each other; load takes both, and on 2026-08-01 only one failed.
+
 **2. Check what else is running.**
 
 ```bash
@@ -169,6 +176,40 @@ measure across several runs before concluding the mechanism is broken.
 
 **Fix.** Retune from the test's own printed measurement rather than guessing, and validate that the
 assertion can fail using CPU spin — never `sleep`.
+
+### 7. The machine decides the verdict — the keyboard
+
+**Symptom.** A mounted-view test spends its whole deadline and reports the end state it started
+with. Looks exactly like mechanism 1 or 2, but the machine is **idle** and the rest of the suite is
+its normal speed. One test fails while its siblings, waiting on the same thing, pass.
+
+**Mechanism.** Production code consulted `NSEvent.modifierFlags` — which is not a property of the
+event, the view, or even the process. It is **the global state of the machine's keyboard, sampled
+at the instant the code runs.** `PaneColumnsView`'s navigation guards used it to answer "is this a
+plain click?", so `ColumnDrillSourceTests` — which drives `selectRowIndexes` directly, with no
+event and no modifiers of its own — was really asking *what is the person at this Mac holding
+right now*. Hold ⇧ or ⌘ at that instant and the guard correctly refuses to navigate, the deferred
+block is never queued, and the test waits out its full 20s for something nobody asked for.
+
+Sampled at 50 Hz while someone worked normally at this Mac: **5 distinct blocking holds in 35
+seconds**, ⇧ and ⌘, the longest 1.26s — about 5% of instants. A full suite holds the window open
+for minutes, which is why `--filter` never reproduced it.
+
+Note what this is *not*: the same suite under CPU spin at load 11 delivered its navigation in 10s
+and passed. Starvation is real here and the deadline absorbs it with about 2× to spare; it is
+worth knowing that margin is 2× and not 100×, but it was not the cause.
+
+**Fix.** Take the modifiers from the environment (`paneClickModifiers`), defaulting to `nil` =
+ask the keyboard, so the app is unchanged and the test pins `[]`. Pin `.shift` and the failure
+reproduces on the exact signature, which is how it was confirmed — and that pin is now a test in
+its own right, covering the ⇧-selects-without-navigating rule that had no mounted coverage.
+
+Any ambient global read has this shape. `NSEvent.modifierFlags` is still read directly in
+`DifferencesView`, `PaneBreadcrumb` and `ModifierTracker`; none is under a test that drives it
+today, but the seam is the answer if one grows.
+
+**See.** `Modules/FileExplorer/Tests/FileExplorer/ColumnDrillSourceTests.swift`;
+`paneClickModifiers` in `PaneColumnsView.swift`.
 
 ---
 
