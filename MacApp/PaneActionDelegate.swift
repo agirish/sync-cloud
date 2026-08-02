@@ -42,11 +42,24 @@ struct PaneActionDelegate: FileActionDelegate {
     /// a handful of entries.
     let ignoreStateToken: Set<String>
 
+    /// A snapshot of the kept-names set, carried for exactly the reason `ignoreStateToken` is.
+    ///
+    /// The row badge is the app's second eagerly-rendered delegate answer (the strikethrough was
+    /// the first). Keeping a name changes what every row showing that name draws, and changes
+    /// nothing else the pane compares: same tree, same paths, same selection. Without this the
+    /// pane would answer "equivalent", skip the re-render, and the badge the user just dismissed
+    /// would stay on screen until something unrelated moved — the precise staleness
+    /// `ignoreStateToken` exists to prevent, arriving through the second door.
+    ///
+    /// The set itself rather than a count: withdrawing one keep while adding another leaves the
+    /// count where it was.
+    let keptNamesToken: Set<String>
+
     /// Opts this delegate into `FileTreeView`'s equality (see `FileActionDelegate.isEquivalent`),
     /// which is what lets a pane skip re-rendering — and with it every visible row — when the only
     /// thing that moved was some unrelated corner of the manager.
     ///
-    /// Every stored property is accounted for. The six values are compared outright; the three
+    /// Every stored property is accounted for. The seven values are compared outright; the three
     /// references are compared by identity; and the three closures are ignored, which is the one
     /// claim here that needs justifying.
     ///
@@ -67,6 +80,7 @@ struct PaneActionDelegate: FileActionDelegate {
             && rightProviderId == other.rightProviderId
             && isSingleSource == other.isSingleSource
             && ignoreStateToken == other.ignoreStateToken
+            && keptNamesToken == other.keptNamesToken
     }
 
     func handleRefresh() {
@@ -103,6 +117,26 @@ struct PaneActionDelegate: FileActionDelegate {
         // here rather than a path this delegate would have to reconstruct against a scan root.
         NameNormalizer.risky(name: node.name, relativePath: node.name, absolutePath: node.id,
                              isDirectory: node.isDirectory, provider: paneProviderType)
+    }
+
+    /// The badge's door. Memoized by (provider, name) — see `RiskyNameBadgeCache` for why this one
+    /// answer, alone among the delegate's, cannot afford to be computed fresh each time it is asked.
+    ///
+    /// The kept check comes FIRST and is a set lookup, so a name the user has decided to live with
+    /// costs less than one they haven't, rather than running the rules only to discard the verdict.
+    func riskyNameReason(forName name: String, isDirectory: Bool) -> String? {
+        guard !syncManager.isKeptName(name) else { return nil }
+        return RiskyNameBadgeCache.reason(name: name, isDirectory: isDirectory, provider: paneProviderType)
+    }
+
+    func isKeptName(_ name: String) -> Bool { syncManager.isKeptName(name) }
+
+    func handleKeepName(_ node: FileNode) {
+        syncManager.keptNamesStore?.keep(node.name)
+    }
+
+    func handleStopKeepingName(_ node: FileNode) {
+        syncManager.keptNamesStore?.stopKeeping(node.name)
     }
 
     func handleFixName(_ node: FileNode) {

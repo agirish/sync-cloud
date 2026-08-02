@@ -64,11 +64,13 @@ extension FileSyncManager {
         }.value
         if Task.isCancelled { return }
 
-        riskyNames = risky
+        // Kept names never reach the list — see `reportable(_:)`. Filtered here rather than inside
+        // the detector so `NameNormalizer` stays a pure function of the names and the ruleset.
+        riskyNames = reportable(risky)
         // Published with the results, not at scan start: the root labels what's on screen, and a
         // cancelled rescan of a different folder must not relabel the previous results.
         completeScan(\.nameScanLifecycle, root: root)
-        Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s)")
+        Logger.shared.info("Name normalizer: scanned \(root.lastPathComponent) for \(provider.rawValue) — \(risky.count) risky name(s), \(riskyNames.count) reported")
     }
 
     /// True when a walk came back as nothing but the unreadable root itself.
@@ -119,9 +121,9 @@ extension FileSyncManager {
         // newer one, which is the same staleness guard `scanNames` carries.
         if isCancelled() { return }
 
-        riskyNames = risky
+        riskyNames = reportable(risky)
         completeScan(\.nameScanLifecycle, root: root)
-        Logger.shared.info("Filing scan flagged \(risky.count) risky name(s) under \(root.lastPathComponent) for \(provider.rawValue)")
+        Logger.shared.info("Filing scan flagged \(risky.count) risky name(s) under \(root.lastPathComponent) for \(provider.rawValue), \(riskyNames.count) reported")
     }
 
     /// Clears the current results (e.g. when switching providers), cancelling any in-flight scan so

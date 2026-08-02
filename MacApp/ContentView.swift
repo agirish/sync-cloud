@@ -552,6 +552,13 @@ struct ContentView: View {
                     }
                     syncManager.ignoredItemsStore?.activate(
                         pairKey: IgnoredItemsStore.pairKey(leftProviderId, rightProviderId))
+                    // The names the user has said they meant. Created once, alongside the ignore
+                    // store, and for the same reason — it outlives this view. It takes no pair key:
+                    // a keep is a decision about a name, not about a comparison (see
+                    // `KeptNamesStore`), so there is nothing to re-key on a provider change.
+                    if syncManager.keptNamesStore == nil {
+                        syncManager.keptNamesStore = KeptNamesStore()
+                    }
                 case .discoverProvidersAndApplyInitialSelection:
                     Task { @MainActor in
                         await settings.discoverProviders()
@@ -770,6 +777,18 @@ struct ContentView: View {
             leftName: settings.availableProviders.first(where: { $0.id == leftProviderId })?.displayName,
             rightName: settings.availableProviders.first(where: { $0.id == rightProviderId })?.displayName
         )
+    }
+
+    /// Both panes' name rulesets, for the Differences table's risky-name badge.
+    ///
+    /// Falls back to OneDrive — the strictest — for a provider id that won't resolve, matching
+    /// `PaneActionDelegate.paneProviderType`: an unresolved provider over-reports rather than
+    /// letting a name that will break a sync pass unflagged.
+    var paneRules: PaneProviderRules {
+        func type(_ id: String) -> CloudProvider.ProviderType {
+            settings.availableProviders.first(where: { $0.id == id })?.type ?? .oneDrive
+        }
+        return PaneProviderRules(left: type(leftProviderId), right: type(rightProviderId))
     }
 
     /// Builds the full path for the left pane. Uses only the left provider's root + left relative path to avoid mixing roots.
@@ -1764,7 +1783,7 @@ struct ContentView: View {
             selection: paneSelectionBinding(isLeft: pane.isLeft),
             otherSelection: pane.otherSelection,
             isLeft: pane.isLeft,
-            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths),
+            delegate: PaneActionDelegate(handler: actionHandler, syncManager: syncManager, settings: settings, isLeft: pane.isLeft, leftProviderId: leftProviderId, rightProviderId: rightProviderId, isSingleSource: layoutMode == .singleSource, forceRefreshAction: forceRefreshAction, onGetInfo: { showInfo(for: $0) }, onChooseDestination: { nodes, isMove in requestDestination(for: nodes, isMove: isMove) }, ignoreStateToken: syncManager.effectiveIgnoredPaths, keptNamesToken: syncManager.keptNamesStore?.names ?? []),
             diffIndex: pane.diffIndex,
             otherPaneName: pane.otherPaneName,
             rootPathIsValid: settings.isPathValid(for: pane.providerId),
@@ -1925,7 +1944,7 @@ struct ContentView: View {
         } else if compareBottomListActive {
             // DifferencesView renders its own two cards (toolbar + table); Compare | Tidy lives in
             // the window toolbar.
-            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed)
+            DifferencesView(syncManager: syncManager, reviewStore: reviewStore, paneNames: paneNames, paneRules: paneRules, onQuickLook: { toggleQuickLook($0) }, onGetInfo: { showInfo(for: $0) }, isCollapsed: $bottomPaneCollapsed)
         } else {
             // Compare with nothing to list yet: scanning / all-in-sync / not-scanned placeholder.
                 Group {

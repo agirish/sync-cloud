@@ -579,6 +579,10 @@ public struct FileTreeView: View, Equatable {
             containedDiffCount: node.isDirectory ? diffIndex.containedDiffCount(forNodeId: node.id) : 0,
             density: density,
             fonts: rowFonts,
+            // Asked per visible row, per render pass — the one eagerly-rendered delegate answer,
+            // and the reason `RiskyNameBadgeCache` exists. Reads `row.info`, never `row.node`, so
+            // a folder's subtree stays out of reach of a per-row call.
+            riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
             awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
         )
         .tag(node.id)
@@ -798,6 +802,22 @@ struct FileContextMenu: View {
                         Label("Fix name…", systemImage: NameNormalizeGlyph.lens)
                     }
                     .help("\(risky.reason) Renames it to “\(risky.sanitizedName)”, undoably.")
+                    // The badge's answer, and the ONLY way back from one. Keeping is durable, so
+                    // without a withdrawal offered from the file itself it would be a one-way door
+                    // — and a kept name draws no badge, so there is nothing else on screen left to
+                    // click. Both directions live here, on the row, where the decision is made.
+                    if delegate.isKeptName(singleNode.name) {
+                        Button(action: { delegate.handleStopKeepingName(singleNode) }) {
+                            Label("Stop Allowing This Name", systemImage: "eye")
+                        }
+                        .help("Report “\(singleNode.name)” again, here and in Organize.")
+                    } else {
+                        Button(action: { delegate.handleKeepName(singleNode) }) {
+                            Label("Always Allow This Name", systemImage: "hand.raised")
+                        }
+                        .help("Stop flagging “\(singleNode.name)”, in this and every later session. "
+                              + "The file is not changed.")
+                    }
                 }
                 
                 if singleNode.isDirectory {
@@ -937,6 +957,11 @@ struct FileRowView: View {
     let density: ListDensity
     /// The pane's resolved fonts. Handed down rather than derived per row — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
+    /// Why this provider will give this name trouble, or nil when it won't (and nil when the user
+    /// has kept it). Resolved by the pane from the delegate, memoized by (provider, name) — see
+    /// `RiskyNameBadgeCache`. Defaulted so every caller that has no provider context, and every
+    /// test double, renders exactly the row it rendered before the badge existed.
+    var riskyReason: String? = nil
     /// The identity of the download request the pane is watching for THIS row; nil when it is not
     /// this row's file (or nothing is being watched). Part of the badge task's `.task(id:)` key, so
     /// the badge re-resolves when the pane arms a watch for this file and again when that watch
@@ -1002,6 +1027,13 @@ struct FileRowView: View {
                 .font(fonts.name)
                 .strikethrough(isIgnored, color: .secondary)
                 .foregroundStyle(isIgnored ? .secondary : .primary)
+            // Beside the NAME, not out in the trailing accessory cluster with the cloud and
+            // difference badges. Those report on the file's relationship to somewhere else — is it
+            // downloaded, does it match the other pane — and belong together at the far edge. This
+            // one is a statement about the characters immediately to its left, and reads as one only
+            // while it is next to them. It also keeps the trailing cluster's carefully reserved
+            // widths (see `FileRowAccessories`) out of the question entirely.
+            RiskyNameBadge(reason: riskyReason, fonts: fonts)
             Spacer()
             if densityMetrics.showsSecondaryDetail, let secondaryText {
                 Text(secondaryText)

@@ -37,6 +37,8 @@ struct PaneRowFonts: Equatable {
     let cloudBadge: Font
     /// The per-row difference glyph.
     let differenceBadge: Font
+    /// The cloud-hostile-name marker that sits beside the name.
+    let riskyNameBadge: Font
     /// The contained-differences count pill on a folder row.
     let countPill: Font
     /// The disclosure chevron a Columns row adds to a folder.
@@ -47,6 +49,9 @@ struct PaneRowFonts: Equatable {
         secondary = ScaledFont.caption.resolved(scale: scale)
         cloudBadge = ScaledFont.caption.resolved(scale: scale)
         differenceBadge = ScaledFont.subheadline.resolved(scale: scale)
+        // Caption, matching the cloud badge rather than the difference glyph: this one sits INSIDE
+        // the name's own reading line, so it has to stay subordinate to the name it qualifies.
+        riskyNameBadge = ScaledFont.caption.resolved(scale: scale)
         countPill = ScaledFont.caption2.weight(.semibold).resolved(scale: scale)
         chevron = ScaledFont.caption2.weight(.semibold).resolved(scale: scale)
     }

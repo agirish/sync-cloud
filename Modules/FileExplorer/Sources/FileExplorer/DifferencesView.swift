@@ -65,6 +65,11 @@ public struct DifferencesView: View {
     /// Bumped on every review-table click so the card re-claims key focus (see `focusNudge`).
     @State private var reviewFocusNudge = 0
     private let paneNames: PaneProviderNames
+    /// Both panes' name rulesets — see `PaneProviderRules` for why a differences row asks BOTH.
+    private let paneRules: PaneProviderRules
+    /// Names the user has kept, read live off the manager's store so a keep made from a pane row
+    /// silences this table's badges in the same beat.
+    private var keptNames: Set<String> { syncManager.keptNamesStore?.names ?? [] }
     private let onQuickLook: ((URL) -> Void)?
     /// Shows the in-app Info inspector for a path (the "Get Info" row action). Default no-op.
     private let onGetInfo: (String) -> Void
@@ -102,10 +107,11 @@ public struct DifferencesView: View {
     ///     to the same `quickLookPreview` binding the spacebar shortcut uses, so there is a
     ///     single presenter; `nil` hides the Quick Look menu items.
     ///   - onGetInfo: Shows the Info inspector for a file path (the "Get Info" row action).
-    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil) {
+    public init(syncManager: FileSyncManager, reviewStore: ReviewSessionStore, paneNames: PaneProviderNames = .leftRight, paneRules: PaneProviderRules = .strictest, onQuickLook: ((URL) -> Void)? = nil, onGetInfo: @escaping (String) -> Void = { _ in }, isCollapsed: Binding<Bool>? = nil) {
         self.syncManager = syncManager
         self.reviewStore = reviewStore
         self.paneNames = paneNames
+        self.paneRules = paneRules
         self.onQuickLook = onQuickLook
         self.onGetInfo = onGetInfo
         self.isCollapsed = isCollapsed
@@ -1165,7 +1171,7 @@ public struct DifferencesView: View {
     private func reviewTable(session: ReviewSession) -> some View {
         let compact = listDensity == .compact
         return Table(session.queue, selection: $reviewSelection) {
-            TableColumn("Name") { DifferenceNameCell(difference: $0, compact: compact) }
+            TableColumn("Name") { DifferenceNameCell(difference: $0, compact: compact, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change") { DifferenceChangeCell(difference: $0, compact: compact) }
             TableColumn("Size") { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
@@ -1226,7 +1232,7 @@ public struct DifferencesView: View {
         // the Name column passed `grouped: true` in the sectioned branch and defaulted in the flat
         // one. Sharing them makes that class of drift unrepresentable.
         Table(of: FileDifference.self, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped) }
+            TableColumn("Name", value: \.fileName, comparator: .localizedStandard) { DifferenceNameCell(difference: $0, compact: compact, grouped: grouped, paneRules: paneRules, keptNames: keptNames) }
             TableColumn("Change", value: \.changeSortRank) { DifferenceChangeCell(difference: $0, compact: compact) }
             TableColumn("Size", value: \.displaySizeSort) { DifferenceSizeCell(difference: $0, compact: compact) }
                 .width(min: 70, ideal: 90)
@@ -2028,10 +2034,38 @@ struct DifferenceNameCell: View {
     /// case the prefix drops that component instead of repeating it (`DifferenceGrouping
     /// .pathWithinSection`). The full path is still on the row's hover help either way.
     var grouped: Bool = false
+    /// Both panes' rulesets. Defaulted to the strictest so every existing caller — and every test
+    /// that builds this cell directly — behaves as it did, rather than needing a provider it has
+    /// no opinion about.
+    var paneRules: PaneProviderRules = .strictest
+    /// Names the user has said they meant, so a keep made from a pane row also silences the badge
+    /// here. Empty for callers with no store.
+    var keptNames: Set<String> = []
 
     /// The dimmed prefix ahead of the filename, or "" for none.
     private var prefix: String {
         grouped ? DifferenceGrouping.pathWithinSection(difference) : difference.parentPath
+    }
+
+    /// Why this name will not survive this comparison, or nil when it will.
+    ///
+    /// Asked of every ruleset in play and answered by the FIRST that objects — so a name only
+    /// OneDrive rejects is still flagged on a row whose other side is iCloud, which is exactly the
+    /// row where flagging it is worth something: this is a difference, so something is about to be
+    /// copied. Memoized per (provider, name) like the pane's, and the differences table has far
+    /// fewer rows than a pane.
+    ///
+    /// `isDirectory: false` — a `FileDifference` is always a file. Folders differ only by way of
+    /// their contents, so the diff engine never mints a row for one.
+    private var riskyReason: String? {
+        guard !keptNames.contains(difference.fileName) else { return nil }
+        for provider in paneRules.distinct {
+            if let reason = RiskyNameBadgeCache.reason(
+                name: difference.fileName, isDirectory: false, provider: provider) {
+                return reason
+            }
+        }
+        return nil
     }
 
     var body: some View {
@@ -2047,6 +2081,11 @@ struct DifferenceNameCell: View {
             }
             Text(NameDisplay.visibleName(difference.fileName))
                 .fontWeight(.medium)
+                .layoutPriority(1)
+            // Beside the name, as on a pane row. This is arguably the badge's most valuable
+            // surface: a differences row is a copy waiting to happen, and a name the destination
+            // will reject is worth knowing BEFORE it goes somewhere, not after the sync fails.
+            RiskyNameBadge(reason: riskyReason)
                 .layoutPriority(1)
         }
         .lineLimit(1)

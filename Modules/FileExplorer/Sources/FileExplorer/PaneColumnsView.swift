@@ -535,6 +535,7 @@ struct PaneColumnsView: View {
             density: density,
             showsChevron: node.isDirectory,
             fonts: fonts,
+            riskyReason: delegate.riskyNameReason(forName: row.info.name, isDirectory: row.info.isDirectory),
             awaitingDownloadID: awaitingDownload?.idIfWatching(node.id)
         )
         .tag(node.id)
@@ -816,6 +817,9 @@ struct ColumnRowView: View {
     let showsChevron: Bool
     /// The pane's resolved fonts — see `PaneRowFonts`.
     var fonts: PaneRowFonts = .unscaled
+    /// See `FileRowView.riskyReason`. Resolved by the column, for the same reason the tree row
+    /// resolves it: only the pane can reach the delegate.
+    var riskyReason: String? = nil
     /// See `FileRowView.awaitingDownloadID`. Threaded through rather than observed here for the
     /// same reason: a per-row subscription for a per-session event.
     var awaitingDownloadID: UUID? = nil
@@ -824,7 +828,7 @@ struct ColumnRowView: View {
         HStack(spacing: 6) {
             FileRowView(node: row.info, isIgnored: isIgnored, diffStatus: diffStatus,
                         containedDiffCount: containedDiffCount, density: density,
-                        fonts: fonts, awaitingDownloadID: awaitingDownloadID)
+                        fonts: fonts, riskyReason: riskyReason, awaitingDownloadID: awaitingDownloadID)
             if showsChevron {
                 Image(systemName: "chevron.right")
                     .font(fonts.chevron)

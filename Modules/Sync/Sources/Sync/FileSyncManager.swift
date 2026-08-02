@@ -520,6 +520,39 @@ public class FileSyncManager: ObservableObject {
     }
     private var ignoredItemsStoreCancellable: AnyCancellable?
 
+    /// Durable store of names the user deliberately meant (see ``KeptNamesStore``). Assigned by the
+    /// app at launch; nil (tests, CLI) means nothing is kept and every risky name is reported,
+    /// which is exactly the behavior before the store existed.
+    ///
+    /// Keeping a name drops it from `riskyNames` immediately, so Organize's list and its "Fix all"
+    /// can never rename something the user just said they meant. The reverse is deliberately NOT
+    /// symmetric: withdrawing a keep does not re-add the row, because `riskyNames` is the result of
+    /// a scan and this is not one. The row badge, which is live, does come back at once.
+    public var keptNamesStore: KeptNamesStore? {
+        didSet {
+            keptNamesCancellable = keptNamesStore?.$names
+                .dropFirst()
+                .sink { [weak self] kept in
+                    self?.riskyNames.removeAll { kept.contains($0.currentName) }
+                }
+            riskyNames.removeAll { isKeptName($0.currentName) }
+        }
+    }
+    private var keptNamesCancellable: AnyCancellable?
+
+    /// Whether the user has said they meant this name. False when no store is attached.
+    public func isKeptName(_ name: String) -> Bool {
+        keptNamesStore?.isKept(name) ?? false
+    }
+
+    /// `found` minus everything the user has already said they meant — the one filter every
+    /// publisher of `riskyNames` goes through, so a kept name cannot reach the list by a route
+    /// someone forgot about.
+    func reportable(_ found: [RiskyName]) -> [RiskyName] {
+        guard let kept = keptNamesStore?.names, !kept.isEmpty else { return found }
+        return found.filter { !kept.contains($0.currentName) }
+    }
+
     /// When true (the default), ignoring an item also records it in `ignoredItemsStore` and
     /// stored ignores apply to every scan. Off restores the old session-only behavior; the
     /// stored set is kept, just not applied. Set by the app from persisted settings.
