@@ -25,8 +25,16 @@ import Sync
 ///
 /// Release, deliberately: a Debug number for pure string-and-dictionary work is not a number worth
 /// quoting.
+///
+/// **This is a measuring instrument, not the regression net.** It prints and asserts nothing, on
+/// purpose: the delta it reports (+0.03–0.24 ms against a ~9 ms re-render) is smaller than the
+/// spread within either arm, so no threshold over it could separate a real regression from this
+/// machine having a busy minute. `RiskyNameBadgeMemoTests` is the net, and it counts evaluations
+/// instead of timing them — see its opening note for why that catches what a bar here cannot.
+/// Reach for this one when you want to know the current cost, not when you want to be told it
+/// changed.
 @MainActor
-@Suite(.serialized) struct RiskyNameBadgeCostBenchmark {
+@Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgeCostBenchmark {
 
     private static var enabled: Bool {
         ProcessInfo.processInfo.environment["SYNCCLOUD_BADGE_BENCHMARK"] == "1"

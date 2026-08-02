@@ -60,6 +60,24 @@ public enum RiskyNameBadgeCache {
     /// each, and a pane only ever realizes the rows it shows.
     private static let capacity = 16_384
 
+    /// Reports the name every time the rules actually run — that is, on every memo MISS. Nil in
+    /// production; `RiskyNameBadgeMemoTests` installs one to hold the badge to its cost model.
+    ///
+    /// **Why a name and not a counter.** A bare `evaluationCount` was tried first and is not
+    /// sound in this target: the memo is one process-wide table, and `DifferencesView` asks it
+    /// directly, so the four suites that mount a differences table raise the count from outside
+    /// whatever is being measured. Observed — a mounted-pane case expecting 15 evaluations saw 19,
+    /// intermittently, depending on which suite happened to be running alongside. Reporting the
+    /// name lets a test count only its own fixture's names and be indifferent to everyone else's,
+    /// which no amount of serializing suites achieves: the next suite to mount one of these would
+    /// reintroduce it silently.
+    ///
+    /// Compiled in rather than `#if DEBUG`-gated: it is one nil check on the miss path — which is
+    /// already about to rebuild a string scalar-by-scalar — and absent from the hit path
+    /// altogether. A `DEBUG`-only seam could not be asserted against under `swift test -c release`,
+    /// which is where cost regressions actually show.
+    static var onEvaluateForTesting: (@MainActor (String) -> Void)?
+
     /// Why `name` is cloud-hostile for `provider`, or nil when it is fine.
     ///
     /// `isDirectory` is threaded through to `NameNormalizer` rather than assumed: the detector flags
@@ -67,6 +85,7 @@ public enum RiskyNameBadgeCache {
     public static func reason(name: String, isDirectory: Bool, provider: CloudProvider.ProviderType) -> String? {
         let key = Key(provider: provider, name: name)
         if let hit = known[key] { return hit }
+        onEvaluateForTesting?(name)
         // The paths are labelling fields on the result, not inputs to the verdict (see the note
         // above), so the name stands in for both — this asks about a name, and has no scan root to
         // reconstruct a relative path against.
@@ -80,6 +99,9 @@ public enum RiskyNameBadgeCache {
     /// Drops every entry. Only the tests need this — production has nothing to invalidate (see the
     /// note on staleness) — but a memo that outlives a test case would let one case's answers
     /// decide another's.
+    ///
+    /// Deliberately leaves `onEvaluateForTesting` alone: the case that installed an observer is the
+    /// one that removes it, and clearing it here would silently unhook a measurement in progress.
     static func resetForTesting() {
         known.removeAll()
     }

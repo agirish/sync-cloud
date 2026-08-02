@@ -10,7 +10,7 @@ import Sync
 /// against a predicate that flagged the wrong file, and "some row in this folder is marked" is not
 /// what the badge promises.
 @MainActor
-@Suite(.serialized) struct RiskyNameBadgePredicateTests {
+@Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct RiskyNameBadgePredicateTests {
 
     /// The memo is process-wide, so one case's answers must not decide another's — and the
     /// provider-keying test below is meaningless if a previous case already populated the table.
@@ -205,7 +205,7 @@ import Sync
 /// The Differences table asks BOTH panes' rulesets, because a differences row is a copy waiting to
 /// happen and the direction is the user's to flip.
 @MainActor
-@Suite(.serialized) struct DifferencesRiskyNameRulesTests {
+@Suite(.serialized, .oneRiskyNameBadgeCacheOwner) struct DifferencesRiskyNameRulesTests {
 
     @Test func distinctCollapsesAMatchedPairAndKeepsAMixedOne() {
         #expect(PaneProviderRules(left: .iCloud, right: .iCloud).distinct == [.iCloud])
