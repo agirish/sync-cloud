@@ -10,7 +10,7 @@ import SwiftUI
 // visible control was cut in half by the sheet's bottom edge, which is the one thing a scrolling
 // surface must never do: a clipped control reads as "you've reached the end".
 //
-// The pieces here replace both halves of that. `SettingsRail` takes the search field and the six
+// The pieces here replace both halves of that. `SettingsRail` takes the search field and the
 // tabs out of the content column and stands them down the left, the macOS Settings convention.
 // `SettingsSection` keeps a grouped Form's *information* architecture — a titled group of related
 // controls with one explanation underneath — while dropping the box it drew around every group:
@@ -270,11 +270,13 @@ struct SettingsRow<Control: View>: View {
 
 // MARK: - The rail
 
-/// The left rail: the search field, the six tabs, and the version line.
+/// The left rail: the search field, the tabs, and the version line.
 ///
 /// Everything here used to sit above the content column. Moving it aside is what buys the
-/// content its height back — and it gives the six tabs room to be a list rather than a
-/// six-segment picker squeezed into 588pt.
+/// content its height back — and it gives the tabs room to be a list rather than a segmented
+/// picker squeezed into 588pt. That headroom is what let the tab count grow from six to seven
+/// when Tidy split into Organize and Duplicates; `SettingsLayoutTests.theRailFitsItsOpening`
+/// is what keeps the growth honest.
 struct SettingsRail: View {
     @Binding var selection: SettingsView.SettingsTab
     @Binding var query: String

@@ -31,7 +31,7 @@ struct FilingSpendHistoryView: View {
             Divider()
 
             if entries.isEmpty {
-                // Mirrors the Settings twin (TidySpendHistorySheet) so the two spend-history
+                // Mirrors the Settings twin (FilingSpendHistorySheet) so the two spend-history
                 // sheets share one empty state.
                 EmptyStateView(
                     icon: "cloud",

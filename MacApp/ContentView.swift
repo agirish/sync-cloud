@@ -856,7 +856,7 @@ struct ContentView: View {
     }
 
     /// The provider-root-relative folder a Tidy lens's rail opens on: the loose-files inbox for
-    /// Organize (Settings ▸ Tidy, default "TODO"), the provider root for every other lens. Falls back
+    /// Organize (Settings ▸ Organize, default "TODO"), the provider root for every other lens. Falls back
     /// to the root when the inbox is unset or missing, so the rail never strands on an absent folder.
     private func tidyRailRelativePath(for lens: TidyLens) -> String {
         guard lens == .filing else { return "" }
@@ -1353,7 +1353,7 @@ struct ContentView: View {
     }
 
     /// Kicks off a Filing scan for loose files, with the whole provider as the taxonomy. Defaults to
-    /// the loose-files inbox (Settings ▸ Tidy, default "TODO"); if the rail has been navigated into a
+    /// the loose-files inbox (Settings ▸ Organize, default "TODO"); if the rail has been navigated into a
     /// subfolder, that focused folder is scanned instead.
     func findFilingSuggestionsAction() {
         let focused = tidyScanRootExpanded

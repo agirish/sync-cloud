@@ -2,7 +2,7 @@ import Testing
 @testable import Settings
 
 /// Pins the header settings search (item 5.1): the pure index + filter that lets someone find a
-/// setting by name across all six tabs. The SwiftUI wiring (field, results list, tab jump) isn't
+/// setting by name across every tab. The SwiftUI wiring (field, results list, tab jump) isn't
 /// exercised here — this locks the matching rules the UI leans on.
 @Suite struct SettingsSearchTests {
 
@@ -109,5 +109,41 @@ import Testing
     @Test func entryIdsAreUnique() {
         let ids = SettingsSearchIndex.all.map(\.id)
         #expect(Set(ids).count == ids.count)
+    }
+
+    // MARK: The Tidy split
+
+    /// The twelve entries that used to say `.tidy` now have to say the right one of two things,
+    /// and `everyEntryPointsAtARealTab` cannot tell: `.filing` and `.duplicates` are both real, so
+    /// pointing all twelve at either one passes it. Search is how someone reaches a setting
+    /// without knowing which tab holds it, and landing on the wrong tab of two that look alike is
+    /// worse than landing on none — the setting isn't there, and the rail says it should be.
+    ///
+    /// Spelled out per title rather than by counting, so the assertion says which control is
+    /// misfiled instead of only that one is.
+    @Test func theOldTidyEntriesLandOnTheTabThatOwnsTheirControl() {
+        let duplicates = ["Ignore files smaller than", "Folders overlap at", "Detect versions"]
+        let organize = ["Suggest folders with on-device AI", "Use Claude (cloud) for the best suggestions",
+                        "Anthropic API key", "Cloud model", "Read file contents on-device for better signals",
+                        "Remembered rules", "Cloud spend", "Monthly budget cap", "Total budget cap"]
+
+        for title in duplicates {
+            let entry = SettingsSearchIndex.all.first { $0.title == title }
+            #expect(entry?.tab == .duplicates, "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing")")
+        }
+        for title in organize {
+            let entry = SettingsSearchIndex.all.first { $0.title == title }
+            #expect(entry?.tab == .filing, "\"\(title)\" points at \(entry?.tab.displayName ?? "nothing")")
+        }
+    }
+
+    /// "Tidy" left the product with this split, so the word has to keep finding something. Someone
+    /// who remembers the tab has nothing else to type — and an empty result set reads as "that
+    /// setting is gone", which is the opposite of what happened to it.
+    @Test func searchingTidyStillReachesBothTabsItSplitInto() {
+        let results = filterSettings(SettingsSearchIndex.all, query: "tidy")
+
+        #expect(results.contains { $0.tab == .filing }, "\"tidy\" surfaces nothing on Organize")
+        #expect(results.contains { $0.tab == .duplicates }, "\"tidy\" surfaces nothing on Duplicates")
     }
 }

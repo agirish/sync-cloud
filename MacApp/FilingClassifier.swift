@@ -28,7 +28,7 @@ enum FilingBackendRouter {
     /// wording and the condition that emits it can't drift apart.
     static let missingKeyDowngradeMessage =
         "Cloud (Claude) Filing is enabled, but no API key could be read from the Keychain — "
-        + "this scan used the free on-device model instead. Re-enter the key in Settings → Tidy."
+        + "this scan used the free on-device model instead. Re-enter the key in Settings → Organize."
 
     /// Resolves the backend, reporting the silent downgrade through `logDowngrade` (which defaults
     /// to a real `Logger.shared` warning; tests inject a recorder so the pin doesn't depend on the

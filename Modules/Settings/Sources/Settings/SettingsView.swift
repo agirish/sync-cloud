@@ -68,7 +68,11 @@ public struct SettingsView: View {
         case appearance
         case providers
         case sync
-        case tidy
+        /// Shown as "Organize". The case is named for `Workspace.filing`, not for the label, for
+        /// the reason that workspace keeps its own name: the label moved and the identity didn't,
+        /// and a tab whose case matches its workspace's is one grep away from the code it governs.
+        case filing
+        case duplicates
         case advanced
 
         /// The human-readable tab name shown in the rail and as the dim subtitle on a search
@@ -79,20 +83,27 @@ public struct SettingsView: View {
             case .appearance: return "Appearance"
             case .providers: return "Providers"
             case .sync: return "Sync"
-            case .tidy: return "Tidy"
+            case .filing: return "Organize"
+            case .duplicates: return "Duplicates"
             case .advanced: return "Advanced"
             }
         }
 
         /// The rail row's SF Symbol. Monochrome and outline-weight throughout: a rail of mixed
         /// filled and outline glyphs reads as though the filled ones meant something.
+        ///
+        /// Organize and Duplicates take the glyphs their workspaces wear in the bar
+        /// (`Workspace.symbol`) rather than picking settings-only ones — the rail row and the bar
+        /// button are two ways into the same feature, and a second glyph for it would say they
+        /// weren't.
         public var symbolName: String {
             switch self {
             case .general: return "gearshape"
             case .appearance: return "paintbrush"
             case .providers: return "cloud"
             case .sync: return "arrow.left.arrow.right"
-            case .tidy: return "sparkles"
+            case .filing: return "folder.badge.gearshape"
+            case .duplicates: return "doc.on.doc"
             case .advanced: return "wrench.and.screwdriver"
             }
         }
@@ -190,8 +201,8 @@ public struct SettingsView: View {
             Divider()
 
             HStack(spacing: 0) {
-                // Search and the six tabs stand down the left — the macOS Settings convention,
-                // and the reason the content column gets its height back. Both used to be rows
+                // Search and the tabs stand down the left — the macOS Settings convention, and
+                // the reason the content column gets its height back. Both used to be rows
                 // stacked above the content, costing 124pt before the first control.
                 SettingsRail(selection: $selectedTab, query: $searchQuery, hue: selectedHue)
                     .background(Color.primary.opacity(0.035))
@@ -224,8 +235,10 @@ public struct SettingsView: View {
                 ProvidersSettingsTab()
             case .sync:
                 SyncSettingsTab(syncManager: syncManager)
-            case .tidy:
-                TidySettingsTab(syncManager: syncManager)
+            case .filing:
+                FilingSettingsTab()
+            case .duplicates:
+                DuplicatesSettingsTab()
             case .advanced:
                 AdvancedSettingsTab(syncManager: syncManager, onResetAllSettings: onResetAllSettings)
             }
@@ -257,7 +270,7 @@ struct SettingsSearchEntry: Identifiable, Sendable {
 }
 
 /// The catalog of settings the header search can jump to, one entry per user-facing control
-/// across all six tabs. Titles mirror the on-screen labels; keywords add the words people are
+/// across every tab. Titles mirror the on-screen labels; keywords add the words people are
 /// likely to type instead (synonyms, the value names, the feature they're after). This is the
 /// single place to keep in sync when a control is added or renamed.
 enum SettingsSearchIndex {
@@ -326,31 +339,37 @@ enum SettingsSearchIndex {
         .init(tab: .sync, title: "Ignored name patterns",
               keywords: ["ignore patterns", "glob", "exclude", "wildcard", "ds_store", "node_modules", "patterns"]),
 
-        // Tidy
-        .init(tab: .tidy, title: "Ignore files smaller than",
-              keywords: ["minimum size", "min file size", "small files", "duplicates", "threshold size"]),
-        .init(tab: .tidy, title: "Folders overlap at",
-              keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
-        .init(tab: .tidy, title: "Detect versions",
-              keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
-        .init(tab: .tidy, title: "Suggest folders with on-device AI",
-              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders", "sort files"]),
-        .init(tab: .tidy, title: "Use Claude (cloud) for the best suggestions",
+        // Organize — the Suggestions and Cloud spend sections, in tab order.
+        // "tidy" is kept as a keyword on the two entries a Tidy-era user is most likely to hunt
+        // for by that name: the word left the product with this split, so someone who remembers
+        // it has nothing to type otherwise.
+        .init(tab: .filing, title: "Suggest folders with on-device AI",
+              keywords: ["filing", "apple intelligence", "on-device ai", "suggestions", "suggest folders",
+                         "sort files", "organize", "tidy"]),
+        .init(tab: .filing, title: "Use Claude (cloud) for the best suggestions",
               keywords: ["claude", "cloud", "anthropic", "cloud filing", "ai"]),
-        .init(tab: .tidy, title: "Anthropic API key",
+        .init(tab: .filing, title: "Anthropic API key",
               keywords: ["api key", "key", "keychain", "sk-ant", "anthropic key", "token"]),
-        .init(tab: .tidy, title: "Cloud model",
+        .init(tab: .filing, title: "Cloud model",
               keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
-        .init(tab: .tidy, title: "Read file contents on-device for better signals",
+        .init(tab: .filing, title: "Read file contents on-device for better signals",
               keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
-        .init(tab: .tidy, title: "Remembered rules",
+        .init(tab: .filing, title: "Remembered rules",
               keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
-        .init(tab: .tidy, title: "Cloud spend",
+        .init(tab: .filing, title: "Cloud spend",
               keywords: ["spend", "cost", "tokens", "billing", "usage", "money", "price"]),
-        .init(tab: .tidy, title: "Monthly budget cap",
+        .init(tab: .filing, title: "Monthly budget cap",
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
-        .init(tab: .tidy, title: "Total budget cap",
+        .init(tab: .filing, title: "Total budget cap",
               keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
+
+        // Duplicates
+        .init(tab: .duplicates, title: "Ignore files smaller than",
+              keywords: ["minimum size", "min file size", "small files", "duplicates", "threshold size", "tidy"]),
+        .init(tab: .duplicates, title: "Folders overlap at",
+              keywords: ["overlap", "threshold", "folder overlap", "percent", "duplicates"]),
+        .init(tab: .duplicates, title: "Detect versions",
+              keywords: ["versions", "final", "copy", "report (1)", "variants", "duplicates"]),
 
         // Advanced
         .init(tab: .advanced, title: "Log level",
@@ -1399,36 +1418,33 @@ private struct IgnoredItemsList: View {
     }
 }
 
-// MARK: - Tidy
+// MARK: - Duplicates
 
-/// Everything for the Tidy workspace: how Find Duplicates groups, how Filing suggests homes
-/// (on-device AI + opt-in Claude cloud with its key/model), remembered rules, and cloud spend.
-struct TidySettingsTab: View {
-    let syncManager: FileSyncManager?
-
+/// How a duplicate scan decides what counts as a match. Three preferences and nothing else —
+/// thin, and honestly so: this is the first place anyone hunting for the overlap threshold looks.
+///
+/// Split out of the old Tidy tab along with `FilingSettingsTab`. Tidy was one tab holding the
+/// preferences of two workspaces that stopped sharing a home when the workspace bar went flat
+/// (Compare · Organize · Duplicates · Automations · Storage), under a word the rest of the
+/// product had already retired. The rule the split follows is *settings go where the work is*,
+/// not one tab per workspace — Automations, Storage and Compare get no tab because they have no
+/// preferences to put in one.
+struct DuplicatesSettingsTab: View {
+    // The `tidy` prefixes are the DEFAULTS KEYS' ("tidyMinFileSize" and friends, owned by
+    // `DuplicateFinderOptions.DefaultsKey`), mirrored deliberately. The keys are a persistence
+    // format and did not move with the tab; a local name that stopped matching its key would be
+    // the first thing to mislead someone chasing a stored value.
     @AppStorage(DuplicateFinderOptions.DefaultsKey.minFileSize) private var tidyMinFileSize: Int = 4096
     @AppStorage(DuplicateFinderOptions.DefaultsKey.overlapThreshold) private var tidyOverlapThreshold: Double = 0.7
     @AppStorage(DuplicateFinderOptions.DefaultsKey.detectVersions) private var tidyDetectVersions: Bool = true
-    @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
-    @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
-    @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
-    @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
-    // Default from the protocol, not a repeated literal: the classifier and the spend preflight both
-    // fall back to `CloudFilingProtocol.defaultModel`, and a copy here would silently disagree with
-    // them the next time the default model moves.
-    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
-    @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
-    @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
-
-    // Cloud spend, refreshed on appear and when the history sheet closes.
-    @State private var spendTotals = FilingSpendTotals()
-    @State private var spendLast: FilingSpendEntry?
-    @State private var showSpendHistory = false
 
     var body: some View {
         SettingsPage {
+            // Titleless, keeping the caption: the rail row above already says "Duplicates", and a
+            // lone section header repeating it would read as a subdivision of a tab that has none
+            // — the same redundancy that cost the Filing header its name over on Organize. The
+            // caption carried the actual explanation and is unchanged.
             SettingsSection(
-                "Duplicates",
                 caption: "How Find Duplicates groups results. Identical detection is always checksum-verified; the overlap threshold decides when same-named folders read as overlapping vs unrelated. Changes apply on the next scan."
             ) {
                 // Both row lists come from `SettingsPickerOptions` so a stored value outside the
@@ -1453,8 +1469,42 @@ struct TidySettingsTab: View {
                 }
                 Toggle("Detect versions (Report, Report (1), Report-final)", isOn: $tidyDetectVersions)
             }
+        }
+    }
+}
 
-            SettingsSection("Filing", content: {
+// MARK: - Organize
+
+/// Everything that changes what Organize suggests — on-device AI, the opt-in Claude cloud path
+/// with its key and model, the loose-files inbox — plus the spend that cloud option can run up.
+///
+/// Cloud spend rides here rather than getting a Billing tab of its own: the caps exist because
+/// Organize can call Claude, so they are *Organize's* money, and a second tab for one feature's
+/// opt-in API key would be a third place to look for one workflow.
+struct FilingSettingsTab: View {
+    @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
+    @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
+    @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
+    @AppStorage(FileSyncManager.usesCloudDefaultsKey) private var filingUseCloud: Bool = false
+    // Default from the protocol, not a repeated literal: the classifier and the spend preflight both
+    // fall back to `CloudFilingProtocol.defaultModel`, and a copy here would silently disagree with
+    // them the next time the default model moves.
+    @AppStorage(FileSyncManager.cloudModelDefaultsKey) private var filingCloudModel: String = CloudFilingProtocol.defaultModel
+    @AppStorage(FileSyncManager.monthlyBudgetCapKey) private var monthlyBudgetUSD: Double = 0
+    @AppStorage(FileSyncManager.totalBudgetCapKey) private var totalBudgetUSD: Double = FileSyncManager.defaultTotalBudgetCapUSD
+
+    // Cloud spend, refreshed on appear and when the history sheet closes.
+    @State private var spendTotals = FilingSpendTotals()
+    @State private var spendLast: FilingSpendEntry?
+    @State private var showSpendHistory = false
+
+    var body: some View {
+        SettingsPage {
+            // "Filing" as a header no longer earns its keep — the tab above it is called
+            // Organize, and this is the group that decides what Organize suggests. "Suggestions"
+            // names the thing the rows change, and leaves "Cloud spend" below it reading as the
+            // other half of the tab rather than as a subsection of filing.
+            SettingsSection("Suggestions", content: {
                 Toggle("Suggest folders with on-device AI (Apple Intelligence)", isOn: $filingUseAI)
                 Toggle("Use Claude (cloud) for the best suggestions", isOn: $filingUseCloud)
                     .disabled(!filingUseAI)
@@ -1495,7 +1545,7 @@ struct TidySettingsTab: View {
                 }
                 .help("A rule you teach by correcting a suggestion is saved as an automation — review, edit, or delete it in the Automations workspace.")
             }, caption: {
-                Text("Filing suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Filing falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
+                Text("Organize suggests where loose files belong. The on-device model (Apple Intelligence, macOS 26) runs free and private; where it isn’t available, Organize falls back to name/metadata matching. Claude (cloud) is the most accurate option but is opt-in and off by default and billed to your API key. To keep cost low it sends your folder names plus file names — and a short text excerpt only for files whose name says nothing — for up to 150 files per scan. Pick Haiku for the cheapest runs (roughly a penny a scan). The key is stored in the macOS Keychain. The corrections you ask Organize to remember are saved as automations (the Automations workspace). Changes apply on the next scan.")
             })
 
             SettingsSection(
@@ -1542,7 +1592,7 @@ struct TidySettingsTab: View {
         }
         .onAppear(perform: refreshSpend)
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
-            TidySpendHistorySheet()
+            FilingSpendHistorySheet()
         }
     }
 
@@ -1553,9 +1603,9 @@ struct TidySettingsTab: View {
 
 }
 
-/// The full cloud-Filing spend history as a sheet (Settings' copy — FileExplorer has its own for
-/// the Tidy lens; both read the shared FilingSpendStore).
-struct TidySpendHistorySheet: View {
+/// The full cloud-Filing spend history as a sheet (Settings' copy — FileExplorer has its own in
+/// the Organize workspace; both read the shared FilingSpendStore).
+struct FilingSpendHistorySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var entries: [FilingSpendEntry] = []
     @State private var totals = FilingSpendTotals()

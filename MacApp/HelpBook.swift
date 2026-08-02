@@ -207,7 +207,7 @@ enum HelpBook {
                         "On-device content signals handle files whose name says nothing on its own.",
                         "Accept a suggestion to move the file, or remember a rule so similar files file themselves next time.",
                     ]),
-                    .tip("Cloud AI is opt-in and needs a key (Settings ▸ Tidy). Without it, Organize runs entirely on-device."),
+                    .tip("Cloud AI is opt-in and needs a key (Settings ▸ Organize). Without it, Organize runs entirely on-device."),
                 ],
                 related: ["tidy-duplicates", "sync-preferences"]
             )),

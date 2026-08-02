@@ -113,7 +113,7 @@ import Sync
             Self.preflight(estCostUSD: 0.50, monthlySpentUSD: 0.80, monthlyCapUSD: 1.00))
         #expect(monthly.contains("Running this would exceed the monthly cap, so it's blocked"))
         #expect(monthly.contains("free on-device suggestions instead"))
-        #expect(monthly.contains("Settings → Tidy"))
+        #expect(monthly.contains("Settings → Organize"))
 
         let total = SyncOperationAlerts.filingSpendInformativeText(
             Self.preflight(estCostUSD: 0.50, totalSpentUSD: 4.80, totalCapUSD: 5.00))

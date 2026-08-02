@@ -138,7 +138,7 @@ Key flags: `--direction auto|to-right|to-left`, `--strategy replace|skip|keep-bo
 ## Setting up cloud AI filing (optional)
 
 1. Get an API key from the [Anthropic Console](https://console.anthropic.com/).
-2. In **Settings ▸ Tidy ▸ Organize**, enable *Use Claude (cloud)*, paste the key (stored in the
+2. In **Settings ▸ Organize**, enable *Use Claude (cloud)*, paste the key (stored in the
    Keychain), pick a model, and hit **Test**.
 3. Set a monthly and/or total **budget cap**. SyncCloud shows an estimated cost before each scan and
    stops at your cap.

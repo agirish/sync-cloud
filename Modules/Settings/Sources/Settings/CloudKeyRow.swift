@@ -47,7 +47,7 @@ enum CloudKeyRowState: Equatable {
 /// nothing said so, `Clear` (which deletes) was the only labelled way out, and there was no way
 /// to check *which* key was stored.
 ///
-/// Lifted out of `TidySettingsTab` because it owns five pieces of state and all of the Keychain
+/// Lifted out of `FilingSettingsTab` because it owns five pieces of state and all of the Keychain
 /// contact in Settings; leaving it inline meant none of that could be exercised on its own.
 struct CloudKeyRow: View {
     @State private var apiKeyField: String
