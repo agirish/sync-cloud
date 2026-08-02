@@ -142,7 +142,7 @@ Per pane, one load plus one scan:
 | **nativize `id`** | **−122 ms** | **−165 ms** |
 | additionally nativize `name` | +18 ms *worse* | +16 ms *worse* |
 
-**Nativize `id` at construction. Leave `name` bridged.** Roughly ten times more comes back than
+**Nativize `id` at construction. Leave `name` bridged.** (Landed — see the outcome below.) Roughly ten times more comes back than
 goes in, the walk gives up under 3.5%, and the one place bridging is an advantage — the name sort
 — is untouched because it reads `name`.
 
@@ -157,3 +157,44 @@ class of bug `nearNameKey` exists to paper over.
 The three sites are `leafNode`, `cappedNode` and `folderNode` in
 `Modules/Sync/Sources/Sync/FileSyncManager+Scanning.swift` — deliberately the only places a
 production `FileNode` is built.
+
+---
+
+## Outcome — what landing it actually did
+
+Done, via `FileSyncManager.nativePath`. Same machine (97–98% idle), same roots, same benchmark,
+before and after:
+
+| phase | Documents | OneDrive |
+|---|---|---|
+| `FileDiffEngine.filesInfo(fromTree:)` | 181.4 → 78.8 ms | 227.2 → 93.0 ms |
+| `PaneChildrenIndex` build | 34.9 → 5.3 ms | 50.7 → 6.3 ms |
+| `PaneRow.project` | 6.5 → 4.7 ms | 7.1 → 5.0 ms |
+| `sort(by: .name)` re-sort | 9.2 → 8.3 ms | 9.8 → 9.2 ms |
+| **total, one load + one scan** | **−135 ms** | **−181 ms** |
+
+**The walk surcharge could not be seen end to end, and that is the honest reading.** `buildTree`
+went 394.7 → 383.9 ms and 423.1 → 401.7 ms — *down*, with the before and after sample ranges
+overlapping. The predicted +11.0 / +13.4 ms is real but smaller than a warm walk's own run-to-run
+spread, so a whole-walk timing can neither confirm nor refute it; the isolated transform
+measurement is the number to quote, and the point stands that it is bought back roughly twelve
+times over.
+
+The benchmark doubles as the check that the change took effect: its `native id` arm nativizes an
+already-native `id`, so every ratio that was 6.5–9.1× collapsed to 1.00–1.04×.
+
+Behaviour-preservation was verified against the pre-change Release binary on a controlled fixture
+of adversarial names — NFC vs NFD, trailing space, trailing period, case-only, zero-width, non-BMP,
+a 180-character name, a 12-deep chain, an empty directory, a `chmod 000` directory, and both a
+valid and a broken symlink:
+
+- a dump of every walked node (`id` and `name` as raw UTF-8 hex, plus `isDirectory`,
+  `isUnexplored`, `isSymbolicLink`, size, kind, tags and child count) in tree order under **all
+  five sort options**, together with every `filesInfo` key, its `FileInfo.url.path`, and both
+  `nearNameKey` folds — 650 lines, **byte-for-byte identical**;
+- `synccloud scan` plain, `--show-hidden` and `--json` — stdout, stderr and exit codes identical;
+- a real `synccloud sync --direction to-right --strategy keep-both` — identical output, and the
+  resulting file trees identical across 92 entries by raw-byte path, size and SHA-256.
+
+`swift test -c release` in `Modules/Sync` 1180/1180, `Modules/FileExplorer` 672/672, and
+`xcodebuild test -scheme SyncCloud` 270/270.

@@ -924,21 +924,23 @@ extension FileSyncManager {
                 }
 
                 // The three node shapes, in one place each: any change to FileNode's fields
-                // or `isUnexplored` semantics lands on every walk path at once.
+                // or `isUnexplored` semantics lands on every walk path at once. Every one of
+                // them stores `nativePath(fullURL)` rather than `fullURL.path` — see the note
+                // on that function for why, and for why `name` deliberately does NOT.
 
                 func leafNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
+                    FileNode(id: FileSyncManager.nativePath(fullURL), name: fullURL.lastPathComponent, isDirectory: false, children: nil, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
                 }
 
                 /// A directory reported but not walked into (shallow-pass cap, cycle guard, or
                 /// hard depth cap). `isUnexplored` keeps cache consumers from mistaking the
                 /// artificial empty children for a genuinely empty (authoritative) deep tree.
                 func cappedNode(_ fullURL: URL, _ s: ItemStat) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true, isSymbolicLink: s.isSymlink)
+                    FileNode(id: FileSyncManager.nativePath(fullURL), name: fullURL.lastPathComponent, isDirectory: true, children: [], modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isUnexplored: true, isSymbolicLink: s.isSymlink)
                 }
 
                 func folderNode(_ fullURL: URL, _ s: ItemStat, children: [FileNode]) -> FileNode {
-                    FileNode(id: fullURL.path, name: fullURL.lastPathComponent, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
+                    FileNode(id: FileSyncManager.nativePath(fullURL), name: fullURL.lastPathComponent, isDirectory: true, children: children, modificationDate: s.modificationDate, fileSize: s.fileSize, tags: s.tags, kind: s.kind, isSymbolicLink: s.isSymlink)
                 }
 
                 /// The one node builder for every regime — fanned-out and sequential, real
@@ -1102,6 +1104,36 @@ extension FileSyncManager {
         }
 
         return sortLevel(nodes: sorted, by: option)
+    }
+
+    /// `url.path` with its storage forced native, for `FileNode.id`.
+    ///
+    /// `URL.path` hands back a string lazily bridged from `NSString`, which has no contiguous
+    /// UTF-8 buffer — so every consumer that reaches for bytes pays to materialize them, and Swift's
+    /// cheap path for hashing a string (which wants exactly that buffer) is unavailable. `id` is
+    /// the app's universal dictionary and set key, so it is spent almost entirely on hashing:
+    /// measured in Release over this Mac's two provider roots, a lookup runs 13x slower bridged, a
+    /// dictionary build 9-10x, and a plain `for byte in path.utf8` loop 7.5x — the last of which is
+    /// the tell that the cause is the missing buffer rather than ObjC dispatch.
+    ///
+    /// Paying the round-trip once per node, here, converts that. Per pane it costs 11.0-13.4 ms of
+    /// a 395-423 ms walk and returns 122-165 ms across one load and one scan — `filesInfo` -101 to
+    /// -131 ms, the `PaneChildrenIndex` build -30 to -44 ms on the main actor. See
+    /// `docs/string-bridging.md` and `BridgedStringBenchmark`.
+    ///
+    /// **`name` is deliberately left bridged.** Nothing is keyed on it, and its one whole-tree
+    /// consumer is `sortLevel`'s `localizedStandardCompare` — an `NSString` method that a bridged
+    /// string hands itself to for free and a native one must be bridged out for. Nativizing it too
+    /// measured 16-18 ms per pane WORSE. The asymmetry is the finding; do not "finish the job".
+    ///
+    /// Byte-identical by construction: `String.utf8` is valid UTF-8 and decoding valid UTF-8 gives
+    /// back the same scalars, so equality, ordering, hashing, `hasPrefix` and every byte-level scan
+    /// see exactly what they saw before. Do NOT substitute
+    /// `String(cString: url.fileSystemRepresentation)`, which would be cheaper but is not obviously
+    /// normalization-identical to `URL.path` — and a silent NFC/NFD shift in a diff key is the very
+    /// failure `nearNameKey` exists to compensate for.
+    nonisolated static func nativePath(_ url: URL) -> String {
+        String(decoding: Array(url.path.utf8), as: UTF8.self)
     }
 
     /// Sorts one level only, leaving children untouched. `buildNode` sorts each subtree as it is
