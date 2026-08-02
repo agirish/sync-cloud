@@ -164,6 +164,35 @@ private let appFontScales: [CGFloat] = FontSize.allCases.map(\.scale)
         #expect(LabelMetrics.actionBarIconOnlyWidth == iconDrawn)
     }
 
+    // MARK: - The cache
+
+    /// The caches are keyed by `NSFont`, and that only works if two separately-built `ScaledFont`s
+    /// resolving to the same face produce fonts that are `==` and hash alike.
+    ///
+    /// Worth its own case because the failure is silent and is a PERFORMANCE failure, not a wrong
+    /// answer: identity-keyed fonts would miss on every lookup, refill the cache until it hit its
+    /// limit, flush, and repeat — turning a ~25µs-per-symbol measurement back into a per-layout-pass
+    /// cost, which is the entire thing the computed ladder exists to remove.
+    @Test func equalScaledFontsResolveToCacheableAppKitFonts() {
+        for (a, b) in [(ScaledFont.system(size: 13), ScaledFont.system(size: 13)),
+                       (.caption, .caption),
+                       (.system(size: 12, weight: .semibold).monospacedDigit(),
+                        .system(size: 12, weight: .semibold).monospacedDigit())] {
+            for scale in appFontScales {
+                let x = a.nsFont(scale: scale), y = b.nsFont(scale: scale)
+                #expect(x == y, "\(x) != \(y) — the measurement caches would never hit")
+                #expect(x.hashValue == y.hashValue, "equal fonts hash differently — same problem")
+            }
+        }
+        // Fonts that should NOT collide, or a cached width would be served for the wrong face.
+        #expect(ScaledFont.system(size: 13).nsFont(scale: 1)
+                != ScaledFont.system(size: 13, weight: .bold).nsFont(scale: 1))
+        #expect(ScaledFont.system(size: 12, weight: .semibold).nsFont(scale: 1)
+                != ScaledFont.system(size: 12, weight: .semibold).monospacedDigit().nsFont(scale: 1))
+        #expect(ScaledFont.system(size: 13).nsFont(scale: 1)
+                != ScaledFont.system(size: 13).nsFont(scale: 1.3))
+    }
+
     // MARK: - The layout facts the ladder's arithmetic assumes
 
     /// An `HStack` charges no spacing for a child that resolves to nothing. The header's rows are

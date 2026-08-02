@@ -111,7 +111,6 @@ struct HeaderLadder {
     private struct Widths {
         var countPill: CGFloat = 0
         var itemCounts: CGFloat = 0
-        var foldAll: CGFloat = 0
         var filterFull: CGFloat = 0
         var selectionChip: CGFloat = 0
         var verify: CGFloat = 0
@@ -122,7 +121,6 @@ struct HeaderLadder {
         var primaryNamed: CGFloat = 0
         var primaryBare: CGFloat = 0
         var search: CGFloat = 0
-        var collapse: CGFloat = 0
     }
 
     let facts: Facts
@@ -135,15 +133,19 @@ struct HeaderLadder {
     /// Its `Spacer(minLength:)` — a Spacer contributes exactly its minimum to a row's ideal width,
     /// which is what `ActionBarLadderTests` pins and what makes a rung's width finite at all.
     static let zoneGap: CGFloat = 16
-    /// `foldAllToggle` and `collapseToggle` both pin their glyph to this square.
+    /// `foldAllToggle` and `collapseToggle` both pin their glyph to this square. Read straight into
+    /// `width(of:)` rather than kept in `Widths`, which is a price list for things that have to be
+    /// MEASURED — a cached copy of a published constant is only a second place to keep in step.
+    ///
+    /// The glyph's own point size deliberately plays no part: a `.frame(width:)` is the width
+    /// whatever it contains, so these two are the only controls on the row whose size does not move
+    /// with the font scale. `everyRungMeasuresWhatItDrawsAtOtherFontScales` covers that.
     static let glyphButtonSide: CGFloat = 24
     /// `filterMenu`'s label `HStack(spacing:)`, and `selectionChip`'s is one point tighter.
     static let filterLabelGap: CGFloat = 6
     static let selectionChipGap: CGFloat = 5
     /// The trailing chevron on the filter's full label, and the count pill's affordance.
     static let smallChevronFont: ScaledFont = .system(size: 9, weight: .semibold)
-    /// The glyph size `foldAllToggle` and `collapseToggle` draw at.
-    static let glyphFont: ScaledFont = .system(size: 12, weight: .semibold)
     /// The font the header card puts in the environment (`body`'s `.scaledFont(.body)`), which is
     /// what the filter's funnel and the search magnifier — neither of which names a font — inherit.
     static let ambientFont: ScaledFont = .body
@@ -170,8 +172,6 @@ struct HeaderLadder {
             w.itemCounts = LabelMetrics.width(of: text, font: ScaledFont.caption.monospacedDigit(),
                                               scale: scale)
         }
-
-        w.foldAll = glyphButtonSide
 
         // The full filter label: funnel, name, chevron, at 6pt apart, inside an action-bar capsule.
         w.filterFull = LabelMetrics.actionBarWidth(labelWidth:
@@ -218,9 +218,6 @@ struct HeaderLadder {
         // `ExpandingSearchToggle` pads its glyph by 5 and pulls the padding straight back off, so its
         // footprint is the bare symbol at the ambient font.
         w.search = LabelMetrics.symbolWidth("magnifyingglass", font: ambientFont, scale: scale)
-        // Priced unconditionally, like `foldAll`: whether a control is on the row is `width(of:)`'s
-        // question, and a zero here would be a second place that has to agree with it.
-        w.collapse = glyphButtonSide
         return w
     }
 
@@ -275,7 +272,7 @@ struct HeaderLadder {
         if facts.itemCountsText != nil { run.append(widths.itemCounts) }
         run.append(Self.dividerWidth)
         if FoldAllAction.isOffered(sectionCount: facts.sectionCount, compaction: compaction) {
-            run.append(widths.foldAll)
+            run.append(Self.glyphButtonSide)
         }
         run.append(compaction < .glyphFilter ? widths.filterFull : LabelMetrics.actionBarIconOnlyWidth)
         if facts.isSelectionScoped { run.append(widths.selectionChip) }
@@ -299,7 +296,7 @@ struct HeaderLadder {
         }
         run.append(Self.dividerWidth)
         run.append(widths.search)
-        if facts.showsCollapseToggle { run.append(widths.collapse) }
+        if facts.showsCollapseToggle { run.append(Self.glyphButtonSide) }
 
         return run.reduce(0, +) + CGFloat(run.count - 1) * Self.itemGap
     }
