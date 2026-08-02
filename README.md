@@ -175,8 +175,9 @@ The seven SPM package test suites and the app-target build run on every push to 
 
 ## Roadmap
 
-Planned enhancements (scheduled/background sync, saved folder-pair presets, an in-app text diff
-viewer, a menu-bar status item, and more) are tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
+Planned enhancements (backing up the folders that exist in only one place, using any folder as a
+source, saved folder-pair presets, an in-app text diff viewer, a menu-bar status item, and more) are
+tracked in [`ROADMAP.md`](ROADMAP.md). Deliberately
 deferred edge cases live in [`DEFERRED_ENHANCEMENTS.md`](DEFERRED_ENHANCEMENTS.md), and internal
 code that is correct but entangled enough to be worth restructuring against a major release is
 catalogued in [`REFACTOR.md`](REFACTOR.md).

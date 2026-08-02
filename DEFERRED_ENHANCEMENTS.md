@@ -184,7 +184,8 @@ entries with FIFO eviction. It makes a *repeat* Verify All within one session ne
 relaunch re-hashes everything from scratch.
 
 **Enhancement:** Persist it (a small on-disk index) so Verify and Tidy stay fast across launches —
-the same index `ROADMAP.md` #1 (content-based diff) would need anyway.
+the same index `ROADMAP.md`'s "Content-based diff: a strict-match mode and a persisted index" would
+need anyway. (Cited by name: that file's numbering is positional and shifts as items ship.)
 
 **Why deferred:** The key already handles the invalidation correctly (an edit bumps mtime, so a
 stale entry is bypassed rather than served), so persistence is purely a speed win, and its one
