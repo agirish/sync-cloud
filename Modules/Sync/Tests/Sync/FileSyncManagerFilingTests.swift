@@ -18,6 +18,18 @@ final class Flag: @unchecked Sendable {
     }
 }
 
+/// A tiny thread-safe call counter for injected closures, lock-backed for the same reason as
+/// ``Flag``: it is written from a classifier closure in another isolation domain and read from
+/// the test's spins.
+final class CallCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    /// Increments and returns the new value — atomic, so concurrent callers each see a distinct
+    /// ordinal (1 for the first call, 2 for the second, …).
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; count += 1; return count }
+}
+
 @Suite struct FileSyncManagerFilingTests {
 
     private func write(_ url: URL, bytes: Int = 5000, fill: UInt8 = 0x41) throws {
@@ -950,12 +962,189 @@ final class Flag: @unchecked Sendable {
     @MainActor
     @Test func clearFilingReleasesStuckTryAnotherIds() async throws {
         let manager = FileSyncManager()
-        manager.filingTryAnotherInFlight = ["/p/Downloads/Stuck.pdf"]
+        manager.filingTryAnotherInFlight = ["/p/Downloads/Stuck.pdf": UUID()]
 
         manager.clearFiling()
 
         #expect(manager.filingTryAnotherInFlight.isEmpty,
                 "a classifier round-trip that never returns must not latch the card forever")
+    }
+
+    /// The recovery hatch must not re-arm the race it recovers from. `filingTryAnotherInFlight`
+    /// is keyed by suggestion id — the file's ABSOLUTE PATH, stable across scans and sessions —
+    /// so after round-trip A wedges, `clearFiling()` releases /X, a rescan recreates the card
+    /// under the SAME id, and a new click starts round-trip B, A's unconditional releasing
+    /// `defer` strips B's still-out guard: a third click then runs concurrently with B and
+    /// "whichever returned last wins" is back. A stale invocation may release only its OWN entry.
+    @MainActor
+    @Test func staleTryAnotherDeferMustNotReleaseTheNewRoundTripsGuard() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let calls = CallCounter()
+        let releaseA = Flag()
+        let releaseB = Flag()
+        manager.filingClassifier = { _, files in
+            // Round-trip A parks on its own gate, B on its own; anything later (the bug this
+            // test pins) returns immediately so a regressed build fails the call-count check
+            // below instead of deadlocking the suite. Bounded parks, same reason.
+            switch calls.next() {
+            case 1:
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+            case 2:
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !releaseB.value, ContinuousClock.now < deadline { await Task.yield() }
+            default: break
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0020.HEIC", fileName: "IMG_0020.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        // Round-trip A reaches the classifier and parks there (wedged — no timeout exists).
+        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        let arrivalA = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value == 0, ContinuousClock.now < arrivalA { await Task.yield() }
+        #expect(calls.value == 1, "round-trip A must reach the classifier")
+
+        // The user switches providers away and back (clearFiling releases /X), and a rescan
+        // recreates the card under the same id.
+        manager.clearFiling()
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        manager.filingSuggestions = [s]
+
+        // Round-trip B starts for the recreated card and parks in turn.
+        let b = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        let arrivalB = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value < 2, ContinuousClock.now < arrivalB { await Task.yield() }
+        #expect(calls.value == 2, "round-trip B must reach the classifier")
+        #expect(!manager.filingTryAnotherInFlight.isEmpty, "B's re-ask is out, so its guard is armed")
+
+        // A finally returns. Its defer is stale — it must NOT release B's guard.
+        releaseA.value = true
+        await a.value
+        #expect(!manager.filingTryAnotherInFlight.isEmpty,
+                "A's stale defer released B's still-out guard — the ownership check is gone")
+
+        // And with B still out, another click must be refused, not start a third round-trip.
+        let recreated = try #require(manager.filingSuggestions.first)
+        await manager.tryAnotherFolder(for: recreated)
+        #expect(calls.value == 2,
+                "a click while B is still out must be refused; a third concurrent round-trip is the raced bug")
+
+        // B returns: its own defer releases its own entry, and its verdict lands as usual.
+        releaseB.value = true
+        await b.value
+        #expect(manager.filingTryAnotherInFlight.isEmpty, "B's completed re-ask must release its own entry")
+        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
+                "the CURRENT round-trip's verdict still lands")
+    }
+
+    /// The other half of the same hole: A's late RESULT. Its verdict was computed against the
+    /// pre-clear taxonomy and rejections, but `replaceFilingSuggestion` keys on the suggestion id
+    /// — the stable file path — so after clearFiling + rescan recreate the card, A's stale write
+    /// lands in the NEW session's card. A verdict from an invocation that no longer owns its
+    /// in-flight entry must be dropped.
+    @MainActor
+    @Test func staleTryAnotherResultMustNotOverwriteTheRecreatedCard() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let calls = CallCounter()
+        let releaseA = Flag()
+        manager.filingClassifier = { _, files in
+            if calls.next() == 1 {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0021.HEIC", fileName: "IMG_0021.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        #expect(calls.value == 1, "round-trip A must reach the classifier")
+
+        // Provider switch releases A's entry; the rescan recreates the card — same id, fresh
+        // session state.
+        manager.clearFiling()
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        manager.filingSuggestions = [s]
+
+        releaseA.value = true
+        await a.value
+        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
+                "a verdict computed against the pre-clear session must not land in the recreated card")
+    }
+
+    /// A Filing rescan is the third way the state moves on mid-round-trip: it assigns
+    /// `filingSuggestions` directly WITHOUT touching `filingTryAnotherInFlight`, so the stale
+    /// invocation still owns its entry and an ownership check alone lets its write through. The
+    /// scan lifecycle's epoch is what a rescan does bump — the same currency check the status
+    /// line already uses must gate the result write.
+    @MainActor
+    @Test func tryAnotherResultIsDroppedWhenARescanSupersedesItMidRoundTrip() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let calls = CallCounter()
+        let releaseA = Flag()
+        manager.filingClassifier = { _, files in
+            if calls.next() == 1 {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0022.HEIC", fileName: "IMG_0022.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.filingSuggestions = [s]
+
+        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        #expect(calls.value == 1, "round-trip A must reach the classifier")
+
+        // A rescan runs to completion while A is parked (real state machine: begin bumps the
+        // epoch, end bumps it again) and republishes the card — same id, new session state.
+        manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
+        manager.endScan(\.filingScanLifecycle)
+        manager.filingSuggestions = [s]
+
+        releaseA.value = true
+        await a.value
+        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/A",
+                "a verdict from before the rescan must not land in the rescanned card")
+        #expect(manager.filingTryAnotherInFlight.isEmpty,
+                "no clearFiling ran, so A still owned its entry and its defer must release it")
     }
 
     /// `filingScanFolder` labels what's ON SCREEN, so it publishes with the results — a cancelled
