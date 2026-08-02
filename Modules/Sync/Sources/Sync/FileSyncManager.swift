@@ -356,9 +356,6 @@ public class FileSyncManager: ObservableObject {
     @Published public var isNormalizingNames = false
     /// The in-flight Name Normalizer scan task, so the UI can cancel a long walk.
     var nameScanTask: Task<Void, Never>?
-    /// The provider ruleset the current results were scanned against — remembered so an apply pass
-    /// (and any rescan) honors the same rules the scan used. Not `@Published`: no view reads it.
-    var nameScanProvider: CloudProvider.ProviderType?
 
     // MARK: Filing — suggest where loose files go (see FileSyncManager+Filing.swift)
 

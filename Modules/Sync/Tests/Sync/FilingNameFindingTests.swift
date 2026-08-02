@@ -77,27 +77,35 @@ import Events
     }
 
     @MainActor
-    @Test func theRulesetIsTheScannedProvidersNotWhicheverPaneIsFocusedLater() async throws {
-        // "Fix all" sanitizes against `nameScanProvider`. If the fold forgot to record it, the fix
-        // would be computed against whatever the previous scan happened to leave there — a
-        // different provider's rules, silently producing a different name than the one shown.
+    @Test func theProposedNameIsComputedWithTheScannedProvidersRules() async throws {
+        // The ruleset travels on each RESULT, not on the manager: `sanitizedName` is computed
+        // during the scan, and "Fix all" renames to that stored string. So the thing worth pinning
+        // is the proposed name, not a remembered provider — a colon is legal on iCloud and illegal
+        // on OneDrive, so scanning the same file under the two rulesets must differ here.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesRuleset")
         defer { try? FileManager.default.removeItem(at: root) }
-        try write(root.appendingPathComponent("Downloads/a.pdf"))
+        try write(root.appendingPathComponent("Downloads/Q3: report.pdf"))
 
-        let manager = FileSyncManager()
-        manager.nameScanProvider = .dropBox
-        await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
-                                            providerRoot: root, nameProvider: .oneDrive)
+        let strict = FileSyncManager()
+        await strict.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                           providerRoot: root, nameProvider: .oneDrive)
+        let flagged = strict.riskyNames.first { $0.currentName == "Q3: report.pdf" }
+        #expect(flagged != nil, "OneDrive forbids a colon — this name must be flagged")
+        #expect(flagged?.sanitizedName.contains(":") == false,
+                "the fix carried on the row must already be free of the character its ruleset bans")
 
-        #expect(manager.nameScanProvider == .oneDrive)
+        let lenient = FileSyncManager()
+        await lenient.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
+                                            providerRoot: root, nameProvider: .iCloud)
+        #expect(!lenient.riskyNames.contains { $0.currentName == "Q3: report.pdf" },
+                "iCloud allows it — flagging it here would propose a rename nobody needs")
     }
 
     @MainActor
-    @Test func aScanThatOptsOutOfTheNameCheckTouchesNeitherHalfOfThePair() async throws {
-        // The opt-out half of the pairing invariant: a caller that does not ask for the name
-        // check must leave BOTH the results and the ruleset exactly as it found them. The
-        // cancellation half is below.
+    @Test func aScanThatOptsOutOfTheNameCheckLeavesTheFindingAlone() async throws {
+        // A caller that does not ask for the name check must leave the previous finding exactly
+        // as it found it. Publishing an empty list would read as "nothing is wrong" and take the
+        // chip off screen for a reason the user never triggered.
         let root = try makeCanonicalTempRoot(prefix: "FilingNamesPairing")
         defer { try? FileManager.default.removeItem(at: root) }
         try write(root.appendingPathComponent("Downloads/a.pdf"))
@@ -107,39 +115,32 @@ import Events
         manager.riskyNames = [RiskyName(id: "/prev/tail ", relativePath: "tail ",
                                         currentName: "tail ", sanitizedName: "tail",
                                         reason: "a trailing space", isDirectory: false)]
-        manager.nameScanProvider = .oneDrive
 
-        // A scan that opts out of the name check must not touch either half of the pair.
         await manager.findFilingSuggestions(folder: root.appendingPathComponent("Downloads"),
                                             providerRoot: root)
 
-        #expect(manager.nameScanProvider == .oneDrive)
         #expect(manager.riskyNames.count == 1)
     }
 
     @MainActor
-    @Test func aCancelledDetectionPublishesNeitherTheNamesNorTheRuleset() async {
-        // `nameScanProvider` is what "Fix all" sanitizes against, so it must always describe the
-        // names currently on screen. Recording it up front — as the standalone scan did, and as
-        // the first cut of this one did — breaks that: a scan that starts for a DIFFERENT provider
-        // and is then superseded leaves the previous scan's names paired with the new ruleset, and
-        // the bulk fix renames those files against rules that never ran over them.
+    @Test func aCancelledDetectionDoesNotReplaceTheNamesOnScreen() async {
+        // A superseded scan must publish nothing: the finding on screen belongs to the scan that
+        // produced it, and a newer scan that is cancelled before it finishes knows nothing better.
+        // Landing a partial or empty result here would change the chip's count — and which list
+        // the user is looking at — on the strength of a scan that was abandoned.
         //
-        // Asserted through the injected cancellation check rather than by racing a real Task:
-        // a timing-dependent version of this passes for the wrong reason most of the time, and
-        // this invariant guards a rename.
+        // Asserted through the injected cancellation check rather than by racing a real Task: a
+        // timing-dependent version of this passes for the wrong reason most of the time.
         let manager = FileSyncManager()
         let previous = RiskyName(id: "/prev/tail ", relativePath: "tail ", currentName: "tail ",
                                  sanitizedName: "tail", reason: "a trailing space", isDirectory: false)
         manager.riskyNames = [previous]
-        manager.nameScanProvider = .oneDrive
 
         let hazard = FileNode(id: "/scan/other ", name: "other ", isDirectory: false)
         await manager.detectRiskyNames(in: [hazard], root: URL(fileURLWithPath: "/scan"),
                                        provider: .dropBox, isCancelled: { true })
 
-        #expect(manager.nameScanProvider == .oneDrive, "a superseded scan must not re-point the ruleset")
-        #expect(manager.riskyNames == [previous], "…nor replace the names it describes")
+        #expect(manager.riskyNames == [previous], "a superseded scan must not replace the finding")
     }
 
     @MainActor
