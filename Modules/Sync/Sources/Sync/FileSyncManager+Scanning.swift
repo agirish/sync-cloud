@@ -41,10 +41,10 @@ extension FileSyncManager {
             // The node counts these outcomes carry are RAW walked nodes (`countItems`), not the
             // filtered `leftItemCount` the old completion line printed: the walk's cost is per
             // node walked, and a count that hidden-file filtering has already thinned is the
-            // wrong denominator for it. It costs one extra in-memory traversal — ~5 ms per 40k
-            // nodes, measured — which the reported duration therefore includes; on the cache
-            // path, where the whole load is tens of ms, that is a visible share of the number
-            // and is the price of the number meaning anything at all.
+            // wrong denominator for it. It costs one extra main-actor traversal — ~5 ms per 40k
+            // nodes, measured — which the reported duration therefore includes. Against the real
+            // loads it appears in (36-425 ms on the cache path, seconds on a cold walk) that is
+            // 1-6%, small enough to keep for a number the record is useless without.
             var outcome = "ended without reaching a known exit"
 
             // Whatever exit this load takes — normal completion, cache-hit return, or
@@ -474,7 +474,10 @@ extension FileSyncManager {
             pendingScanRequest = request
             // Routine coalescing (the user triggered scans in quick succession, or a refresh
             // landed mid-scan) — a diagnostic, not a warning, so it stays out of the warnings filter.
-            Logger.shared.debug("Scan already in progress; queued the latest request")
+            // Tagged like every other scan line: without the generation this said that SOMETHING
+            // was queued but not what, and the request it names is the one whose start line
+            // appears later, when the drain finally runs it.
+            Logger.shared.debug("[scan] #\(request.generation) queued behind a scan already in progress")
             return
         }
         await executeScan(request)
@@ -643,7 +646,12 @@ extension FileSyncManager {
             await self.applyFilters()
             hasScanned = true
 
-            Logger.shared.debug("[scan] \(scanTag) completed: found \(results.count) differences in \(Self.durationText(since: scanStart))")
+            // `.info`, matching the start line above rather than the `.debug` this used to be.
+            // A start and an outcome at different levels is the unpairable state this whole
+            // change set exists to remove, just triggered by a setting instead of by omission:
+            // at `minimumLevel == .info` every scan would log that it began and none that it
+            // ended. The two lines are one record and must live or die together.
+            Logger.shared.info("[scan] \(scanTag) completed: found \(results.count) differences in \(Self.durationText(since: scanStart))")
 
             if autoVerifySameSizeDuringScan {
                 // Unstructured on purpose: hashing must not extend the scan (isScanning would
@@ -654,7 +662,7 @@ extension FileSyncManager {
             // The discarded case, which used to leave the log with a scan that started and never
             // said anything again — indistinguishable from one still running, and the reason the
             // "Internal scan" lines outnumbered the "Scan completed" ones.
-            Logger.shared.debug(
+            Logger.shared.info(
                 "[scan] \(scanTag) discarded after \(Self.durationText(since: scanStart))"
                 + " (\(Task.isCancelled ? "cancelled" : isLatestRequest ? "no result" : "superseded by #\(scanRequestGeneration)"))")
         }

@@ -91,7 +91,12 @@ import Testing
     /// `CharacterSet` the slow path trims with. If Foundation's set ever disagrees, the fast
     /// path would silently stop stripping something — this is the tripwire.
     @Test func asciiWhitespacePredicateMatchesFoundation() {
-        for byte in UInt8(0)...UInt8(127) {
+        // "." is excluded from the first assertion and asserted separately: it is stripped by the
+        // slow path without being whitespace, so folding it into the comparison as `|| byte == "."`
+        // made that expectation unconditionally true for it — a hole exactly where the trailing-dot
+        // rule lives.
+        let dot = UInt8(ascii: ".")
+        for byte in UInt8(0)...UInt8(127) where byte != dot {
             let scalar = Unicode.Scalar(byte)
             let foundationSaysWhitespace = CharacterSet.whitespacesAndNewlines.contains(scalar)
             // A single-scalar name made of this byte: the slow path trims it to empty and so
@@ -99,12 +104,17 @@ import Testing
             // name with a real body, which is exactly how the predicate is used.
             let probe = "a" + String(scalar)
             let stripped = legacyNormalizedComponent(probe) != probe
-            #expect(foundationSaysWhitespace == stripped || byte == UInt8(ascii: "."),
+            #expect(foundationSaysWhitespace == stripped,
                     "byte 0x\(String(byte, radix: 16)): Foundation says \(foundationSaysWhitespace), slow path stripped \(stripped)")
             // And the predicate the fast path uses must agree with Foundation on every one.
-            #expect(ProviderNameRules.hasNothingToNormalize(probe) == !(foundationSaysWhitespace || byte == UInt8(ascii: ".")),
+            #expect(ProviderNameRules.hasNothingToNormalize(probe) == !foundationSaysWhitespace,
                     "byte 0x\(String(byte, radix: 16)): fast-path predicate disagrees")
         }
+        // The trailing dot: stripped by the slow path, so the predicate must reject it, and it
+        // must not be classified as whitespace.
+        #expect(!CharacterSet.whitespacesAndNewlines.contains(Unicode.Scalar(dot)))
+        #expect(legacyNormalizedComponent("a.") == "a", "premise: the slow path strips a trailing dot")
+        #expect(!ProviderNameRules.hasNothingToNormalize("a."), "the fast path must not claim \"a.\" is a no-op")
     }
 
     /// `asciiLowercased` is only ever reached for strings the ASCII predicate accepted, and over

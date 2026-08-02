@@ -72,12 +72,29 @@ public struct FileDiffEngine {
         let baseGraphemeCount = basePath.count
 
         func relativeKey(of id: String) -> String {
-            // Fast path: strip the base by BYTES. A byte-prefix match can only end on a code
-            // point boundary, so the remaining bytes are always valid UTF-8.
+            // Fast path: strip the base by BYTES — but only when the byte that follows it is a
+            // separator, or there is none.
+            //
+            // That guard is not tidiness. A byte prefix is NOT a String prefix: `hasPrefix`
+            // compares Characters, so for base "/a/cafe" and id "/a/cafe\u{0301}/x.txt" (an "e"
+            // followed by a combining acute — one Character, "é") the bytes match while
+            // `hasPrefix` is false, because the boundary falls INSIDE a grapheme cluster.
+            // Slicing there yielded "\u{0301}/x.txt", a key beginning with a naked combining
+            // mark, where the pre-change code kept the whole path. Requiring a "/" makes the
+            // match a genuine path-component boundary, which a combining mark can never be.
+            //
+            // Every id the app actually passes here is `basePath + "/" + …` by construction, so
+            // this costs nothing today — but that invariant is not stated or enforced anywhere,
+            // this method is public, and the failure it prevents is a silently mis-keyed entry
+            // that reads as a spurious difference rather than as an error.
             if id.utf8.starts(with: baseUTF8) {
-                var rest = id.utf8.dropFirst(baseUTF8.count)
-                if rest.first == UInt8(ascii: "/") { rest = rest.dropFirst() }
-                return String(decoding: rest, as: UTF8.self)
+                let rest = id.utf8.dropFirst(baseUTF8.count)
+                if rest.isEmpty { return "" }
+                if rest.first == UInt8(ascii: "/") {
+                    return String(decoding: rest.dropFirst(), as: UTF8.self)
+                }
+                // Not a component boundary (a sibling sharing the base's spelling, or the
+                // grapheme case above) — fall through and let the original logic decide.
             }
             // Fallback: the original grapheme-based strip, kept verbatim rather than replaced.
             // `hasPrefix` compares by CANONICAL EQUIVALENCE, so a base and a path that spell the
