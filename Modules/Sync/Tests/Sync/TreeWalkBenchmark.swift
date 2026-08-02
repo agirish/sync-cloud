@@ -36,7 +36,10 @@ import Testing
 /// the first one populated, and on these roots that is worth several times the wall clock — a
 /// single number with no cache state attached is exactly the kind of figure this whole
 /// investigation exists to distrust.
-@Suite struct TreeWalkBenchmark {
+/// `.serialized` is load-bearing: swift-testing runs a suite's tests in PARALLEL by default, so
+/// the differential check was walking both real roots while `phaseTimings` was timing them, and
+/// every number came back inflated and irreproducible. A benchmark must be the only thing running.
+@Suite(.serialized) struct TreeWalkBenchmark {
 
     /// Roots from the environment, or none — in which case every test here returns immediately.
     private static var roots: [URL] {
@@ -195,6 +198,16 @@ import Testing
             }
             Self.report("filesInfo(fromTree:)", flatten)
 
+            // The pre-change implementation, timed back-to-back with the current one on the same
+            // tree under the same load. Comparing against a number recorded in an earlier run
+            // would be comparing across machine states, which is how a "speedup" gets claimed for
+            // what was really a quieter machine.
+            var legacy: [Double] = []
+            for _ in 0...Self.warmRepeats {
+                legacy.append(Self.ms { _ = Self.legacyFilesInfo(fromTree: tree, basePath: root.path) })
+            }
+            Self.report("  (pre-change filesInfo)", legacy)
+
             // The branch `filesInfo(fromTree:)` exists to avoid — the scan's cold path, which
             // walks the disk and builds the same map. Measured beside it, because "the in-memory
             // path is slower than the disk path" is a claim about BOTH, and quoting only the
@@ -233,6 +246,66 @@ import Testing
             }
             Self.report("  └ + map, unhinted URL", unhinted)
         }
+    }
+
+    /// Differential check of `filesInfo(fromTree:)` against the implementation it replaced, over
+    /// the REAL pane trees rather than constructed fixtures — the whole map, every key and every
+    /// field, on tens of thousands of real paths. `FilesInfoKeyingTests` pins the awkward cases
+    /// deterministically; this is the breadth behind them, and the reason it lives in the
+    /// env-gated benchmark is that it needs the user's actual directories to be worth anything.
+    @Test func matchesThePreChangeImplementationOnRealTrees() async throws {
+        let roots = Self.roots
+        guard !roots.isEmpty else { return }
+
+        for root in roots {
+            let tree = await FileSyncManager.buildTree(url: root, sortOption: .name)
+            let new = FileDiffEngine.filesInfo(fromTree: tree, basePath: root.path)
+            let old = Self.legacyFilesInfo(fromTree: tree, basePath: root.path)
+
+            #expect(new.count == old.count, "\(root.lastPathComponent): map sizes differ")
+            #expect(Set(new.keys) == Set(old.keys), "\(root.lastPathComponent): key sets differ")
+            var mismatches: [String] = []
+            for (key, oldInfo) in old {
+                guard let newInfo = new[key] else { mismatches.append("\(key): missing"); continue }
+                // `.path` is what every production consumer reads, so it is the field that must
+                // match exactly; the rest are copied straight off the node and are checked too.
+                if newInfo.url.path != oldInfo.url.path { mismatches.append("\(key): url.path") }
+                if newInfo.modificationDate != oldInfo.modificationDate { mismatches.append("\(key): date") }
+                if newInfo.fileSize != oldInfo.fileSize { mismatches.append("\(key): size") }
+                if newInfo.isDirectory != oldInfo.isDirectory { mismatches.append("\(key): isDirectory") }
+                if newInfo.isUnexplored != oldInfo.isUnexplored { mismatches.append("\(key): isUnexplored") }
+            }
+            #expect(mismatches.isEmpty, "\(root.lastPathComponent): \(mismatches.prefix(5))")
+            Self.line("differential \(root.lastPathComponent): \(new.count) entries identical")
+        }
+    }
+
+    /// `filesInfo(fromTree:)` exactly as it stood before the keying and URL changes.
+    private static func legacyFilesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileDiffEngine.FileInfo] {
+        var result: [String: FileDiffEngine.FileInfo] = [:]
+        func add(_ node: FileNode) {
+            var relativePath = node.id
+            if relativePath.hasPrefix(basePath) { relativePath = String(relativePath.dropFirst(basePath.count)) }
+            if relativePath.hasPrefix("/") { relativePath.removeFirst() }
+            if !relativePath.isEmpty {
+                result[relativePath] = FileDiffEngine.FileInfo(
+                    url: URL(fileURLWithPath: node.id),
+                    modificationDate: node.modificationDate,
+                    fileSize: node.fileSize,
+                    isDirectory: node.isDirectory,
+                    isUnexplored: node.isDirectory && node.isUnexplored == true)
+            } else if node.isDirectory, node.isUnexplored == true {
+                result[""] = FileDiffEngine.FileInfo(
+                    url: URL(fileURLWithPath: node.id),
+                    modificationDate: node.modificationDate,
+                    fileSize: node.fileSize,
+                    isDirectory: true,
+                    isUnexplored: true)
+            }
+            for child in node.children ?? [] { add(child) }
+        }
+        for node in nodes { add(node) }
+        return result
     }
 
     // MARK: - filesInfo decomposition

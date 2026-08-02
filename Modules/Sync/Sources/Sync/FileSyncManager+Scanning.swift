@@ -690,19 +690,40 @@ extension FileSyncManager {
     ///
     /// On the real filesystem an unlimited walk fans sibling directory subtrees out across
     /// cores at the first two levels that have siblings (`TreeBuilder.maxFanLevel`, bounded
-    /// by `maxConcurrentSubtrees`), and Finder tags are fetched only when sorting by them —
-    /// together roughly an order of magnitude faster on large directories.
+    /// by `maxConcurrentSubtrees`), and Finder tags are fetched only when sorting by them.
+    ///
+    /// This used to claim the two were "together roughly an order of magnitude faster on large
+    /// directories". Measured (`TreeWalkBenchmark`, Release, the two real ~40k-node pane roots):
+    /// the fan-out is worth **~1.15-1.25x**, not 10x — this walk lands at 690-740 ms against
+    /// 770-910 ms for a single-threaded listing+stat of the same tree, so it does strictly more
+    /// work slightly faster and no more. The reason is that the walk is bounded by the directory
+    /// ENUMERATION (a listing alone costs 690-830 ms of it), which is one volume's syscalls and
+    /// does not divide across cores. The tags saving is the larger of the two and is measured at
+    /// the declaration of `includeTags` below.
+    ///
+    /// Kept anyway: 1.2x on the pane's slowest phase is worth having, and none of it is on the
+    /// main actor. But do not reach for more parallelism here expecting the missing 10x — it was
+    /// never there, and the enumeration is the floor.
     nonisolated static func buildTree(url: URL, sortOption: SortOption, fileManager fm: FileManaging = FileManager.default, maxDepth: Int? = nil) async -> [FileNode] {
         let buildTask = Task.detached(priority: .userInitiated) {
             struct TreeBuilder: Sendable {
                 let fileManager: FileManaging
                 let sortOption: SortOption
                 let maxDepth: Int?
-                /// Reading Finder tags is a separate xattr fetch per file that benchmarked at
-                /// ~4x the cost of everything else in the walk combined, so tags are fetched
+                /// Reading Finder tags is a separate xattr fetch per file, so tags are fetched
                 /// only when the sort actually reads them. Switching to the Tags sort reloads
                 /// the trees from disk (see `sortOption.didSet`) rather than re-sorting nodes
                 /// whose `tags` were never populated.
+                ///
+                /// The cost this avoids was recorded here as "~4x the cost of everything else in
+                /// the walk combined". Measured (`TreeWalkBenchmark`, Release, the real pane
+                /// roots, all four figures from ONE quiet run — the tags/name ratio is stable but
+                /// the absolute numbers move with machine load, so mixing runs would invent a
+                /// margin): the same walk is 690 ms / 730 ms sorting by name and 1,520 ms /
+                /// 1,600 ms sorting by tags, so the xattr fetch costs about **1.2x** the rest of
+                /// the walk — it roughly DOUBLES it rather than quintupling it. Still the biggest
+                /// single saving in the walk, and still worth gating; just not by the margin the
+                /// comment claimed.
                 let includeTags: Bool
                 /// Keys prefetched when listing a directory so each child's resourceValues in
                 /// buildNode is a cache hit rather than a separate stat.

@@ -64,17 +64,54 @@ public struct FileDiffEngine {
     /// the leading slash, skip the base itself.
     public static func filesInfo(fromTree nodes: [FileNode], basePath: String) -> [String: FileInfo] {
         var result: [String: FileInfo] = [:]
-        func add(_ node: FileNode) {
-            var relativePath = node.id
+        // Hoisted: `basePath.count` is a GRAPHEME count, an O(basePath) walk, and it used to be
+        // recomputed for every node — which is why flattening the same tree got measurably
+        // slower the deeper the pane was focused (the right pane's 60-character root cost twice
+        // the left pane's 25-character one for the same node count).
+        let baseUTF8 = Array(basePath.utf8)
+        let baseGraphemeCount = basePath.count
+
+        func relativeKey(of id: String) -> String {
+            // Fast path: strip the base by BYTES. A byte-prefix match can only end on a code
+            // point boundary, so the remaining bytes are always valid UTF-8.
+            if id.utf8.starts(with: baseUTF8) {
+                var rest = id.utf8.dropFirst(baseUTF8.count)
+                if rest.first == UInt8(ascii: "/") { rest = rest.dropFirst() }
+                return String(decoding: rest, as: UTF8.self)
+            }
+            // Fallback: the original grapheme-based strip, kept verbatim rather than replaced.
+            // `hasPrefix` compares by CANONICAL EQUIVALENCE, so a base and a path that spell the
+            // same folder in different Unicode normalizations (precomposed "é" against "e" +
+            // combining acute — both reachable on APFS, which stores names as given) match here
+            // while their bytes do not. Dropping `baseUTF8.count` bytes in that case would cut
+            // mid-character; dropping `baseGraphemeCount` graphemes is correct. Without this
+            // branch such a node would key on its whole absolute path and read as a difference
+            // that isn't there, so the fast path above is an optimization only — never a change
+            // of meaning.
+            var relativePath = id
             if relativePath.hasPrefix(basePath) {
-                relativePath = String(relativePath.dropFirst(basePath.count))
+                relativePath = String(relativePath.dropFirst(baseGraphemeCount))
             }
             if relativePath.hasPrefix("/") {
                 relativePath.removeFirst()
             }
+            return relativePath
+        }
+
+        func add(_ node: FileNode) {
+            let relativePath = relativeKey(of: node.id)
             if !relativePath.isEmpty {
                 result[relativePath] = FileInfo(
-                    url: URL(fileURLWithPath: node.id),
+                    // `isDirectory:` is not cosmetic here. Without it this initializer RESOLVES
+                    // the path against the file system to answer the same question `node`
+                    // already carries — one lookup per node, ~40k per pane, measured at 4x the
+                    // hinted form. Hinting correctly reproduces the very URL the unhinted form
+                    // returns (verified: the hinted and unhinted values compare equal for both
+                    // a real file and a real directory), and every consumer of `FileInfo.url`
+                    // reads `.path`, which is identical either way — including for a symlink to
+                    // a directory, where `node.isDirectory` describes the TARGET and so the
+                    // trailing slash could differ from an lstat-based guess.
+                    url: URL(fileURLWithPath: node.id, isDirectory: node.isDirectory),
                     modificationDate: node.modificationDate,
                     fileSize: node.fileSize,
                     isDirectory: node.isDirectory,
@@ -89,7 +126,7 @@ public struct FileDiffEngine {
                 // ("") that `computeDifferences` reads to suppress whole-side Missing rows,
                 // mirroring what `getFilesInDirectory` records on the cold (disk-walk) branch.
                 result[""] = FileInfo(
-                    url: URL(fileURLWithPath: node.id),
+                    url: URL(fileURLWithPath: node.id, isDirectory: true),
                     modificationDate: node.modificationDate,
                     fileSize: node.fileSize,
                     isDirectory: true,
