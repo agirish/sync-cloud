@@ -18,11 +18,14 @@ mechanisms this repo has actually hit and how to tell one from a regression.
 
 - All seven packages: `Modules/{Sync, Events, Settings, Design, Dashboard,
   FileExplorer}` and `SyncCloudCLI`.
-- Machine-pinned image snapshots (`*SnapshotTests` suites, see
-  `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`) are excluded with
-  `--skip SnapshotTests`: their reference PNGs only match the machine that
-  recorded them. They still compile, so breakage in snapshot test code is
-  caught.
+- Machine-pinned suites are marked at the declaration with
+  `.machinePinned(_:)` and a reason, and the workflow sets
+  `SYNCCLOUD_SKIP_MACHINE_PINNED=referenceImages` to exclude only the image
+  snapshots (see `Modules/Design/Tests/DesignTests/SNAPSHOTS.md`), whose
+  reference PNGs only match the machine that recorded them. Excluded suites
+  still compile, so breakage in their code is caught, and they report as
+  *skipped with a reason* rather than silently vanishing. See
+  [Machine-pinned tests](#machine-pinned-tests) for the reasons and the switch.
 - App-target tests (the full `SyncCloudTests/` suite, hosted in
   SyncCloud.app; the count grows with the app, so it is not pinned here) run
   as a second step: `xcodegen` (absolute Homebrew path — the runner service
@@ -33,16 +36,42 @@ mechanisms this repo has actually hit and how to tell one from a regression.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
 
-### Machine-pinned tests that DO run on CI
+### Machine-pinned tests
 
-The snapshot skip's rationale ("reference PNGs only match the machine that
-recorded them") is honest but incomplete: other machine-pinned tests run on
-CI anyway. Eleven suites sample rendered pixels directly via `colorAt(`
-(painted-fill and contrast assertions across Design, Dashboard, FileExplorer
-and Settings), and `ColumnClickCostBenchmark`
-(`Modules/FileExplorer/Tests/FileExplorer/ColumnClickCostBenchmark.swift`)
-asserts against latency thresholds calibrated on this hardware. These are
-pinned to the renderer and the machine in the same way the skipped PNGs are.
+A suite is *machine-pinned* when it only produces a trustworthy verdict on the
+machine that recorded it. Seventeen suites qualify, each marked at its own
+declaration with a reason:
+
+| Reason | What it means | Suites | On CI |
+|---|---|---|---|
+| `referenceImages` | compares against PNGs recorded on one Mac | the 4 `*SnapshotTests` | **excluded** |
+| `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | 12, across Design, Dashboard, FileExplorer, Settings | runs |
+| `calibratedTiming` | latency thresholds tuned on this hardware | `ColumnClickCostBenchmark` | runs |
+
+```swift
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentPreviewTests { … }
+```
+
+`SYNCCLOUD_SKIP_MACHINE_PINNED` selects what to exclude: `all`, or a
+comma-separated list of reasons. **Unset runs everything**, so nobody working on
+the recording machine needs to know it exists. An unrecognised value excludes
+nothing — it fails safe, running more rather than silently skipping. The one
+XCTest holdout, `HoverTintRenderTests`, opts into the same gate via
+`XCTSkipIf`, since traits are a Swift Testing feature.
+
+**Why a marker and not a name.** This replaced `--skip SnapshotTests`, which
+selected by *type name* and therefore missed twelve equally machine-pinned
+suites — `AccentPreviewTests` among them — that simply were not called
+`*SnapshotTests`. Worse, the comments in those files positively asserted the
+pixel assertions were "machine-independent", which they are not. Selection now
+lives next to the code that does the pixel reading, where renaming a suite
+cannot silently change what CI runs. (Swift Testing tags would be the idiomatic
+marker, but SwiftPM 6.3 has no tag filtering — `--filter`/`--skip` match only
+type names, so a tag would be decorative.)
+
+The pixel-sampling suites and the benchmark are pinned to the renderer and the
+machine in the same way the excluded PNGs are; they keep running because the
+cost of being wrong is lower, not because they are machine-independent.
 
 This is currently sound because the self-hosted runner IS the recording
 machine — the same Mac that recorded the snapshot references, tuned the

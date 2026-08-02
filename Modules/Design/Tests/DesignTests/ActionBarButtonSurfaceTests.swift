@@ -13,7 +13,7 @@ import Testing
 /// path never sees, or SwiftUI's `Button` contributing something of its own (its label style, its
 /// own padding) that only shows up in pixels.
 @MainActor
-@Suite(.serialized) struct ActionBarButtonSurfaceTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarButtonSurfaceTests {
 
     private static let canvas = CGSize(width: 200, height: 44)
     private static let tint = Color(red: 0, green: 0.44, blue: 0.91)

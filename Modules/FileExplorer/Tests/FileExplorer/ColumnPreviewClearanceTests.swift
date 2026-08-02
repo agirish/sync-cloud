@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 ///
 /// Two halves, because the fix is a constant plus a wiring, and either can rot on its own.
 @MainActor
-@Suite(.serialized) struct ColumnPreviewClearanceTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ColumnPreviewClearanceTests {
 
     /// A path that need not exist: the probe classifies a missing file as `.missing`, which renders
     /// the icon placeholder instead of mounting Quick Look. That is the point — this suite measures

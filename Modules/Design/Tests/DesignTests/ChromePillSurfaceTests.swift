@@ -19,7 +19,7 @@ import Testing
 /// The levels are looped rather than passed as `@Test(arguments:)` because `GlassLevel` is not
 /// `Sendable`, and widening a production type to satisfy a test is the wrong direction.
 @MainActor
-@Suite(.serialized) struct ChromePillSurfaceTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ChromePillSurfaceTests {
 
     private static let wash = Color.blue.opacity(0.12)
 

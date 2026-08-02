@@ -17,7 +17,7 @@ import Testing
 /// pixels) is what makes the with-chevron and without-chevron specimens directly comparable: the
 /// chevron changes the pill's width and pixel mix, but not the colour of its fill.
 @MainActor
-@Suite struct StatPillFlatFillTests {
+@Suite(.machinePinned(.pixelSampling)) struct StatPillFlatFillTests {
 
     private static let hue = LiquidGlassHue.green
 

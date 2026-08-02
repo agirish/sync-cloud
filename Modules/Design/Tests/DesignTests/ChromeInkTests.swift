@@ -7,7 +7,7 @@ import Testing
 /// neither is readable from the rule alone: the ink has to reach the rendered control, and the
 /// states that are supposed to stay quiet — disabled above all — have to stay quiet.
 @MainActor
-@Suite(.serialized) struct ChromeInkTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ChromeInkTests {
 
     // MARK: The rule
 

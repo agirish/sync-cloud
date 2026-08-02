@@ -21,7 +21,7 @@ import Testing
 /// change what the user is actually shown. `AccentFill.deepened` is also a DYNAMIC colour, so two
 /// calls are not `==` to begin with.
 @MainActor
-@Suite(.serialized) struct AccentPreviewTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentPreviewTests {
 
     /// Every hue but `.none`. `.none` resolves `Color.accentColor` — the machine's System Settings
     /// accent — so its exact value is not a property of this code. It gets its own case below,
@@ -294,8 +294,15 @@ import Testing
                 == "Preview: Cyan accent on a filled button and a count pill.")
     }
 
-    // The image snapshot of the full accent section lives in `SettingsSnapshotTests` — a
-    // `*SnapshotTests` suite, so CI's `--skip SnapshotTests` filter excludes it like the other
-    // packages' machine-pinned references. The pixel assertions above are machine-independent
-    // and stay here, where CI runs them.
+    // The image snapshot of the full accent section lives in `SettingsSnapshotTests`, marked
+    // `.machinePinned(.referenceImages)` so CI excludes it along with the other packages'
+    // reference-image suites.
+    //
+    // The pixel assertions above are NOT machine-independent, which this comment used to
+    // claim: they read painted pixels back out of a live renderer via `colorAt(`, so a
+    // different renderer can fail them for machine reasons. They are marked
+    // `.machinePinned(.pixelSampling)` and still run on CI, which is sound only while the
+    // runner IS the recording machine. The distinction from the snapshot above is the cost of
+    // being wrong, not machine-independence: a drifted PNG fails everywhere at once, while
+    // these assertions are coarse enough to survive small renderer differences.
 }
