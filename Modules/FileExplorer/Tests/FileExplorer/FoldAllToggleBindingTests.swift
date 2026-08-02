@@ -148,16 +148,27 @@ import Testing
                 sourceLocation: sourceLocation)
         host.layoutSubtreeIfNeeded()
 
+        return focusRingSizes(in: host, host: host)
+    }
+
+    /// The header strip's focus-ring sizes, collected by walking down from `host`.
+    ///
+    /// A method rather than the local function it used to be. Nested inside an `async` member of a
+    /// `@MainActor` type, `walk` captured `host` and — under whole-module optimization only — was
+    /// inferred to cross an isolation boundary, so `swift test -c release` failed to COMPILE this
+    /// package (`sending 'host' risks causing data races`) while the Debug build was clean. Nothing
+    /// about the walk changes; it just inherits the type's isolation explicitly instead of having it
+    /// inferred differently by two optimization modes.
+    private func focusRingSizes(in view: NSView, host: NSView, insideHeader: Bool = false) -> [String] {
         var sizes: [String] = []
-        func walk(_ view: NSView, insideHeader: Bool) {
-            if insideHeader, String(describing: type(of: view)) == "_FocusRingView" {
-                sizes.append("\(Int(view.frame.width))x\(Int(view.frame.height))")
-            }
-            for child in view.subviews {
-                walk(child, insideHeader: insideHeader || (view === host && child.frame.height <= 60))
-            }
+        if insideHeader, String(describing: type(of: view)) == "_FocusRingView" {
+            sizes.append("\(Int(view.frame.width))x\(Int(view.frame.height))")
         }
-        walk(host, insideHeader: false)
+        for child in view.subviews {
+            sizes += focusRingSizes(
+                in: child, host: host,
+                insideHeader: insideHeader || (view === host && child.frame.height <= 60))
+        }
         return sizes
     }
 
