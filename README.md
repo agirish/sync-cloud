@@ -98,7 +98,9 @@ More on the **[feature site](https://agirish.github.io/sync-cloud/)**.
 - **macOS 15.0 (Sequoia) or later** for the app.
 - On-device AI filing additionally needs **macOS 26 + Apple Intelligence** (it degrades gracefully
   without it). Cloud AI filing needs an Anthropic API key.
-- **Xcode 15+** and **Swift 5.9+** to build.
+- **Swift 6.0+** to build — every `Package.swift` here declares
+  `swift-tools-version: 6.0`, which an older toolchain cannot even parse. Built and
+  tested on Xcode 26.6 / Swift 6.3; the app target's deployment floor is macOS 15.
 - **[XcodeGen](https://github.com/yonaskolb/XcodeGen)** (`brew install xcodegen`) — the Xcode project
   is generated from `project.yml` and is not checked in.
 
