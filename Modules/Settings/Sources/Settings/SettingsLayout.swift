@@ -281,9 +281,28 @@ struct SettingsRail: View {
     /// The window's accent hue: fills the selected row, tints the hover wash on the others.
     let hue: LiquidGlassHue
 
+    /// The marketing version drawn at the foot of the rail, injectable so it can be MEASURED.
+    ///
+    /// Defaults to the app's own, which is what ships. It is a property rather than a direct
+    /// `Bundle.main` read in `body` because under `swift test` `Bundle.main` is the test host,
+    /// which carries no `CFBundleShortVersionString` — the `if let` fails, the line never
+    /// renders, and every rail measurement is silently blind to it. That blindness is not
+    /// hypothetical: the version line went from "1.0" to a marker like "3.0-dev" without a
+    /// single test being able to see the line get wider. The rail is FIXED-WIDTH and does not
+    /// scroll, so a line too wide for it wraps to a second row rather than being clipped —
+    /// which `SettingsLayoutTests.theVersionLineFitsTheRailOnOneLine` is what now catches.
+    var versionText: String? = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+
     /// Rail width. Lives on `SettingsSheetMetrics` rather than here because a static on a
     /// SwiftUI `View` is `@MainActor`, and `contentWidth` — plain arithmetic — is not.
     static var width: CGFloat { SettingsSheetMetrics.railWidth }
+
+    /// The width the version line actually has to lay out in: the rail, less its own side inset
+    /// and the horizontal inset the line shares with the tab rows. Derived rather than written
+    /// down so it cannot drift from `Rhythm`.
+    static var versionTextWidth: CGFloat {
+        width - 2 * Rhythm.sides - 2 * Rhythm.rowInsetH
+    }
 
     /// The rail's vertical rhythm, measured against System Settings sitting next to it rather
     /// than picked: its sidebar rows run a ~34pt pitch and put a clear gap under the search
@@ -316,7 +335,7 @@ struct SettingsRail: View {
 
             Spacer(minLength: 8)
 
-            if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            if let version = versionText {
                 Text("SyncCloud \(version)")
                     .scaledFont(.caption2)
                     .foregroundStyle(.secondary)

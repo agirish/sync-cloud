@@ -65,6 +65,97 @@ half-finished edits can collide with another's before that commit happens.
 
 Commit and push **proactively** as work lands; don't wait to be asked each time.
 
+## Cutting a release
+
+**The version bump is part of the release, not a follow-up.** Between `v0.10` and `v2.8` the
+version in `project.yml` never moved: every one of those twenty-odd tagged releases installed an
+app that reported itself as **1.0 (build 1)** — in the Settings rail, in `~/sync-cloud.log`, and
+in Finder's Version column. Nothing failed, because nothing reads the version; it was simply
+wrong for two years. The steps below exist so that cannot recur.
+
+### Where the version lives
+
+`project.yml` is the only source of truth:
+
+```yaml
+# main's values; v2.x carries "2.9-dev" / "209"
+CFBundleShortVersionString: "3.0-dev"   # the marketing version — what people see
+CFBundleVersion: "300"                  # the build number — what Launch Services orders by
+```
+
+`MacApp/Info.plist` is **generated from it by xcodegen and tracked in git**, so it changes in the
+same commit — run `xcodegen` after editing `project.yml` and commit both files. A `project.yml`
+edit alone leaves the tracked plist stale.
+
+Two things read the version, both display-only — there is no version-keyed migration or compare
+anywhere, which is what makes changing it safe:
+
+- the Settings rail — `Modules/Settings/Sources/Settings/SettingsLayout.swift`
+- the launch breadcrumb in `~/sync-cloud.log` — `MacApp/SyncCloudApp.swift`
+
+### The two numbers
+
+**Marketing version.** Between releases each branch tip carries a **pre-release marker** for the
+version it is heading toward, suffixed `-dev`: `main` (the v3 line) sits at `3.0-dev`, `v2.x`
+sits at `2.9-dev`. The suffix says "this build is no release" without implying a distributed beta
+programme. A release drops the suffix, and the tip is re-bumped straight afterwards, so a plain
+number like `2.9` is only ever what the tagged commit itself carries.
+
+Non-numeric is deliberate and verified: SyncCloud is distributed directly, not through the App
+Store, so `CFBundleShortVersionString` is a free-form display string. Measured on a real Release
+build — Launch Services stores `3.0-dev` verbatim and Spotlight's importer emits
+`kMDItemVersion = "3.0-dev"` (Finder's Version column). LS does its *ordering* on
+`CFBundleVersion`, not on this string. (The App Store's 1–3-integers rule would apply only if
+SyncCloud were ever submitted there; that would mean dropping the suffix, nothing more.)
+
+**Build number.** `CFBundleVersion` = **MAJOR × 100 + MINOR** of the marketing version — `2.9` →
+`209`, `2.10` → `210`, `3.0` → `300`. One integer, so it orders correctly under both numeric and
+naive string comparison (`"2.10"` vs `"2.9"` does not), it increases across both release lines at
+once so a v3 build always outranks a v2.x one, and it is derived from the marketing version
+rather than being a second thing to remember. It changes in the same edit as the marker; the
+`-dev` build and the release it becomes share a number, which is fine because it identifies the
+version rather than the individual build. **Keep MINOR under 100** or it stops being monotonic.
+
+### Cutting it
+
+Releases are cut as tags on the line that owns them — `v2.9` from `v2.x`, `v3.0` from `main`.
+Tag names are **two components**: `v2.9`, never `v2.9.0` (all 35 existing tags are `vMAJOR.MINOR`).
+Work in a worktree as always.
+
+1. **Drop the suffix.** In `project.yml`, `2.9-dev` → `2.9`. Leave `CFBundleVersion` alone: it is
+   already `209`, because the marker and the release share it.
+2. **Regenerate and update the test marker.** Run `xcodegen`, and set `versionMarker` in
+   `Modules/Settings/Tests/Settings/SettingsLayoutTests.swift` to the same string — that literal
+   is what gives `theVersionLineFitsTheRailOnOneLine` something real to measure (see below).
+3. **Commit, land on the line, and let CI go green for that SHA.**
+4. **Tag that exact commit and push the tag** — `git tag v2.9 <sha> && git push origin v2.9`.
+   Tags mark history and are never branched from.
+5. **Re-bump the tip to the next marker, immediately.** After `v2.9`, `v2.x` becomes `2.10-dev` /
+   `210`; after `v3.0`, `main` becomes `3.1-dev` / `301`. Same edit shape as step 1 plus
+   `xcodegen`, its own commit. Do this now, not next time — a tip left sitting on a plain release
+   number is exactly how the version silently stopped moving before.
+6. **Install and confirm what the app reports.** Run the `install-sync-cloud` skill and check the
+   first line of `~/sync-cloud.log` names the version you just cut.
+
+### The version line has a width budget
+
+The rail's version line is the one thing a version bump can actually break. `SettingsRail` is
+**fixed-width (176pt) and does not scroll**, and the line has no `lineLimit`, so a string too wide
+wraps onto a second row rather than clipping, costing ~15pt of rail height. (On `main`, where the
+rail carries seven tabs, that extra row is enough to push the Large text size out of the
+floor-sized sheet's opening — it has 0.4pt of margin. This line has six tabs and more room, but
+the wrap itself looks equally wrong.)
+
+`Bundle.main` under `swift test` is the test host and carries **no** version at all, so the line
+does not render on its own and every rail test was blind to it. `SettingsRail.versionText` is the
+seam that fixes that: the tests inject `versionMarker` and really lay the line out. **Keep that
+literal in step with `project.yml`** — that is the whole reason step 2 exists.
+
+Measured room is 142pt against 119pt for `SyncCloud 2.9-dev` at the largest text size — about
+three characters spare, comfortable out to roughly a 21-character line (`10.10-dev` still fits).
+If a version ever does get long enough to matter, `theVersionLineFitsTheRailOnOneLine` fails and
+names the number; do not widen the rail without re-measuring the tabs that share its opening.
+
 ## After shipping an app change
 
 Run the `install-sync-cloud` skill (quits the running instance, installs the fresh build to
