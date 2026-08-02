@@ -62,6 +62,44 @@ import Combine
         #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
     }
 
+    /// Settings' "Clear All". Durable like every other withdrawal, and it leaves the defaults key
+    /// removed rather than holding an empty array — the same reason
+    /// `theLastKeepWithdrawnLeavesNothingBehind` checks it for the one-at-a-time path.
+    @MainActor
+    @Test func clearingEveryKeepIsDurableAndLeavesNothingBehind() {
+        let (defaults, suite) = scratch("clearall")
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = KeptNamesStore(userDefaults: defaults)
+        for name in ["report ", "Q3: final.pdf", "memo\u{200B}.txt"] { store.keep(name) }
+
+        store.stopKeepingAll()
+
+        #expect(store.names.isEmpty)
+        #expect(defaults.object(forKey: KeptNamesStore.defaultsKey) == nil)
+        #expect(KeptNamesStore(userDefaults: defaults).names.isEmpty)
+    }
+
+    /// Clearing an already-empty set publishes nothing. `names` is `@Published` and
+    /// `FileSyncManager` reconciles `riskyNames` on every publish, so an unconditional
+    /// `removeAll()` would re-filter the whole finding for a button press that changed nothing —
+    /// the same spurious-publish trap the manager's keep subscription documents.
+    @MainActor
+    @Test func clearingWhenNothingIsKeptPublishesNothing() async {
+        let (defaults, suite) = scratch("clearall-empty")
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let store = KeptNamesStore(userDefaults: defaults)
+        var publishes = 0
+        let token = store.objectWillChange.sink { _ in publishes += 1 }
+        defer { token.cancel() }
+
+        store.stopKeepingAll()
+        await Task.yield()
+
+        #expect(publishes == 0)
+    }
+
     /// The keep is about the NAME, so the same name in a different folder is the same decision.
     /// This is the deliberate cost of name-keying: it is what stops a move or a copy from re-asking
     /// a question the user already answered.

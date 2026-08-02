@@ -236,7 +236,7 @@ public struct SettingsView: View {
             case .sync:
                 SyncSettingsTab(syncManager: syncManager)
             case .filing:
-                FilingSettingsTab()
+                FilingSettingsTab(syncManager: syncManager)
             case .duplicates:
                 DuplicatesSettingsTab()
             case .advanced:
@@ -379,6 +379,15 @@ enum SettingsSearchIndex {
               keywords: ["budget", "cap", "limit", "monthly", "spend limit", "cost cap", "guardrail", "pause cloud", "money"]),
         .init(tab: .filing, title: "Total budget cap",
               keywords: ["budget", "cap", "limit", "total", "lifetime", "spend limit", "cost cap", "guardrail", "pause cloud", "money", "backstop"]),
+        // Nearly every query for this one misses the label. The section is titled "Kept names",
+        // but the decision is made from a menu item worded "Always Allow This Name" and withdrawn
+        // from one worded "Stop Allowing This Name" — so "allow" is the word the user has actually
+        // read — and what they are looking for is more likely described by the problem ("risky
+        // name", "trailing space", "badge") than by the state they put it in.
+        .init(tab: .filing, title: "Kept names",
+              keywords: ["kept name", "keep name", "allow name", "always allow", "stop allowing",
+                         "allowed names", "risky name", "risky names", "badge", "name badge",
+                         "trailing space", "forbidden character", "rename", "exceptions"]),
 
         // Duplicates
         .init(tab: .duplicates, title: "Ignore files smaller than",
@@ -1493,12 +1502,16 @@ struct DuplicatesSettingsTab: View {
 // MARK: - Organize
 
 /// Everything that changes what Organize suggests — on-device AI, the opt-in Claude cloud path
-/// with its key and model, the loose-files inbox — plus the spend that cloud option can run up.
+/// with its key and model, the loose-files inbox — plus the spend that cloud option can run up,
+/// and the inventory of names the user has told Organize to stop offering to rename.
 ///
 /// Cloud spend rides here rather than getting a Billing tab of its own: the caps exist because
 /// Organize can call Claude, so they are *Organize's* money, and a second tab for one feature's
 /// opt-in API key would be a third place to look for one workflow.
 struct FilingSettingsTab: View {
+    /// Only the kept-names list needs it, and only to reach `keptNamesStore`. Optional for the
+    /// same reason every other tab's is: tests and previews build the tab without an engine.
+    let syncManager: FileSyncManager?
     @AppStorage(FileSyncManager.readContentsDefaultsKey) private var filingReadContents: Bool = true
     @AppStorage(GeneralSettings.filingInboxRelativePathKey) private var filingInbox: String = "TODO"
     @AppStorage(FileSyncManager.usesAIDefaultsKey) private var filingUseAI: Bool = true
@@ -1606,6 +1619,24 @@ struct FilingSettingsTab: View {
                 }
                 .controlSize(.small)
             }
+
+            // Last, below Cloud spend, rather than between it and Suggestions: those two are one
+            // subject (what Organize suggests, and what the cloud option costs to suggest it), and
+            // the header comment above turns on them reading as the two halves of this tab. Kept
+            // names is the other lens — the rename finding — so it goes after both rather than
+            // splitting them. Being at the bottom of a long tab is what the search index answers.
+            SettingsSection(
+                "Kept names",
+                caption: "Names you kept with “Always Allow This Name” after SyncCloud flagged them as ones a cloud provider may mishandle — a trailing space, a forbidden character, and so on. A kept name draws no badge anywhere it is listed, and Organize never offers to rename it. Kept names are matched exactly, so the decision covers every file with that name and follows it when it moves. Remove one to have it reported again; the files themselves are never touched either way."
+            ) {
+                if let store = syncManager?.keptNamesStore {
+                    KeptNamesList(store: store)
+                } else {
+                    // No engine attached (tests, previews). The list would say the same thing an
+                    // empty store does, so say it rather than leaving the caption over a void.
+                    KeptNamesList.nothingKeptNote
+                }
+            }
         }
         .onAppear(perform: refreshSpend)
         .sheet(isPresented: $showSpendHistory, onDismiss: refreshSpend) {
@@ -1618,6 +1649,98 @@ struct FilingSettingsTab: View {
         spendLast = FilingSpendStore.last()
     }
 
+}
+
+/// The kept-names rows inside the Organize tab: one name per entry with a remove button, plus
+/// Clear All — the inventory of "I meant that name" decisions, which until now could only be read
+/// back by walking your files. A kept name draws no badge, so there was nothing on screen leading
+/// anywhere; this is the only place the whole set is visible at once.
+///
+/// Split out so it can observe ``KeptNamesStore`` directly. `FileSyncManager` holds the store
+/// behind a plain `var`, not a `@Published` one, so a view watching only the manager does not
+/// repaint when the set changes — the manager's `keptNamesStore` didSet sends `objectWillChange`
+/// by hand for exactly that reason, and this view does not rely on it.
+///
+/// Internal rather than `private`, unlike its `IgnoredItemsList` neighbour, so the tests can call
+/// `remove(_:)` and `clearAll()` — the two methods the buttons call — against a real store on an
+/// injected defaults suite. Nothing else constructs it.
+struct KeptNamesList: View {
+    @ObservedObject var store: KeptNamesStore
+
+    var body: some View {
+        if store.names.isEmpty {
+            Self.nothingKeptNote
+        } else {
+            ForEach(store.sortedNames, id: \.self) { name in
+                HStack {
+                    KeptNameLabel(name: name)
+                    Spacer()
+                    Button {
+                        remove(name)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .hoverInk()
+                    }
+                    .buttonStyle(.hoverAffordance(.inline))
+                    .help("Report “\(name)” again — here, on its row, and in Organize")
+                }
+            }
+            HStack {
+                Spacer()
+                Button("Clear All", role: .destructive, action: clearAll)
+                    .controlSize(.small)
+            }
+        }
+    }
+
+    /// Withdraw one keep. Straight to the store, exactly as the row menu's "Stop Allowing This
+    /// Name" does: the store is the single mutation point, and `FileSyncManager` subscribes to it
+    /// for the announcement and the `riskyNames` reconciliation. Routing this through a manager
+    /// method instead would be a second door onto the same latch.
+    func remove(_ name: String) { store.stopKeeping(name) }
+
+    /// Withdraw every keep. One store call rather than a loop over `remove(_:)`, so the manager
+    /// re-filters its finding once.
+    func clearAll() { store.stopKeepingAll() }
+
+    /// Shown by an empty store, and by a tab built without an engine attached.
+    static var nothingKeptNote: some View {
+        Text("No kept names. Right-click a file with a flagged name and choose Always Allow This Name to keep it.")
+            .scaledFont(.callout)
+            .foregroundStyle(.secondary)
+    }
+}
+
+/// A kept name with its invisible characters made visible — an affix space as "␣", a zero-width
+/// scalar as "◌", both tinted.
+///
+/// Not a plain `Text`: every name in this list is here *because* something about it is risky, and a
+/// whole class of those offences is invisible in a proportional face. "report " and "report" would
+/// render identically, in the one view whose entire job is telling the user what they kept. The
+/// rule is ``InvisibleNameMarking``, shared with the Rename lens's card so the two cannot disagree
+/// about how many trailing spaces a name has.
+private struct KeptNameLabel: View {
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(InvisibleNameMarking.cells(for: name).enumerated()), id: \.offset) { _, cell in
+                if cell.isMarker {
+                    // Caution, matching the Rename lens's markers and the risky-names pill — the
+                    // whole risky-name vocabulary sits in one tier.
+                    Text(cell.glyph)
+                        .foregroundStyle(SemanticColor.caution)
+                        .background(SemanticColor.caution.opacity(PillVariant.fillOpacity))
+                } else {
+                    Text(cell.glyph)
+                }
+            }
+        }
+        .scaledFont(.system(.callout, design: .monospaced))
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .help(name)
+    }
 }
 
 /// The full cloud-Filing spend history as a sheet (Settings' copy — FileExplorer has its own in

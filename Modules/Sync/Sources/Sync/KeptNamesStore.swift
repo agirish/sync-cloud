@@ -67,6 +67,20 @@ public final class KeptNamesStore: ObservableObject {
         Logger.shared.info("Stopped keeping risky name “\(name)” — it will be reported again")
     }
 
+    /// Withdraw every keep at once — Settings' "Clear All".
+    ///
+    /// One mutation rather than a loop over `stopKeeping`. `names` is `@Published` and
+    /// ``FileSyncManager/keptNamesStore`` reconciles `riskyNames` on each publish, so clearing N
+    /// names one at a time would re-filter the whole finding N times and write N lines to the log
+    /// for what the user did once.
+    public func stopKeepingAll() {
+        guard !names.isEmpty else { return }
+        let count = names.count
+        names.removeAll()
+        save()
+        Logger.shared.info("Stopped keeping all \(count) risky \(count == 1 ? "name" : "names") — they will be reported again")
+    }
+
     /// Stable ordering for any list that presents them.
     public var sortedNames: [String] { names.sorted() }
 

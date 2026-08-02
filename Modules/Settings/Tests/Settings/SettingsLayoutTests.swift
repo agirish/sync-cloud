@@ -310,7 +310,7 @@ import Testing
     /// this is still the tab with a Keychain call one `onAppear` away.
     @MainActor
     @Test func organizeLaysOutWithoutReachingForTheKeychain() async throws {
-        let height = laidOutHeight(FilingSettingsTab(), width: Self.contentWidth)
+        let height = laidOutHeight(FilingSettingsTab(syncManager: nil), width: Self.contentWidth)
 
         #expect(height > 0)
     }

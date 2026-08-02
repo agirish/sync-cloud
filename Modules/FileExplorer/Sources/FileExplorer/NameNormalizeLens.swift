@@ -220,61 +220,6 @@ private struct InvisibleMarkedName: View {
     }
 }
 
-/// Decides which scalars of a risky name get a visible marker — the rule behind
-/// ``InvisibleMarkedName``, kept out of the view body so it can be tested. The view's entire job is
-/// making an invisible character visible, so "which ones are marked" is the feature, not styling.
-enum InvisibleNameMarking {
-    /// One rendered cell: the glyph to draw, and whether it is a substituted marker (tinted) rather
-    /// than the name's own character.
-    struct Cell: Equatable {
-        let glyph: String
-        let isMarker: Bool
-    }
-
-    /// Zero-width / BOM scalars — invisible and NOT classed as whitespace, so they get an explicit
-    /// marker wherever they sit. Mirrors ``NameNormalizer``'s set (kept local so the view doesn't
-    /// depend on Sync internals).
-    private static let zeroWidth: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0xFEFF]
-
-    static func cells(for name: String) -> [Cell] {
-        let scalars = Array(name.unicodeScalars)
-        let edges = edgeWhitespaceIndices(scalars)
-        return scalars.indices.map { idx in
-            let scalar = scalars[idx]
-            if zeroWidth.contains(scalar.value) {
-                return Cell(glyph: "◌", isMarker: true)
-            } else if scalar == " " {
-                // An interior space is already visible by the text either side of it; only the
-                // affix ones are the invisible surprise.
-                return edges.contains(idx) ? Cell(glyph: "␣", isMarker: true) : Cell(glyph: " ", isMarker: false)
-            } else if scalar.properties.isWhitespace {
-                // No-break space, tab, other Unicode spaces — always suspicious in a name.
-                return Cell(glyph: "␣", isMarker: true)
-            } else {
-                return Cell(glyph: String(scalar), isMarker: false)
-            }
-        }
-    }
-
-    /// Every index in the leading and trailing whitespace RUNS.
-    ///
-    /// Deliberately the whole run, not `idx == 0 || idx == count - 1`: "Swimming  " ends in two
-    /// spaces, and marking only the outermost one drew a single "␣" followed by a space that was
-    /// still invisible — so the name read as having one trailing space when it has two, in the one
-    /// view whose whole job is making exactly that risk visible. Matches
-    /// ``NameDisplay/visibleName(_:)``, which already walks the full run for the same reason.
-    private static func edgeWhitespaceIndices(_ scalars: [Unicode.Scalar]) -> Set<Int> {
-        var indices: Set<Int> = []
-        var index = 0
-        while index < scalars.count, scalars[index].properties.isWhitespace {
-            indices.insert(index)
-            index += 1
-        }
-        index = scalars.count - 1
-        while index >= 0, scalars[index].properties.isWhitespace {
-            indices.insert(index)
-            index -= 1
-        }
-        return indices
-    }
-}
+// The rule behind the view above — which scalars get a marker — now lives in Sync as
+// ``InvisibleNameMarking``, shared with the kept-names list in Settings ▸ Organize. Both surfaces
+// show a name *because* something in it is invisible, so both mark the same scalars.

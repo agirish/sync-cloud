@@ -1,10 +1,14 @@
 import Testing
-@testable import FileExplorer
+@testable import Sync
 
-/// Pins the Rename lens's risky-name marking. This view exists for one job — making an invisible
-/// character visible before the user decides what to do about it — so "which scalars get a marker"
-/// is the feature itself, and a name that renders one marker for two trailing spaces understates
-/// the very risk it was opened to show.
+/// Pins the risky-name marking shared by the Rename lens's card and the kept-names list in
+/// Settings ▸ Organize. Both exist for one job — making an invisible character visible before the
+/// user decides what to do about it — so "which scalars get a marker" is the feature itself, and a
+/// name that renders one marker for two trailing spaces understates the very risk it was opened to
+/// show.
+///
+/// `markingAgreesWithNameDisplayOnPlainSpaces` stays in FileExplorer's `NameDisplayTests`: it is a
+/// claim about agreement with `NameDisplay`, which is a FileExplorer type.
 @Suite struct InvisibleNameMarkingTests {
 
     private func rendered(_ name: String) -> String {
@@ -50,15 +54,6 @@ import Testing
         #expect(markerCount("   ") == 3)
     }
 
-    @Test func markingAgreesWithNameDisplayOnPlainSpaces() {
-        // The panes' text form (`NameDisplay.visibleName`) already walks the whole affix run; this
-        // view is the same claim rendered as tinted cells, so the two must not disagree about how
-        // many spaces a name has.
-        for name in ["Swimming", "Swimming ", "Swimming  ", " Swimming", "  x  ", " ", "   ", "a b"] {
-            #expect(rendered(name) == NameDisplay.visibleName(name), "disagreed on \"\(name)\"")
-        }
-    }
-
     @Test func nonStandardWhitespaceIsMarkedWhereverItSits() {
         // A no-break space is suspicious anywhere in a name — it isn't an edge-only rule.
         #expect(rendered("a\u{00A0}b") == "a␣b")
@@ -70,8 +65,15 @@ import Testing
     }
 
     @Test func zeroWidthScalarsGetTheirOwnMarker() {
-        #expect(rendered("a\u{200B}b") == "a◌b")
-        #expect(markerCount("a\u{200B}b") == 1)
+        // All four, not a sample. Moving this rule into Sync replaced its own mirrored literal
+        // (`[0x200B, 0x200C, 0x200D, 0xFEFF]` as UInt32 values) with `NameNormalizer.zeroWidthScalars`
+        // — the set that decides a name is risky in the first place. The two are the same four
+        // scalars; enumerating them is what proves that rather than assuming it, and ZWNJ and ZWJ
+        // were previously covered by neither this test nor any other.
+        for scalar in ["\u{200B}", "\u{200C}", "\u{200D}", "\u{FEFF}"] {
+            #expect(rendered("a\(scalar)b") == "a◌b", "\(scalar.unicodeScalars.first!.value) went unmarked")
+            #expect(markerCount("a\(scalar)b") == 1)
+        }
         #expect(rendered("\u{FEFF}name") == "◌name")
         // A zero-width scalar is NOT whitespace, so it ends the affix run rather than extending it:
         // the space beyond it is interior and stays plain.
