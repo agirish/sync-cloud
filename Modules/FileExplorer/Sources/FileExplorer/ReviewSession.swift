@@ -58,12 +58,23 @@ public final class ReviewSessionStore: ObservableObject {
     /// than being open-coded in the view.
     ///
     /// `isActing` is cleared before the outcome is applied, matching the order the decision
-    /// buttons expect (the card re-enables, then the queue advances).
+    /// buttons expect (the card re-enables, then the queue advances) — and on EVERY exit from
+    /// here, including the one below where there is no session left to decide against.
+    ///
+    /// That early return is not a formality. `reviewPrimary` sets `isActing` synchronously and
+    /// then hops through a `Task` to get here, so a session torn down inside that hop —
+    /// `endReviewForComparisonChange` on a pane swap, provider switch or root edit, or Esc —
+    /// lands exactly here, with the flag already raised and no copy ever started. `endSession`
+    /// leaves `isActing` alone because "an in-flight copy's completion clears it"; on this path
+    /// there is no in-flight copy, so nothing else ever will. And `startReview` does not reset
+    /// it, so the flag outlives the session that raised it: the NEXT review opens with its
+    /// Copy, Skip and Verify buttons already disabled and no way to re-enable them short of
+    /// relaunching. Clearing it here is what keeps that from being permanent.
     /// - Returns: Whether the outcome was applied — false once the session was replaced or torn
     ///   down, so the caller knows not to treat this as a completed step.
     @discardableResult
     func decide(for id: UUID, perform: () async -> ReviewSession.Outcome) async -> Bool {
-        guard let token = session?.sessionToken else { return false }
+        guard let token = session?.sessionToken else { isActing = false; return false }
         let outcome = await perform()
         isActing = false
         return apply(outcome, for: id, token: token)
