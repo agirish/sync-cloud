@@ -35,6 +35,15 @@ mechanisms this repo has actually hit and how to tell one from a regression.
   skips prefs writes. DerivedData lives in `.dd/` inside the workspace.
 - The loop runs every package even after a failure so one run reports all
   broken packages.
+- **External dependency versions are not pinned, and a green run does not say
+  which ones it tested.** `Package.resolved` is gitignored, so every checkout —
+  CI's and yours — resolves afresh from the `from:` floors in the manifests:
+  `swift-snapshot-testing` (1.18.0) in Design, Dashboard, FileExplorer and
+  Settings, and `swift-argument-parser` (1.3.0) in `SyncCloudCLI`. The first is
+  test-only; the second the CLI **links and ships**. So a run's verdict covers
+  whatever resolved that day, and a build cut from a release tag can pick up a
+  version no run ever exercised. Recorded here rather than closed: committing
+  `Package.resolved` (and un-ignoring it) is what would close it.
 
 ### Machine-pinned tests
 
