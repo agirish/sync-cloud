@@ -272,9 +272,20 @@ private func diff(
         #expect(!store.isActing)
     }
 
-    /// No session at all (Exit before the decision even started): nothing to decide against.
-    @Test func decideWithNoSessionDoesNotRunTheDecision() async {
+    /// No session at all (Exit before the decision even started): nothing to decide against, and
+    /// the acting flag must come back down anyway.
+    ///
+    /// `isActing` is raised deliberately here because that is the only state this can be reached
+    /// in: `reviewPrimary` sets it synchronously and then hops through a `Task`, so a teardown
+    /// inside that hop — a pane swap, provider switch, root edit, or Esc — arrives with the flag
+    /// already up and no copy ever started. Leaving it up latches PERMANENTLY: `endSession` defers
+    /// clearing to an in-flight copy that does not exist here, and `startReview` does not reset it,
+    /// so the next review opens with Copy, Skip and Verify disabled until the app is relaunched.
+    /// `decideCapturesTheTokenBeforeTheAwaitNotAfter` already pins the same invariant for the
+    /// session-REPLACED exit; this is the session-nil one.
+    @Test func decideWithNoSessionClearsTheActingFlag() async {
         let store = ReviewSessionStore()
+        store.isActing = true
         var ran = false
         let applied = await store.decide(for: UUID()) {
             ran = true
@@ -282,6 +293,8 @@ private func diff(
         }
         #expect(!applied)
         #expect(!ran)
+        #expect(!store.isActing,
+                "isActing stayed up with no session and no copy — the next review would open dead")
     }
 
     /// A decision arriving after Exit tore the session down (no replacement) stays dropped.
