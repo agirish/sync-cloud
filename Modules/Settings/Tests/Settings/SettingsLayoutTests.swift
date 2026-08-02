@@ -47,6 +47,17 @@ import Testing
         return host.fittingSize.height
     }
 
+    /// The width a view wants when nothing constrains it — its intrinsic width. Deliberately
+    /// unconstrained, unlike `laidOutHeight`: the question is how wide the text WANTS to be, so
+    /// that it can be compared against the column it has to fit in. Constraining it first would
+    /// make the measurement agree with the constraint no matter how wide the text was.
+    @MainActor
+    private func laidOutWidth(_ view: some View, scale: CGFloat) -> CGFloat {
+        let host = NSHostingView(rootView: view.environment(\.appFontScale, scale))
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.width
+    }
+
     /// The margin Appearance has left at one text size — positive means it fits.
     @MainActor
     private func appearanceMargin(at scale: CGFloat) -> CGFloat {
@@ -69,6 +80,17 @@ import Testing
     /// bottom-Dock user is the scroll fallback, which `residualOverflowIsAbsorbedByScrolling`
     /// checks degrades gracefully.
     private static let smallDisplayWindow = CGSize(width: 1280, height: 800 - 24 - 36)
+
+    /// The version string this branch's builds actually carry, mirroring `project.yml`'s
+    /// `CFBundleShortVersionString`. Kept in step by the release procedure in `CLAUDE.md`, which
+    /// makes updating it part of cutting a release.
+    ///
+    /// It is written down rather than read from `Bundle.main` because under `swift test`
+    /// `Bundle.main` is the test host and has no version at all — the very blindness that let
+    /// the app ship "1.0" for twenty-odd releases with a green suite. A literal that a human
+    /// must change is the point: it is what gives `theVersionLineFitsTheRailOnOneLine` something
+    /// real to measure.
+    private static let versionMarker = "3.0-dev"
 
     /// The margin Appearance has left at one text size against a chosen accent hue, measured
     /// through the tab's own `@AppStorage` via `.defaultAppStorage` — `UserDefaults.standard` is
@@ -423,11 +445,15 @@ import Testing
     /// `appearanceFitsA1280x800Display` exists — an unclamped opening grows with `baseSize` and
     /// so can never fail. At every text size, because the rows are text and grow with it.
     ///
-    /// **What this can and cannot see.** `Bundle.main` under `swift test` is the test host, which
-    /// has no `CFBundleShortVersionString`, so the version line at the foot of the rail does not
-    /// render here and its height is not in the measurement. `versionLineAllowance` puts it back:
-    /// a `.caption2` line plus its 2pt bottom padding, scaled, generously rounded up. So the
-    /// number asserted is the app's rail, not the test host's.
+    /// **The version line is now measured, not estimated.** `Bundle.main` under `swift test` is
+    /// the test host, which has no `CFBundleShortVersionString`, so the rail's own default for
+    /// `versionText` resolves to nil here and the line does not render on its own. This used to
+    /// be papered over with an allowance — a `.caption2` line plus 2pt of padding, scaled and
+    /// "generously rounded up" to 18 — which was never once checked against a rendered line.
+    /// `railHeight` now injects `versionMarker` through `SettingsRail.versionText` instead, so
+    /// the line is really laid out and its height is really in the number. (The old estimate was
+    /// indeed conservative, but only by 1–3pt: measured, the line is 15/17/18/20pt at Small /
+    /// Default / Large / Larger where the allowance claimed 16.2/18/20.7/23.4.)
     ///
     /// **The measured residual, so nobody mistakes this for a tight budget.** Seven rows come to
     /// 297pt at the default text size against a 647pt opening — 332pt of slack, room for ten more
@@ -459,10 +485,26 @@ import Testing
     ///
     /// `floorSize` is where `resolvedSize` stops shrinking (a window under ~570×428). There the
     /// sheet is 380pt and the opening 335pt at the default text size, and the rail — which cannot
-    /// scroll — is the part that runs out first. **Measured: seven rows fit at Small and Default
-    /// and do not fit at Large (~14pt over) or Larger (~31pt over). Six rows fit at all four.** So
-    /// the split did cost something, and this is the whole of it: a user who has shrunk the window
-    /// below the sheet's floor AND raised the text size loses the bottom of the rail.
+    /// scroll — is the part that runs out first. **Measured, with the version line really laid
+    /// out: the rail clears the floor-sized opening by 40.4pt at Small, 21.0pt at Default and
+    /// 0.4pt at Large, and overruns it by 27.2pt at Larger.** So the Tidy split did cost
+    /// something, and this is the whole of it: a user who has shrunk the window below the sheet's
+    /// own floor AND set the largest text size loses the bottom of the rail.
+    ///
+    /// **Large fits by four tenths of a point, which is not a margin.** Read the set below as
+    /// "Larger is the one that overruns", not as "Large is safe" — anything that adds a point to
+    /// the rail or takes one off the opening moves Large across, and it is a coin-flip against
+    /// a future macOS rounding text differently. It is recorded as fitting because that is what
+    /// it measures; it is not something to spend.
+    ///
+    /// This is also what couples this test to `theVersionLineFitsTheRailOnOneLine`: a version
+    /// marker too wide for the fixed rail wraps to a second line and costs ~15pt of height, which
+    /// is 37× the margin Large has here. The version line wrapping would take Large down with it.
+    ///
+    /// The previously recorded residual — "fit at Small and Default, ~14pt over at Large, ~31pt
+    /// over at Larger" — was wrong on both counts. It was derived from `railHeight`'s old
+    /// hand-estimated version-line allowance rather than from a rendered line; Large was never
+    /// 14pt over, it was 2.3pt over under the estimate and is 0.4pt UNDER once measured.
     ///
     /// Not fixed here, deliberately. The fixes on offer are all worse than the defect: a
     /// `ScrollView` around the rail turns a seven-item list into a scrolling surface on every
@@ -482,11 +524,17 @@ import Testing
                 <= SettingsSheetMetrics.contentOpening(textScale: size.scale, available: tinyWindow)
         }
 
-        #expect(fitting == [.small, .medium],
+        let margins = FontSize.allCases.map { size in
+            let opening = SettingsSheetMetrics.contentOpening(textScale: size.scale,
+                                                             available: tinyWindow)
+            return "\(size.displayName) \(opening - railHeight(at: size.scale))pt"
+        }
+
+        #expect(fitting == [.small, .medium, .large],
                 """
                 At the sheet's floor the rail fits at \(fitting.map(\.displayName)) with \
                 \(SettingsView.SettingsTab.allCases.count) tabs — the residual recorded on this \
-                test is out of date.
+                test is out of date. Margins now: \(margins.joined(separator: ", ")).
                 """)
     }
 
@@ -505,13 +553,94 @@ import Testing
                 "the rail lays out at \(measured)pt for \(Int(rows)) tabs — its rows are not being measured.")
     }
 
-    /// The rail as the APP lays it out: what this host measures, plus the version line the host
-    /// cannot render (see `theRailFitsItsOpening`). `.caption2` is 11pt; 1.3 for line height and
-    /// 2pt of bottom padding, rounded up to 18 and scaled with the type.
+    /// The version line has to fit the rail's WIDTH, which nothing measured until the marker got
+    /// longer than "1.0".
+    ///
+    /// Every other rail assertion is about height. This one is about width, and the rail's width
+    /// is FIXED (`SettingsSheetMetrics.railWidth`, 176pt) — it does not grow for its contents and
+    /// it does not scroll. The version line carries no `lineLimit`, so a string too wide for the
+    /// column does not clip or truncate: it WRAPS to a second row, quietly making the rail taller
+    /// and putting "SyncCloud" and its number on separate lines at the foot of the sidebar.
+    ///
+    /// Going from "1.0" to "3.0-dev" more than doubled the number's length, so this is measured
+    /// rather than reasoned about. Both halves are checked, because they fail differently: the
+    /// intrinsic width says how close to the edge the line is, and the rail height says whether
+    /// it actually wrapped.
+    ///
+    /// **The measured margin.** The line has 142pt to lay out in
+    /// (176pt of rail, less 8pt of rail inset and 9pt of row inset on each side). "SyncCloud
+    /// 3.0-dev" wants 86 / 95 / 107 / 119pt at Small / Default / Large / Larger — so the worst
+    /// case, the largest text size, still keeps 23pt in hand, about three characters. A marker
+    /// stays safe out to roughly 21 characters including the "SyncCloud " prefix, which covers
+    /// every number the scheme in `CLAUDE.md` can produce for a long time ("10.10-dev" measures
+    /// 132pt, still clear). If a version ever does approach that, this test says so.
     @MainActor
-    private func railHeight(at scale: CGFloat) -> CGFloat {
-        let rail = SettingsRail(selection: .constant(.general), query: .constant(""), hue: .blue)
-        return laidOutHeight(rail, width: SettingsRail.width, scale: scale) + 18 * scale
+    @Test(arguments: FontSize.allCases)
+    func theVersionLineFitsTheRailOnOneLine(_ size: FontSize) async throws {
+        let line = Text("SyncCloud \(Self.versionMarker)").scaledFont(.caption2)
+        let intrinsic = laidOutWidth(line, scale: size.scale)
+
+        #expect(intrinsic <= SettingsRail.versionTextWidth,
+                """
+                "SyncCloud \(Self.versionMarker)" wants \(intrinsic)pt at \(size.displayName) in \
+                a \(SettingsRail.versionTextWidth)pt column — the rail is fixed-width and does \
+                not scroll, so the line wraps onto a second row.
+                """)
+
+        // The width check above is the diagnosis; this is the symptom. A version short enough
+        // that it cannot possibly wrap is the baseline: if the marker lays the rail out to the
+        // same height, the marker did not wrap either.
+        #expect(railHeight(at: size.scale) == railHeight(at: size.scale, version: "1"),
+                """
+                The rail is taller at \(size.displayName) with "\(Self.versionMarker)" than with \
+                a one-character version — the version line has wrapped onto a second row.
+                """)
+    }
+
+    /// Keeps `theVersionLineFitsTheRailOnOneLine` from going vacuous.
+    ///
+    /// Both of its assertions are "nothing bad happened" shapes, and the height half especially
+    /// so — if a wrapped line did not actually make `fittingSize.height` grow, comparing two
+    /// heights would pass for every string ever written and nobody would know. Measured: a marker
+    /// wide enough to need a second row adds exactly one `.caption2` line (13pt at the default
+    /// text size), and one needing three rows adds 26pt. So the detector moves in the direction
+    /// the other test relies on, and by the amount a wrapped line should cost.
+    @MainActor
+    @Test func aVersionTooWideForTheRailReallyDoesWrapIt() async throws {
+        let overlong = "9.9-dev-and-then-some"
+        #expect(laidOutWidth(Text("SyncCloud \(overlong)").scaledFont(.caption2), scale: 1)
+                > SettingsRail.versionTextWidth,
+                "the probe no longer overflows the column — it has stopped probing anything")
+
+        #expect(railHeight(at: 1, version: overlong) > railHeight(at: 1, version: "1"),
+                """
+                A version far too wide for the rail lays it out at the same height as a \
+                one-character one — `fittingSize.height` is not seeing the wrap, so the height \
+                half of `theVersionLineFitsTheRailOnOneLine` proves nothing.
+                """)
+    }
+
+    /// The seam itself: the version line renders because `versionText` says so.
+    ///
+    /// Without this, re-inlining the `Bundle.main` read into `body` would leave both tests above
+    /// green — they would be measuring a rail with no version line at all, in a host that has no
+    /// version to give it, which is precisely the state this whole area was in before.
+    @MainActor
+    @Test func theRailDrawsNoVersionLineWithoutOne() async throws {
+        #expect(railHeight(at: 1, version: nil) < railHeight(at: 1),
+                """
+                The rail is the same height with and without a version — `versionText` is not \
+                what puts the line on screen, so injecting it measures nothing.
+                """)
+    }
+
+    /// The rail as the APP lays it out — including the version line, which the host cannot
+    /// produce on its own (see `theRailFitsItsOpening`) and which is therefore injected.
+    @MainActor
+    private func railHeight(at scale: CGFloat, version: String? = Self.versionMarker) -> CGFloat {
+        let rail = SettingsRail(selection: .constant(.general), query: .constant(""),
+                                hue: .blue, versionText: version)
+        return laidOutHeight(rail, width: SettingsRail.width, scale: scale)
     }
 
     @Test func everyTabHasARailSymbol() {

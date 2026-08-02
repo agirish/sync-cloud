@@ -20,8 +20,19 @@ targets:
     info:
       path: MacApp/Info.plist
       properties:
-        CFBundleShortVersionString: "1.0"
-        CFBundleVersion: "1"
+        # The version this branch's builds report. `main` carries the v3 line, so its tip sits at
+        # a pre-release marker for the next major; `-dev` says "this build is no release" without
+        # implying a distributed beta. Cutting a release drops the suffix, tags, and re-bumps to
+        # the next marker — see "Cutting a release" in CLAUDE.md, which is where this is kept
+        # honest. Until 2026-08-02 this read "1.0" and had not moved since v0.10, so more than
+        # twenty tagged releases all shipped claiming to be 1.0.
+        CFBundleShortVersionString: "3.0-dev"
+        # Build number: MAJOR * 100 + MINOR of the version above. A single integer, so it orders
+        # correctly under both numeric and string comparison (2.10 → 210 sorts after 2.9 → 209,
+        # which "2.10" vs "2.9" would not), it increases across both release lines at once, and
+        # it is derivable from the marketing version rather than being a second thing to
+        # remember. Requires MINOR < 100 to stay monotonic.
+        CFBundleVersion: "300"
         NSHumanReadableCopyright: "Copyright © 2024. All rights reserved."
   SyncCloudTests:
     type: bundle.unit-test
