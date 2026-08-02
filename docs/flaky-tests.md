@@ -139,8 +139,8 @@ process-wide.** `.defaultAppStorage` isolates the stored *values*, not the chang
 write in one suite fires another suite's `onChange` driver even with separate suites.
 
 **Fix.** `@Suite(.serialized)` on anything that writes process-wide state, with the reason in the
-doc comment — there are 32 of them, and each says why it needs it. For values, use a per-mount
-scratch defaults suite rather than the standard domain.
+doc comment — every one of them says why it needs it. For values, use a per-mount scratch defaults
+suite rather than the standard domain.
 
 **Known residual — recognise it before you bisect.** `.serialized` closes only the *intra*-suite
 half: it stops a suite's own writers overlapping its own assertions. A *different* suite writing
