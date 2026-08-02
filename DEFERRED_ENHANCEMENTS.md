@@ -12,8 +12,11 @@ declares as a deliberate limit — a cap, a skip, a cheap guard, an accepted res
 already visible to the user (a skip count, a banner, a log line) or provably harmless; none is a
 bug.
 
-Distinct from `ROADMAP.md` (net-new user features); this is hardening / behavior / coverage the
-review chose to punt.
+Distinct from `ROADMAP.md` (net-new user features we intend to build); this is hardening / behavior
+/ coverage the review chose to punt. Whether the two should be one file was asked and settled on
+2026-08-02 — they stay separate, because a roadmap is a plan you work down while several entries
+here are deliberately low-value and may never be worth scheduling. The reasoning is written out in
+full at the end of `ROADMAP.md`.
 
 ---
 
@@ -25,18 +28,16 @@ backup) and the source folder takes its place. Files that existed *only* in the 
 are removed from it. This is intentional, Finder-parity behavior; since `23a1ccb` the prompt warns
 about it ("Replacing a folder replaces its entire contents…"), and it is Trash-recoverable.
 
-**Enhancement:** Add a fourth collision choice, **Merge**, for folders — recursively copy the
-source folder's contents *into* the existing destination folder, resolving per-child collisions
-individually, rather than replacing the folder as a unit.
-
-**Why deferred:** This is genuine sync-engine work, not a prompt tweak — it needs a recursive
+**Why it was deferred:** This is genuine sync-engine work, not a prompt tweak — it needs a recursive
 per-child collision path instead of the single atomic `replaceItem`, plus its own collision
 semantics (Merge-all / apply-to-all) and tests. The current behavior is safe (recoverable) and now
-clearly warned.
+clearly warned, so the review punted it.
 
-**Pickup notes:** The collision seam already carries `isDirectory`. Add a `.merge` case to
-`CollisionResolution`, wire a "Merge" button into `SyncOperationAlerts`, and implement the recursive
-merge in the `transferItems` / sync path. **Effort:** medium. **Risk:** medium (new data path).
+**→ It is now planned work: see the folder-Merge item in `ROADMAP.md`,** which carries the full
+specification (the `.merge` case on `CollisionResolution`, the `SyncOperationAlerts` button, the
+recursive `transferItems` path, and the surfaces to mock). It was promoted out of this file because
+it is a feature people ask for rather than an accepted limit, and a spec kept in two places drifts
+in one of them. This entry stays only to record *why it sat here first*.
 
 ---
 

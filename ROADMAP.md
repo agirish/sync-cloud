@@ -96,10 +96,21 @@ is visually untouched. Persist as JSON (`folderSources`) in the app's defaults d
 
 ### 1b. The Backup lens — the report
 
-**What:** A sixth Tidy lens (`TidyLens.backup`, shown as **Backup**), sitting after Storage. Tidy is
-already the single-source workspace with a source rail, a lens picker and the shared 81pt
-`LensHeaderCard`; Storage is the precedent for a read-only analytical lens. A third top-level tab
-would be a structural change to `ContentView`'s layout modes for one report.
+**What:** A sixth **workspace** (`Workspace.backup`, with a matching `TidyLens.backup` behind it),
+sitting after Storage in the bar. Note the shape this now takes: the two-level *Compare | Tidy* +
+lens picker is gone — `Workspace` collapsed both levels into the flat toolbar bar — so "add a lens"
+and "add a top-level tab" are the same act, and the cost is a bar segment rather than a structural
+change to `ContentView`'s layout modes. Storage remains the precedent for a read-only analytical
+workspace, and the shared 81pt `LensHeaderCard` rung applies unchanged.
+
+**The bar-width consequence, which is the only real cost.** Five labelled segments already exceed
+the window's 600pt `minWidth` once the traffic lights and utility pill are counted, and
+`WorkspaceBarMetrics` sheds every label at once (`.full` → `.iconOnly`) when they do. A sixth
+segment moves that threshold further out, so the bar spends more of its time icon-only — measured
+on the current segments, labels drop below roughly 890pt at 100% text and 1110pt at 150%. That is a
+real regression in a control every workspace depends on, and it is the thing to weigh against
+Backup being a workspace rather than something reached from Storage. The glyph has to carry the
+whole label at narrow widths, so it must be legible alone rather than decorative.
 
 **Folders, not files — the decision the feature lives or dies on.** A home folder holds hundreds of
 thousands of files and listing them answers nothing. Report the **highest folder that is entirely
@@ -520,6 +531,129 @@ on both sides so accented names match. Per-item ignores are a separate durable l
 
 ---
 
+## 15. ⌘K command palette
+
+**Why:** The flat workspace bar made every workspace one click deep, and then folding Rename into a
+conditional chip took one destination *off* the bar entirely. That is the right trade for a rare
+finding, but it leaves nothing to aim at: a user who thinks "rename" has no target for the thought.
+A palette is the general answer — and it is the only surface that can route to a control that is
+not currently on screen.
+
+**What:** One field over the window, indexing four kinds of thing:
+
+| Kind | Examples | Does |
+|---|---|---|
+| Workspaces | Compare, Duplicates, Storage | switches, keeping the current source |
+| Sources | iCloud, Projects, Backup SSD | re-aims the current workspace |
+| Folders | recent and pinned paths | reveals in the source browser |
+| Actions | Rescan · Undo last run · Add Folder… · New backup… | runs it, or opens its sheet |
+
+"Rename" resolves as an action that opens Organize with the risky-names chip selected **whether or
+not the chip is currently showing** — which is what closes the hole the fold opened.
+
+**Surfaces to mock:** the overlay (query field, grouped results, selection, a keyboard-hint column);
+the empty-query state showing recent and likely actions; an unavailable result — an unmounted source
+— shown disabled *with its reason*, not hidden.
+
+**The one implementation trap:** **this cannot be `.onKeyPress`.** That modifier is strictly
+focus-scoped: with focus in a file table a sibling's handler never fires, and with no focus at all
+nothing fires anywhere. A palette that works only when you have not clicked anything is worse than
+none. It has to be a menu-item shortcut — which also documents it in the menu bar — or an `NSEvent`
+local monitor.
+
+**Effort:** Low–Medium. **Risk:** Low — read-only routing.
+
+---
+
+## 16. A rules view inside Organize
+
+**Why:** Filing rules act on filing, and the one that matters most is *learned* from a filing move
+just made. Clicking a file a rule placed and asking "which rule did that?" currently costs a
+workspace change — and *Learned rule* is already a filter chip in Organize, so half the association
+is there.
+
+**What:** A persistent control in Organize's header, beside *File all N*, that swaps the right slot
+for the rule list, editor and preview. Deliberately **not** a chip: the risky-names chip earns its
+place by *disappearing* at zero, and rules do not — eight rules is a configuration, not a result,
+and putting it in the chip row would teach that row two different meanings.
+
+**Surfaces to mock:** the header control and its active state; the rule list in the lens slot; the
+rule editor; the return path back to the queue.
+
+**The trap:** Organize homes the left pane on the loose-files inbox, but rules file into
+destinations all over the source. Opening the rules view has to **re-home the rail to the source
+root** — otherwise you are editing a rule about `Documents/IRS` while the pane shows an unrelated
+folder — and closing it must put the rail back, or the control is a one-way trip out of the queue
+you were working.
+
+**Effort:** Low–Medium. **Risk:** Low.
+
+---
+
+## 17. "Find duplicates of this" on the row
+
+**Why:** The row-badge-plus-context-menu pattern shipped for risky names (`d569e487`) and works: the
+badge rides the file wherever it is listed, and *Fix name…* handles the single case without a
+workspace change. The same door is missing for duplicates.
+
+**What:** A context-menu item beside *Fix name…* that opens the Duplicates workspace with that
+file's group expanded.
+
+**Note the asymmetry deliberately** — it is why Duplicates keeps its own workspace instead of
+folding into a chip the way Rename did. A duplicate is **relational** (a group spans unrelated
+folders, so an inbox-scoped scan would only ever find copies already sitting next to each other —
+the case nobody needs help with); **expensive** (hashing, with the cache, the size cap and the
+cloud-only guard, so bolting it onto every Organize scan makes the cheap frequent operation pay for
+the rare one); a **different unit** (an N-way keep/delete across a set that can hand off to
+Compare's review flow, not one card and one decision); and **higher stakes** (Organize moves files,
+Duplicates deletes them — burying the destructive flow inside the constructive one's filter row puts
+the thing needing most deliberation where it is hardest to see). Only the badge half transfers.
+
+**Surfaces to mock:** the extended row context menu.
+
+**Effort:** Low. **Risk:** Low.
+
+---
+
+## 18. A Home workspace — the one-screen answer
+
+**Why:** Every workspace is somewhere you go with a task already in mind. There is nowhere to land
+*without* one, and after item 1c there will be state worth checking that no existing surface owns:
+a held job, a stale scan, a rule that has been quietly filing for a month.
+
+**Depends on 1c.** Build it earlier and it summarises two numbers, which is a worse first
+impression than the cold start it replaces.
+
+**What:** Four tiles over two lists.
+
+| Tile | Reads | Goes down when |
+|---|---|---|
+| Not backed up | folders outside every source root with no job covering them | a job **completes** — never when one is created |
+| Jobs | last run, next run, held count | a held job runs again |
+| Reclaimable | Duplicates + Storage | duplicates are deleted |
+| Not on this Mac | dataless files across all sources | files are downloaded |
+
+Then **Needs you** (a held job, risky names, an unbacked folder — each with one action) and **Runs
+without you** (jobs and rules with their last run).
+
+**Surfaces to mock:** the tile row; both lists; a recent-activity column linking to the Activity
+Log; and the stale state below.
+
+**The trap that makes or breaks it:** a dashboard implies monitoring, and there is none — jobs only
+run while the app runs, so quitting on Friday freezes every tile. A green Home backed by a nine-day
+scan is the most convincing lie the app could tell. **Every tile carries its own age**, and stale is
+a visible state: past a threshold the tile greys and reads *as of 9 days ago* instead of a number.
+
+**One structural note:** Home has no source browser — it reads across every source at once. That
+breaks the invariant that currently holds for all five workspaces ("the left side is always a file
+browser"), so the layout family belongs on `Workspace` itself (`.twoSources` / `.sourceAndLens` /
+`.global`) rather than being decided per view. It also costs a seventh bar segment — see the
+width note in 1b.
+
+**Effort:** Medium. **Risk:** Medium — every claim it makes.
+
+---
+
 ## Summary
 
 | # | Item | Effort | Impact |
@@ -538,8 +672,49 @@ on both sides so accented names match. Per-item ignores are a separate durable l
 | 12 | In-app diff viewer | Medium | Medium |
 | 13 | Menu bar status item | Low–Medium | Medium |
 | 14 | Path-anchored / include-only rules | Low–Medium | Medium |
+| 15 | ⌘K command palette | Low–Medium | Medium–High |
+| 16 | Rules view inside Organize | Low–Medium | Medium |
+| 17 | "Find duplicates of this" on the row | Low | Medium |
+| 18 | Home workspace | Medium | Medium (after 1c) |
 
 **Where the value is.** Item 1 is the largest single addition on this list, and its first stage
 (**folder sources**) is cheap, self-contained and unblocks the rest — start there. Items **2** and
 **6** remain the best small wins; **5** is worth pulling forward because it serves both the stale
 comparison and item 1c's best trigger. Biggest single payoff and biggest risk: **7**.
+
+**The cheapest three, all independent of item 1:** **17** (one context-menu item on a pattern that
+already ships), **16** (moves an existing list into a slot that already exists), and **15**, which
+is the one that pays back the flat bar's only regression — folding Rename off the bar left a
+destination with nothing to aim at.
+
+**Watch the bar.** Items 1b and 18 each add a segment. Five labelled segments already overflow the
+600pt floor, and `WorkspaceBarMetrics` sheds all labels at once when they do; at seven the bar is
+icon-only at most real window sizes. If both ship, re-measure before assuming the labels survive.
+
+---
+
+## Why `DEFERRED_ENHANCEMENTS.md` is still its own file
+
+Asked and settled on **2026-08-02: keep it separate.** The two files look similar — both are lists
+of things not done — but they answer different questions and are read at different moments.
+
+- **This file is intended work.** It is a plan you plan against and work down. Every entry is
+  something we mean to build; an entry sitting here for a year is a signal.
+- **That file is accepted limits.** A cap, a skip, a guard the code deliberately keeps, each with
+  the reasoning that made it a decision. An entry sitting there for a year is the system working.
+
+The tell is that several deferred entries are explicitly *low value and may never be worth doing* —
+the atomic-replace exotic corners need three simultaneous I/O failures; the concurrent log-trim race
+costs one line in a diagnostic file. Those are correct to record and wrong to schedule. Folding them
+in would break both files at once: this one would stop being a plan you can work down, and eleven
+carefully-argued trades would read as neglected backlog.
+
+You reach for that file when the *code* surprises you — "why does this skip files over 100 MB?" —
+and this one when you are deciding what to build next. Different question, different file.
+
+**The real problem was duplication, and it is fixed.** In-place folder Merge carried a full
+specification in both files. It lives here now (item 10), because it is planned feature work rather
+than an accepted limit, and a spec kept in two places drifts in one of them.
+`DEFERRED_ENHANCEMENTS.md` #1 keeps only the record of why it sat there first, and points here. The
+remaining cross-links are one-directional and correct: item 7 → Deferred #6 (hashing's three blind
+spots), item 3 → Deferred #9 (the session-scoped hash cache).
