@@ -278,6 +278,81 @@ struct HeaderLadderTests {
         }
     }
 
+    /// The states every other case in this suite leaves at their defaults — and each is a whole
+    /// control, or a whole label vocabulary, that nothing else here measures.
+    ///
+    /// Written after noticing that every fixture above passes `selection: []`, so `isSelectionScoped`
+    /// was false in all of them and `widths.selectionChip` was priced by code no test had ever
+    /// executed. The same held for the Move labels (`isMove` is only ever true while ⇧/⌘ is held),
+    /// for the pre-scan pill (which withholds its chevron), for a comparison with nothing in it, for
+    /// an ungrouped table (no fold-all toggle), and for a host that binds no collapse state.
+    ///
+    /// Swept as a matrix rather than as one case each, because the interesting failures are
+    /// interactions — a selection chip present at the same time as a folded overflow, say.
+    @Test func everyHeaderStateIsPricedExactly() {
+        let names = PaneProviderNames(leftName: "OneDrive — Personal", rightName: "iCloud Drive")
+        var failures: [String] = []
+        var checked = 0
+
+        // (label, rows, scope the selection?, ⇧ held?, group into sections?, bind collapse?, scanned?)
+        let states: [(String, [FileDifference], Bool, Bool, Bool, Bool, Bool)] = [
+            ("selection-scoped",     differences(),                                true,  false, true,  true,  true),
+            ("move modifier",        differences(),                                false, true,  true,  true,  true),
+            ("scoped + move",        differences(),                                true,  true,  true,  true,  true),
+            ("nothing to sync",      [],                                           false, false, false, true,  true),
+            ("one-way only",         differences(toRight: 9, toLeft: 0, verifiable: 0), false, false, true,  true,  true),
+            ("reverse-only",         differences(toRight: 0, toLeft: 9, verifiable: 0), false, false, true,  true,  true),
+            ("reverse is majority",  differences(toRight: 2, toLeft: 40, verifiable: 0), false, false, true,  true,  true),
+            ("nothing verifiable",   differences(toRight: 6, toLeft: 3, verifiable: 0), false, false, true,  true,  true),
+            ("ungrouped (no folds)", differences(),                                false, false, false, true,  true),
+            ("no collapse binding",  differences(),                                false, false, true,  false, true),
+            ("pre-scan",             differences(),                                false, false, true,  true,  false),
+        ]
+
+        for (label, rows, scoped, isMove, grouped, binds, scanned) in states {
+            let manager = FileSyncManager()
+            manager.differences = rows
+            manager.hasScanned = scanned
+            let view = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore(),
+                                       paneNames: names,
+                                       isCollapsed: binds ? .constant(false) : nil)
+            // A real selection, resolved against the visible rows the way the header resolves it —
+            // `DifferenceActionTargets` falls back to the whole filtered set if the ids miss, which
+            // would silently un-scope the fixture.
+            let selection = scoped ? Set(rows.prefix(3).map(\.id)) : Set<FileDifference.ID>()
+            let targets = DifferenceActionTargets(filtered: rows, selection: selection)
+            #expect(targets.isSelectionScoped == scoped,
+                    "\(label): fixture failed to scope the selection — the case would be vacuous")
+            let sections = grouped ? DifferenceGrouping.sections(rows) : []
+
+            for (dressingName, dressing) in Self.dressings() {
+                var f = facts(rows: rows, names: names, dressing: dressing, targets: targets,
+                              sections: sections, hasScanned: scanned)
+                f.isMove = isMove
+                f.showsCollapseToggle = binds
+                let ladder = HeaderLadder(facts: f, scale: 1)
+                for rung in DifferencesView.renderedCompactionLadder {
+                    let drawn = host(view.standardHeaderRow(rung, facts: f, dressing: dressing,
+                                                            targets: targets, sorted: rows,
+                                                            sections: sections)).fittingSize
+                    checked += 1
+                    if ladder.width(of: rung) != drawn.width {
+                        failures.append("\(label)/\(dressingName)/\(rung): "
+                                        + "computed \(ladder.width(of: rung))pt, drew \(drawn.width)pt")
+                    }
+                    if drawn.height != ActionBarMetrics.height {
+                        failures.append("\(label)/\(dressingName)/\(rung): row is \(drawn.height)pt "
+                                        + "tall, but the header pins it to \(ActionBarMetrics.height)pt")
+                    }
+                }
+            }
+        }
+        let report = failures.joined(separator: "\n")
+        #expect(checked == states.count * Self.dressings().count
+                * DifferencesView.renderedCompactionLadder.count)
+        #expect(failures.isEmpty, "\(failures.count) of \(checked) mispriced:\n\(report)")
+    }
+
     /// The height the `GeometryReader` is pinned to. It is not a guess: the filter menu is an
     /// action-bar capsule and is on the row at every rung, so it is the row's height authority
     /// whatever else has been shed — including at the largest font scale, where the capsule keeps its
@@ -370,6 +445,10 @@ struct HeaderLadderTests {
             for delta in stride(from: CGFloat(-2), through: 2, by: 0.5) { widths.insert(boundary + delta) }
         }
         for width in stride(from: CGFloat(340), through: 1_500, by: 80) { widths.insert(width) }
+        // Below the narrowest rung, where NOTHING fits. This is the case the header's `minWidth`
+        // restates — the old `ViewThatFits` advertised its last child's width as its own minimum, and
+        // the replacement has to reserve the same or the card can be squeezed narrower than the row.
+        for width in [CGFloat(120), 200, 260, 300] { widths.insert(width) }
         return widths.sorted()
     }
 
@@ -398,6 +477,182 @@ struct HeaderLadderTests {
             row(.glyphFilter)
             row(.shortPrimary)
         }
+    }
+
+    // MARK: - The mounted view
+
+    /// Mounts the real `DifferencesView` and checks that the header on screen is a rung of this
+    /// ladder — and that it sheds as the window narrows.
+    ///
+    /// Everything above measures `standardHeaderRow` in isolation, which leaves the join untested:
+    /// the rung is chosen from a `GeometryReader`'s width inside the header card, and if that width
+    /// is not the width the old `ViewThatFits` was offered then every rung boundary moves. Nothing
+    /// else in this suite would notice, because both sides of those comparisons bypass the card.
+    ///
+    /// The assertion deliberately does not hard-code the card's inner width — it asks instead
+    /// whether ONE inset can explain every observation through the ladder.
+    ///
+    /// Two limits worth knowing, both established by mutation rather than assumed:
+    ///
+    /// - "It got narrower" is NOT enough on its own. With `rung(fitting:)` broken to always answer
+    ///   `.full`, the row still sheds, because the hedge's `ViewThatFits` drops it to the terminal
+    ///   rung — the endpoint and monotonicity checks both pass over a ladder doing nothing. What
+    ///   only a working ladder produces is the MIDDLE rungs, so that is asserted explicitly.
+    /// - A UNIFORM error in every rung's width is invisible here by construction: the inset search
+    ///   simply absorbs it. `everyRungMeasuresWhatItDraws` is what catches that class — it compares
+    ///   absolute widths against the drawn row. Neither case is sufficient alone.
+    @Test func theMountedHeaderDrawsARungAndShedsAsThePaneNarrows() async {
+        let names = PaneProviderNames(leftName: "OneDrive — Personal", rightName: "iCloud Drive")
+        let rows = differences()
+        let manager = FileSyncManager()
+        manager.differences = rows
+        manager.hasScanned = true
+        let targets = DifferenceActionTargets(filtered: rows, selection: [])
+        let sections = DifferenceGrouping.sections(rows)
+        // `lastScanDate` is nil on this fixture, so `withScanFreshness` takes its else branch and the
+        // pill wears the pre-scan dressing — the same one the isolated rows below are built with.
+        let dressing = Self.dressings()[0].value
+        let probe = view(rows: rows, names: names)
+
+        /// The ring SIZES of one rung drawn in isolation. Sizes, not positions: the mounted row sits
+        /// inside the card's padding, so its absolute coordinates are shifted, but which controls are
+        /// on it — and how wide each is — is exactly what tells the rungs apart.
+        func sizes(ofRung rung: HeaderCompaction, width: CGFloat) -> [String] {
+            ringSizes(host(probe.standardHeaderRow(rung, facts: facts(rows: rows, names: names,
+                                                                      dressing: dressing,
+                                                                      targets: targets,
+                                                                      sections: sections),
+                                                   dressing: dressing, targets: targets,
+                                                   sorted: rows, sections: sections),
+                           width: width))
+        }
+
+        var matched: [(CGFloat, Int)] = []
+        for paneWidth in [CGFloat(1_500), 1_100, 820, 620, 480] {
+            let mount = mountDifferences(rows: rows, names: names, width: paneWidth)
+            defer { mount.window.contentView = nil }
+            // Grouping is on, so the table draws a header row per section as well as the rows.
+            let expectedRows = rows.count + sections.count
+            let settled = await settle(mount.host, atRows: expectedRows)
+            let settleNote = "table settled at \(settled) row(s), not \(expectedRows) — the header "
+                + "would be measured half-built and every assertion below would be vacuous"
+            #expect(settled == expectedRows, "\(settleNote)")
+            let drawn = headerRingSizes(mount.host)
+            #expect(!drawn.isEmpty, "no header controls found at \(paneWidth)pt")
+
+            // Which rung is this? Compare against each rung drawn at the same pane width; only the
+            // control widths matter, and those do not depend on the leading offset.
+            let rungIndex = DifferencesView.renderedCompactionLadder.firstIndex {
+                sizes(ofRung: $0, width: paneWidth) == drawn
+            }
+            #expect(rungIndex != nil,
+                    "the mounted header at \(paneWidth)pt matches no rung of the ladder — drew \(drawn)")
+            if let rungIndex { matched.append((paneWidth, rungIndex)) }
+        }
+
+        let trace = matched.map { "\(Int($0.0))pt→rung\($0.1)" }.joined(separator: " ")
+        #expect(matched.count == 5, "only \(matched.count) pane width(s) matched a rung — \(trace)")
+        #expect(matched.first?.1 == 0, "a 1,500pt pane should draw the unshed row — \(trace)")
+        for (a, b) in zip(matched, matched.dropFirst()) {
+            #expect(b.1 >= a.1, "narrowing \(a.0)pt → \(b.0)pt moved the ladder back UP — \(trace)")
+        }
+
+        // The load-bearing one, and the reason the two weaker checks above are not enough. With the
+        // arithmetic broken to always answer `.full`, the row STILL sheds — the hedge's
+        // `ViewThatFits` drops it to the terminal rung — so "it got narrower" passes over a ladder
+        // that is doing nothing. What only a working ladder produces is the MIDDLE rungs.
+        let ladder = HeaderLadder(facts: facts(rows: rows, names: names, dressing: dressing,
+                                               targets: targets, sections: sections), scale: 1)
+        let terminalIndex = DifferencesView.renderedCompactionLadder.count - 1
+        let middleNote = "every pane landed on the widest or the narrowest rung, so the intermediate "
+            + "rungs were never chosen by the arithmetic — \(trace)"
+        #expect(matched.contains { $0.1 > 0 && $0.1 < terminalIndex }, "\(middleNote)")
+
+        // And the plumbing itself: there must be ONE card inset that explains every observation
+        // through this ladder. If the `GeometryReader` were offered something other than the width
+        // the old `ViewThatFits` got, no single inset would fit all five.
+        let insets = stride(from: CGFloat(0), through: 200, by: 0.5).filter { inset in
+            matched.allSatisfy { paneWidth, rungIndex in
+                ladder.rung(fitting: paneWidth - inset)
+                    == DifferencesView.renderedCompactionLadder[rungIndex]
+            }
+        }
+        #expect(!insets.isEmpty,
+                "no single card inset explains the rungs the mounted header drew — \(trace)")
+    }
+
+    /// Mounts the real view in a real (never ordered-in) window, the way the other mounting suites do.
+    private func mountDifferences(rows: [FileDifference], names: PaneProviderNames,
+                                  width: CGFloat) -> (host: NSHostingView<AnyView>, window: NSWindow) {
+        let store = ScratchDefaults("HeaderLadderTests")
+        store.set(true, forKey: "differencesGroupByFolder")
+        let manager = FileSyncManager()
+        manager.differences = rows
+        manager.hasScanned = true
+        let root = DifferencesView(syncManager: manager, reviewStore: ReviewSessionStore(),
+                                   paneNames: names, isCollapsed: .constant(false))
+            .defaultAppStorage(store)
+        let host = NSHostingView(rootView: AnyView(root))
+        host.frame = CGRect(x: 0, y: 0, width: width, height: 700)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        return (host, window)
+    }
+
+    /// Waits for the differences table to settle at exactly `expected` rows. The header's shape
+    /// depends on `sections`, which is empty until the rows land, so measuring early would read a
+    /// header the user never sees.
+    private func settle(_ view: NSView, atRows expected: Int, timeout: TimeInterval = 15) async -> Int {
+        let deadline = Date().addingTimeInterval(timeout)
+        var last = 0
+        while Date() < deadline {
+            view.layoutSubtreeIfNeeded()
+            last = tableRowCount(view) ?? 0
+            if last == expected { return last }
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        return last
+    }
+
+    private func tableRowCount(_ view: NSView) -> Int? {
+        if let table = view as? NSTableView { return table.numberOfRows }
+        for child in view.subviews {
+            if let rows = tableRowCount(child) { return rows }
+        }
+        return nil
+    }
+
+    /// Every `_FocusRingView` size in reading order, as `WxH` strings.
+    private func ringSizes(_ host: NSView) -> [String] {
+        var found: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("_FocusRingView") {
+                found.append(v.convert(v.bounds, to: host))
+            }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(host)
+        return found.sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
+            .map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
+    }
+
+    /// The header strip's rings only — the top band of the mounted view, above the table.
+    private func headerRingSizes(_ host: NSView) -> [String] {
+        var found: [CGRect] = []
+        func walk(_ v: NSView) {
+            if String(describing: type(of: v)).contains("_FocusRingView") {
+                found.append(v.convert(v.bounds, to: host))
+            }
+            for sub in v.subviews { walk(sub) }
+        }
+        walk(host)
+        guard let top = found.map(\.minY).min() else { return [] }
+        return found.filter { $0.minY < top + 10 }
+            .sorted { ($0.minY, $0.minX) < ($1.minY, $1.minX) }
+            .map { "\(Int($0.width.rounded()))x\(Int($0.height.rounded()))" }
     }
 
     // MARK: - The rule the ladder follows

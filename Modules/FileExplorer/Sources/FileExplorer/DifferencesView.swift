@@ -683,8 +683,14 @@ public struct DifferencesView: View {
             overflowMenu(compaction, targets: targets, sorted: sorted)   // ACTIONS
             if compaction < .foldVerify { verifyButton(targets) }
             if compaction < .foldReview { reviewButton(targets, sorted: sorted) }
-            reverseTransferButton(compaction, targets: targets)
-            primaryTransferButton(compaction, targets: targets)
+            // `facts.isMove`, not `modifierTracker` read afresh: the ladder priced these two labels
+            // from that snapshot, and "Move" is materially wider than "Copy" — at the narrow rungs it
+            // is 37pt wider, because Copy sheds its verb along with its destination and Move never
+            // does. Reading the tracker again here would agree in practice (same `body` pass) but
+            // nothing would enforce it, and it left the whole Move vocabulary untestable: a test can
+            // set a fact, and cannot reach into a private `@StateObject`.
+            reverseTransferButton(compaction, isMove: facts.isMove, targets: targets)
+            primaryTransferButton(compaction, isMove: facts.isMove, targets: targets)
             ActionBarDivider()
             ExpandingSearchToggle(                              // VIEW
                 text: $searchText,
@@ -1002,6 +1008,7 @@ public struct DifferencesView: View {
     /// (the right pane) to the left of "to iCloud" (the left pane).
     @ViewBuilder
     private func reverseTransferButton(_ compaction: HeaderCompaction,
+                                       isMove: Bool,
                                        targets: DifferenceActionTargets) -> some View {
         if targets.copyToLeftCount > 0 {
             transferButton(
@@ -1017,6 +1024,7 @@ public struct DifferencesView: View {
                 // A lone action takes the fill whichever way it points: the fixed direction decides
                 // which of TWO buttons is primary, not whether a bar gets a primary at all.
                 weight: targets.copyToRightCount > 0 ? .quiet : .primary,
+                isMove: isMove,
                 targets: targets)
         }
     }
@@ -1026,6 +1034,7 @@ public struct DifferencesView: View {
     /// button on the bar sends them should not change between two scans you didn't act on.
     @ViewBuilder
     private func primaryTransferButton(_ compaction: HeaderCompaction,
+                                       isMove: Bool,
                                        targets: DifferenceActionTargets) -> some View {
         if targets.copyToRightCount > 0 {
             transferButton(
@@ -1034,6 +1043,7 @@ public struct DifferencesView: View {
                 destination: paneNames.right,
                 namesDestination: BulkActionLabel.primaryNamesDestination(compaction: compaction),
                 weight: .primary,
+                isMove: isMove,
                 targets: targets)
         }
     }
@@ -1043,8 +1053,8 @@ public struct DifferencesView: View {
                                 destination: String,
                                 namesDestination: Bool,
                                 weight: ActionBarWeight,
+                                isMove: Bool,
                                 targets: DifferenceActionTargets) -> some View {
-        let isMove = modifierTracker.isMoveModifierPressed
         let toRight = direction == .copyToRight
         return Button {
             copy(direction: direction, targets: targets)
