@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Events",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("26.0")],
     products: [
         .library(name: "Events", targets: ["Events"]),
     ],

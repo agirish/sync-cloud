@@ -1013,6 +1013,15 @@ public struct TidyView: View {
     @ViewBuilder
     private func fixAllButton(_ risky: [RiskyName]) -> some View {
         if !risky.isEmpty {
+            // Built as a value, not concatenated inside `.help`. A ternary carrying two string
+            // interpolations, joined by `+` to two more literals, is the shape that blows the
+            // type-checker's budget — it fit under the old deployment target and stopped fitting
+            // under the new one, because availability changes the overload sets the solver walks.
+            let scope = isFiltered
+                ? "the \(risky.count) name\(risky.count == 1 ? "" : "s") your search left showing"
+                : "every risky name above"
+            let help = "Renames \(scope) to its cloud-safe form. Never overwrites an existing "
+                + "file, and the whole pass undoes with a single ⌘Z."
             Button { onNormalizeNames(risky) } label: {
                 Label("Fix all \(risky.count)", systemImage: "checkmark.circle.fill")
             }
@@ -1020,12 +1029,7 @@ public struct TidyView: View {
             .chromeHover()
             .controlSize(.small)
             .disabled(syncManager.isNormalizingNames)
-            .help("Renames "
-                  + (isFiltered
-                     ? "the \(risky.count) name\(risky.count == 1 ? "" : "s") your search left showing"
-                     : "every risky name above")
-                  + " to its cloud-safe form. Never overwrites an existing file, and the whole pass "
-                  + "undoes with a single ⌘Z.")
+            .help(help)
         }
     }
 
