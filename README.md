@@ -163,7 +163,7 @@ SyncCloud/
 │   └── Events/                 #   logging, sync-history store
 ├── SyncCloudCLI/               # SwiftPM CLI (synccloud)
 ├── SyncCloudTests/             # app-target tests (hosted in SyncCloud.app)
-├── docs/                       # this feature site (GitHub Pages) + ci.md
+├── docs/                       # this feature site (GitHub Pages) + engineering notes
 └── project.yml                 # XcodeGen project definition
 ```
 
@@ -172,6 +172,14 @@ SyncCloud/
 The seven SPM package test suites and the app-target build run on every push to `main` or
 `v2.x` and on every `v*` release tag, via a self-hosted GitHub Actions runner — see
 [`docs/ci.md`](docs/ci.md).
+
+## Performance notes
+
+Findings that outlive the change that produced them are written down rather than re-derived.
+[`docs/string-bridging.md`](docs/string-bridging.md) measures what `FileNode`'s lazily bridged
+`id` and `name` cost across the app, and why only one of the two is worth forcing to native
+storage. The benchmarks behind it are ordinary test targets gated behind an environment variable,
+so neither `swift test` nor CI ever runs them; each names its variable in its own doc comment.
 
 ## Roadmap
 
