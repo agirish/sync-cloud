@@ -455,9 +455,10 @@ import Testing
     /// indeed conservative, but only by 1–3pt: measured, the line is 15/17/18/20pt at Small /
     /// Default / Large / Larger where the allowance claimed 16.2/18/20.7/23.4.)
     ///
-    /// **The measured residual, so nobody mistakes this for a tight budget.** Seven rows come to
-    /// 297pt at the default text size against a 647pt opening — 332pt of slack, room for ten more
-    /// tabs. The rail is nowhere near its ceiling on the display the tabs are budgeted against,
+    /// **The measured residual, so nobody mistakes this for a tight budget.** Seven rows and the
+    /// version line come to 314pt at the default text size against a 647pt opening — 333pt of
+    /// slack, room for ten more tabs. The rail is nowhere near its ceiling on the display the
+    /// tabs are budgeted against,
     /// and the honest answer to "does the seventh row fit here" is *comfortably*. This is a floor
     /// check on a quantity nothing else measures, not a budget like `baseSize`'s. Where the
     /// seventh row DOES bind is the sheet's own floor — `theRailIsWhatTheFloorSizedSheetRunsOutOf`.
@@ -587,24 +588,40 @@ import Testing
                 not scroll, so the line wraps onto a second row.
                 """)
 
-        // The width check above is the diagnosis; this is the symptom. A version short enough
-        // that it cannot possibly wrap is the baseline: if the marker lays the rail out to the
-        // same height, the marker did not wrap either.
-        #expect(railHeight(at: size.scale) == railHeight(at: size.scale, version: "1"),
+        // The width check above is the diagnosis; this is the symptom — measured against what a
+        // LINE costs rather than against an exact height. A one-character version cannot wrap, so
+        // it gives the unwrapped baseline, and subtracting a rail with no version line at all
+        // gives what one `.caption2` line is worth at this text size. A wrap adds a whole one of
+        // those; anything below half of it is layout jitter.
+        //
+        // Jitter is why this is not an equality. It was one, and CI caught it: the runner laid
+        // the identical unwrapped line out at 326pt where this machine measured 328pt, and the
+        // test failed for a 2pt difference in the direction that means "did not wrap" (the marker
+        // was SHORTER than the one-character baseline). Half a line is far above that noise and
+        // far below a real wrap, so the threshold separates the two on any machine.
+        let unwrapped = railHeight(at: size.scale, version: "1")
+        let oneLine = unwrapped - railHeight(at: size.scale, version: nil)
+        let extra = railHeight(at: size.scale) - unwrapped
+
+        #expect(extra < oneLine / 2,
                 """
-                The rail is taller at \(size.displayName) with "\(Self.versionMarker)" than with \
-                a one-character version — the version line has wrapped onto a second row.
+                At \(size.displayName) the rail is \(extra)pt taller with "\(Self.versionMarker)" \
+                than with a one-character version, and a line of this type is \(oneLine)pt — the \
+                version line has wrapped onto a second row.
                 """)
     }
 
     /// Keeps `theVersionLineFitsTheRailOnOneLine` from going vacuous.
     ///
     /// Both of its assertions are "nothing bad happened" shapes, and the height half especially
-    /// so — if a wrapped line did not actually make `fittingSize.height` grow, comparing two
-    /// heights would pass for every string ever written and nobody would know. Measured: a marker
-    /// wide enough to need a second row adds exactly one `.caption2` line (13pt at the default
-    /// text size), and one needing three rows adds 26pt. So the detector moves in the direction
-    /// the other test relies on, and by the amount a wrapped line should cost.
+    /// so — if a wrapped line did not actually make `fittingSize.height` grow, comparing heights
+    /// would pass for every string ever written and nobody would know. Measured: a marker wide
+    /// enough to need a second row adds exactly one `.caption2` line (13pt at the default text
+    /// size), and one needing three rows adds 26pt.
+    ///
+    /// This checks the same `oneLine / 2` threshold the other test uses, from the other side, so
+    /// the two together say the threshold DISCRIMINATES rather than merely that one side of it
+    /// holds: an unwrapped marker sits below it and a wrapped one sits above it.
     @MainActor
     @Test func aVersionTooWideForTheRailReallyDoesWrapIt() async throws {
         let overlong = "9.9-dev-and-then-some"
@@ -612,10 +629,14 @@ import Testing
                 > SettingsRail.versionTextWidth,
                 "the probe no longer overflows the column — it has stopped probing anything")
 
-        #expect(railHeight(at: 1, version: overlong) > railHeight(at: 1, version: "1"),
+        let unwrapped = railHeight(at: 1, version: "1")
+        let oneLine = unwrapped - railHeight(at: 1, version: nil)
+        let extra = railHeight(at: 1, version: overlong) - unwrapped
+
+        #expect(extra >= oneLine / 2,
                 """
-                A version far too wide for the rail lays it out at the same height as a \
-                one-character one — `fittingSize.height` is not seeing the wrap, so the height \
+                A version far too wide for the rail adds only \(extra)pt to it against a \
+                \(oneLine)pt line — `fittingSize.height` is not seeing the wrap, so the height \
                 half of `theVersionLineFitsTheRailOnOneLine` proves nothing.
                 """)
     }
