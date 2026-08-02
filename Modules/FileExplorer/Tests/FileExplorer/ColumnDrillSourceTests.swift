@@ -67,6 +67,11 @@ import Sync
         @ObservedObject var box: Box
         let tree: PaneTree
         let index: PaneChildrenIndex
+        /// What the pane reads a click here as carrying. `[]` is a plain click — the premise of
+        /// every test below, which is why it is pinned rather than left to the room. See
+        /// `paneClickModifiers`: unpinned, the guard asks `NSEvent.modifierFlags`, and a ⇧ held by
+        /// whoever is at the Mac silently cancels the navigation these assert on.
+        var modifiers: NSEvent.ModifierFlags = []
 
         var body: some View {
             PaneColumnsView(
@@ -79,13 +84,15 @@ import Sync
                 isSingleSource: false, density: .compact, isActivePane: true,
                 placement: nil, onBarEdgeFlip: nil, onQuickLook: { _ in }, onBackgroundDeselect: { _ in }
             )
+            .environment(\.paneClickModifiers, modifiers)
         }
     }
 
-    private func mount(_ box: Box) -> NSWindow {
+    private func mount(_ box: Box, modifiers: NSEvent.ModifierFlags = []) -> NSWindow {
         let tree = Self.tree()
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
-        let host = NSHostingView(rootView: Harness(box: box, tree: tree, index: index))
+        let host = NSHostingView(rootView: Harness(box: box, tree: tree, index: index,
+                                                   modifiers: modifiers))
         host.frame = NSRect(x: 0, y: 0, width: 760, height: 560)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -107,14 +114,24 @@ import Sync
     /// clock runs regardless, so a 0.8s window expired before `onNavigate` ran and both drill
     /// tests failed at ~9.5s with `browsePath` still at its initial value. Polling the observable
     /// costs a passing run nothing and gives a starved one the whole deadline.
-    private func settle(_ window: NSWindow, deadline: TimeInterval = 20,
-                        until condition: () -> Bool) async {
-        let end = Date().addingTimeInterval(deadline)
+    ///
+    /// Falling through on timeout is what made this suite's flake so hard to read. The deadline
+    /// would expire, the body would carry on, and the assertions *after* the wait would report the
+    /// end state — "browse = []", "no second column materialised" — which is precisely the
+    /// dropped-click defect the suite exists to catch. The premise never having held at all looks
+    /// nothing like that from the outside, so `#require` it: a wait that gives up now says so, and
+    /// says which wait it was.
+    private func settle(_ window: NSWindow, _ premise: String, deadline: TimeInterval = 20,
+                        until condition: () -> Bool) async throws {
+        let start = Date()
+        let end = start.addingTimeInterval(deadline)
         while !condition() && Date() < end {
             window.layoutIfNeeded()
             try? await Task.sleep(nanoseconds: 8_000_000)
         }
         window.layoutIfNeeded()
+        try #require(condition(),
+                     "\(premise) — never held; gave up after \(String(format: "%.1f", Date().timeIntervalSince(start)))s")
     }
 
     private func tables(_ view: NSView) -> [NSTableView] {
@@ -131,13 +148,13 @@ import Sync
     @Test func testAListCommittedFolderSelectionOpensItsColumn() async throws {
         let box = Box()
         let window = mount(box)
-        await settle(window) { !tables(window.contentView!).isEmpty }
+        try await settle(window, "the root column mounted") { !tables(window.contentView!).isEmpty }
         let table = try #require(tables(window.contentView!).first)
         #expect(tables(window.contentView!).count == 1, "should rest as one column")
 
         // Row 2 is folder `a2`. Driving the table is the List committing WITHOUT a tap.
         table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
-        await settle(window) {
+        try await settle(window, "the selection opened a2's column") {
             box.browsePath.components == ["a2"] && tables(window.contentView!).count == 2
         }
 
@@ -152,13 +169,12 @@ import Sync
         let box = Box()
         let window = mount(box)
         box.browsePath = PaneBrowsePath(components: ["a2"])
-        await settle(window) { tables(window.contentView!).count == 2 }
-        #expect(tables(window.contentView!).count == 2)
+        try await settle(window, "a2's column opened") { tables(window.contentView!).count == 2 }
 
         // Row 6 in the ROOT column is `z0.pdf` (six folders precede it).
         let root = try #require(tables(window.contentView!).first)
         root.selectRowIndexes(IndexSet(integer: 6), byExtendingSelection: false)
-        await settle(window) { box.browsePath.components.isEmpty }
+        try await settle(window, "selecting a file closed the deeper column") { box.browsePath.components.isEmpty }
 
         #expect(box.selection == ["\(Self.root)/z0.pdf"])
         #expect(box.browsePath.components.isEmpty,
@@ -172,7 +188,7 @@ import Sync
         let box = Box()
         let window = mount(box)
         box.browsePath = PaneBrowsePath(components: ["a2"])
-        await settle(window) { tables(window.contentView!).count == 2 }
+        try await settle(window, "a2's column opened") { tables(window.contentView!).count == 2 }
 
         let root = try #require(tables(window.contentView!).first)
         let navigationsBefore = box.navigations
@@ -181,7 +197,7 @@ import Sync
         // deferred navigation even ran. Wait for the delivery itself, then drain a fixed number
         // of queue turns — turns, not wall time, so a starved run still gets real drains — to
         // let any churn the navigation caused reach the view tree.
-        await settle(window) { box.navigations > navigationsBefore }
+        try await settle(window, "the reselect delivered its navigation") { box.navigations > navigationsBefore }
         for _ in 0..<30 {
             window.layoutIfNeeded()
             try? await Task.sleep(nanoseconds: 8_000_000)
@@ -190,5 +206,50 @@ import Sync
         #expect(box.navigations > navigationsBefore, "the reselect never delivered its navigation")
         #expect(box.browsePath.components == ["a2"])
         #expect(tables(window.contentView!).count == 2, "the open column was torn down and not replaced")
+    }
+
+    /// The other half of the rule the three tests above depend on: a ⇧-click selects and does
+    /// **not** navigate, because ⇧ is the list's own range-select and a navigation would collapse
+    /// the multi-selection back to the row just clicked.
+    ///
+    /// This is also the mechanism behind this suite's flake, pinned deliberately. The guard used to
+    /// read `NSEvent.modifierFlags` — the machine's live keyboard — so this state was reachable
+    /// with no modifier in the test at all, just someone holding ⇧ at the Mac while the full suite
+    /// ran. What it produced is `testAListCommittedFolderSelectionOpensItsColumn`'s exact reported
+    /// failure: `browsePath == []` and one column, after the whole 20s deadline.
+    ///
+    /// The absence assertion is not vacuous, and the ordering is the reason. `selection` is written
+    /// *before* the guard, so waiting for it proves the commit path ran and got as far as the
+    /// guard; only then is "and the navigation did not happen" a claim about the guard rather than
+    /// about the clock.
+    @Test func testAShiftHeldSelectionSelectsWithoutOpeningAColumn() async throws {
+        let box = Box()
+        let window = mount(box, modifiers: .shift)
+        try await settle(window, "the root column mounted") { !tables(window.contentView!).isEmpty }
+        let table = try #require(tables(window.contentView!).first)
+
+        table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
+        try await settle(window, "the selection reached the pane") {
+            box.selection == ["\(Self.root)/a2"]
+        }
+        // Past the guard by now; drain turns so a navigation that WAS queued would land.
+        for _ in 0..<30 {
+            window.layoutIfNeeded()
+            try? await Task.sleep(nanoseconds: 8_000_000)
+        }
+
+        #expect(box.navigations == 0, "a ⇧-click navigated")
+        #expect(box.selection == ["\(Self.root)/a2"], "a ⇧-click did not select")
+        #expect(box.browsePath.components.isEmpty,
+                "a ⇧-click opened a column (browse = \(box.browsePath.components))")
+        #expect(tables(window.contentView!).count == 1, "a ⇧-click opened a second column")
+    }
+
+    /// The pin is a test seam and must stay one: nothing in the app sets it, so every guard in
+    /// `PaneColumnsView` still asks the keyboard exactly as it did before. That is the whole
+    /// behaviour-preservation claim for the production change, so it is asserted rather than
+    /// assumed.
+    @Test func testTheShippedClickModifiersAreStillTheLiveKeyboard() {
+        #expect(EnvironmentValues().paneClickModifiers == nil)
     }
 }

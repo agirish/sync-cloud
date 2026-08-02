@@ -92,6 +92,15 @@ struct PaneColumnsView: View {
     /// `paneColumnRevealAnimation`.
     @Environment(\.paneColumnRevealAnimation) private var revealAnimation
 
+    /// The modifiers a click here is read as carrying, or `nil` — the shipped default — to ask the
+    /// keyboard. See `paneClickModifiers`.
+    @Environment(\.paneClickModifiers) private var pinnedClickModifiers
+
+    /// What every navigation guard in this view tests. `nil` is the shipped value and this is then
+    /// literally `NSEvent.modifierFlags`, which is what all three call sites read before the pin
+    /// existed.
+    private var clickModifiers: NSEvent.ModifierFlags { pinnedClickModifiers ?? NSEvent.modifierFlags }
+
     private var glassHue: LiquidGlassHue { LiquidGlassHue(rawValue: glassHueRaw) ?? .blue }
     private var columnWidth: CGFloat {
         PaneViewMode.clampColumnWidth(dragWidth ?? CGFloat(storedColumnWidth))
@@ -445,7 +454,7 @@ struct PaneColumnsView: View {
                 // Plain clicks only, matching the row path and the list catcher: ⌘ and ⇧ belong to
                 // the lists' own extend and range-select.
                 .onTapGesture {
-                    guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
+                    guard PaneViewMode.clickNavigates(modifiers: clickModifiers) else { return }
                     Logger.shared.debug("[deselect] \(isLeft ? "left" : "right") past last column")
                     onBackgroundDeselect(nil)
                 }
@@ -550,7 +559,7 @@ struct PaneColumnsView: View {
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture().onEnded {
             // ⌘ and ⇧ clicks are the List's business — extend and range-select, no navigation.
-            guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags) else { return }
+            guard PaneViewMode.clickNavigates(modifiers: clickModifiers) else { return }
             if PaneScrollTrace.isEnabled {
                 Logger.shared.debug("[tap] \(isLeft ? "left" : "right") col\(depth) \(node.isDirectory ? "dir" : "file") \(node.name)")
             }
@@ -625,7 +634,7 @@ struct PaneColumnsView: View {
                 // selection navigates for it, and they agree by construction because both call
                 // `navigation(for:depth:)`. A tap that DOES fire drills synchronously and this one
                 // then computes the same path, which `setBrowsePath` discards as unchanged.
-                guard PaneViewMode.clickNavigates(modifiers: NSEvent.modifierFlags),
+                guard PaneViewMode.clickNavigates(modifiers: clickModifiers),
                       newValue.count == 1,
                       let id = newValue.first,
                       let row = rows.first(where: { $0.id == id })
@@ -822,6 +831,46 @@ struct ColumnRowView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+}
+
+// MARK: - Click modifiers
+
+private struct PaneClickModifiersKey: EnvironmentKey {
+    /// `nil` is "ask the keyboard", which is what the guards did unconditionally before this
+    /// existed. Nothing that does not deliberately pin a value changes at all.
+    static let defaultValue: NSEvent.ModifierFlags? = nil
+}
+
+extension EnvironmentValues {
+    /// The modifiers `PaneColumnsView`'s navigation guards read, or `nil` to read the live keyboard.
+    ///
+    /// A click navigates only when it is plain — ⌘, ⇧ and ⌃ belong to the list's own extend,
+    /// range-select and context menu (see `PaneViewMode.clickNavigates`). The guards answered that
+    /// with `NSEvent.modifierFlags`, which is not a property of the click, the view, or even the
+    /// process: it is **the global state of the machine's keyboard, sampled at the instant the
+    /// selection commits.**
+    ///
+    /// For a real click that is right — the setter runs inside `NSTableView`'s mouse-down tracking
+    /// loop, so the flags are the ones the user is holding as they click, and shipped behaviour is
+    /// unchanged. For a test it is unwinnable. `ColumnDrillSourceTests` drives
+    /// `selectRowIndexes` directly, with no event and no modifiers of its own, and then reads
+    /// whatever key the person at the Mac happens to be holding. Hold ⇧ — which typing prose does
+    /// roughly a tenth of the time — and the guard returns false, the deferred navigation is never
+    /// queued, and the test burns its whole 20s deadline to report `browsePath == []`: the exact
+    /// signature of the dropped-click defect it exists to catch.
+    ///
+    /// That is why it failed only in full-suite runs. A `--filter` run is over in seconds and the
+    /// window for a keystroke to land inside it is tiny; a full suite holds the window open for
+    /// minutes, on a Mac someone is working at. Load never came into it — the test spends its
+    /// deadline because the navigation was never queued, not because it was queued late.
+    ///
+    /// Pinning `[]` makes the test's premise — *this is a plain click* — part of the test rather
+    /// than of the room. Pin `.shift` and it fails on that signature deliberately, which is how the
+    /// mechanism was confirmed.
+    var paneClickModifiers: NSEvent.ModifierFlags? {
+        get { self[PaneClickModifiersKey.self] }
+        set { self[PaneClickModifiersKey.self] = newValue }
     }
 }
 
