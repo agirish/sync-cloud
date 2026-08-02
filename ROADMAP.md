@@ -1,6 +1,7 @@
 # SyncCloud — Feature Roadmap
 
-**Pending, net-new user-facing capability only.** Shipped items are *removed* from this file rather
+**Pending work only** — net-new capability first, then interface changes to surfaces that already
+ship. Shipped items are *removed* from this file rather
 than kept with a "shipped" note: git history is the record of what landed, and a backlog that
 carries its own finished work stops being scannable — by the last pass, five of sixteen entries
 existed mainly to say they were done. Status re-checked against the code on **2026-08-02**.
@@ -654,7 +655,215 @@ width note in 1b.
 
 ---
 
+## Interface — visual polish and information design
+
+Everything below changes how something **already shipped** reads. Not capability, but planned work
+with the same claim on time as the list above — and several entries are cheaper than anything in
+it. Re-checked against the code on **2026-08-02**; each names its evidence so a mock-up can be
+drawn from the real thing rather than from memory.
+
+Six proposals from the same pass have already landed and are deliberately absent: scan freshness on
+the differences count pill, folder sections in that table, "Copy" spelled out on the transfer
+buttons, selectable and collapsible section headers, and the Settings rail with its live accent
+preview.
+
+---
+
+### Fold Change and Copy-to into one Direction lane
+
+**Now:** `DifferencesView` renders `TableColumn("Change")` and `TableColumn("Copy to")` separately.
+Change is a full sentence — "Missing on right (Dropbox)" — repeated down the whole column, and
+Copy-to then repeats the provider name. Together roughly 700 pt to encode one bit per row: which
+side is short. Meanwhile Name, the only column carrying real entropy, is the one truncating. The
+row's leading colour stripe already states the same fact a third time.
+
+**Change:** one narrow Direction lane — the existing `DifferenceGlyph` plus both provider names,
+absent side struck through: `iCloud ──▸ D̶r̶o̶p̶b̶o̶x̶`. The sentence survives as the tooltip and the
+VoiceOver label, both of which already exist as `difference.description`.
+
+**Also fold in:** `Size` currently mixes "101 KB" with "1,033 items" in one right-aligned column.
+Folder item counts belong as a muted suffix on the name, leaving Size comparable down the column.
+
+**Impact:** ~500 pt back to Name, and direction becomes shape and position rather than prose. The
+largest single interface win left.
+
+**Effort:** Medium. **Risk:** Medium — `changeSortRank` and `copyToSortRank` are live column sort
+keys; a merged column still needs a sort story.
+
+---
+
+### Drop the "Identical" badge from the majority row
+
+**Now:** every duplicate row wears a green *Identical* badge in the leading slot (`TidyView`, the
+`.identical` case). On a real scan that fires on the overwhelming majority — the *Overlapping* and
+*needs review* cases, the only ones needing a human decision, wear identical weight and are lost in
+the run.
+
+**Change:** drop the badge on the majority case. Give the freed leading space to the file-type icon
+and a copy count ("3 copies"); keep a badge — plus a severity stripe and a faint wash — only for the
+exceptions, and let them say what they want ("needs a choice") rather than naming their category.
+The green pill moves to the reclaim figure at the trailing edge, which is what the row is about.
+
+**Impact:** the exceptions become findable by scanning instead of by filtering, and a row's visual
+weight starts tracking how much attention it deserves.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### Make the Tidy stat pills the filter
+
+**Now:** `TidyView` renders the header tally as `StatPill(...)` — *N groups*, *N redundant*,
+*N need review*, *N skipped* — capsule-shaped, semantically coloured, and completely inert. The
+real filter is a separate `All ⌄` menu at the far right of the same row. The pill reading "263 need
+review" is exactly the control someone reaches for to see those 263.
+
+**Change:** make the pills the filter. Click one, the list narrows, that pill takes a selected
+state, the rest dim. Two want different handling: the reclaimable figure is not a subset, so it
+sheds its capsule and becomes plain trailing text; and *skipped* is the one nobody can act on —
+give it a tooltip saying **why** those were skipped, since "skipped" with no reason is an
+unanswered question sitting in the header.
+
+**Impact:** removes a duplicate control, and makes the obvious click the working one.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### Magnitude bars behind the largest-files list
+
+**Now:** the Storage lens's *largest files* rows set 222.5 MB and 53.6 MB in the same weight at the
+same position, so a four-fold difference reads as nothing until the digits are compared. The
+section is titled *the biggest individual files* — magnitude is its entire point.
+
+**Change:** a faint bar behind each row scaled to the largest file, plus a share-of-folder
+percentage. Same rows, same data, but the shape of the distribution — one huge file and a long flat
+tail — becomes visible without reading a number. While there, drop the two always-visible row
+glyphs to hover-reveal: they already use `hoverAffordance`, so this only finishes what that style
+started.
+
+**Effort:** Small. **Risk:** Low — read-only lens, pure presentation. Cheapest item on this list.
+
+---
+
+### One sequential ramp for the Storage treemap
+
+**Now:** `TreemapView` is a single proportional row on a rotating ten-hue palette assigned **by
+index**, so blue-for-Work and teal-for-Claude mean nothing and the eye keeps looking for a legend
+that cannot exist. The palette's light entries force per-tile label-colour arithmetic to stay
+readable — real code spent defending an arbitrary decision — and the smallest areas clip to a few
+points saying nothing at all.
+
+**Change:** one sequential ramp, deep to pale, ordered by size, so **colour is the ranking**.
+Everything under ~5% folds into *Other* with a hover breakdown, which removes the sliver tiles
+rather than trying to label them.
+
+**Impact:** the ramp's light end lands on the small tiles, which carry no labels anyway — so the
+contrast problem dissolves instead of being solved. Also a step toward a real nested treemap rather
+than a detour: same rule, one hue, luminance by size.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### Name the compared pair in the title bar
+
+**Now:** the title bar is hidden, so the window carries a tab strip on the left, three icon buttons
+on the right, and no title. `window.subtitle` is never set anywhere in `MacApp`. Two windows side by
+side are indistinguishable, Mission Control shows two identical thumbnails, and the Window menu
+lists "SyncCloud" twice.
+
+**Change:** a subtitle naming the pair — `iCloud/Documents ⇄ Dropbox/Documents` — shown beside the
+tab strip **and** set as the real `window.subtitle`, which is what Mission Control and the Window
+menu read. On a single-source workspace it names that source instead.
+
+**Mock-up note:** truncate from the middle as the window narrows, matching the pane breadcrumb.
+
+**Impact:** one line of state that already exists, answering a question the app currently cannot
+answer at all.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### Organize's setup card, with the price on the button
+
+**Now:** before its first run, Organize is a large panel holding a centred icon, two sentences and a
+*Suggest homes* button. The one fact that changes the decision — the model, the file count and the
+estimated cost — is pinned to the top edge, far from the button it describes.
+
+**Change:** top-anchor a setup card showing what will happen: three greyed sample rows in the real
+suggestion format, the model and estimated cost written onto the trigger itself
+(*Suggest homes · ≈ $0.04*), and the spend history beside it. If an action costs money, the price
+belongs on the button.
+
+**Impact:** the sample rows also teach the result format, so the first real run is not also the
+first time that layout is seen.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### Shortcut hints in tooltips
+
+**Now:** there is a real shortcut vocabulary — ⌘Z undo, ⇧ for move, Space for Quick Look, a
+reference in Help — and nothing in the interface teaches it. The transfer buttons already retitle
+live when ⇧ is held (`ModifierTracker.isMoveModifierPressed`), which is the hard half and it ships;
+the rest stays undiscovered.
+
+**Change:** put the shortcut in the tooltip of every control that has one, right-aligned in the
+standard form. Where a control responds to a held modifier, its tooltip says so.
+
+**Impact:** ⇧-for-move silently changes what the largest button on the bar does, and today the only
+way to learn that is to read the Help book.
+
+**Effort:** Small. **Risk:** Low.
+
+---
+
+### One-line pane headers
+
+**Now:** `PaneHeader` (`DashboardViews.swift`) is a `VStack(spacing: 8)` of two rows — provider
+capsule plus a five-button nav cluster above, breadcrumb below — repeated in both panes. Roughly
+120 pt before a single file appears. Scan freshness has already left for the differences count
+pill, which removed one duplicated pill but not the duplicated band.
+
+**Change:** fold each pane to one line — provider chip, breadcrumb, link glyph — and reveal the nav
+cluster on hover or keyboard focus, the way the Storage lens's row glyphs already behave.
+
+**Mock-up note:** draw both panes, left hovered and right at rest. The `.mini` control rung at the
+250 pt pane clamp is the constraint that decides whether this works at all.
+
+**Impact:** ~44 pt back, which is three more file rows per pane, on every window, permanently.
+
+**Effort:** Medium. **Risk:** Low–Medium — the header height is pinned by `PaneHeaderHeightTests`
+against `LiquidGlass.headerHeight`, and `LensHeaderCard` shares that line from the other side.
+
+---
+
+### A review sheet before a bulk duplicate trash
+
+**Now:** *Apply N recommended* raises a native confirm that gets the safety story right — group
+count, copies, reclaim total, undoable with ⌘Z — but it is one paragraph standing in for hundreds
+of keeper decisions, and the button says "Apply", which sounds settled before anything has been
+shown.
+
+**Change:** rename it *Review N recommended…* and make the confirm a sheet: reclaim total up top,
+then the handful of groups where the keeper was genuinely ambiguous — same size, same content,
+different folder — hoisted for a glance, with the unanimous majority collapsed behind a count. A
+per-row *swap* flips which copy is the keeper without leaving the sheet. Confirming stays one click
+for anyone who does not want to look.
+
+**Impact:** the existing alert answers "is this safe?". This answers "is this **right**?", which is
+the question hundreds of keeper picks actually raise.
+
+**Effort:** Medium. **Risk:** Low — it only adds a step ahead of an operation that already exists.
+
+---
+
 ## Summary
+
+### Capability
 
 | # | Item | Effort | Impact |
 |---|------|--------|--------|
@@ -676,6 +885,23 @@ width note in 1b.
 | 16 | Rules view inside Organize | Low–Medium | Medium |
 | 17 | "Find duplicates of this" on the row | Low | Medium |
 | 18 | Home workspace | Medium | Medium (after 1c) |
+
+### Interface
+
+Cited by name; this list has no stable numbering.
+
+| Item | Effort | Impact |
+|------|--------|--------|
+| Fold Change + Copy-to into a Direction lane | Medium | **Highest** — ~500 pt back to Name |
+| Drop the "Identical" badge from the majority row | Small | High — the exceptions become findable |
+| Make the Tidy stat pills the filter | Small | Medium–High — removes a duplicate control |
+| Magnitude bars behind the largest-files list | Small | Medium–High — best value per unit of work |
+| One sequential ramp for the treemap | Small | Medium |
+| Name the compared pair in the title bar | Small | Medium |
+| Organize's setup card, price on the button | Small | Medium |
+| Shortcut hints in tooltips | Small | Medium |
+| One-line pane headers | Medium | Medium — ~44 pt on every window |
+| A review sheet before a bulk duplicate trash | Medium | Medium |
 
 **Where the value is.** Item 1 is the largest single addition on this list, and its first stage
 (**folder sources**) is cheap, self-contained and unblocks the rest — start there. Items **2** and
