@@ -48,14 +48,29 @@ mechanisms this repo has actually hit and how to tell one from a regression.
 ### Machine-pinned tests
 
 A suite is *machine-pinned* when it only produces a trustworthy verdict on the
-machine that recorded it. Seventeen suites qualify, each marked at its own
-declaration with a reason:
+machine that recorded it. Each one is marked at its own declaration with a
+reason:
 
-| Reason | What it means | Suites | On CI |
+| Reason | What it means | Where it appears | On CI |
 |---|---|---|---|
-| `referenceImages` | compares against PNGs recorded on one Mac | the 4 `*SnapshotTests` | **excluded** |
-| `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | 12, across Design, Dashboard, FileExplorer, Settings | runs |
-| `calibratedTiming` | latency thresholds tuned on this hardware | `ColumnClickCostBenchmark` | runs |
+| `referenceImages` | compares against PNGs recorded on one Mac | Design, Dashboard, FileExplorer, Settings | **excluded** |
+| `pixelSampling` | reads painted pixels out of a live renderer (`colorAt(`) | Design, Dashboard, FileExplorer, Settings | runs |
+| `calibratedTiming` | latency thresholds tuned on this hardware | FileExplorer | runs |
+
+**No count is kept here, and no list of suite names.** Both drift the moment a
+suite is added — this table said "Seventeen suites … 12 pixelSampling …
+`ColumnClickCostBenchmark`" while the tree held 19, 13 and two benchmarks. Naming
+them would also reintroduce, in prose, exactly the type-name coupling that made
+`--skip SnapshotTests` miss twelve suites (below). The declarations are the
+authoritative list; ask the tree, not this file:
+
+```sh
+grep -rE '^[[:space:]]*@Suite\(.*machinePinned\(' --include='*.swift' Modules SyncCloudCLI
+```
+
+The `^[[:space:]]*` anchor is load-bearing: without it the pattern also matches
+prose in doc comments that quotes an `@Suite(…)` line, which is how a first
+attempt at this note counted 20.
 
 ```swift
 @Suite(.serialized, .machinePinned(.pixelSampling)) struct AccentPreviewTests { … }
