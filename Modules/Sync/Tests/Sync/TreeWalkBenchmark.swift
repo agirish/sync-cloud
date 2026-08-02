@@ -248,6 +248,127 @@ import Testing
         }
     }
 
+    /// Times the scan's OTHER half. `filesInfo` builds the two maps; `computeDifferences` reads
+    /// them, and in the live app it is now the larger of the two (1.35-1.72 s against 0.51-0.63 s).
+    /// Needs both roots, so it is skipped unless `SYNCCLOUD_WALK_BENCHMARK` names at least two.
+    ///
+    /// The rows below the total are what it spends its time ON, timed in isolation over the same
+    /// real key sets — `nearNameKey` is called for every key of both sides at setup and again per
+    /// unmatched entry, so its per-call cost is multiplied by tens of thousands before pass 1
+    /// starts. Measured rather than assumed: the point is to find out whether that is where the
+    /// time is, not to confirm that it is.
+    @Test func diffPhase() async throws {
+        let roots = Self.roots
+        guard roots.count >= 2 else { return }
+
+        let leftTree = await FileSyncManager.buildTree(url: roots[0], sortOption: .name)
+        let rightTree = await FileSyncManager.buildTree(url: roots[1], sortOption: .name)
+        let leftInfo = FileDiffEngine.filesInfo(fromTree: leftTree, basePath: roots[0].path)
+        let rightInfo = FileDiffEngine.filesInfo(fromTree: rightTree, basePath: roots[1].path)
+        Self.line("diff \(leftInfo.count) vs \(rightInfo.count) entries")
+
+        let left = CloudProvider(id: "l", displayName: "L", imageName: "", path: roots[0].path, type: .iCloud)
+        let right = CloudProvider(id: "r", displayName: "R", imageName: "", path: roots[1].path, type: .oneDrive)
+
+        var total: [Double] = []
+        var diffCount = 0
+        for _ in 0...Self.warmRepeats {
+            total.append(Self.ms {
+                let d = FileDiffEngine.computeDifferences(
+                    left: left, leftURL: roots[0], right: right, rightURL: roots[1],
+                    leftFilesInfo: leftInfo, rightFilesInfo: rightInfo,
+                    caseInsensitive: true, dateToleranceSeconds: 1)
+                diffCount = d.count
+            })
+        }
+        Self.report("computeDifferences(\(diffCount))", total)
+
+        // Every key of both sides through nearNameKey once — the shape of the setup loops.
+        let allKeys = Array(leftInfo.keys) + Array(rightInfo.keys)
+        var nearName: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            nearName.append(Self.ms {
+                for k in allKeys { _ = ProviderNameRules.nearNameKey(forRelativePath: k, foldCase: true) }
+            })
+        }
+        Self.report("  nearNameKey x\(allKeys.count)", nearName)
+
+        // And what one call is made of. `normalizedComponent` runs per PATH COMPONENT, so this
+        // row counts components, not paths.
+        let components = allKeys.flatMap { $0.split(separator: "/", omittingEmptySubsequences: false).map(String.init) }
+        var normalize: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            normalize.append(Self.ms {
+                for c in components { _ = ProviderNameRules.normalizedComponent(c) }
+            })
+        }
+        Self.report("  ├ normalizedComponent x\(components.count)", normalize)
+
+        var precompose: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            precompose.append(Self.ms {
+                for c in components { _ = c.precomposedStringWithCanonicalMapping }
+            })
+        }
+        Self.report("  │  ├ precomposed only", precompose)
+
+        var trim: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            trim.append(Self.ms {
+                for c in components { _ = c.trimmingCharacters(in: .whitespacesAndNewlines) }
+            })
+        }
+        Self.report("  │  └ one trim only", trim)
+
+        var lower: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            lower.append(Self.ms { for k in allKeys { _ = k.lowercased() } })
+        }
+        Self.report("  └ lowercased x\(allKeys.count)", lower)
+
+        // How many of these real components does the fast path actually take?
+        let clean = components.filter(ProviderNameRules.hasNothingToNormalize)
+        Self.line("  \(clean.count)/\(components.count) components take the fast path")
+
+        // The pre-change nearNameKey, timed in the same run — and, more importantly, checked
+        // against the current one on every real key. 79k real paths is breadth no fixture list
+        // reaches; `ProviderNameFastPathTests` is the depth.
+        var legacyNearName: [Double] = []
+        for _ in 0...Self.warmRepeats {
+            legacyNearName.append(Self.ms {
+                for k in allKeys { _ = Self.legacyNearNameKey(k, foldCase: true) }
+            })
+        }
+        Self.report("  (pre-change nearNameKey)", legacyNearName)
+
+        var diverged: [String] = []
+        for k in allKeys {
+            for foldCase in [true, false] where
+                ProviderNameRules.nearNameKey(forRelativePath: k, foldCase: foldCase)
+                    != Self.legacyNearNameKey(k, foldCase: foldCase) {
+                diverged.append(k)
+            }
+        }
+        #expect(diverged.isEmpty, "nearNameKey diverged on \(diverged.count) real keys: \(diverged.prefix(5))")
+        Self.line("  differential: \(allKeys.count) real keys identical under both foldCase values")
+    }
+
+    /// `nearNameKey` exactly as it stood before the fast paths.
+    private static func legacyNearNameKey(_ path: String, foldCase: Bool) -> String {
+        func legacyComponent(_ name: String) -> String {
+            let precomposed = name.precomposedStringWithCanonicalMapping
+            var trimmed = precomposed.trimmingCharacters(in: .whitespacesAndNewlines)
+            while trimmed.hasSuffix(".") { trimmed.removeLast() }
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? precomposed : trimmed
+        }
+        let normalized = path
+            .split(separator: "/", omittingEmptySubsequences: false)
+            .map { legacyComponent(String($0)) }
+            .joined(separator: "/")
+        return foldCase ? normalized.lowercased() : normalized
+    }
+
     /// Differential check of `filesInfo(fromTree:)` against the implementation it replaced, over
     /// the REAL pane trees rather than constructed fixtures — the whole map, every key and every
     /// field, on tens of thousands of real paths. `FilesInfoKeyingTests` pins the awkward cases

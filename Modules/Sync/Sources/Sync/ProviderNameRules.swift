@@ -26,6 +26,13 @@ public enum ProviderNameRules {
     /// form instead — collapsing e.g. `" "` and `"."` to the same empty key would pair
     /// unrelated pathological names.
     public static func normalizedComponent(_ name: String) -> String {
+        // Overwhelmingly the common case, and it used to cost the same as the rare one: on the
+        // two real pane roots 673,925 of 719,361 path components (94%) are plain ASCII with no
+        // edge whitespace and no trailing dot, so every step below is a no-op for them — yet
+        // each still paid a full NFC transform plus two CharacterSet trims. `nearNameKey` is
+        // called for every key of both sides at scan setup, so that cost is multiplied by tens
+        // of thousands before the diff's first pass starts.
+        if hasNothingToNormalize(name) { return name }
         let precomposed = name.precomposedStringWithCanonicalMapping
         var trimmed = precomposed.trimmingCharacters(in: .whitespacesAndNewlines)
         while trimmed.hasSuffix(".") {
@@ -35,6 +42,51 @@ public enum ProviderNameRules {
         return trimmed.isEmpty ? precomposed : trimmed
     }
 
+    /// True when `normalizedComponent` would return `name` unchanged, decided in one pass over
+    /// the UTF-8 bytes.
+    ///
+    /// Deliberately conservative — it answers "is this definitely a no-op", never "is this
+    /// equivalent". Any byte at or above 0x80 sends the name down the slow path even though most
+    /// non-ASCII names are already NFC, because deciding NFC-ness cheaply is exactly the problem
+    /// `precomposedStringWithCanonicalMapping` exists to solve. Being wrong in this direction
+    /// costs a little speed; being wrong in the other would silently change a diff key.
+    ///
+    /// The three conditions mirror the three transforms: ASCII rules out NFC changing anything
+    /// (no ASCII scalar has a canonical decomposition or composition), no leading/trailing ASCII
+    /// whitespace rules out both trims, and no trailing "." rules out the dot strip. Interior
+    /// whitespace and interior dots are untouched by all three, so they stay on the fast path.
+    /// An empty name qualifies and is returned as-is, which is what the slow path does with it
+    /// (`trimmed.isEmpty` hands back the equally empty `precomposed`).
+    static func hasNothingToNormalize(_ name: String) -> Bool {
+        let utf8 = name.utf8
+        guard let first = utf8.first, let last = utf8.last else { return true }  // empty
+        if isASCIIWhitespace(first) || isASCIIWhitespace(last) || last == UInt8(ascii: ".") { return false }
+        for byte in utf8 where byte >= 0x80 { return false }
+        return true
+    }
+
+    /// The ASCII members of `CharacterSet.whitespacesAndNewlines`, which is what the trims above
+    /// use. Pinned by `ProviderNameFastPathTests.asciiWhitespacePredicateMatchesFoundation`,
+    /// which walks all 128 ASCII scalars and compares this against Foundation's own set rather
+    /// than trusting the list to be remembered correctly.
+    private static func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+        byte == 0x20 || (byte >= 0x09 && byte <= 0x0D)
+    }
+
+    /// `lowercased()` for a string already known to be pure ASCII. Caller must guarantee that —
+    /// see the call site in `nearNameKey`.
+    static func asciiLowercased(_ s: String) -> String {
+        var bytes = Array(s.utf8)
+        var changed = false
+        for i in bytes.indices where bytes[i] >= UInt8(ascii: "A") && bytes[i] <= UInt8(ascii: "Z") {
+            bytes[i] |= 0x20
+            changed = true
+        }
+        // An already-lowercase path — the common case — keeps its existing storage instead of
+        // allocating an identical copy.
+        return changed ? String(decoding: bytes, as: UTF8.self) : s
+    }
+
     /// A relative path normalized per component (see `normalizedComponent`), optionally
     /// case-folded — pass `foldCase: true` exactly when the diff runs case-insensitively,
     /// so a pair differing by case AND whitespace still meets on one key. Normalizing the
@@ -42,11 +94,55 @@ public enum ProviderNameRules {
     /// only invisibly, so identical children under `Swimming ` and `Swimming` pair up
     /// instead of double-reporting.
     public static func nearNameKey(forRelativePath path: String, foldCase: Bool) -> String {
+        // When no component would change, the split/map/join below reassembles the string it
+        // started with — so skip it and keep the original. This is worth more than the
+        // per-component fast path it builds on: the allocation of a component array and a
+        // rejoined string, per key, was about half of what this function cost.
+        if pathHasNothingToNormalize(path) {
+            // That predicate has already established the whole path is ASCII, and over ASCII
+            // `lowercased()` is exactly "map A-Z, leave the rest" — so it can be done in one
+            // byte pass instead of going through the full Unicode case mapping. Pinned by
+            // `ProviderNameFastPathTests.asciiLowercaseMatchesFoundationForEveryAsciiScalar`,
+            // which checks all 128 against `lowercased()`. NEVER call this on a string that has
+            // not been through `pathHasNothingToNormalize`: Unicode case folding is not
+            // byte-local (ẞ, İ, Σ), so on non-ASCII it would silently produce a different key.
+            return foldCase ? asciiLowercased(path) : path
+        }
         let normalized = path
             .split(separator: "/", omittingEmptySubsequences: false)
             .map { normalizedComponent(String($0)) }
             .joined(separator: "/")
         return foldCase ? normalized.lowercased() : normalized
+    }
+
+    /// `hasNothingToNormalize` for every "/"-separated component of `path`, in one pass and
+    /// without splitting it. Kept honest by
+    /// `ProviderNameFastPathTests.pathPredicateAgreesWithPerComponentPredicate`, which asserts
+    /// the two agree — including on the empty components that `omittingEmptySubsequences: false`
+    /// preserves for a leading, trailing, or doubled slash.
+    static func pathHasNothingToNormalize(_ path: String) -> Bool {
+        let slash = UInt8(ascii: "/")
+        let dot = UInt8(ascii: ".")
+        var lastByteOfComponent: UInt8?
+        var atComponentStart = true
+        for byte in path.utf8 {
+            if byte >= 0x80 { return false }
+            if byte == slash {
+                // The component just ended: reject it if it closed on whitespace or a dot. A nil
+                // here is an EMPTY component, which normalizes to itself and is therefore fine.
+                if let last = lastByteOfComponent, isASCIIWhitespace(last) || last == dot { return false }
+                atComponentStart = true
+                lastByteOfComponent = nil
+                continue
+            }
+            if atComponentStart {
+                if isASCIIWhitespace(byte) { return false }
+                atComponentStart = false
+            }
+            lastByteOfComponent = byte
+        }
+        if let last = lastByteOfComponent, isASCIIWhitespace(last) || last == dot { return false }
+        return true
     }
 
     /// Human phrase for HOW two leaf names differ invisibly, for `.nameConflict` descriptions.
