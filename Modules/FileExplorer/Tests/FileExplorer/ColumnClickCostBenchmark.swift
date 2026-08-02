@@ -26,7 +26,7 @@ import Sync
 /// regression is CPU work that slows down with the machine exactly as the probe does, so it still
 /// breaks the scaled bar — only the machine being busy no longer does.
 @MainActor
-@Suite struct ColumnClickCostBenchmark {
+@Suite(.machinePinned(.calibratedTiming)) struct ColumnClickCostBenchmark {
 
     private struct StubDelegate: FileActionDelegate {
         /// Stands in for `FileSyncManager.isNodeIgnored`, which relativizes the path and tests it

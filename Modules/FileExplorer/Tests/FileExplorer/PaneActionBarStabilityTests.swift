@@ -12,7 +12,7 @@ import Design
 /// by rendering a hidden twin to establish the frame, and only a real render can tell you the twin
 /// and the visible text agree — a width constant would just be re-asserting itself.
 @MainActor
-@Suite(.serialized) struct PaneActionBarStabilityTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneActionBarStabilityTests {
 
     private static let width: CGFloat = 900
     private static let height: CGFloat = 60

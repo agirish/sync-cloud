@@ -10,7 +10,7 @@ import Sync
 /// wrapping inside FlowLayout. Fixed sizes, frozen dates, light + dark; workflow and caveats
 /// in Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
 @MainActor
-@Suite(.serialized) struct FileExplorerSnapshotTests {
+@Suite(.serialized, .machinePinned(.referenceImages)) struct FileExplorerSnapshotTests {
 
     /// A frozen mtime for every fixture copy (2026-06-01 12:00 UTC) — never `Date()`, the
     /// card's meta line renders it through a DateFormatter.

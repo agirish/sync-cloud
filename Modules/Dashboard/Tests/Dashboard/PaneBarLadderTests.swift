@@ -19,7 +19,7 @@ import Design
 /// a layer and puts no `NSControl` in the AppKit tree at all, and an offscreen `NSHostingView` has an
 /// empty accessibility tree.
 @MainActor
-@Suite(.serialized) struct PaneBarLadderTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneBarLadderTests {
 
     /// The pane's own trailing inset — `PaneHeader.body`'s `.padding(.horizontal, 14)`.
     private static let contentInset: CGFloat = 14

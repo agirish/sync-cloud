@@ -25,7 +25,7 @@ import Testing
 /// and was not: the ring is white, and the LIGHT semantic fills are themselves near-white
 /// (`.attention` is rgb(0.97, 0.90, 0.86)), so no tolerance separates ring from fill in light mode.
 @MainActor
-@Suite struct StatPillDetailRingTests {
+@Suite(.machinePinned(.pixelSampling)) struct StatPillDetailRingTests {
 
     private let size = CGSize(width: 120, height: 44)
 

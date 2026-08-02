@@ -11,7 +11,7 @@ import Events
 /// and LogViewer's severity rows. Fixed sizes, frozen or bucket-safe dates, light + dark;
 /// workflow and caveats in Modules/Design/Tests/DesignTests/SNAPSHOTS.md.
 @MainActor
-@Suite(.serialized) struct DashboardSnapshotTests {
+@Suite(.serialized, .machinePinned(.referenceImages)) struct DashboardSnapshotTests {
 
     // MARK: PaneHeader
 

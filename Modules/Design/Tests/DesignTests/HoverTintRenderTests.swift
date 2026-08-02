@@ -12,6 +12,15 @@ import XCTest
 /// "does anything actually change colour" becomes answerable here instead of in a screenshot.
 final class HoverTintRenderTests: XCTestCase {
 
+    /// XCTest predates the `Testing` trait, so this suite opts into the same
+    /// `MachinePinnedReason.pixelSampling` gate by hand. It reads painted pixels exactly like
+    /// its `@Suite(.machinePinned(.pixelSampling))` neighbours and must skip with them.
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        try XCTSkipIf(MachinePinnedGate.isExcluded(.pixelSampling),
+                      "machine-pinned (pixelSampling) — excluded via SYNCCLOUD_SKIP_MACHINE_PINNED")
+    }
+
     private let tint = Color(red: 0, green: 0, blue: 1)
 
     /// Renders a specimen at a fixed size and returns its pixels.

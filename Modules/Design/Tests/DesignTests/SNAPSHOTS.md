@@ -39,6 +39,11 @@ swift test --filter <Suite>SnapshotTests                               # must pa
 Eyeball the regenerated PNGs (`open` the paths the recording run prints) before committing —
 a recording run happily blesses a broken layout.
 
+These suites are marked `.machinePinned(.referenceImages)`, which is inert unless
+`SYNCCLOUD_SKIP_MACHINE_PINNED` is set (CI sets it; your shell should not). If a recording run
+reports zero tests and writes no PNGs, check that the variable is unset — a skipped suite
+records nothing, silently.
+
 ## Determinism caveat — single machine only
 
 These references were validated deterministic on ONE machine (two in-place runs plus a run

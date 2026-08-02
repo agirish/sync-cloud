@@ -14,7 +14,7 @@ import Testing
 /// the difference the window's key state overrides — so the ordering it computed was visible only
 /// while the app was frontmost. These tests pin that the replacement isn't.
 @MainActor
-@Suite(.serialized) struct ActionBarFocusIndependenceTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct ActionBarFocusIndependenceTests {
 
     private static let canvas = CGSize(width: 120, height: 40)
     /// A point inside the capsule's left cap, clear of the label glyphs. The cap's centre sits at

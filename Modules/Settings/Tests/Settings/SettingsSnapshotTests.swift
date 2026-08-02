@@ -5,14 +5,17 @@ import Testing
 @testable import Settings
 
 /// Visual snapshot net over the Settings module — the Appearance tab's accent section as it
-/// ships. Machine-pinned image comparisons live here, in a `*SnapshotTests` suite, so CI's
-/// `--skip SnapshotTests` filter excludes them the same way it excludes the other three
-/// packages' snapshot suites (see Modules/Design/Tests/DesignTests/SNAPSHOTS.md for the
-/// re-record workflow and the single-machine caveat). The painted-pixel and caption assertions
-/// that pin the accent PAIRING stay in `AccentPreviewTests` — they are machine-independent and
-/// must keep running on CI.
+/// ships. Machine-pinned image comparisons live here, marked `.machinePinned(.referenceImages)`
+/// so CI excludes them the same way it excludes the other three packages' snapshot suites (see
+/// Modules/Design/Tests/DesignTests/SNAPSHOTS.md for the re-record workflow and the
+/// single-machine caveat).
+///
+/// The painted-pixel and caption assertions that pin the accent PAIRING stay in
+/// `AccentPreviewTests`. They are NOT machine-independent — this doc used to say they were —
+/// they sample a live renderer, so they carry `.machinePinned(.pixelSampling)` and CI keeps
+/// running them only because the runner is the recording machine.
 @MainActor
-@Suite(.serialized) struct SettingsSnapshotTests {
+@Suite(.serialized, .machinePinned(.referenceImages)) struct SettingsSnapshotTests {
 
     /// The section as it ships: twelve swatches, the preview strip, and the caption — at the real
     /// content width, in both appearances.

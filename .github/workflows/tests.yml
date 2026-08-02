@@ -1,14 +1,24 @@
 # Package test suites on every push to main or v2.x and on every v* release
 # tag, on the self-hosted Mac runner.
 #
-# Scope: the seven SPM packages only. Machine-pinned image snapshots
-# (*SnapshotTests suites; see Modules/Design/Tests/DesignTests/SNAPSHOTS.md)
-# are excluded via --skip — their reference PNGs are recorded on one machine
-# and any other renderer fails them spuriously. The suites still COMPILE
-# here, so breakage in snapshot test code is caught; only the pixel
-# comparisons are skipped. Other machine-pinned tests (raw pixel sampling,
-# the calibrated click-cost benchmark) DO run here — sound only while the
-# runner is the recording machine; see docs/ci.md.
+# Scope: the seven SPM packages only. Suites that only produce a trustworthy
+# verdict on the machine that recorded them are marked at the declaration with
+# `.machinePinned(_:)` and a reason, and SYNCCLOUD_SKIP_MACHINE_PINNED below
+# selects which reasons to exclude. Three reasons exist: `referenceImages`
+# (compares against PNGs recorded on one Mac; see
+# Modules/Design/Tests/DesignTests/SNAPSHOTS.md), `pixelSampling` (reads
+# painted pixels out of a live renderer) and `calibratedTiming` (the
+# click-cost benchmark's thresholds).
+#
+# We exclude ONLY `referenceImages`, so pixel sampling and the benchmark still
+# run — sound only while the runner IS the recording machine; see docs/ci.md.
+# Excluded suites still COMPILE, so breakage in their code is still caught, and
+# they now report as *skipped with a reason* rather than silently vanishing.
+# If the runner ever moves off this Mac, set the value to `all`.
+#
+# This replaced `--skip SnapshotTests`, which selected by TYPE NAME and so
+# missed twelve equally machine-pinned suites (AccentPreviewTests and friends)
+# that happened not to be called *SnapshotTests.
 # A second step runs the app-target tests (SyncCloudTests/, via xcodegen +
 # xcodebuild).
 
@@ -70,7 +80,12 @@ jobs:
 
       # Run every package even after a failure so one run reports ALL broken
       # packages, not just the first.
-      - name: Run package suites (snapshots skipped)
+      - name: Run package suites (reference-image suites skipped)
+        env:
+          # Which machine-pinned reasons to exclude. `referenceImages` alone
+          # reproduces what `--skip SnapshotTests` used to do; `all` is the
+          # setting to use if the runner moves off the recording Mac.
+          SYNCCLOUD_SKIP_MACHINE_PINNED: referenceImages
         run: |
           set -uo pipefail
           failed=()
@@ -83,7 +98,7 @@ jobs:
             # x86_64 from it and then exits 1 despite passing. Forcing the
             # payload native fixes the exit code (verified both directions:
             # green suite -> 0, mutated failing test -> 1).
-            if ! arch -arm64 swift test --package-path "${pkg}" --skip SnapshotTests; then
+            if ! arch -arm64 swift test --package-path "${pkg}"; then
               failed+=("${pkg}")
             fi
             echo "::endgroup::"

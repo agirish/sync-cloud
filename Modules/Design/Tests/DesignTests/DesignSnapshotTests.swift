@@ -9,7 +9,7 @@ import Testing
 /// a fixed size in light and dark against committed reference images (see SNAPSHOTS.md for
 /// the re-record workflow and the single-machine caveat).
 @MainActor
-@Suite(.serialized) struct DesignSnapshotTests {
+@Suite(.serialized, .machinePinned(.referenceImages)) struct DesignSnapshotTests {
 
     // MARK: TokenChipsRow
 

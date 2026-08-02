@@ -12,7 +12,7 @@ import Design
 /// a system-drawn control, it only gave it more room to sit in. Three rounds of "fixes" shipped
 /// against that false green. Everything here reads the bitmap.
 @MainActor
-@Suite(.serialized) struct PaneNavMetricsTests {
+@Suite(.serialized, .machinePinned(.pixelSampling)) struct PaneNavMetricsTests {
 
     private static let box = CGSize(width: 120, height: 60)
 
