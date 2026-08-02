@@ -22,8 +22,30 @@ extension FileSyncManager {
         else { rightLoadGeneration += 1; loadToken = rightLoadGeneration }
 
         let task = Task {
-            let label = isLeft ? "Left" : "Right"
-            Logger.shared.debug("Loading \(label) Tree for path: \(path)")
+            // The pane's own load token, printed on every line this load emits. Without it a
+            // start line could not be attributed to an outcome line: the two panes interleave,
+            // a navigation supersedes the load already in flight, and a progressive load emits
+            // two publishes — so "the Nth start" and "the Nth completion" are unrelated events.
+            // Durations derived by pairing them positionally were off by orders of magnitude
+            // (a 6 s load read as 6,095 s). Reuses the spinner's existing per-load generation
+            // rather than minting a second identity that could disagree with it.
+            let tag = "\(isLeft ? "left" : "right") #\(loadToken)"
+            let startedAt = CFAbsoluteTimeGetCurrent()
+            Logger.shared.debug("[load] \(tag) start \(path)\(relativeSuffix(isLeft: isLeft))")
+
+            // What this load ended up doing. Set at every exit; the default is what an exit that
+            // reaches none of them would print, so an unaccounted path names itself in the log
+            // instead of vanishing. Read by the `defer` below, which is the only writer of the
+            // outcome line — a `return` cannot skip it.
+            //
+            // The node counts these outcomes carry are RAW walked nodes (`countItems`), not the
+            // filtered `leftItemCount` the old completion line printed: the walk's cost is per
+            // node walked, and a count that hidden-file filtering has already thinned is the
+            // wrong denominator for it. It costs one extra in-memory traversal — ~5 ms per 40k
+            // nodes, measured — which the reported duration therefore includes; on the cache
+            // path, where the whole load is tens of ms, that is a visible share of the number
+            // and is the price of the number meaning anything at all.
+            var outcome = "ended without reaching a known exit"
 
             // Whatever exit this load takes — normal completion, cache-hit return, or
             // cancellation between the disk walks — release the loading spinner, but only if
@@ -33,12 +55,16 @@ extension FileSyncManager {
             defer {
                 let stillCurrent = isLeft ? (leftLoadGeneration == loadToken) : (rightLoadGeneration == loadToken)
                 let wasLoading = isLeft ? isLoadingLeftTree : isLoadingRightTree
+                var strandedSpinner = false
                 if stillCurrent, wasLoading {
                     if isLeft { isLoadingLeftTree = false } else { isLoadingRightTree = false }
-                    if Task.isCancelled {
-                        Logger.shared.debug("\(label) tree load cancelled before completing; cleared its stale loading spinner")
-                    }
+                    strandedSpinner = Task.isCancelled
                 }
+                // The one line per load that carries its outcome AND its duration. Emitted from
+                // the `defer` so every exit is covered, including ones added later.
+                Logger.shared.debug(
+                    "[load] \(tag) \(outcome) in \(Self.durationText(since: startedAt))"
+                    + (strandedSpinner ? "; cleared its stale loading spinner" : ""))
             }
 
             let relPath = isLeft ? leftRelativePath : rightRelativePath
@@ -53,10 +79,10 @@ extension FileSyncManager {
             let cached = prefetchedTrees[focusPath]
                 ?? Self.subtree(atPath: focusPath, in: prefetchedTrees[rootURL.path])
             if let cached {
-                Logger.shared.debug("Serving \(label) tree for \(focusPath) from cache")
                 prefetchedTrees[focusPath] = cached
                 self.adoptRawTree(cached, isLeft: isLeft, focusPath: focusPath)
                 await self.applyFilters()
+                outcome = "served \(Self.countItems(in: cached)) nodes from cache"
                 // The spinner (set by a slow load this one just cancelled) is released by the
                 // deferred cleanup above.
                 return
@@ -84,19 +110,42 @@ extension FileSyncManager {
             let currentTree = isLeft ? rawLeftTree : rawRightTree
             let lastFocus = isLeft ? lastLoadedLeftFocusPath : lastLoadedRightFocusPath
             if currentTree.isEmpty || lastFocus != focusPath {
+                let shallowStart = CFAbsoluteTimeGetCurrent()
                 let shallowTree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm, maxDepth: 1)
-                guard !Task.isCancelled else { return }
+                let shallowWalk = Self.durationText(since: shallowStart)
+                guard !Task.isCancelled else {
+                    outcome = "superseded during the shallow walk (walk \(shallowWalk))"
+                    return
+                }
+                let shallowPublishStart = CFAbsoluteTimeGetCurrent()
                 self.adoptRawTree(shallowTree, isLeft: isLeft, focusPath: focusPath)
                 await self.applyFilters()
+                // The shallow pass is a SEPARATE cost from the deep one, not a prefix of it —
+                // it is its own `buildTree` over the same directory — so it gets its own line
+                // rather than being folded into the outcome's duration.
+                Logger.shared.debug(
+                    "[load] \(tag) shallow first paint \(Self.countItems(in: shallowTree)) nodes"
+                    + " (walk \(shallowWalk), publish \(Self.durationText(since: shallowPublishStart)))")
             }
 
+            let deepStart = CFAbsoluteTimeGetCurrent()
             let tree = await Self.buildTree(url: focusURL, sortOption: sortOp, fileManager: fm)
+            let deepWalk = Self.durationText(since: deepStart)
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                outcome = "superseded during the deep walk (walk \(deepWalk))"
+                return
+            }
 
-            await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
-                                          loadToken: loadToken, configToken: configToken)
-            Logger.shared.debug("\(label) Tree Loaded. Count: \(isLeft ? leftItemCount : rightItemCount)")
+            let publishStart = CFAbsoluteTimeGetCurrent()
+            let published = await self.adoptFreshDeepTree(tree, builtWith: sortOp, isLeft: isLeft, focusPath: focusPath,
+                                                          loadToken: loadToken, configToken: configToken)
+            // `adoptFreshDeepTree` can bail without publishing (cancelled during its off-actor
+            // re-sort), which the old "Tree Loaded. Count:" line reported as a completion
+            // regardless — it ran unconditionally on the line after. Distinguish them.
+            outcome = published
+                ? "walked \(Self.countItems(in: tree)) nodes (walk \(deepWalk), publish \(Self.durationText(since: publishStart)))"
+                : "superseded during the publish re-sort (walk \(deepWalk))"
         }
 
         if isLeft { activeLoadLeftTask = task }
@@ -121,8 +170,13 @@ extension FileSyncManager {
     /// `sortOption.didSet` cleared the cache expecting the next walk to rebuild it for the
     /// new option, and writing this one back would poison the cache fast path, which serves
     /// cached trees as-is (for Tags, with no way to ever recover the missing metadata).
+    /// - Returns: Whether the tree was published. The one early exit here (cancelled during the
+    ///   off-actor re-sort) leaves the pane showing the previous tree, and `loadTree` reports it
+    ///   as a superseded load rather than a completion — its old completion line sat on the
+    ///   statement after this call and so claimed a load that had published nothing.
+    @discardableResult
     func adoptFreshDeepTree(_ tree: [FileNode], builtWith sortOp: SortOption, isLeft: Bool, focusPath: String,
-                            loadToken: Int, configToken: Int) async {
+                            loadToken: Int, configToken: Int) async -> Bool {
         var tree = tree
         let liveSort = sortOption
         if liveSort != sortOp {
@@ -130,7 +184,7 @@ extension FileSyncManager {
             tree = await Task.detached(priority: .userInitiated) {
                 Self.sort(nodes: stale, by: liveSort)
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else { return false }
         }
         adoptRawTree(tree, isLeft: isLeft, focusPath: focusPath)
         // The option can move AGAIN while the re-sort/publish above runs, and this adopt's
@@ -170,6 +224,21 @@ extension FileSyncManager {
         if sortOption == sortOp, liveSort == sortOp, scanConfigGeneration == configToken, !Task.isCancelled {
             prefetchedTrees[focusPath] = tree
         }
+        return true
+    }
+
+    /// `nnn.n ms` under a second, `n.nn s` above it — one shape for every duration the load
+    /// records print, so the log can be scanned (and parsed) without unit guessing.
+    nonisolated static func durationText(since start: CFAbsoluteTime) -> String {
+        let seconds = CFAbsoluteTimeGetCurrent() - start
+        return seconds < 1 ? String(format: "%.1f ms", seconds * 1000) : String(format: "%.2f s", seconds)
+    }
+
+    /// The pane's relative path, for the load's start line — a load of the same root at a
+    /// different focus is a different load, and the root alone cannot tell them apart.
+    func relativeSuffix(isLeft: Bool) -> String {
+        let relative = isLeft ? leftRelativePath : rightRelativePath
+        return relative.isEmpty ? "" : " (focus: \(relative))"
     }
 
     /// Publishes a freshly built (or cache-served) raw tree for one pane. Also bumps
@@ -413,7 +482,12 @@ extension FileSyncManager {
 
     private func executeScan(_ request: ScanRequest) async {
         isScanning = true
-        Logger.shared.info("Internal scan comparing \(request.left.displayName) and \(request.right.displayName)")
+        // Same identity discipline as the load records: the scan's own request generation, so a
+        // start line pairs with its outcome even when a refresh supersedes the scan mid-flight
+        // (which publishes nothing and, before this, logged nothing at all).
+        let scanTag = "#\(request.generation)"
+        let scanStart = CFAbsoluteTimeGetCurrent()
+        Logger.shared.info("Internal scan \(scanTag) comparing \(request.left.displayName) and \(request.right.displayName)")
 
         let leftURL = URL(fileURLWithPath: (request.leftPath as NSString).expandingTildeInPath)
         let rightURL = URL(fileURLWithPath: (request.rightPath as NSString).expandingTildeInPath)
@@ -427,8 +501,16 @@ extension FileSyncManager {
 
         // In-memory fast path: when both focused folders have deep trees in the prefetch
         // cache (file operations clear it, so cached ⇒ current), derive the comparison maps
-        // from the trees instead of re-walking both directories on disk — the scan becomes
-        // near-instant after navigation. Both sources report symlinked entries with the
+        // from the trees instead of re-walking both directories on disk.
+        //
+        // It is worth less than this comment used to claim ("the scan becomes near-instant
+        // after navigation"). Measured on the two real pane roots at ~40k nodes each, building
+        // the map from the tree costs 0.78 s / 1.19 s against 0.99 s / 1.41 s for the disk walk
+        // that produces the same map — a 15–21% saving, not a different order of magnitude,
+        // because BOTH branches are dominated by building the `[String: FileInfo]` map rather
+        // than by reading directories. See `TreeWalkBenchmark`, which measures both.
+        //
+        // Both sources report symlinked entries with the
         // TARGET's size/date; the one remaining divergence is that the tree builder walks
         // INTO symlinked directories (as the panes display them) while the disk enumerator
         // reports the linked directory itself but not its contents.
@@ -438,12 +520,31 @@ extension FileSyncManager {
         // full double disk walk whose results are guaranteed to be discarded.
         let newDifferences: [FileDifference]?
         if let cachedLeft = prefetchedTrees[leftURL.path], let cachedRight = prefetchedTrees[rightURL.path] {
-            Logger.shared.debug("Scanning from cached trees (no disk walk)")
+            Logger.shared.debug("[scan] \(scanTag) from cached trees (no directory enumeration)")
             let computeTask = Task.detached(priority: .userInitiated) { () -> [FileDifference]? in
                 guard !Task.isCancelled else { return nil }
+                // This branch skips the directory ENUMERATION, which is not the same as touching
+                // no disk — the line above used to claim "no disk walk". `filesInfo(fromTree:)`
+                // builds each entry's `URL(fileURLWithPath:)` with no `isDirectory:` hint, and
+                // that initializer resolves the path against the file system: one lookup per
+                // node, ~40k per pane here, measured at 4x the cost of the hinted form
+                // (TreeWalkBenchmark's `+ map, hinted URL` vs `+ map, unhinted URL`). So its
+                // wall time is still exposed to cache state — which is the likeliest reason it
+                // varied 4x across otherwise identical runs. Split the phases so the next
+                // occurrence says which half moved instead of leaving it to inference.
+                let flattenStart = CFAbsoluteTimeGetCurrent()
                 let leftFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedLeft, basePath: leftURL.path)
                 let rightFilesInfo = FileDiffEngine.filesInfo(fromTree: cachedRight, basePath: rightURL.path)
+                let flatten = Self.durationText(since: flattenStart)
                 guard !Task.isCancelled else { return nil }
+                let diffStart = CFAbsoluteTimeGetCurrent()
+                defer {
+                    let diff = Self.durationText(since: diffStart)
+                    let counts = "\(leftFilesInfo.count) vs \(rightFilesInfo.count) entries"
+                    Task { @MainActor in
+                        Logger.shared.debug("[scan] \(scanTag) cached-tree compute: flatten \(flatten), diff \(diff) (\(counts))")
+                    }
+                }
                 return FileDiffEngine.computeDifferences(
                     left: request.left,
                     leftURL: leftURL,
@@ -468,6 +569,10 @@ extension FileSyncManager {
                     // The two walks are independent and FileManager is thread-safe, so run them
                     // concurrently — serially they doubled the scan's disk phase. They are
                     // detached too, so cancellation is forwarded into both.
+                    // Before the tasks are created, not after: a detached task starts running as
+                    // soon as it exists, so a clock started below them would already have missed
+                    // the beginning of the work it claims to measure.
+                    let walkStart = CFAbsoluteTimeGetCurrent()
                     let leftWalk = Task.detached(priority: .userInitiated) {
                         try FileDiffEngine.getFilesInDirectory(leftURL, fileManager: fm)
                     }
@@ -479,6 +584,15 @@ extension FileSyncManager {
                     } onCancel: {
                         leftWalk.cancel()
                         rightWalk.cancel()
+                    }
+                    let walk = Self.durationText(since: walkStart)
+                    let diffStart = CFAbsoluteTimeGetCurrent()
+                    defer {
+                        let diff = Self.durationText(since: diffStart)
+                        let counts = "\(leftFilesInfo.count) vs \(rightFilesInfo.count) entries"
+                        Task { @MainActor in
+                            Logger.shared.debug("[scan] \(scanTag) disk-walk compute: walk \(walk), diff \(diff) (\(counts))")
+                        }
                     }
 
                     return FileDiffEngine.computeDifferences(
@@ -529,13 +643,20 @@ extension FileSyncManager {
             await self.applyFilters()
             hasScanned = true
 
-            Logger.shared.debug("Scan completed: found \(results.count) differences.")
+            Logger.shared.debug("[scan] \(scanTag) completed: found \(results.count) differences in \(Self.durationText(since: scanStart))")
 
             if autoVerifySameSizeDuringScan {
                 // Unstructured on purpose: hashing must not extend the scan (isScanning would
                 // hold the slot); the pass re-checks the generation before publishing.
                 Task { await self.autoVerifySameSizePairs(scanGeneration: request.generation) }
             }
+        } else {
+            // The discarded case, which used to leave the log with a scan that started and never
+            // said anything again — indistinguishable from one still running, and the reason the
+            // "Internal scan" lines outnumbered the "Scan completed" ones.
+            Logger.shared.debug(
+                "[scan] \(scanTag) discarded after \(Self.durationText(since: scanStart))"
+                + " (\(Task.isCancelled ? "cancelled" : isLatestRequest ? "no result" : "superseded by #\(scanRequestGeneration)"))")
         }
 
         isScanning = false
