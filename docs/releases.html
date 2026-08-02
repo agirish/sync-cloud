@@ -139,41 +139,39 @@
     <div class="grp">
       <h3>Removed</h3>
       <ul class="flist">
-        <li><span class="ic">✕</span><span><b>Cross-pane drag &amp; drop is gone.</b> It never worked in a shipped build — a SwiftUI gesture on a list row beat AppKit's drag tracking, so the drop was routed away before it could land. Rather than leave a broken affordance in place it has been removed, and Help and the shortcuts panel no longer teach it. Use the transfer buttons or the new destination picker.</span></li>
+        <li><span class="ic">✕</span><span><b>Cross-pane drag &amp; drop is gone.</b> In practice it had not worked for a long time — the drag would lift, but no target ever accepted the drop — so what was on screen was an affordance that did nothing. Rather than leave it there it is removed outright in v2.8, and Help and the shortcuts panel no longer teach it. Use the transfer buttons or the new destination picker.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Data safety</h3>
       <ul class="flist">
         <li><span class="ic">🛡</span><span><b>Three ways a mutation path could destroy what it was saving</b> are closed.</span></li>
-        <li><span class="ic">⚠</span><span><b>A move says what it is about to collide with</b> before you confirm it, rather than after.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Sending files somewhere</h3>
       <ul class="flist">
-        <li><span class="ic">📁</span><span><b>Organize gets a destination picker of its own</b> instead of the system panel — built on the Settings panel's shape, floated over the window rather than buried in a sheet, dressed in the app's own surfaces, and opaque so what is behind it stops bleeding through.</span></li>
+        <li><span class="ic">📁</span><span><b>Organize gets a destination picker of its own</b> instead of the system panel, floated over the window and dressed in the app's own surfaces. It names what a move is about to collide with <i>before</i> you confirm it.</span></li>
         <li><span class="ic">→</span><span><b>The Tidy rail can send a file somewhere</b>, and a cross-pane transfer now says where it actually puts things.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Preview</h3>
       <ul class="flist">
-        <li><span class="ic">👁</span><span><b>A selected file previews beside the columns</b> — in the Tidy rail and now the comparison panes too, with the toggle in the pane header.</span></li>
-        <li><span class="ic">▥</span><span>The preview is <b>pinned beside the column stack</b> rather than squeezed inside it, so it keeps its width instead of fighting the columns for it; the action bar stays off the preview it now shares a pane with.</span></li>
+        <li><span class="ic">👁</span><span><b>A selected file previews beside the columns</b> — in the Tidy rail and in the comparison panes, with the toggle in the pane header.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>A pane bar you arrange</h3>
       <ul class="flist">
-        <li><span class="ic">▤</span><span><b>The pane bar is a canvas you arrange yourself</b>, with a customize sheet that fits inside the window it belongs to and tells its track when there is more to show. Every drop on the track lands somewhere.</span></li>
+        <li><span class="ic">▤</span><span><b>The pane bar is a canvas you arrange yourself</b> — drag the controls you use onto it, drop the ones you don't, from a customize sheet.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Performance</h3>
       <ul class="flist">
-        <li><span class="ic">⚡</span><span><b>The file panes stop re-rendering on unrelated state</b>, the inspector's stat moves off the main thread rather than merely out of the render pass, and the panes stop re-arming a timer and re-statting every frame.</span></li>
-        <li><span class="ic">⧉</span><span><b>Three caches stop paying for work they had already done</b>, the merge planner stops re-asking what the directory walk already told it, and the hash cache is sized above the trees it serves — below that size it returned nothing at all.</span></li>
+        <li><span class="ic">⚡</span><span><b>The file panes stop re-rendering on unrelated state</b>, the inspector's stat moves off the main thread, and the panes stop re-arming a timer and re-statting every frame.</span></li>
+        <li><span class="ic">⧉</span><span><b>Tidy and the merge planner now use the content-hash cache</b>, so neither pays again for hashing the other already did, and the merge planner stops re-asking what the directory walk already told it.</span></li>
         <li><span class="ic">▸</span><span>A row's fonts resolve once per pane instead of once per row, bulk progress is throttled to one update per percent, and the pane bar computes the rung it needs instead of building ten to find it.</span></li>
       </ul>
     </div>
@@ -196,21 +194,20 @@
       <ul class="flist">
         <li><span class="ic">▥</span><span><b>A new pane view mode, and the default</b> — panes render as columns, the way Finder does, so you can see the path you took instead of just where you landed.</span></li>
         <li><span class="ic">⇄</span><span><b>Drilling into a folder mirrors onto the linked pane</b>, keeping both sides in step.</span></li>
-        <li><span class="ic">📍</span><span>The header shows <b>one location</b>, not two halves of one, and the pane arrows understand columns before they consult the focus history.</span></li>
+        <li><span class="ic">📍</span><span>The header shows <b>one location</b> for the pane, and the pane arrows understand columns before they consult the focus history.</span></li>
         <li><span class="ic">▢</span><span>A click on empty space <b>puts the selection down</b>, and a linked breadcrumb click reaches the folder it names.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Scrolling that behaves</h3>
       <ul class="flist">
-        <li><span class="ic">↕</span><span>The column stack scrolls <b>the way AppKit scrolls</b> — bounce capped rather than removed, and the stack pulled home when the platform's bounce strands it.</span></li>
-        <li><span class="ic">🔒</span><span>A wheel gesture <b>locks to its dominant axis</b>, decided from accumulated travel, so a vertical scroll stops nudging the stack sideways.</span></li>
+        <li><span class="ic">↕</span><span>The column stack scrolls <b>the way AppKit scrolls</b>, bounce included, and is pulled home when the platform's bounce strands it.</span></li>
+        <li><span class="ic">🔒</span><span>A wheel gesture <b>locks to its dominant axis</b>, so a vertical scroll does not nudge the stack sideways.</span></li>
       </ul>
     </div>
     <div class="grp">
       <h3>Clicks that land</h3>
       <ul class="flist">
-        <li><span class="ic">👆</span><span>Clicks are measured <b>from mouse-up</b>, a plain column click commits its own selection, and a folder's column opens from whichever half of the click fires.</span></li>
         <li><span class="ic">✓</span><span>One pane's deferred clear no longer eats the other pane's next click, and the action bar's buttons stop moving when the summary changes.</span></li>
       </ul>
     </div>
@@ -219,7 +216,6 @@
       <ul class="flist">
         <li><span class="ic">🛡</span><span><b>External-volume providers claim their own tree again.</b> A depth rule introduced in v2.6 meant a provider mounted under <code>/Volumes</code> claimed nothing — so a path-addressed CLI root inside it silently lost its destination-name guard and date-noise filter. <i>(Regression introduced in v2.6.)</i></span></li>
         <li><span class="ic">⚠</span><span><b><code>›</code> can no longer walk into a folder that no longer exists.</b> Stepping back out of a folder that is then deleted left the forward arrow lit and pointing at a dead path — where New Folder, paste, and background drops act.</span></li>
-        <li><span class="ic">↩</span><span>A queued column navigation can no longer undo a newer one — the "Back doesn't work" shape.</span></li>
       </ul>
     </div>
     <div class="grp">
@@ -241,8 +237,7 @@
       <h3>Differences</h3>
       <ul class="flist">
         <li><span class="ic">▤</span><span><b>Grouped into top-level folder sections</b>, so a long comparison reads as a handful of folders instead of one flat wall of rows.</span></li>
-        <li><span class="ic">⇕</span><span><b>Sections are selectable and collapsible</b>, with <b>Collapse All</b> promoted onto the differences bar instead of hiding inside the filter menu.</span></li>
-        <li><span class="ic">⏱</span><span>Scan staleness moved off the whole count pill onto the age run, so only the part that goes stale looks stale.</span></li>
+        <li><span class="ic">⇕</span><span><b>Sections are selectable and collapsible</b>, with <b>Collapse All</b> on the differences bar.</span></li>
       </ul>
     </div>
     <div class="grp">
@@ -269,7 +264,7 @@
     <div class="grp">
       <h3>Fixes</h3>
       <ul class="flist">
-        <li><span class="ic">✓</span><span>Three states stopped lying: a clipped tab, a deleted key, and a stale scan. The transfer buttons spell out <b>Copy</b>.</span></li>
+        <li><span class="ic">✓</span><span>Clearing the stored API key now reports whether it actually succeeded. The transfer buttons spell out <b>Copy</b>.</span></li>
       </ul>
     </div>
     <p class="known"><b>Known issue, fixed in v2.7:</b> a depth rule added in this release stopped external-volume providers from claiming their own tree, so a path-addressed CLI root under <code>/Volumes</code> lost its destination-name guard.</p>
@@ -294,7 +289,7 @@
         <li><span class="ic">◈</span><span><b>Pane nav controls are drawn in-app</b> rather than fought from outside — levelled pill heights, tinted glyphs, and a real hover state on every chrome-less and system-chrome button.</span></li>
         <li><span class="ic">▤</span><span><b>Differences bar zoned</b>, its primary action fixed left-to-right; the difference count gained the capsule a stale badge wears, and the sort menu matches its neighbours.</span></li>
         <li><span class="ic">▸</span><span><b>The action bar says which pane</b> it is about to act on, and places itself from rows that are actually on screen.</span></li>
-        <li><span class="ic">⇕</span><span>The <b>differences pane stays open</b> during a guided review, and the Tidy rail has its own chrome back.</span></li>
+        <li><span class="ic">⇕</span><span>The <b>differences pane stays open</b> during a guided review.</span></li>
         <li><span class="ic">📜</span><span>The Activity Log's <b>search reveal is animated</b>, and its severity chips count the history you have actually revealed.</span></li>
       </ul>
     </div>
@@ -318,8 +313,8 @@
     <p class="lede">Compare actions, and a quieter Activity Log.</p>
     <div class="grp">
       <ul class="flist">
-        <li><span class="ic">▤</span><span><b>Redesigned Compare action bar</b> — appears the instant a file is clicked, sits away from the selected row, flips only when it would actually cover the selection, and the selection can be cleared.</span></li>
-        <li><span class="ic">⇕</span><span><b>Instant differences collapse</b> — the pane collapses without rebuilding, keeps the last file visible, and the collapsed diff bar is slimmer.</span></li>
+        <li><span class="ic">▤</span><span><b>Redesigned Compare action bar</b> — appears the instant a file is clicked, sits away from the selected row, and the selection can be cleared.</span></li>
+        <li><span class="ic">⇕</span><span><b>The differences pane can be collapsed</b> — a show/hide chevron replaces the drag-only divider, and the last file stays visible.</span></li>
         <li><span class="ic">📜</span><span><b>Activity Log chrome</b> — title bar hidden, search collapsed behind a magnifier, translucent Settings-style surfaces, and long messages wrap instead of being cut off.</span></li>
         <li><span class="ic">🎨</span><span>The <b>app accent carries through</b> the compare chrome and row selection, replacing the OS gray.</span></li>
         <li><span class="ic">✕</span><span><b>New Folder is gone</b> from the Compare action bar, and the pane link toggle is hidden in Tidy's single-source rail.</span></li>
@@ -338,7 +333,7 @@
         <li><span class="ic">🌘</span><span><b>Dark mode reworked</b> — a deeper base, accent glow, specular-edged cards, and a bolder translucent veil on Clear glass.</span></li>
         <li><span class="ic">◼︎</span><span><b>Graphite accent</b> — a new hue for a genuinely neutral, monochrome look.</span></li>
         <li><span class="ic">♿︎</span><span><b>Accessibility</b> — a caution tier in the semantic colour table, a shared 3:1 contrast floor, and VoiceOver-proof compact fallbacks.</span></li>
-        <li><span class="ic">↺</span><span><b>A failed replace can no longer lose your file</b> — the staged temp is preserved when the source can't be restored, and <b>Undo Last Run</b> is paired with its own run rather than a name on the stack.</span></li>
+        <li><span class="ic">↺</span><span><b>A failed replace can no longer lose your file</b> — the staged temp is preserved when the source can't be restored. <b>Undo Last Run</b> is paired with its own run rather than a name on the stack.</span></li>
         <li><span class="ic">⧉</span><span><b>Duplicates hardened again</b> — cross-folder version groups stop pooling unmarked originals, and merges refuse to aim through keeper hard links; v2.2’s unreadable-folder fix is widened to case- and near-name variants.</span></li>
       </ul>
     </div>
@@ -364,7 +359,7 @@
         <li><span class="ic">☀</span><span>Accent, on-accent, and treemap label colours are derived from <b>actual luminance</b>, so text stays legible on any hue.</span></li>
         <li><span class="ic">▤</span><span><b>Comfortable / compact list density</b> extended to the file panes, Activity Log, Sync History, lens cards, and the differences table.</span></li>
         <li><span class="ic">⛃</span><span><b>Clear Filters</b>, <code>kind:</code> made last-wins, and a chip's ✕ now removing every occurrence of its word; Automations gained <b>Preview / Reveal</b> inspection.</span></li>
-        <li><span class="ic">🛡</span><span><b>Scans that tell the truth</b> — no phantom "Missing" rows when the scan root itself is unreadable, permission-denied directories treated as unexplored rather than empty, dataless oversize files classified cloud-only rather than "too large", and a merge refused when a source's mtime changed.</span></li>
+        <li><span class="ic">🛡</span><span><b>Scans that tell the truth</b> — unreadable directories no longer mint phantom "Missing" rows (the scan root included), permission-denied directories are treated as unexplored rather than empty, dataless oversize files classified cloud-only rather than "too large", and a merge refused when a source's mtime changed.</span></li>
       </ul>
     </div>
     <p class="chlog">Full changelog: <a href="https://github.com/agirish/sync-cloud/compare/v2.1...v2.2">v2.1...v2.2</a></p>
@@ -394,7 +389,7 @@
     <p class="lede">A ground-up restructure of the window — from a provider-sidebar layout to a focused, tab-driven workspace.</p>
     <div class="grp">
       <ul class="flist">
-        <li><span class="ic">▦</span><span><b>Persistent tab strip</b> with a single-source rail replaces the provider sidebar, pinned to a fixed height so switching tabs never nudges the layout.</span></li>
+        <li><span class="ic">▦</span><span><b>Persistent tab strip</b> with a single-source rail replaces the provider sidebar, at a fixed height.</span></li>
         <li><span class="ic">◫</span><span><b>Self-contained panes</b> — scanning and per-pane actions moved onto the pane headers; the title bar pared down to Logs and Settings.</span></li>
         <li><span class="ic">⇎</span><span><b>Differences is now Compare</b>, with Details folded into a dedicated inspector; Get Info routes there and the pane is resizable.</span></li>
         <li><span class="ic">✎</span><span>The <b>Name Normalizer</b> returns as its own <b>Rename</b> sub-tab, and Organize's loose-files scan defaults to a configurable TODO inbox.</span></li>
@@ -412,7 +407,7 @@
     <div class="grp">
       <ul class="flist">
         <li><span class="ic">▦</span><span><b>Storage Lens</b> — a treemap of what's eating your disk, with reclaim-candidate lists.</span></li>
-        <li><span class="ic">↺</span><span><b>Sync History</b> — durable and exportable, with <b>run-level undo</b>; "Undo Last Run" is scoped to the actual run and spells out what it will reverse.</span></li>
+        <li><span class="ic">↺</span><span><b>Sync History</b> — durable and exportable, with <b>run-level undo</b>: "Undo Last Run" names the run it will reverse and itemizes it before it fires.</span></li>
         <li><span class="ic">✎</span><span><b>Name normalizer</b> as a batch lens, with per-row Quick Look and Show in Finder.</span></li>
         <li><span class="ic">⚙︎</span><span><b>Automations</b> arrive as a preview-only lens — rich rule cards, grouped results, per-rule preview, and a Browse button for the destination.</span></li>
         <li><span class="ic">$</span><span><b>Cloud spend guardrails</b> — a pre-flight estimate before a scan, a monthly cap, and a lifetime cap defaulting to $5; plus a per-tab toggle to hide the top file panes.</span></li>
@@ -428,9 +423,9 @@
     <p class="lede">Onboarding and visual identity — the release that made SyncCloud explain itself.</p>
     <div class="grp">
       <ul class="flist">
-        <li><span class="ic">👋</span><span><b>First-run welcome</b> grew into an informative <b>feature tour</b>, with a vector illustration per page, brand glyphs, and motion.</span></li>
+        <li><span class="ic">👋</span><span><b>A first-run feature tour</b>, with a vector illustration per page, brand glyphs, and motion.</span></li>
         <li><span class="ic">?</span><span><b>In-app Help</b> — a Help overlay and enriched Help menu, plus Help ▸ Welcome to re-summon the first-run card.</span></li>
-        <li><span class="ic">🎨</span><span><b>Provider brand hues</b> tint provider identity throughout, made appearance-adaptive by a dark-mode contrast audit.</span></li>
+        <li><span class="ic">🎨</span><span><b>Provider brand hues</b> tint provider identity throughout, adapting to light and dark.</span></li>
         <li><span class="ic">◇</span><span><b>Unified empty states</b>, and comfortable / compact list density.</span></li>
       </ul>
     </div>
@@ -446,7 +441,7 @@
         <li><span class="ic">✨</span><span><b>The Filing lens</b> suggests a destination for every loose file, backed by on-device content signals.</span></li>
         <li><span class="ic">⚘</span><span><b>Two engines</b> — on-device Apple LLM first, with an <b>opt-in cloud (Claude) classifier</b> for the hard cases.</span></li>
         <li><span class="ic">📌</span><span><b>Remembered rules</b> — corrections stick, with a legible, editable home in plain words; "Try another" re-suggests with rejection learning.</span></li>
-        <li><span class="ic">$</span><span><b>Cost is cut and visible</b> — per-scan cost reduced ~10–50×, with spend surfaced as last-scan, total, and history. Defaults to Haiku. A confidence meter and legend, Quick Look on Filing cards, and rescan-after-navigate.</span></li>
+        <li><span class="ic">$</span><span><b>Cost is visible and cheap</b> — spend is surfaced as last-scan, total, and history, and the classifier defaults to Haiku to keep a scan to cents. A confidence meter and legend, Quick Look on Filing cards, and rescan-after-navigate.</span></li>
         <li><span class="ic">⚙︎</span><span><b>Settings ▸ Tidy</b> — a dedicated tab for Duplicates, Filing, and cloud spend, plus a header search across all tabs.</span></li>
       </ul>
     </div>
