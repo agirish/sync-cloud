@@ -533,7 +533,28 @@ public class FileSyncManager: ObservableObject {
             keptNamesCancellable = keptNamesStore?.$names
                 .dropFirst()
                 .sink { [weak self] kept in
-                    self?.riskyNames.removeAll { kept.contains($0.currentName) }
+                    guard let self else { return }
+                    // Announce the change on THIS object, explicitly.
+                    //
+                    // The store is a separate `ObservableObject` reached through a plain `var`, so
+                    // nothing observing the manager observes it. Views that render the kept set but
+                    // only watch the manager — `DifferencesView`, whose name cells silence a badge
+                    // on a kept name — would otherwise not re-render when a keep is made from a
+                    // pane row, and the badge would linger in the table until something unrelated
+                    // moved.
+                    self.objectWillChange.send()
+                    // Assign only when a row genuinely goes. `removeAll(where:)` is a mutating
+                    // access, so calling it unconditionally republishes `riskyNames` — re-rendering
+                    // Organize's whole list — on every keep, including the overwhelmingly common
+                    // one that removes nothing because no scan has run or the name was never found.
+                    //
+                    // That spurious publish also used to be what refreshed the Differences table,
+                    // by accident: it was doing the announcement's job, which made the line above
+                    // untestable and made this efficiency fix a silent regression waiting to
+                    // happen. Separating them is what lets
+                    // `keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove` mean anything.
+                    let remaining = self.riskyNames.filter { !kept.contains($0.currentName) }
+                    if remaining.count != self.riskyNames.count { self.riskyNames = remaining }
                 }
             riskyNames.removeAll { isKeptName($0.currentName) }
         }

@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Combine
 @testable import Sync
 
 /// The durable "I meant that name" state the row badge needs.
@@ -128,6 +129,38 @@ import Foundation
         // The subscription hop is a Combine sink on the main actor; yield once so it lands.
         await Task.yield()
         #expect(manager.riskyNames.map(\.currentName) == ["fix me "])
+    }
+
+    /// **A keep must announce itself on the MANAGER**, not only on the store.
+    ///
+    /// The store is a separate `ObservableObject` behind a plain `var`, so a view that renders the
+    /// kept set while observing only the manager — `DifferencesView`, whose name cells silence a
+    /// badge on a kept name — sees nothing otherwise, and the badge lingers in the table after the
+    /// user keeps the name from a pane row.
+    ///
+    /// Asserted with NO risky names published, deliberately. With results present the `removeAll`
+    /// in the sink is a mutating access to a `@Published` array and announces one incidentally, so
+    /// a test that kept a name it had also scanned would pass whether or not the explicit
+    /// announcement existed — it would be pinning the accident rather than the contract.
+    @MainActor
+    @Test func keepingANameAnnouncesOnTheManagerEvenWithNothingToRemove() async throws {
+        let suite = "KeptAnnounce-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let manager = FileSyncManager()
+        let store = KeptNamesStore(userDefaults: defaults)
+        manager.keptNamesStore = store
+        manager.riskyNames = []
+
+        var announcements = 0
+        let token = manager.objectWillChange.sink { _ in announcements += 1 }
+        defer { token.cancel() }
+
+        store.keep("never scanned ")
+        await Task.yield()
+        #expect(announcements > 0,
+                "nothing observing the manager would learn of the keep, so the Differences table's badge would go stale")
     }
 
     /// Attaching a store to a manager that has already scanned applies it at once, rather than
