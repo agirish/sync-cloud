@@ -11,48 +11,39 @@ A destination picker of our own, a preview beside the columns, and a pane bar yo
 arrange yourself.
 
 ### Removed
-- **Cross-pane drag & drop is gone.** It never worked in a shipped build — a SwiftUI
-  gesture on a list row beat AppKit's drag tracking, so the drop was routed away
-  before it could land. Rather than leave a broken affordance in place, it has been
-  removed, and Help and the shortcuts panel no longer teach it. Use the transfer
-  buttons or the new destination picker.
+- **Cross-pane drag & drop is gone.** In practice it had not worked for a long time
+  — the drag would lift, but no target ever accepted the drop — so what was on
+  screen was an affordance that did nothing. Rather than leave it there, it is
+  removed outright in v2.8, and Help and the shortcuts panel no longer teach it. Use
+  the transfer buttons or the new destination picker.
 
 ### Data safety
 - **Three ways a mutation path could destroy what it was saving** are closed.
-- **A move says what it is about to collide with** before you confirm it, rather
-  than after.
 
 ### Sending files somewhere
-- **Organize gets a destination picker of its own** instead of the system panel —
-  built on the Settings panel's shape, floated over the window rather than buried
-  in a sheet, dressed in the app's own surfaces, and opaque so what is behind it
-  stops bleeding through.
+- **Organize gets a destination picker of its own** instead of the system panel,
+  floated over the window and dressed in the app's own surfaces. It names what a
+  move is about to collide with *before* you confirm it.
 - **The Tidy rail can send a file somewhere**, and a cross-pane transfer now says
   where it actually puts things.
 
 ### Preview
-- **A selected file previews beside the columns** — in the Tidy rail and, now, in
-  the comparison panes too, with the toggle in the pane header.
-- The preview is pinned beside the column stack rather than squeezed inside it, so
-  it keeps its width instead of fighting the columns for it. The action bar stays
-  off the preview it now shares a pane with.
+- **A selected file previews beside the columns** — in the Tidy rail and in the
+  comparison panes, with the toggle in the pane header.
 - The Tidy rail draws columns, a lone column fills its area, and columns are lifted
   off their width floor.
 
 ### A pane bar you arrange
-- **The pane bar is a canvas you arrange yourself**, with a customize sheet that
-  fits inside the window it belongs to and tells its track when there is more to
-  show. Every drop on the track lands somewhere, and the sheet's drops aim at pills
-  rather than past them.
+- **The pane bar is a canvas you arrange yourself** — drag the controls you use
+  onto it, drop the ones you don't, from a customize sheet.
 
 ### Performance
 - **The file panes stop re-rendering on unrelated state**, the inspector's stat
-  moves off the main thread rather than merely out of the render pass, and the panes
-  stop re-arming a timer and re-statting every frame.
-- **Three caches stop paying for work they had already done**, the merge planner
-  stops re-asking what the directory walk already told it, and the hash cache is
-  sized above the trees it is meant to serve — below that size it returned nothing
-  at all.
+  moves off the main thread, and the panes stop re-arming a timer and re-statting
+  every frame.
+- **Tidy and the merge planner now use the content-hash cache**, so neither pays
+  again for hashing the other already did, and the merge planner stops re-asking
+  what the directory walk already told it.
 - A row's fonts are resolved once per pane instead of once per row, bulk-operation
   progress is throttled to one update per percent, and the pane bar computes the
   rung it needs instead of building ten to find it.
@@ -77,20 +68,18 @@ Browse your folders in columns.
   Finder does, so you can see the path you took instead of just where you landed.
 - **Drilling into a folder mirrors onto the linked pane**, keeping both sides in
   step.
-- The header shows **one location**, not two halves of one, and the pane arrows
-  understand columns before they consult the focus history.
+- The header shows **one location** for the pane, and the pane arrows understand
+  columns before they consult the focus history.
 - A click on empty space **puts the selection down**, and a linked breadcrumb click
   reaches the folder it names.
 
 ### Scrolling that behaves
-- The column stack now scrolls **the way AppKit scrolls** — bounce is capped rather
-  than removed, and the stack is pulled home when the platform's bounce strands it.
-- A wheel gesture **locks to its dominant axis**, decided from accumulated travel,
-  so a vertical scroll stops nudging the stack sideways.
+- The column stack scrolls **the way AppKit scrolls**, bounce included, and is
+  pulled home when the platform's bounce strands it.
+- A wheel gesture **locks to its dominant axis**, so a vertical scroll does not
+  nudge the stack sideways.
 
-### Clicks that land
-- Clicks are measured **from mouse-up**, a plain column click commits its own
-  selection, and a folder's column opens from whichever half of the click fires.
+### Clicks
 - One pane's deferred clear no longer eats the other pane's next click, and the
   action bar's buttons stop moving when the summary changes.
 
@@ -103,8 +92,6 @@ Browse your folders in columns.
 - **`›` can no longer walk into a folder that no longer exists.** Stepping back out
   of a folder that is then deleted left the forward arrow lit and pointing at a dead
   path — where New Folder, paste, and background drops act.
-- A queued column navigation can no longer undo a newer one — the "Back doesn't
-  work" shape.
 
 ### Tidy accounting
 - A group whose copies are all protected no longer **vanishes from the list with its
@@ -130,10 +117,8 @@ Comparisons you can fold up, and Settings you can read.
 ### Differences
 - **Grouped into top-level folder sections**, so a long comparison reads as a
   handful of folders instead of one flat wall of rows.
-- **Sections are selectable and collapsible**, with **Collapse All** promoted onto
-  the differences bar instead of hiding inside the filter menu.
-- Scan staleness moved off the whole count pill onto the age run, so only the part
-  that goes stale looks stale.
+- **Sections are selectable and collapsible**, with **Collapse All** on the
+  differences bar.
 
 ### Settings
 - **Stood on a left rail**, so a tab is never cut in half again.
@@ -167,7 +152,7 @@ Comparisons you can fold up, and Settings you can read.
   order.
 
 ### Fixes
-- Three states stopped lying: a clipped tab, a deleted key, and a stale scan.
+- Clearing the stored API key now reports whether it actually succeeded.
 - The transfer buttons spell out **Copy**, and the link-panes toggle folds into the
   swap chip's seam capsule.
 
@@ -201,7 +186,6 @@ A retuned palette and a hardening pass.
 - **The action bar says which pane** it is about to act on, and places itself from
   rows that are actually on screen.
 - The **differences pane stays open** during a guided review.
-- The Tidy rail has its own chrome back, and the count pill stops changing dialect.
 - The Activity Log's **search reveal is animated**, and its severity chips count the
   history you have actually revealed.
 
@@ -236,10 +220,9 @@ A retuned palette and a hardening pass.
 Compare actions, and a quieter Activity Log.
 
 - **Redesigned Compare action bar** — it appears the instant a file is clicked,
-  positions itself away from the selected row, flips only when it would actually
-  cover the selection, and the selection can now be cleared.
-- **Instant differences collapse** — the pane collapses without rebuilding, keeps
-  the last file visible, and the collapsed diff bar is slimmer.
+  positions itself away from the selected row, and the selection can now be cleared.
+- **The differences pane can be collapsed** — a show/hide chevron replaces the
+  drag-only divider, and the last file stays visible.
 - **Activity Log chrome** — the title bar is hidden, search collapses behind a
   magnifier, surfaces are translucent and Settings-styled, and long messages wrap
   instead of being cut off.
@@ -267,8 +250,7 @@ Bold dark mode, and a true-neutral accent.
   originals, and merges refuse to aim through keeper hard links.
 - The unreadable-folder fix from v2.2 is **widened to case- and near-name variants**.
 - **A failed replace can no longer lose your file** — the staged temp is preserved
-  when the source can't be restored, with a recovery story that survives contact
-  with reality.
+  when the source can't be restored.
 - **Undo Last Run** is paired with its own run, not whatever name sits on the stack.
 
 **Full changelog:** [`v2.2...v2.3`](https://github.com/agirish/sync-cloud/compare/v2.2...v2.3)
@@ -304,9 +286,9 @@ One design system, and a Theme to switch it with.
 - Automations gained **Preview / Reveal** inspection.
 
 ### Scans that tell the truth
-- Phantom "Missing" rows no longer appear when the scan **root itself** is
-  unreadable, and permission-denied directories are treated as unexplored rather
-  than empty.
+- **Unreadable directories no longer mint phantom "Missing" rows** — a
+  permission-denied directory is treated as unexplored rather than empty, the scan
+  root included.
 - Dataless oversize files are classified as **cloud-only**, not "too large".
 - A merge is refused when a source file's modification time changed under it.
 - The CLI lists each name-skip's reason inline.
@@ -369,7 +351,7 @@ A ground-up restructure of the window — from a provider-sidebar layout to a fo
 tab-driven workspace.
 
 - **Persistent tab strip** with a single-source rail replaces the provider sidebar,
-  pinned to a fixed height so switching tabs never nudges the layout.
+  at a fixed height.
 - **Self-contained panes** — scanning and per-pane actions moved onto the pane
   headers, and the title bar was pared down to Logs and Settings.
 - **Differences is now Compare**, with the old Details panel folded into a dedicated
@@ -379,7 +361,7 @@ tab-driven workspace.
 - Previewed automations are **filed for real**, one file at a time, anchored at the
   provider root.
 - After filing a loose file, SyncCloud **offers to learn an Automation rule** — and
-  only asks when the file actually moved.
+  asks only when the file actually moved.
 - The comparison panes no longer re-walk their 40k-node trees on every selection,
   and the dead first click when selecting in a pane is fixed.
 
@@ -393,8 +375,8 @@ Three new Tidy lenses, plus a durable history you can undo from.
 
 - **Storage Lens** — a treemap of what's eating your disk, with reclaim-candidate
   lists.
-- **Sync History** — durable and exportable, with **run-level undo**; "Undo Last Run"
-  is scoped to the actual run and spells out what it will reverse.
+- **Sync History** — durable and exportable, with **run-level undo**: "Undo Last
+  Run" names the run it will reverse and itemizes it before it fires.
 - **Name normalizer** as a batch lens, with per-row Quick Look and Show in Finder.
 - **Automations** arrive as a preview-only lens — rich rule cards, grouped results,
   per-rule preview, and a Browse button for the destination.
@@ -412,12 +394,12 @@ Three new Tidy lenses, plus a durable history you can undo from.
 
 Onboarding and visual identity — the release that made SyncCloud explain itself.
 
-- **First-run welcome** grew into an informative **feature tour**, with a vector
-  illustration per page, brand glyphs, and motion.
+- **A first-run feature tour**, with a vector illustration per page, brand glyphs,
+  and motion.
 - **In-app Help** — a Help overlay and enriched Help menu, plus Help ▸ Welcome to
   re-summon the first-run card.
-- **Provider brand hues** tint provider identity throughout, made appearance-adaptive
-  by a dark-mode contrast audit.
+- **Provider brand hues** tint provider identity throughout, adapting to light and
+  dark.
 - **Unified empty states**, and comfortable / compact list density.
 
 **Full changelog:** [`v1.2...v1.3`](https://github.com/agirish/sync-cloud/compare/v1.2...v1.3)
@@ -434,8 +416,8 @@ AI-assisted filing — SyncCloud learns where your loose files belong.
   classifier** for the hard cases.
 - **Remembered rules** — corrections stick, with a legible, editable home in plain
   words; "Try another" re-suggests with rejection learning.
-- **Cost is cut and visible** — per-scan cost reduced ~10–50×, with spend surfaced
-  in the UI as last-scan, total, and history. Defaults to Haiku.
+- **Cost is visible and cheap** — spend is surfaced as last-scan, total, and
+  history, and the classifier defaults to Haiku to keep a scan to cents.
 - A **confidence meter and legend**, Quick Look on Filing cards, and a rescan after
   you navigate somewhere else.
 - **Settings ▸ Tidy** — a dedicated tab for Duplicates, Filing, and cloud spend, plus
