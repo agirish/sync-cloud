@@ -537,8 +537,20 @@ extension FileSyncManager {
         // second click while the classifier is out would start a second round-trip whose
         // late-returning result overwrote the first's. Re-entrant calls for the same suggestion
         // are ignored — the first click's answer is the one the card shows.
-        guard filingTryAnotherInFlight.insert(suggestion.id).inserted else { return }
-        defer { filingTryAnotherInFlight.remove(suggestion.id) }
+        guard filingTryAnotherInFlight[suggestion.id] == nil else { return }
+        let invocation = UUID()
+        filingTryAnotherInFlight[suggestion.id] = invocation
+        defer {
+            // Release only what this invocation still owns. The id is the file's absolute path —
+            // stable across scans and provider switches — so after `clearFiling()` released this
+            // entry mid-round-trip, a recreated card's NEW re-ask can hold the same key under its
+            // own token. An unconditional remove here would strip that round-trip's guard while
+            // it is still out, re-opening the exact two-round-trips race this set exists to
+            // prevent.
+            if filingTryAnotherInFlight[suggestion.id] == invocation {
+                filingTryAnotherInFlight.removeValue(forKey: suggestion.id)
+            }
+        }
         // The persisted (token-keyed) rejection is best-effort — token-less filenames can't store
         // one. The session set, keyed by file path, is what guarantees the click always takes
         // effect: the rejected folder never comes back for this file, whatever its name.
@@ -582,14 +594,16 @@ extension FileSyncManager {
         // text, and the `defer` then blanked the line while that scan was still going — leaving the
         // scanning view with no status until its next update. Epoch-scoped like every other status
         // write (see `updateScan`): if a scan starts while the classifier is out, it owns the line
-        // and this re-ask neither sets nor clears it.
-        let statusEpoch = filingScanLifecycle.epoch
+        // and this re-ask neither sets nor clears it. The same epoch also gates the result write
+        // below — it is the pre-await marker for "the filing session this verdict was computed
+        // against is still the one on screen".
+        let preAwaitEpoch = filingScanLifecycle.epoch
         let ownsStatusLine = !filingScanLifecycle.isRunning
         if ownsStatusLine {
             filingScanStatus = FilingScanPhase.lookingForDifferent.status
         }
         defer {
-            if ownsStatusLine, filingScanLifecycle.epoch == statusEpoch {
+            if ownsStatusLine, filingScanLifecycle.epoch == preAwaitEpoch {
                 filingScanStatus = nil
             }
         }
@@ -599,6 +613,16 @@ extension FileSyncManager {
                                        year: Self.modificationYear(suggestion.modificationDate),
                                        contentSnippet: nil, excludedRelativePaths: excluded)
         let verdicts = await classifier(taxonomyFolders, [file])
+        // The verdict was computed against THIS invocation's pre-await snapshots — its taxonomy,
+        // its rejections, its session. If the filing state moved on while the classifier was out,
+        // the card now on screen (same id: the stable file path) belongs to the NEW state, and
+        // writing the old verdict into it is a stale overwrite. Two ways the state moves on, two
+        // checks: `clearFiling()` (provider switch) releases this invocation's entry, so the
+        // token no longer matches; a Filing rescan never touches the in-flight dictionary but
+        // does bump the scan epoch. Either way, drop the result — the defer above still releases
+        // only what this invocation owns.
+        guard filingTryAnotherInFlight[suggestion.id] == invocation,
+              filingScanLifecycle.epoch == preAwaitEpoch else { return }
         // Mark new-vs-existing against the FULL folder set (uncapped), so a real folder beyond the
         // classifier's cap isn't mislabeled as one to create. Fall back to the (capped) list sent
         // to the classifier if the full set wasn't captured. Both from the pre-await snapshots —
@@ -654,13 +678,17 @@ extension FileSyncManager {
         filingLastTaxonomyFolders = []
         filingLastExistingFolders = []
         filingSessionRejections = [:]
-        // The re-ask guard too. `tryAnotherFolder` releases its own id in a `defer`, but only if
-        // it returns: `FilingClassifier` has no timeout, so a round-trip that never comes back
-        // leaves the id latched forever and every later "Try another" for that card is a silent
-        // no-op. Clearing here is the recovery hatch — switching providers (or rescanning) is
-        // what the user reaches for when a card stops responding, and the suggestions those ids
-        // belong to are being thrown away on this same line anyway.
-        filingTryAnotherInFlight = []
+        // The re-ask guard too. `tryAnotherFolder` releases its own entry in a `defer`, but only
+        // if it returns: `FilingClassifier` has no timeout, so a round-trip that never comes back
+        // leaves the entry latched forever and every later "Try another" for that card is a
+        // silent no-op. Clearing here is the ONLY recovery hatch: a Filing rescan assigns
+        // `filingSuggestions` directly and never touches this dictionary, so a latched card
+        // survives any number of rescans — only a provider switch (the one caller of this
+        // function) frees it. Clearing wholesale is safe because every release and result write
+        // in `tryAnotherFolder` is ownership-checked against its invocation token: a still-out
+        // round-trip whose entry is cleared here can neither strip a successor's guard in its
+        // defer nor land its stale verdict in a recreated card.
+        filingTryAnotherInFlight = [:]
     }
 
     // MARK: Apply

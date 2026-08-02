@@ -1369,7 +1369,7 @@ public struct TidyView: View {
             },
             onPreview: onQuickLook.map { ql in { ql(URL(fileURLWithPath: suggestion.filePath)) } },
             onTryAnother: { Task { await syncManager.tryAnotherFolder(for: suggestion) } },
-            isTryAnotherBusy: syncManager.filingTryAnotherInFlight.contains(suggestion.id)
+            isTryAnotherBusy: syncManager.filingTryAnotherInFlight.keys.contains(suggestion.id)
         )
     }
 

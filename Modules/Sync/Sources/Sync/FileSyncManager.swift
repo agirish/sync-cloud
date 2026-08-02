@@ -456,15 +456,22 @@ public class FileSyncManager: ObservableObject {
     /// by salient filename tokens, which token-less names ("IMG_0007", "Scan 12") don't have — this
     /// set is what stops those files from being re-offered the folder they just rejected.
     public var filingSessionRejections: [String: Set<String>] = [:]
-    /// Suggestion ids with a "Try another" re-ask currently in flight. The button fires an
-    /// unstructured Task per click, so two rapid clicks would run two classifier round-trips
-    /// for the same card and whichever RETURNED last would win — `tryAnotherFolder` checks-and-
-    /// inserts here at entry (removing via defer) and ignores re-entrant calls for the same
-    /// suggestion. Published and publicly readable so the card can disable its button while its
-    /// own re-ask is out — a refused re-entrant click that still looks clickable reads as a dead
-    /// button. Written only inside this module; `clearFiling()` also empties it, which is the
-    /// only recovery if a classifier round-trip never returns.
-    @Published public internal(set) var filingTryAnotherInFlight: Set<String> = []
+    /// "Try another" re-asks currently in flight: suggestion id → the owning invocation's token.
+    /// The button fires an unstructured Task per click, so two rapid clicks would run two
+    /// classifier round-trips for the same card and whichever RETURNED last would win —
+    /// `tryAnotherFolder` checks-and-inserts here at entry and ignores re-entrant calls for the
+    /// same suggestion. Published and publicly readable so the card can disable its button while
+    /// its own re-ask is out (`keys.contains` is the membership test) — a refused re-entrant
+    /// click that still looks clickable reads as a dead button.
+    ///
+    /// The VALUE is per-invocation ownership, and it is load-bearing: the key is the file's
+    /// absolute path, stable across scans and provider switches, and `clearFiling()` empties the
+    /// dictionary as the only recovery when a round-trip never returns (`FilingClassifier` has
+    /// no timeout). A cleared-then-re-armed key would otherwise let the STALE round-trip's defer
+    /// release the NEW round-trip's guard, and let its late verdict overwrite the recreated card
+    /// — so both the release and the result write check the token first (see `tryAnotherFolder`).
+    /// Written only inside this module.
+    @Published public internal(set) var filingTryAnotherInFlight: [String: UUID] = [:]
 
     /// Global sorting preference for the file trees.
     @Published public var sortOption: SortOption = .name {
