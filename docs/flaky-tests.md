@@ -93,7 +93,15 @@ the display awake, 5/6 fail with it asleep. Heavy CPU load starves it the same w
 a harness-level `.transaction { $0.animation = nil }` **loses** to an explicit `withAnimation` at
 the state change, so the nil has to be where that call reads it.
 
+Then pin the default, or the fix quietly costs you the coverage it bought. Once every test in the
+suite injects `nil`, nothing reads what the app actually ships — a default that drifted to `nil`
+would delete the animation for real users while the whole suite stayed green. One assertion on the
+environment's default closes it, and mutation-check that it is the *only* test that fails when the
+default changes; if others fail too, they are reading the shipped value by accident and the
+injection is not doing what you think.
+
 **See.** `6ecc245d` — *Decide the column reveal's tests by the code, not the machine's power state*;
+`daa88130` — *Pin the reveal animation the app ships* (the default nothing was reading);
 `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift`.
 
 ### 2. Fixed pumps and fixed sleeps
