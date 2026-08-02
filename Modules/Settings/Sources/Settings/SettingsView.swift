@@ -256,10 +256,22 @@ struct SettingsSearchEntry: Identifiable, Sendable {
     }
 }
 
-/// The catalog of settings the header search can jump to, one entry per user-facing control
-/// across all six tabs. Titles mirror the on-screen labels; keywords add the words people are
-/// likely to type instead (synonyms, the value names, the feature they're after). This is the
-/// single place to keep in sync when a control is added or renamed.
+/// The catalog of settings the header search can jump to: one entry per control that *changes*
+/// something, across all six tabs. Two kinds of on-screen label deliberately get no entry of their
+/// own, because neither is a setting — the `SettingsSection` headers that only group other
+/// controls ("Conflicts", "Filing"), and the read-only readouts in Tidy's Cloud spend section
+/// ("Total spent", "Tokens"). Both are reached through the control they belong to.
+///
+/// Titles mirror the on-screen label, or extend it where the label alone would be ambiguous in a
+/// results list that shows nothing but the title and its tab ("Surface tint" for the section
+/// headed "Tint"). Keywords add the words people are likely to type instead — synonyms, the value
+/// names, the feature they're after.
+///
+/// This is the single place to keep in sync when a control is added or renamed, and
+/// `SettingsSearchTests.everyControlLabelInTheTabSourcesIsIndexed` holds that: it scans the tab
+/// sources for control labels and fails on one that reaches nothing here. A control whose label
+/// the scan cannot see (a title built at runtime, a control vehicle it does not model) is still
+/// only as indexed as whoever adds it makes it.
 enum SettingsSearchIndex {
     static let all: [SettingsSearchEntry] = [
         // General
@@ -343,6 +355,12 @@ enum SettingsSearchIndex {
               keywords: ["model", "haiku", "sonnet", "opus", "claude model"]),
         .init(tab: .tidy, title: "Read file contents on-device for better signals",
               keywords: ["read contents", "content signals", "ocr", "text", "pdf", "vision"]),
+        // "loose files" and "todo" are the two a user actually types: the title spells the first
+        // hyphenated ("Loose-files"), so the spaced form matches nothing without the keyword, and
+        // the second is the default value rather than anything in the label. "filing" is the word
+        // this tab's section header uses, matching its neighbours here.
+        .init(tab: .tidy, title: "Loose-files inbox",
+              keywords: ["inbox", "loose files", "todo", "default folder", "scan folder", "filing"]),
         .init(tab: .tidy, title: "Remembered rules",
               keywords: ["filing rules", "rules", "remembered rules", "manage rules", "automation", "automations"]),
         .init(tab: .tidy, title: "Cloud spend",
