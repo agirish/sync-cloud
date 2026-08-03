@@ -8,49 +8,8 @@ import Foundation
 /// reads from the real filesystem.
 @Suite struct AutoVerifyOnScanTests {
 
-    /// Parks the FIRST stat the checksummer makes on a semaphore, signalling `entered` — so a
-    /// test can hold the scan-time pass mid-hash while it runs a file operation, then release
-    /// the hash and observe the batch being discarded. Everything else passes straight through
-    /// to the real `FileManager` the fixture's temp files live on.
-    private final class FirstStatGate: FileManaging, @unchecked Sendable {
-        private let inner: FileManager
-        let entered = DispatchSemaphore(value: 0)
-        let release = DispatchSemaphore(value: 0)
-        private let lock = NSLock()
-        private var gated = false
-
-        init(inner: FileManager) { self.inner = inner }
-
-        private func gateIfFirst() {
-            lock.lock(); let first = !gated; if first { gated = true }; lock.unlock()
-            guard first else { return }
-            entered.signal()
-            _ = release.wait(timeout: .now() + 10) // timeout so a mis-wired test fails instead of hanging
-        }
-
-        func fileExists(atPath p: String) -> Bool { inner.fileExists(atPath: p) }
-        func fileExists(atPath p: String, isDirectory d: UnsafeMutablePointer<ObjCBool>?) -> Bool {
-            gateIfFirst()
-            return inner.fileExists(atPath: p, isDirectory: d)
-        }
-        func attributesOfItem(atPath p: String) throws -> [FileAttributeKey: Any] { try inner.attributesOfItem(atPath: p) }
-        func setAttributes(_ a: [FileAttributeKey: Any], ofItemAtPath p: String) throws { try inner.setAttributes(a, ofItemAtPath: p) }
-        func createDirectory(at u: URL, withIntermediateDirectories c: Bool, attributes a: [FileAttributeKey: Any]?) throws {
-            try inner.createDirectory(at: u, withIntermediateDirectories: c, attributes: a)
-        }
-        func copyItem(at s: URL, to d: URL) throws { try inner.copyItem(at: s, to: d) }
-        func moveItem(at s: URL, to d: URL) throws { try inner.moveItem(at: s, to: d) }
-        func trashItem(at u: URL, resultingItemURL o: AutoreleasingUnsafeMutablePointer<NSURL?>?) throws {
-            try inner.trashItem(at: u, resultingItemURL: o)
-        }
-        func removeItem(at u: URL) throws { try inner.removeItem(at: u) }
-        func replaceItem(at d: URL, withItemAt s: URL, backupItemName n: String) throws -> URL? {
-            try inner.replaceItem(at: d, withItemAt: s, backupItemName: n)
-        }
-        func enumerator(at u: URL, includingPropertiesForKeys k: [URLResourceKey]?, options m: FileManager.DirectoryEnumerationOptions, errorHandler h: ((URL, Error) -> Bool)?) -> FileManager.DirectoryEnumerator? {
-            inner.enumerator(at: u, includingPropertiesForKeys: k, options: m, errorHandler: h)
-        }
-    }
+    // The mid-hash gate lives in TestSupport.swift (`FirstStatGate`) — shared with
+    // VerifyAllWithChecksumTests, which stages the same race against the manual pass.
 
     @MainActor
     private func makeFixture(fileManager: FileManaging = FileManager.default) throws -> (manager: FileSyncManager, identical: FileDifference, differed: FileDifference, cleanup: () -> Void) {
