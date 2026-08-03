@@ -68,6 +68,29 @@ struct SyncCloudApp: App {
         // launch behavior, and the test host rendering appearance-sensitive UI must not depend
         // on the machine it runs on.
         if !isRunningTests {
+            // Stop AppKit turning a layout that will not settle into a hard crash.
+            //
+            // `-[NSWindow(NSDisplayCycle) _postWindowNeedsUpdateConstraints]` raises
+            // `NSGenericException` once a window "has already had more update constraints passes
+            // than there are views in the window". A pane in COLUMNS reaches that on a provider
+            // switch: `resetNavigation()` drops both trees, and while the replacements paint a
+            // column row keeps reporting a new ideal height from inside the pass
+            // (`OutlineListCoordinator.listTableCellView(_:didUpdateIdealHeight:)` →
+            // `enqueueLayoutInvalidation()` → another pass).
+            //
+            // **A mitigation, not the fix** — the window still churns passes, it just stops dying
+            // of it. `docs/columns-layout-loop.md` carries the mechanism, the repro, everything
+            // three investigations have ruled out, and why a survival/death outcome is too
+            // low-powered to evaluate the real fix with.
+            //
+            // Registration domain, so it is overridable and writes nothing into the user's
+            // preferences; a diagnostic session gets the crash and its backtrace back with
+            // `defaults write com.abhishekgirish.SyncCloud NSWindowAssertWhenDisplayCycleLimitReached -bool YES`.
+            // Deliberately NOT registered under tests: CI should still fail loudly if a fixture
+            // ever reproduces the runaway, which is the outcome still being hunted.
+            UserDefaults.standard.register(
+                defaults: ["NSWindowAssertWhenDisplayCycleLimitReached": false])
+
             // Move a pre-GlassLevel install onto the two-control Appearance model before any
             // @AppStorage property wrapper reads the keys. Idempotent, so the repeat App.init
             // calls noted above are harmless.
