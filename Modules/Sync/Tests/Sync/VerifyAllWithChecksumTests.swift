@@ -54,7 +54,7 @@ import Foundation
         await manager.verifyAllWithChecksum()
 
         // Only the identical item is offered for the follow-up copy.
-        #expect(manager.verifiedIdenticalForCopy?.map(\.id) == [identical.id])
+        #expect(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [identical.id])
         // Differed/skipped items make the summary a warning, not a success.
         // (Field comparison — banner equality includes a per-publish id.)
         #expect(manager.banner?.message == "Verify All: 1 identical; 1 differed; 1 skipped")
@@ -170,7 +170,7 @@ import Foundation
         gate.release.signal()
         await pass.value
 
-        #expect(manager.verifiedIdenticalForCopy?.map(\.id) == [fixture.identical.id],
+        #expect(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id],
                 "the gated fixture must still hash and offer the identical pair")
         #expect(manager.fileOperationsEpoch == epochBefore)
     }
@@ -188,7 +188,7 @@ import Foundation
         let manager = fixture.manager
 
         await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.map(\.id) == [fixture.identical.id])
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
 
         // An undo lands while the dialog is up: same size, different bytes — restored content.
         let restored = Data("restored!".utf8)   // 9 bytes, like "identical"
@@ -222,7 +222,7 @@ import Foundation
         let manager = fixture.manager
 
         await manager.verifyAllWithChecksum()
-        try #require(manager.verifiedIdenticalForCopy?.map(\.id) == [fixture.identical.id])
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
         let stampedEpoch = manager.fileOperationsEpoch
 
         // ⌘Z: the undo handler's pre-count lands, its Task has not hopped to the main actor yet.
@@ -243,5 +243,38 @@ import Foundation
         #expect(manager.differences.count == 2)
 
         manager.cancelPreCountedFileOperation()
+    }
+
+    /// The epoch term on its own, and the seam that makes it reachable from a test at all.
+    ///
+    /// An offer stamped BEHIND the live epoch is the state the confirm guard exists for, and
+    /// while the stamp lived in a separate property maintained by a `didSet`, no test could
+    /// build it: every direct assignment re-certified itself as current, so the only route was
+    /// to drive a whole verify pass across a real file operation and exactly one test did. Now
+    /// the stamp is part of the value, a stale one is a constructor argument, and the guard can
+    /// be exercised without staging the race that produces it.
+    @MainActor
+    @Test func testConfirmRefusesAnOfferStampedBeforeTheLiveEpoch() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.enqueueFileOperation { }
+        let liveEpoch = manager.fileOperationsEpoch
+        try #require(liveEpoch > 0)
+        try #require(manager.activeFileOperationsCount == 0, "only the stamp may be stale here")
+
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(
+            differences: [fixture.identical], asOf: liveEpoch - 1
+        )
+        let copyTask = manager.confirmVerifiedCopy()
+        await copyTask?.value
+
+        #expect(copyTask == nil)
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
+        #expect(manager.banner?.severity == .warning)
+        #expect(manager.verifiedSameDifferenceIds.isEmpty)
+        #expect(manager.differences.count == 2)
     }
 }

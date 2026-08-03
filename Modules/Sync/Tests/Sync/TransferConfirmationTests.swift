@@ -342,7 +342,7 @@ import Foundation
         let (manager, mockFM, diff) = try makeDifferenceFixture()
         manager.markSyncing(ids: [diff.id])
 
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
@@ -693,7 +693,7 @@ import Foundation
             return true
         }
 
-        manager.verifiedIdenticalForCopy = [diff]
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(differences: [diff], asOf: manager.fileOperationsEpoch)
         let copyTask = manager.confirmVerifiedCopy()
         await copyTask?.value
 
