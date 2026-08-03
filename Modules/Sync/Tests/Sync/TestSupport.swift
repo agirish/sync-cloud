@@ -22,6 +22,40 @@ func awaitSignal(
     #expect(result == .success, what, sourceLocation: sourceLocation)
 }
 
+/// A two-semaphore park for holding a SYNCHRONOUS seam call in flight: the seam calls `park()`,
+/// which signals `entered` and blocks until the test signals `release`.
+///
+/// The wait is bounded so a mis-wired test fails instead of hanging — and the bound RECORDS
+/// itself, which is the half that actually matters. A discarded timeout is worse than no bound
+/// at all: the parked call quietly resumes on its own and the test goes on asserting against a
+/// state it never held, so "the gate never engaged" and "the gate engaged and the behaviour
+/// happened anyway" become indistinguishable afterwards. Every user must
+/// `try #require(!gate.releasedByTimeout)` once the work under test has finished. `FirstStatGate`
+/// carries the same flag, for the same reason; use this wherever a gate is not also a
+/// `FileManaging` stand-in.
+public final class ParkGate: @unchecked Sendable {
+    public let entered = DispatchSemaphore(value: 0)
+    public let release = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var timedOut = false
+
+    public init() {}
+
+    /// True if the parked call gave up waiting instead of being released.
+    public var releasedByTimeout: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return timedOut
+    }
+
+    /// Signals `entered`, then blocks until `release` arrives or the bound expires.
+    public func park(timeout: TimeInterval = 10) {
+        entered.signal()
+        if release.wait(timeout: .now() + timeout) == .timedOut {
+            lock.lock(); timedOut = true; lock.unlock()
+        }
+    }
+}
+
 /// A tiny lock-guarded box for collecting values out of `@Sendable` callbacks in tests
 /// (e.g. recording the paths a seam closure was consulted with).
 final class LockedBox<Value>: @unchecked Sendable {

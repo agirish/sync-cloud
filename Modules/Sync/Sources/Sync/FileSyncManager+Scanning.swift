@@ -390,9 +390,12 @@ extension FileSyncManager {
     /// is about to confirm could overwrite bytes some operation has changed since they were
     /// verified — and the exemption holds there for a narrower, sharper reason: the sweep only
     /// ever trashes `.tmp_<UUID>` staging artifacts. Those are not, and cannot be, the
-    /// `rightItemPath` of any difference in the offer, so the files the copy would write over
-    /// are ones the sweep provably never touched. The copy's own sources and destinations are
-    /// unaffected by anything this pass can do.
+    /// `rightItemPath` of any difference in the offer: `OrphanSweeper.isTempArtifactName`
+    /// requires the `.tmp_` prefix AND a parseable UUID after it, while the offer holds only
+    /// pairs found at the same relative path under BOTH panes — so a swept artifact would have
+    /// to exist under the identical `.tmp_<UUID>` name, same UUID, on both sides at once. The
+    /// files the copy would write over are ones the sweep provably never touched, and the copy's
+    /// own sources and destinations are unaffected by anything this pass can do.
     ///
     /// Joining in would cost real behaviour for that non-problem. This runs at the tail of EVERY
     /// refresh (`refreshTreesAndScan`), the same moment the checksum pass is hashing — the pass is

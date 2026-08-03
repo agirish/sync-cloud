@@ -280,7 +280,7 @@ import Foundation
         // Deterministic: the walk parks at the gate (no wall-clock delay/sleep pairing to lose
         // under a loaded parallel test run), so "load in flight" stays observable for exactly
         // as long as the test needs.
-        let gate = (entered: DispatchSemaphore(value: 0), release: DispatchSemaphore(value: 0))
+        let gate = ParkGate()
         mockFM.enumeratorGate = gate
         let manager = FileSyncManager(fileManager: mockFM)
         try mockFM.createDirectory(at: URL(fileURLWithPath: "/src"), withIntermediateDirectories: true)
@@ -292,6 +292,7 @@ import Foundation
 
         gate.release.signal()
         await task.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the walk was never actually held in flight")
         #expect(!manager.isLoadingLeftTree)
     }
     

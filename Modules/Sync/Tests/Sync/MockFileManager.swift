@@ -175,10 +175,14 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
     public var failRemovePathsOnce: Set<String> = []
 
     /// Deterministic enumerator gate: when set, the FIRST enumerator call signals `entered` and
-    /// then parks until `release` is signalled (bounded wait, so a mis-wired test fails instead
-    /// of hanging). Use this — not `enumeratorDelay` sleeps — for "load observably in flight"
-    /// tests: any fixed delay/sleep pairing loses its race under a loaded parallel test run.
-    public var enumeratorGate: (entered: DispatchSemaphore, release: DispatchSemaphore)?
+    /// then parks until `release` is signalled. Use this — not `enumeratorDelay` sleeps — for
+    /// "load observably in flight" tests: any fixed delay/sleep pairing loses its race under a
+    /// loaded parallel test run.
+    ///
+    /// The park is bounded, and `ParkGate` records a timed-out release: check
+    /// `try #require(!gate.releasedByTimeout)` after the load completes, or a walk that resumed
+    /// on its own reads exactly like one the test held.
+    public var enumeratorGate: ParkGate?
     private let gateLock = NSLock()
     private var gateFired = false
 
@@ -279,10 +283,7 @@ public final class MockFileManager: FileManaging, @unchecked Sendable {
         onEnumerate?(url)
         if let gate = enumeratorGate {
             gateLock.lock(); let first = !gateFired; if first { gateFired = true }; gateLock.unlock()
-            if first {
-                gate.entered.signal()
-                _ = gate.release.wait(timeout: .now() + 10)
-            }
+            if first { gate.park() }
         }
         if enumeratorDelay > 0 {
             Thread.sleep(forTimeInterval: enumeratorDelay)

@@ -17,15 +17,33 @@ import Combine
         private let inner: MockFileManager
         var copyGate: DispatchSemaphore?
         var moveGate: DispatchSemaphore?
+        private let timeoutLock = NSLock()
+        private var timedOut = false
+
+        /// True if a gated call gave up waiting instead of being signalled. The bound only stops
+        /// a mis-wired test from hanging; discarding its result is what makes it dangerous, since
+        /// the call then resumes by itself and the accounting assertions read as though the test
+        /// had held it. Tests `try #require(!fm.releasedByTimeout)` once the run completes.
+        var releasedByTimeout: Bool {
+            timeoutLock.lock(); defer { timeoutLock.unlock() }
+            return timedOut
+        }
+
+        private func park(_ gate: DispatchSemaphore?) {
+            guard let gate else { return }
+            if gate.wait(timeout: .now() + 10) == .timedOut {
+                timeoutLock.lock(); timedOut = true; timeoutLock.unlock()
+            }
+        }
 
         init(inner: MockFileManager) { self.inner = inner }
 
         func copyItem(at srcURL: URL, to dstURL: URL) throws {
-            _ = copyGate?.wait(timeout: .now() + 10)
+            park(copyGate)
             try inner.copyItem(at: srcURL, to: dstURL)
         }
         func moveItem(at srcURL: URL, to dstURL: URL) throws {
-            _ = moveGate?.wait(timeout: .now() + 10)
+            park(moveGate)
             try inner.moveItem(at: srcURL, to: dstURL)
         }
         func fileExists(atPath path: String) -> Bool {
@@ -107,6 +125,8 @@ import Combine
 
         moveFM.moveGate?.signal()
         _ = await opB.value
+        try #require(!copyFM.releasedByTimeout, "the copy gate timed out: the copy was never actually held in flight")
+        try #require(!moveFM.releasedByTimeout, "the move gate timed out: the move was never actually held in flight")
         await waitUntil("progress is cleared when all operations finish") { manager.activeProgress == nil }
 
         #expect(inner.virtualDisk["/dstA/a.txt"] != nil)
@@ -241,6 +261,7 @@ import Combine
 
         moveFM.moveGate?.signal()
         _ = await op.value
+        try #require(!moveFM.releasedByTimeout, "the gate timed out: the move was never actually held in flight")
 
         #expect(inner.virtualDisk["/dst/a.txt"] != nil)
         #expect(inner.virtualDisk["/dst/trailing-self.txt"] != nil)

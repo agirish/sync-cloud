@@ -224,8 +224,9 @@ import Foundation
     /// `await MainActor.run` is a real suspension point and the epoch moves strictly later.
     /// So "epoch unmoved" does NOT mean "nothing is about to be written" — and if the confirm
     /// passes here, the undo's task claims the serial queue first and the bulk copy runs
-    /// straight over the bytes the undo just restored. `bulkCopyDifferencesLeftToRight`
-    /// deliberately does not refuse on the count, so nothing downstream catches it.
+    /// straight over the bytes the undo just restored. `bulkCopyDifferencesLeftToRight` now
+    /// re-checks the same two terms before it orders its write, but only this guard keeps the
+    /// offer and the banner honest at click time — a refusal the user can see and act on.
     @MainActor
     @Test func testConfirmRefusesWhileAPreCountedOperationHasNotYetEnqueued() async throws {
         let fixture = try makeRaceFixture()
@@ -321,5 +322,226 @@ import Foundation
         #expect(manager.verifiedIdenticalForCopy == nil,
                 "a pass that verified nothing identical must not leave the previous offer standing")
         #expect(manager.confirmVerifiedCopy() == nil)
+    }
+
+    /// The empty case that is actually COMMON: a pass whose candidates filter to nothing.
+    ///
+    /// The retraction above lives past the `toVerify.isEmpty` early return, so this pass used to
+    /// exit in front of it and leave the standing offer — with its old stamp — completely
+    /// untouched. And this is the reachable one: Verify All is always invoked with a subset in
+    /// production (the current selection), so "the selection holds no date-only same-size row"
+    /// is one stray click, while an eligible set that verifies nothing identical needs a real
+    /// hashing pass. Verify writes nothing, so the confirm-time guards see an unmoved epoch and
+    /// a zero count, and the old list goes through to a bulk disk write.
+    @MainActor
+    @Test func testAPassWithNoEligibleCandidatesRetractsTheStandingOffer() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        let epochAtOffer = manager.fileOperationsEpoch
+
+        // A selection holding one row that Verify cannot act on: not a same-size date-only pair,
+        // so the eligible set is empty before a single byte is hashed.
+        let ineligible = FileDifference(
+            relativePath: "onlyLeft.txt",
+            leftItemPath: fixture.rightIdenticalURL.deletingLastPathComponent()
+                .appendingPathComponent("onlyLeft.txt").path,
+            rightItemPath: fixture.rightIdenticalURL.deletingLastPathComponent()
+                .appendingPathComponent("onlyLeft.txt").path,
+            type: .missingOnRight,
+            action: .copyToRight,
+            description: "Missing on right"
+        )
+        try #require(!(ineligible.type == .differentDates && ineligible.sizesMatch),
+                     "the fixture row must really be filtered out, or this tests nothing")
+
+        await manager.verifyAllWithChecksum(subset: [ineligible])
+
+        // Nothing wrote, so the confirm-time guards cannot be what saves this.
+        try #require(manager.fileOperationsEpoch == epochAtOffer)
+        try #require(manager.activeFileOperationsCount == 0)
+        #expect(manager.verifiedIdenticalForCopy == nil,
+                "a pass with nothing eligible to verify must not leave the previous offer standing")
+        #expect(manager.confirmVerifiedCopy() == nil)
+    }
+
+    /// A CANCELLED Verify All must offer nothing — not the partial set that happened to drain
+    /// before the click.
+    ///
+    /// `processInParallel` stops pulling items once the progress is cancelled, so the collector
+    /// keeps whatever finished first. The publish branch carried a generation term and an epoch
+    /// term but no cancellation term, and verify is read-only — so neither of those moves and
+    /// the partial set published. The user who just cancelled a slow pass was then shown a
+    /// one-permission bulk-write dialog over however many pairs got hashed, behind a banner
+    /// reading "Verify All cancelled": the two surfaces contradicted each other and the
+    /// expensive one won. The verdicts are sound; nobody asked for them.
+    ///
+    /// The cancel button is reachable — `verifyAllWithChecksum` sets `isCancellable`, and the
+    /// progress overlay renders the button off exactly that, which is what the `#require` below
+    /// pins before pulling the trigger.
+    @MainActor
+    @Test func testACancelledVerifyPassOffersNothingAndRetractsAStandingOffer() async throws {
+        let gate = FirstStatGate(inner: FileManager.default)
+        let fixture = try makeRaceFixture(fileManager: gate)
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        // An offer standing from an earlier pass. Assigned directly rather than hashed: the gate
+        // parks the first stat of the FIRST pass, and this test needs that park for the one
+        // under test.
+        manager.verifiedIdenticalForCopy = VerifiedCopyOffer(
+            differences: [fixture.identical], asOf: manager.fileOperationsEpoch
+        )
+
+        let pass = Task { @MainActor in
+            await manager.verifyAllWithChecksum(subset: [fixture.identical])
+        }
+        await awaitSignal(gate.entered)
+
+        // The user hits Cancel on the progress overlay while the pass is mid-hash.
+        let progress = try #require(manager.activeProgress)
+        try #require(progress.isCancellable, "the overlay only renders Cancel while this holds")
+        progress.cancel()
+        gate.release.signal()
+        await pass.value
+        try #require(!gate.releasedByTimeout, "the gate timed out: the pass was never actually held mid-hash")
+
+        // The pass really did verify a pair identical before stopping — this is a PARTIAL
+        // result, not an empty one, so it is the cancellation term being tested and not the
+        // pre-existing empty-verdict retraction. (The parked item was already past the loop's
+        // cancellation check, so it ran to completion and reached the collector; the fixture
+        // pair is identical, as the un-cancelled control on this same gated fixture shows.)
+        try #require(progress.isCancelled)
+        try #require(progress.completedUnitCount == 1,
+                     "the verdict must have been collected, or this passes through the empty branch")
+
+        #expect(manager.banner?.message == "Verify All cancelled")
+        #expect(manager.verifiedIdenticalForCopy == nil,
+                "a cancelled pass must not offer the partial set it happened to drain")
+        #expect(manager.confirmVerifiedCopy() == nil)
+        // Cancelling offers nothing and also resolves nothing: no row may be hidden on the way out.
+        #expect(manager.verifiedSameDifferenceIds.isEmpty)
+        #expect(manager.differences.count == 2)
+    }
+
+    /// Cancel on the offer dialog hides the verified rows — the ordinary path, and the control
+    /// that keeps the two refusal tests below from passing for the wrong reason.
+    @MainActor
+    @Test func testDismissingTheDialogHidesTheVerifiedRows() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+
+        manager.dismissVerifiedCopyDialogWithoutCopy()
+
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.verifiedSameDifferenceIds == [fixture.identical.id],
+                "an untroubled dismissal must still hide the pair it verified identical")
+    }
+
+    /// Cancel must not hide rows the confirm path would refuse to trust.
+    ///
+    /// Hiding is a claim about the files, resting on the same verdicts the copy would use. The
+    /// dismissal took no epoch or count reading at all, so an undo landing while the dialog was
+    /// up — restoring a verified file so it genuinely differs again — was followed by Cancel
+    /// hiding all of them, the changed one included. That is precisely what a refusal is not
+    /// allowed to do: quietly resolve what it declined to act on. The undo's rescan does
+    /// re-derive the row, but only if it completes and is not superseded, so the hide can
+    /// outlive its justification until a manual rescan.
+    @MainActor
+    @Test func testDismissAfterAFileOperationHidesNothing() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+
+        // ⌘Z while the dialog is up: same size, different bytes — the pair genuinely differs now.
+        let restored = Data("restored!".utf8)   // 9 bytes, like "identical"
+        let rightURL = fixture.rightIdenticalURL
+        await manager.enqueueFileOperation {
+            try? restored.write(to: rightURL)
+        }
+        try #require(manager.fileOperationsEpoch != manager.verifiedIdenticalForCopy?.asOf)
+
+        manager.dismissVerifiedCopyDialogWithoutCopy()
+
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.verifiedSameDifferenceIds.isEmpty,
+                "Cancel must not hide rows on verdicts the confirm path refuses to trust")
+        #expect(manager.differences.count == 2)
+    }
+
+    /// The count half of the same guard: an operation pre-counted but not yet enqueued. The
+    /// epoch has not moved yet — that gap is the whole window — so the stamp still matches and
+    /// only the count can refuse the hide.
+    @MainActor
+    @Test func testDismissWhileAnOperationIsPendingHidesNothing() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+
+        await manager.verifyAllWithChecksum()
+        try #require(manager.verifiedIdenticalForCopy?.differences.map(\.id) == [fixture.identical.id])
+        let stampedEpoch = manager.fileOperationsEpoch
+
+        manager.preCountFileOperation()
+        try #require(manager.activeFileOperationsCount == 1)
+        try #require(manager.fileOperationsEpoch == stampedEpoch,
+                     "the epoch must still be unmoved — only the count can refuse here")
+
+        manager.dismissVerifiedCopyDialogWithoutCopy()
+
+        #expect(manager.verifiedIdenticalForCopy == nil)
+        #expect(manager.verifiedSameDifferenceIds.isEmpty,
+                "a write already claimed may be about to change these very files")
+
+        manager.cancelPreCountedFileOperation()
+    }
+
+    /// The bulk run re-checks the stamp where the write is ORDERED, not where it was confirmed.
+    ///
+    /// `confirmVerifiedCopy` reads the epoch and count, then hands off to a `Task`; three
+    /// main-actor hops later `enqueueFileOperation` bumps the epoch and claims the operation
+    /// chain. An undo delivered into that gap claims the chain first and restores the bytes, and
+    /// this run would then queue behind it and overwrite them. Driven here through the run's own
+    /// parameter — the gap itself is sub-millisecond and keystroke-only — so what is pinned is
+    /// that the run refuses a stamp that no longer matches instead of writing on the strength of
+    /// a reading taken before a suspension point.
+    @MainActor
+    @Test func testTheBulkRunRefusesAStampThatMovedBeforeItCouldOrderTheWrite() async throws {
+        let fixture = try makeRaceFixture()
+        defer { fixture.cleanup() }
+        let manager = fixture.manager
+        // The DIFFERING pair on purpose: copying it left→right rewrites the destination, so
+        // "did not write" is an observable claim about the bytes. Handing the run the identical
+        // pair would make a write and a refusal look the same on disk.
+        let rightURL = URL(fileURLWithPath: fixture.differed.rightItemPath)
+        let before = try Data(contentsOf: rightURL)
+        try #require(before != (try Data(contentsOf: URL(fileURLWithPath: fixture.differed.leftItemPath))),
+                     "the copy must be detectable, or the byte assertion below proves nothing")
+
+        await manager.enqueueFileOperation { }
+        let liveEpoch = manager.fileOperationsEpoch
+        try #require(liveEpoch > 0)
+
+        await manager.bulkCopyDifferencesLeftToRight([fixture.differed], asOf: liveEpoch - 1)
+
+        #expect(try Data(contentsOf: rightURL) == before,
+                "a run whose stamp went stale before the enqueue must not write")
+        #expect(manager.banner?.message == "A file operation ran or is pending — run Verify All again")
+        #expect(manager.banner?.severity == .warning)
+        // The refused run must leave no exclusion or overlay behind.
+        #expect(!manager.isBulkSyncRunning)
+        #expect(manager.bulkSyncProgress == nil)
+        #expect(manager.activeProgress == nil)
+        #expect(manager.syncingDifferenceIds.isEmpty)
     }
 }

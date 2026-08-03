@@ -5,7 +5,9 @@ extension FileSyncManager {
 
     /// Bulk copy the given differences from left to right (overwrites if exists). No per-file confirmation; 2–4 concurrent copies.
     /// Internal (not private) because `confirmVerifiedCopy` in FileSyncManager+Verify.swift starts it.
-    func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference]) async {
+    /// - Parameter asOf: The `fileOperationsEpoch` the copied-from verdicts were taken under —
+    ///   `VerifiedCopyOffer.asOf`. Re-checked here, at the point the write is actually ordered.
+    func bulkCopyDifferencesLeftToRight(_ toCopy: [FileDifference], asOf: Int) async {
         let total = toCopy.count
         guard total > 0 else { return }
         // Same exclusion as syncAll: this run writes `bulkSyncProgress` and nils it in its
@@ -38,6 +40,21 @@ extension FileSyncManager {
             bulkSyncProgress = nil
             if activeProgress === progress { activeProgress = nil }
             clearSyncing(ids: toCopyIDs)
+        }
+
+        // Re-assert the confirm-time guard HERE, where the write is about to be ordered, rather
+        // than trusting the reading it took at the click. Between the two there are three
+        // main-actor hops — the `Task` this runs in starting, the overlay yield just above, and
+        // `enqueueFileOperation`'s own hop, which is where the epoch is bumped and the operation
+        // chain is claimed. A ⌘Z delivered into that gap pre-counts and spawns its task first,
+        // claims the chain first, restores the bytes — and this run then queues behind it and
+        // overwrites them, which is verbatim the failure the confirm guard exists to prevent.
+        // The window is sub-millisecond and keystroke-only, so this closes the last
+        // check-then-act in the path rather than a reachable bug; a guard resting on a value
+        // read before a suspension point is the shape, not the timing.
+        guard fileOperationsEpoch == asOf, activeFileOperationsCount == 0 else {
+            banner = .warning("A file operation ran or is pending — run Verify All again")
+            return
         }
 
         let activeFM = fileManager
