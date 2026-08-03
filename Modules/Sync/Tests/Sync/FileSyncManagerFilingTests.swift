@@ -1021,7 +1021,7 @@ final class CallCounter: @unchecked Sendable {
         manager.clearFiling()
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
-        manager.filingSuggestions = [s]
+        manager.publishFilingSuggestions([s])
 
         // Round-trip B starts for the recreated card and parks in turn.
         let b = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
@@ -1090,7 +1090,7 @@ final class CallCounter: @unchecked Sendable {
         manager.clearFiling()
         manager.filingLastProviderRoot = "/p"
         manager.filingLastTaxonomyFolders = ["Docs"]
-        manager.filingSuggestions = [s]
+        manager.publishFilingSuggestions([s])
 
         releaseA.value = true
         await a.value
@@ -1100,9 +1100,9 @@ final class CallCounter: @unchecked Sendable {
 
     /// A Filing rescan is the third way the state moves on mid-round-trip: it assigns
     /// `filingSuggestions` directly WITHOUT touching `filingTryAnotherInFlight`, so the stale
-    /// invocation still owns its entry and an ownership check alone lets its write through. The
-    /// scan lifecycle's epoch is what a rescan does bump — the same currency check the status
-    /// line already uses must gate the result write.
+    /// invocation still owns its entry and an ownership check alone lets its write through. What
+    /// a COMPLETED rescan does move is `filingSuggestionsGeneration`, bumped with the publish
+    /// itself — that is the currency that must gate the result write.
     @MainActor
     @Test func tryAnotherResultIsDroppedWhenARescanSupersedesItMidRoundTrip() async throws {
         let manager = FileSyncManager()
@@ -1133,11 +1133,12 @@ final class CallCounter: @unchecked Sendable {
         while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
         #expect(calls.value == 1, "round-trip A must reach the classifier")
 
-        // A rescan runs to completion while A is parked (real state machine: begin bumps the
-        // epoch, end bumps it again) and republishes the card — same id, new session state.
+        // A rescan runs to COMPLETION while A is parked — the real state machine: begin, the
+        // single publish that recreates the card (same id, new session state), then the `defer`'s
+        // end.
         manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
+        manager.publishFilingSuggestions([s])
         manager.endScan(\.filingScanLifecycle)
-        manager.filingSuggestions = [s]
 
         releaseA.value = true
         await a.value
@@ -1145,6 +1146,58 @@ final class CallCounter: @unchecked Sendable {
                 "a verdict from before the rescan must not land in the rescanned card")
         #expect(manager.filingTryAnotherInFlight.isEmpty,
                 "no clearFiling ran, so A still owned its entry and its defer must release it")
+    }
+
+    /// The other side of that guard: it must drop a verdict only when the list really was
+    /// REPUBLISHED, not merely when a scan ran. `endScan` sits in the scan body's `defer` and
+    /// bumps the epoch however the scan ended, so a CANCELLED rescan bumps it twice while never
+    /// reaching the single publish — and `cancelFindFilingSuggestions` deliberately leaves the
+    /// old cards standing. Gating on the epoch therefore threw away a verdict computed against
+    /// exactly the state still on screen: the user clicks "Try another", starts a rescan, hits
+    /// Cancel, and the card silently keeps the folder they just rejected (the button has no
+    /// spinner, so the only visible event is it re-enabling — a dead click).
+    @MainActor
+    @Test func tryAnotherResultStillLandsWhenACancelledRescanOnlyBumpsTheEpoch() async throws {
+        let manager = FileSyncManager()
+        let suite = "FilingAI-\(UUID().uuidString)"
+        manager.filingContentDefaults = UserDefaults(suiteName: suite)!
+        manager.filingRuleDefaults = UserDefaults(suiteName: suite)!
+        defer { wipeDefaultsSuite(suite) }
+
+        let calls = CallCounter()
+        let releaseA = Flag()
+        manager.filingClassifier = { _, files in
+            if calls.next() == 1 {
+                let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+                while !releaseA.value, ContinuousClock.now < deadline { await Task.yield() }
+            }
+            return Dictionary(uniqueKeysWithValues: files.map { ($0.filePath,
+                FilingVerdict(relativePath: "Docs/Fresh", confidence: .medium, reason: "ai")) })
+        }
+        manager.filingLastProviderRoot = "/p"
+        manager.filingLastTaxonomyFolders = ["Docs"]
+        let d1 = FilingDestination(path: "/p/Docs/A", confidence: .medium, reasons: [], newSegments: [])
+        let s = FilingSuggestion(filePath: "/p/Downloads/IMG_0023.HEIC", fileName: "IMG_0023.HEIC",
+                                 size: 1, modificationDate: nil, candidates: [d1], providerRoot: "/p")
+        manager.publishFilingSuggestions([s])
+
+        let a = Task { @MainActor in await manager.tryAnotherFolder(for: s) }
+        let arrival = ContinuousClock.now.advanced(by: .seconds(10))
+        while calls.value == 0, ContinuousClock.now < arrival { await Task.yield() }
+        #expect(calls.value == 1, "round-trip A must reach the classifier")
+
+        // A rescan starts and is CANCELLED while A is parked: `beginScan` bumps the epoch, the
+        // scan body's `defer` runs `endScan` and bumps it again, and the publish at the end of
+        // `findFilingSuggestions` is never reached — every `Task.isCancelled` return is above it.
+        // The cards on screen are still A's.
+        manager.beginScan(\.filingScanLifecycle, status: "Rescanning…")
+        manager.endScan(\.filingScanLifecycle)
+
+        releaseA.value = true
+        await a.value
+        #expect(manager.filingSuggestions.first?.best?.path == "/p/Docs/Fresh",
+                "the cancelled rescan left the cards alone, so A's verdict is still about them")
+        #expect(manager.filingTryAnotherInFlight.isEmpty, "A's defer must release its own entry")
     }
 
     /// `filingScanFolder` labels what's ON SCREEN, so it publishes with the results — a cancelled

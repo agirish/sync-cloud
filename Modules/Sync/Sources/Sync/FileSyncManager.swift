@@ -380,6 +380,20 @@ public class FileSyncManager: ObservableObject {
     @Published public internal(set) var filingScanLifecycle = ScanLifecycle()
     /// Filing suggestions from the most recent scan of a picked folder.
     @Published public var filingSuggestions: [FilingSuggestion] = []
+    /// Counts WHOLESALE replacements of `filingSuggestions` — the scan's single publish and
+    /// `clearFiling()`, and nothing else. It is the currency check a "Try another" round-trip
+    /// needs across its await: "is the list my verdict was computed against still the list on
+    /// screen?". Deliberately NOT the scan epoch, which answers a different question — `endScan`
+    /// lives in the scan body's `defer`, so a CANCELLED rescan bumps the epoch twice without ever
+    /// republishing, and the epoch would drop a verdict about cards that never moved.
+    ///
+    /// Per-item edits (`replaceFilingSuggestion`, the `removeAll` in `dismissFilingSuggestion` /
+    /// `performFiling`) do NOT bump it: they touch one card, so they cannot invalidate another
+    /// card's in-flight snapshot, and a re-ask for the SAME card is already refused by
+    /// `filingTryAnotherInFlight`'s token. Internal rather than private only because the one
+    /// writer lives in `FileSyncManager+Filing.swift`; write it through
+    /// `publishFilingSuggestions(_:)`, never by hand.
+    var filingSuggestionsGeneration = 0
     /// True while a Filing scan (walk folder + learn taxonomy + suggest) is running.
     public var isSuggestingFiles: Bool {
         get { filingScanLifecycle.isRunning }
