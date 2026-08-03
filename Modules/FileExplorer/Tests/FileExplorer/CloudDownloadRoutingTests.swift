@@ -138,11 +138,11 @@ struct CloudDownloadRoutingTests {
     /// `requests[node.id]?.requestID`, so "is this row's file being downloaded" is a dictionary hit
     /// rather than a comparison a caller could get backwards.
     @MainActor @Test func onlyTheRequestedPathIsWatched() {
-        let watch = PaneDownloadWatch { _, _ in
-            // Never concludes within this test; nothing here waits on it.
-            _ = try? await Task.sleep(for: .seconds(5))
-            return false
-        }
+        // Returns at once WITHOUT concluding, which is what keeps the slot: `begin` clears
+        // `requests` only for a watch that reports `true`. A sleep here would hold the same slot
+        // the same way and go on occupying the main actor for five seconds after this test had
+        // finished — every assertion below is synchronous bookkeeping, so it bought nothing.
+        let watch = PaneDownloadWatch { _, _ in false }
         let request = CloudDownloadRequest(path: "/iCloud/report.pdf", paneToken: .right)
         watch.begin(request)
 

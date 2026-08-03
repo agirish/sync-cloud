@@ -192,16 +192,31 @@ import Foundation
     /// The caller still gets `false` — rendering is unchanged, a row for a file that is not there
     /// carries no badge either way — so this is a caching decision and only a caching decision.
     ///
-    /// The production default, not an injected stand-in, because that mapping is the whole fix. A
-    /// UUID name under `/fixture`, so nothing in the table another suite is asserting on is touched.
+    /// The production default, not an injected stand-in, because that mapping is the whole fix.
+    ///
+    /// **On a `Table` of its own, and that is what keeps it from going vacuous.** The production
+    /// stat is a real suspension off the main actor, so this call is out across a window other
+    /// suites are running in — and any `forget`/`clear` any of them makes bumps the generation the
+    /// memo guards on. On the SHARED table the mutation this test exists to catch
+    /// (`record(path, answer ?? false)`) would then decline for the wrong reason and the test would
+    /// pass with the defect present. This cluster made that likelier still:
+    /// `PaneDownloadWatch.begin`
+    /// now forgets synchronously per request. A private table cannot be bumped by anything but this
+    /// test, so a `nil` here is the rule and not a collision.
+    ///
+    /// The rule is also pinned deterministically at the seam by
+    /// `anInjectedStatWithNoAnswerIsNotMemoized`;
+    /// this is the redundant end-to-end reading of it, and redundancy that can pass for the wrong
+    /// reason is worth nothing.
     @MainActor
     @Test func aStatThatCouldNotAnswerIsNotMemoized() async {
         let gone = "/fixture/vanished-\(UUID().uuidString).bin"
+        let table = CloudOnlyBadgeCache.Table()
 
-        let answer = await CloudOnlyBadgeCache.isCloudOnly(atPath: gone)
+        let answer = await table.isCloudOnly(atPath: gone)
 
         #expect(!answer, "a path with no answer must still render as un-badged")
-        #expect(CloudOnlyBadgeCache.cached(gone) == nil,
+        #expect(table.cached(gone) == nil,
                 "the memo holds an entry asserting local content for a path with no file behind it")
     }
 

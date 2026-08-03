@@ -275,10 +275,14 @@ import Sync
 
     /// The same file asked for twice is still ONE watch, and it is the NEWER request.
     ///
-    /// Two watches on one path would mean two `CloudOnlyBadgeCache.forget` calls, and every forget
-    /// bumps the memo generation, invalidating every in-flight badge stat in BOTH panes — verbatim
-    /// the harm the pane-scoped payload exists to prevent. Keyed by request id instead of by path,
-    /// that is exactly what a repeat Download would produce.
+    /// Two watches on one path would poll the same file twice over, and the older one's conclusion
+    /// would land after the newer had taken the slot — clearing a watch that had barely started.
+    /// Keyed by request id instead of by path, that is exactly what a repeat Download would
+    /// produce.
+    ///
+    /// Not about the forgets: `begin` forgets unconditionally before it schedules anything, so a
+    /// repeat Download costs a second forget however this resolves. It should — the user asked
+    /// again, so the memo's answer for that path really is stale again. See `PaneDownloadWatch`.
     ///
     /// Driven directly rather than through a mounted pane: the question is what the collection holds
     /// the instant the second request arrives, which is a synchronous fact, and reading it through
@@ -286,7 +290,12 @@ import Sync
     /// throwaway directory so the bounded polls these start touch nothing another suite reads.
     @Test func aSecondRequestForOneFileSupersedesRatherThanAdds() {
         let dir = "/cloud-download-watch/\(UUID().uuidString)"
-        let watch = PaneDownloadWatch()
+        // Injected, and it returns at once without concluding — so the slot is held exactly as the
+        // real poll would hold it, with nothing left running. The default watch is
+        // `CloudDownloadPoll.watch`, which is a REAL ten-second poll: three `begin`s here started
+        // three of them, and all three went on probing the filesystem and occupying the main actor
+        // long after this test had returned its verdict. Nothing below reads a poll's result.
+        let watch = PaneDownloadWatch { _, _ in false }
         let first = CloudDownloadRequest(path: "\(dir)/first.bin", paneToken: .left)
         let other = CloudDownloadRequest(path: "\(dir)/other.bin", paneToken: .left)
         let firstAgain = CloudDownloadRequest(path: first.path, paneToken: .left)
@@ -306,18 +315,22 @@ import Sync
     /// Superseding a path CANCELS the watch it replaces, rather than leaving it running.
     ///
     /// A leaked watch is invisible in the collection — the new request has already taken the slot —
-    /// and its only trace in the app is a second `CloudOnlyBadgeCache.forget`, which nothing counts.
-    /// So the watch is injected here and reports its own cancellation. Every wait below is bounded
-    /// by a deadline the watch itself enforces; nothing spins.
+    /// and it leaves no trace in the memo either: it forgot nothing (`begin` does that, once per
+    /// request) and, if it ever lands, it records the same answer the live watch will. So the watch
+    /// is injected here and reports its own cancellation; nothing else in the app can see it
+    /// at all.
+    /// Every wait below is bounded by a deadline the watch itself enforces; nothing spins.
     @Test func aRepeatRequestCancelsTheWatchItReplaces() async {
         let log = WatchLog()
+        // Released on the way out, so the two watches this test does NOT cancel are not still
+        // parked when the next suite starts. They used to hold a 45-second sleep each, strongly
+        // retaining this watch and its log, in a process where suites run in parallel and already
+        // blame each other for main-actor contention.
+        let park = WatchPark()
+        defer { park.release() }
         let watch = PaneDownloadWatch { request, _ in
             log.started.insert(request.requestID)
-            // A cancelled task's sleep throws at once, so this both parks the watch and detects the
-            // cancellation — with a ceiling, so a watch nobody cancels ends on its own.
-            if (try? await Task.sleep(for: .seconds(45))) == nil {
-                log.cancelled.insert(request.requestID)
-            }
+            if await park.park(upTo: 45) { log.cancelled.insert(request.requestID) }
             return false
         }
         let dir = "/cloud-download-watch/\(UUID().uuidString)"
@@ -350,6 +363,31 @@ import Sync
     @MainActor private final class WatchLog {
         var started: Set<UUID> = []
         var cancelled: Set<UUID> = []
+    }
+
+    /// Parks an injected watch until the test releases it, reporting cancellation the way a real
+    /// poll's interrupted sleep does.
+    ///
+    /// Sliced rather than one long sleep, and that is the whole point. The ceiling still bounds a
+    /// watch nobody releases — a starved main actor must not turn a missing cancellation into a
+    /// hang — but a RELEASED one winds up within a slice instead of outliving the test that started
+    /// it by the better part of a minute. A watch parked past its test keeps its
+    /// `PaneDownloadWatch`
+    /// and everything the closure captured alive, on the main actor, while other suites run.
+    @MainActor private final class WatchPark {
+        private var released = false
+
+        func release() { released = true }
+
+        /// Whether the watch was CANCELLED. `false` means released, or the ceiling ran out — a
+        /// cancelled `Task.sleep` throws at once, which is what distinguishes the two.
+        func park(upTo seconds: Double) async -> Bool {
+            let ceiling = Date().addingTimeInterval(seconds)
+            while !released, Date() < ceiling {
+                if (try? await Task.sleep(for: .milliseconds(20))) == nil { return true }
+            }
+            return false
+        }
     }
 
     /// Yields until `condition` holds or the deadline passes — no window to pump here, since nothing
