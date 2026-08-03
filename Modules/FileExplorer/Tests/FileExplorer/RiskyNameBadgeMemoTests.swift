@@ -67,12 +67,14 @@ import Sync
     /// whether the test asks or not, so on `.default` it would accept any parallel suite's `.left`
     /// post — and accepting one republishes `downloads.requests`, which rebuilds this pane's body.
     ///
-    /// **Measured, not assumed, because the obvious worry is wrong.** One foreign post mid-test
-    /// cost this pane a whole extra render — `riskyNameReason` asks went 861 → 984 — and moved the
-    /// evaluation count by exactly nothing, 15 → 15. That is the memo doing its job, and it is why
-    /// the assertion is stated as *distinct names asked == evaluations* rather than as a number:
-    /// the equality is invariant under renders nobody here triggered. So this channel is not
-    /// propping up the verdict.
+    /// **Measured, not assumed, because the obvious worry is wrong.** Posting one foreign `.left`
+    /// request onto this pane during `aMountedPaneEvaluatesEachDistinctNameExactlyOnce` cost it a
+    /// whole extra render — `riskyNameReason` asks went 861 → 984 — and moved the evaluation count
+    /// by exactly nothing, 15 → 15. The memo absorbs it, and none of the three cases mounting
+    /// through here counts renders: they compare evaluations against the distinct names the pane
+    /// asked about, against zero for later passes, and against a collapsed subtree that stays
+    /// unrealized. All three are invariant under a render nobody here triggered, so this channel is
+    /// not propping up any verdict.
     ///
     /// It is here because the rule is the rule (see `docs/flaky-tests.md` mechanism 9) and because
     /// the render is not free: 123 wasted asks and a full pass through the pane's body, inside a
