@@ -218,6 +218,65 @@ final class PaneColumnHoldGate {
 
     /// Whether a hold-worthy wheel gesture is in flight inside this pane's own stack right now.
     var isStackHeld: Bool { watchdog?.isStackHeld ?? false }
+
+    /// The ONE deferred reveal this pane is waiting on — so a second reveal REPLACES the first
+    /// rather than adding to it, and so a teardown has something to cancel.
+    ///
+    /// Four drivers schedule a reveal (`browsePath`, the preview's rising edge, and each of the two
+    /// stored widths growing — and the column width is `@AppStorage`, so it fires in BOTH panes),
+    /// each schedules two attempts, and each attempt that finds the stack held re-checks on its own
+    /// timer. Drilling three times inside one hold therefore left six independent chains polling at
+    /// 10Hz. They were never in DISAGREEMENT — every attempt re-resolves its target live, so the
+    /// newest chain says everything an older one would — only redundant, and redundancy here is
+    /// paid for in retention: each chain strongly holds the pane's captures (its tree, its indices,
+    /// its delegate and closures) plus the `ScrollViewProxy` until it expires, including after the
+    /// pane is gone. A `DispatchQueue.main.asyncAfter` block is neither cancellable nor tied to
+    /// view lifetime, which is precisely why the cancellable has to live somewhere that outlives a
+    /// single `View` value — here.
+    private var pendingReveal: RevealBody?
+
+    /// The parked chain's body, in a box the gate can EMPTY.
+    ///
+    /// Cancelling a `DispatchWorkItem` is not enough and measuring it is what showed that:
+    /// libdispatch keeps a scheduled item alive until its deadline arrives whether or not it has
+    /// been cancelled, so the cancelled block went on holding the pane for the whole remaining
+    /// budget — exactly the retention this machinery exists to bound, surviving the cancel that was
+    /// supposed to end it. Dropping the closure out of the box releases the captures on the spot;
+    /// what the queue keeps until the deadline is then this empty box, and the block it drains into
+    /// finds nothing to run. `testAPaneParksOneDeferredRevealAndDropsTheRest` fails on the
+    /// `DispatchWorkItem` version.
+    private final class RevealBody {
+        var run: (@MainActor () -> Void)?
+    }
+
+    /// Parks `body` as THIS pane's pending reveal, `delay` from now, dropping whatever was parked
+    /// before.
+    func deferReveal(by delay: TimeInterval, _ body: @escaping @MainActor () -> Void) {
+        cancelPendingReveal()
+        let parked = RevealBody()
+        parked.run = body
+        pendingReveal = parked
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated {
+                guard let run = parked.run else { return }
+                // Released before the call, not after: a body that parks the next link of the chain
+                // must not be held by the link that ran it.
+                parked.run = nil
+                run()
+            }
+        }
+    }
+
+    /// Drops the pending reveal: on pane teardown, and when a fresh reveal supersedes it.
+    ///
+    /// Superseding matters beyond the retention: a parked chain re-resolves `browsePath` live but
+    /// carries the `treeRoot` it was scheduled with, so a re-root while it waits leaves it aiming
+    /// at an id no rendered column carries. Dropping it in favour of the re-root's own reveal is
+    /// what keeps the waiting chain speaking for the stack that exists.
+    func cancelPendingReveal() {
+        pendingReveal?.run = nil
+        pendingReveal = nil
+    }
 }
 
 /// Returns the column stack from an overscrolled position when the platform fails to.

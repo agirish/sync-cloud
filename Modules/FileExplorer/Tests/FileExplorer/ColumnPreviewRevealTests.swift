@@ -1,6 +1,7 @@
 import Testing
 import AppKit
 import Design
+import Events
 import SwiftUI
 import Sync
 @testable import FileExplorer
@@ -113,6 +114,9 @@ import Sync
         let tree: PaneTree
         let index: PaneChildrenIndex
         let defaults: UserDefaults
+        /// The deferred reveal's hold budget, or `nil` for the shipped one. Only the exhaustion
+        /// test shortens it — see `paneColumnRevealHoldChecks`.
+        var holdChecks: Int? = nil
 
         var body: some View {
             PaneColumnsView(
@@ -148,6 +152,8 @@ import Sync
             // destination against the same post-layout viewport either way — including through
             // the deferred hop and the retry, both of which still run.
             .environment(\.paneColumnRevealAnimation, nil)
+            .environment(\.paneColumnRevealHoldChecks,
+                         holdChecks ?? PaneColumnsView.revealHoldChecks)
         }
     }
 
@@ -279,19 +285,37 @@ import Sync
         return found
     }
 
+    /// The pane's ONE watchdog, or a failure naming how many were actually found.
+    ///
+    /// The count is the load-bearing half. Every test that puts a mounted stack under a hold does
+    /// it by swapping ONE watchdog's `axisLock` for a tracker it drives; pick the wrong one out of
+    /// several and the pane's gate is still wired to `WheelGestureTracker.shared`, which installs a
+    /// real `NSEvent` monitor fed by the machine's own trackpad. The test would then assert against
+    /// whatever the person at the Mac happens to be scrolling — the ambient-input flake class
+    /// `paneClickModifiers` exists to close, arriving by a different door. Today the pane mounts
+    /// exactly one; if a future change mounts a second column stack here, this fails loudly at the
+    /// swap rather than quietly measuring the room.
+    private func soleWatchdog(_ mounted: Mounted) -> PaneColumnsOverscrollReturn.WatchdogView? {
+        let found = watchdogs(mounted)
+        #expect(found.count == 1,
+                "\(found.count) watchdogs mounted in this pane, expected exactly 1 — the swap below would leave the gate on the app-wide lock, which the machine's own trackpad feeds")
+        return found.count == 1 ? found.first : nil
+    }
+
     /// Mounts the pane at `paneWidth` over a `depth`-deep tree, with `(openTo ?? depth) + 1`
     /// columns open, after the drill's own auto-scroll has settled.
     ///
     /// - Parameter openTo: how far down to open, when that must be shallower than the tree is
     ///   deep — a test that drills further has to leave itself somewhere to drill to.
-    private func mount(paneWidth: CGFloat, depth: Int, openTo: Int? = nil) async throws -> Mounted {
+    private func mount(paneWidth: CGFloat, depth: Int, openTo: Int? = nil,
+                       holdChecks: Int? = nil) async throws -> Mounted {
         let opened = openTo ?? depth
         let box = Box()
         let defaults = ScratchDefaults("column-preview-reveal")
         let tree = Self.tree(depth: depth)
         let index = PaneChildrenIndex(tree: tree, treeRoot: Self.root)
         let host = NSHostingView(rootView: Harness(box: box, tree: tree, index: index,
-                                                   defaults: defaults))
+                                                   defaults: defaults, holdChecks: holdChecks))
         host.frame = NSRect(x: 0, y: 0, width: paneWidth, height: 520)
         let window = NSWindow(contentRect: host.frame, styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -790,7 +814,7 @@ import Sync
 
         // Take this pane's watchdog off the app-wide lock (which a real trackpad feeds) and onto a
         // tracker this test drives by hand.
-        let watchdog = try #require(watchdogs(mounted).first, "no watchdog mounted in the stack")
+        let watchdog = try #require(soleWatchdog(mounted))
         let lock = WheelGestureTracker()
         watchdog.axisLock = lock
 
@@ -847,6 +871,231 @@ import Sync
                 "the reveal was defeated by the pane's own in-flight gesture and never re-issued: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
         #expect(deepest.minX >= visible.lowerBound - 1,
                 "the re-issued reveal cut the deepest column off on its leading edge: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// Puts `mounted`'s stack under a hold this test owns, and returns the tracker holding it.
+    ///
+    /// Dated an hour ahead — `PaneColumnsAxisLockTests`' shape — so the hold cannot lapse on its
+    /// own while the test runs, whatever the machine is doing. Releasing it is then the only thing
+    /// that can end it, which is what makes "the reveal came back on release" mean something.
+    private func holdStack(_ mounted: Mounted) throws -> (lock: WheelGestureTracker, at: TimeInterval) {
+        let clip = mounted.stack.contentView
+        let watchdog = try #require(soleWatchdog(mounted))
+        let lock = WheelGestureTracker()
+        watchdog.axisLock = lock
+        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
+        let ahead = CFAbsoluteTimeGetCurrent() + 3600
+        lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                    window: mounted.window, locationInWindow: inStack, at: ahead)
+        lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                    window: mounted.window, locationInWindow: inStack, at: ahead + 0.01)
+        try #require(lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture's gesture does not hold this stack — nothing measured under it is under a hold")
+        return (lock, ahead)
+    }
+
+    /// How long a person can plausibly keep a wheel gesture delivering without a `staleness`-sized
+    /// gap: a flick's momentum tail, then more scrolling, then more. Five seconds of it is
+    /// ordinary — a long folder read at a steady pace — and is the number the deferral's budget
+    /// used to be set to (50 checks × 0.1s), which is what made an ordinary scroll cost a reveal.
+    ///
+    /// Written as a duration rather than as `PaneColumnsView.revealHoldChecks`, deliberately. This
+    /// is the USER-FACING claim — "keep scrolling for five seconds and your reveal still arrives" —
+    /// and reading the production constant here would make the test agree with whatever that
+    /// constant becomes, including 50 again.
+    private static let plausibleContinuousGesture: TimeInterval = 5.0
+
+    /// A reveal deferred by a hold must outlive an ORDINARY continuous gesture, not be spent by it.
+    ///
+    /// The deferral re-checks the hold every `WheelGestureTracker.staleness` and used to be capped
+    /// at a counted budget of 50, i.e. five seconds, after which the attempt returned — no scroll,
+    /// no log, no further driver. That is byte-for-byte the outcome the deferral was added to fix:
+    /// the freshly opened deepest column stays behind the pane's edge for good, with nothing in
+    /// `~/sync-cloud.log` to say why.
+    ///
+    /// The budget's stated justification was a lock that never releases, and that is unreachable
+    /// under this tracker: `shouldHoldHorizontalDrift(at:)` ands in `now - lastEventAt <
+    /// staleness`, unconditionally, so the hold lapses 100ms after the last wheel event whatever
+    /// the phase machinery does. What the cap actually caught was a person who kept scrolling —
+    /// and it answered them by dropping the reveal.
+    ///
+    /// So this holds the stack for longer than the old cap allowed and then releases it. The
+    /// release is the only event in the window: `browsePath` has already moved, no preview opens,
+    /// neither stored width changes, and the origin never leaves 0 so the quiescence return has
+    /// nothing to clamp. If the chain gave up while the gesture was still delivering, nothing
+    /// brings the column back.
+    @Test func testAHeldRevealOutlivesAnOrdinaryFiveSecondGesture() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        // Three 210pt columns fit a 690pt pane, so nothing has revealed yet and every point of
+        // movement below belongs to the drill this test makes.
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        let held = try holdStack(mounted)
+
+        // Drill one deeper: four 210pt columns are 840pt of content in a 690pt pane, so the new
+        // deepest column is off the trailing edge and only a reveal can bring it back.
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column")
+
+        // The gesture keeps delivering right through the old cap, and past both reveal attempts'
+        // own chains (the retry's starts `revealRetryDelay` later, so it expires last).
+        await pump(mounted.window,
+                   seconds: Self.plausibleContinuousGesture + PaneColumnsView.revealRetryDelay + 1.0)
+
+        // The hold itself is NOT what changed and is asserted here too: while the gesture delivers,
+        // the stack holds still. That is the axis lock's whole job, and the sideways wiggle it
+        // fixed would be back the moment a deferred reveal were allowed to win the fight instead of
+        // waiting the gesture out.
+        #expect(clip.bounds.origin.x == 0,
+                "the stack moved sideways while a vertical gesture was delivering in its own pane — the axis lock's hold is gone")
+        try #require(held.lock.shouldHoldHorizontalDrift(for: clip),
+                     "the hold lapsed during the wait — the reveal was never actually made to wait")
+
+        // Nothing is vacuous: four columns, and they overflow the viewport.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+
+        // The finger leaves and the momentum runs out.
+        held.lock.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0,
+                         window: mounted.window, locationInWindow: .zero, at: held.at + 0.5)
+        try #require(!held.lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture failed to release the hold")
+
+        let revealed = await wait(mounted.window, upTo: 25) {
+            guard let deepest = self.columnFrames(mounted).last else { return false }
+            return deepest.maxX <= self.visibleSpan(mounted).upperBound + 1
+        }
+        let deepest = try #require(columnFrames(mounted).last, "no deepest column")
+        let visible = visibleSpan(mounted)
+        #expect(revealed,
+                "a \(Self.plausibleContinuousGesture)s gesture spent the reveal's deferral budget and the column never came back: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
+    }
+
+    /// Every horizontal origin the clip is ever SET to, in order — including one put back a runloop
+    /// turn later.
+    ///
+    /// `setBoundsOrigin` posts `boundsDidChangeNotification` synchronously, so this sees a movement
+    /// the watchdog reverts; polling the origin from a pumping loop does not, because the revert is
+    /// a queued hop that drains inside the loop's own `await`. That distinction is the whole
+    /// measurement here: at exhaustion the reveal is EXPECTED to be reverted, and "was it issued at
+    /// all" is exactly what separates the fix from the bug.
+    @MainActor private final class OriginTrace {
+        /// Boxed and captured strongly by the observer, so what the notification appends to does
+        /// not depend on the trace object still being referenced by the test.
+        @MainActor private final class Log { var origins: [CGFloat] = [] }
+        private let log = Log()
+        private var observer: NSObjectProtocol?
+        init(_ clip: NSClipView) {
+            clip.postsBoundsChangedNotifications = true
+            let log = self.log
+            log.origins = [clip.bounds.origin.x]
+            observer = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: clip, queue: .main
+            ) { _ in
+                MainActor.assumeIsolated { log.origins.append(clip.bounds.origin.x) }
+            }
+        }
+        /// Explicit rather than a `deinit` — a nonisolated `deinit` cannot touch the stored,
+        /// non-Sendable observer token. Called from the test, which is where the trace's life ends.
+        func stop() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+        }
+        var origins: [CGFloat] { log.origins }
+        var peak: CGFloat { log.origins.map(abs).max() ?? 0 }
+    }
+
+    /// Whether any log line recorded since `since` contains `needle`.
+    private func loggedLine(containing needle: String, since: Date) -> Bool {
+        Logger.shared.entries.contains { $0.timestamp >= since && $0.message.contains(needle) }
+    }
+
+    /// The end of the budget must be a logged best-effort scroll, not a silent drop.
+    ///
+    /// This is the branch `revealHoldChecks` was shipped with and nothing exercised: `guard
+    /// checksLeft > 0 else { return }`. Reaching it produced precisely the user-visible outcome the
+    /// deferral was added to remove — the freshly opened deepest column stranded behind the pane's
+    /// edge, no scroll, and NOTHING in `~/sync-cloud.log` to say a reveal had ever been pending.
+    ///
+    /// Both halves of the fix are pinned, and the third assertion is the one that keeps the fix
+    /// honest:
+    ///
+    /// 1. the exhaustion is logged, so a hold that really does last that long is diagnosable;
+    /// 2. the scroll is ISSUED anyway — a scroll `enforceHold` reverts leaves the stack exactly
+    ///    where returning would have, and if the hold has lapsed by then it lands, so trying is
+    ///    strictly better than giving up;
+    /// 3. and the hold still WINS. The stack must come to rest where the axis lock put it. Making
+    ///    the reveal try harder must not turn into the reveal beating the lock — that is the
+    ///    sideways-wiggle regression, and it would pass assertions 1 and 2 on its own.
+    ///
+    /// The budget is injected at 0 so the very first attempt is the exhausted one; at the shipped
+    /// sixty seconds this branch is unreachable in a suite, which is why it went untested.
+    @Test func testAnExhaustedHoldBudgetScrollsAnywayAndSaysSo() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2, holdChecks: 0)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        let held = try holdStack(mounted)
+        let trace = OriginTrace(clip)
+        defer { trace.stop() }
+        let since = Date()
+
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column")
+
+        let marker = Marker()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PaneColumnsView.revealRetryDelay + 0.5) {
+            MainActor.assumeIsolated { marker.fired = true }
+        }
+        _ = await wait(mounted.window, upTo: 30) { marker.fired }
+
+        // Nothing is vacuous: four columns overflowing the viewport, so there is a real reveal to
+        // issue and a real distance for it to move.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — there is nothing for a reveal to move")
+
+        // 1. The exhaustion is on the record.
+        #expect(await wait(mounted.window, upTo: 10) {
+                    self.loggedLine(containing: "reveal waited out", since: since)
+                },
+                "the reveal ran out of hold checks and logged nothing — a stuck hold is invisible in ~/sync-cloud.log, which is how this defect reads as 'the column just hides'")
+
+        // 2. It scrolled anyway.
+        #expect(trace.peak > 0,
+                "the exhausted attempt never issued its scroll (the clip was only ever set to \(trace.origins)) — a reveal dropped in silence is the bug the deferral exists to fix")
+
+        // 3. And the hold still won.
+        try #require(held.lock.shouldHoldHorizontalDrift(for: clip),
+                     "the hold lapsed during the window — assertion 3 below would be measuring nothing")
+        #expect(await wait(mounted.window, upTo: 10) { clip.bounds.origin.x == 0 },
+                "the stack came to rest at \(clip.bounds.origin.x) while a vertical gesture was still delivering in its own pane — the reveal now beats the axis lock, which is the sideways-wiggle regression")
+    }
+
+    /// The budget bounded from ABOVE as well as below, in the terms its own doc argues in.
+    ///
+    /// The suite already bounds it from below twice over — `testAHeldRevealOutlivesAnOrdinaryFive
+    /// SecondGesture` fails under anything near the old 50, and the deferral test needs enough
+    /// checks to span its held window. Nothing bounded it from above, and the number is the only
+    /// thing deciding how long one deferred chain retains a torn-down pane's captures and its
+    /// `ScrollViewProxy`. Stated as the duration the doc reasons about rather than as the count, so
+    /// a change to `WheelGestureTracker.staleness` is caught here too.
+    @Test func testTheHoldBudgetIsLongerThanAnyGestureAndShorterThanForever() {
+        let seconds = Double(PaneColumnsView.revealHoldChecks) * WheelGestureTracker.staleness
+        #expect(seconds >= 30,
+                "the hold budget is \(seconds)s — an ordinary continuous scroll reaches that, and reaching it costs the reveal its wait")
+        #expect(seconds <= 120,
+                "the hold budget is \(seconds)s — that is how long one deferred chain can retain a pane that is already gone")
     }
 
     /// The one case the preview's un-driven falling edge really does leave to someone else: an
