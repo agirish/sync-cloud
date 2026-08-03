@@ -111,11 +111,61 @@ final class ScratchDefaultsLedger: @unchecked Sendable {
     }
 
     private func sweepPreviousRun() {
+        sweepStaleScratchPlists()
         guard let recorded = try? String(contentsOfFile: ledgerPath, encoding: .utf8) else { return }
         for name in recorded.split(separator: "\n") {
             try? FileManager.default.removeItem(atPath: "\(preferencesDirectory)/\(name).plist")
         }
         try? FileManager.default.removeItem(atPath: ledgerPath)
+    }
+
+    /// Deletes scratch plists the ledger can never account for, matching by SHAPE rather than name.
+    ///
+    /// A name only reaches the ledger when the test owning it gets to its cleanup. Most creation
+    /// sites are a bare `UserDefaults(suiteName:)` paired with a `defer`, so a run that is KILLED
+    /// — a cancelled CI job, an interrupted `swift test`, a mutation experiment stopped by hand —
+    /// leaves suites that were never recorded and that no later run can name. That is not a
+    /// theoretical gap: 3,551 had accumulated by 2026-08-03, and a cold `defaults domains`, which
+    /// enumerates this directory, had gone from ~0.1s to 2.38s. Matching by shape closes it for
+    /// every creation site at once, recorded or not.
+    ///
+    /// The age floor is what makes this safe to run while other sessions are testing — this Mac
+    /// routinely has several worktrees running suites at once, and their live suites are minutes
+    /// old at most. An hour is far past any test's lifetime, and still bounds the directory at
+    /// about one hour of stragglers rather than letting it grow without limit.
+    /// Internal, not private, so its two dangerous edges can be tested directly: a stale scratch
+    /// plist really is deleted, and a real domain with a lowercase UUID really is not. Going
+    /// through `record`'s once-per-process trigger instead would make those tests depend on
+    /// which one ran first, and pass vacuously in whichever order lost.
+    func sweepStaleScratchPlists() {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: preferencesDirectory) else { return }
+        let cutoff = Date().addingTimeInterval(-3600)
+        for name in names where Self.isScratchSuitePlist(name) {
+            let path = "\(preferencesDirectory)/\(name)"
+            guard let modified = try? fm.attributesOfItem(atPath: path)[.modificationDate] as? Date,
+                  modified < cutoff else { continue }
+            try? fm.removeItem(atPath: path)
+        }
+    }
+
+    /// `<prefix><separator><UUID>.plist`, with the UUID in the UPPERCASE form `UUID().uuidString`
+    /// emits — which is what every scratch suite name here ends in. Both separators are in use:
+    /// `ScratchDefaults` joins with `-`, a few call sites with `.`.
+    ///
+    /// The uppercase requirement is the safety margin, not a detail: real preference domains that
+    /// carry a UUID write it lowercase (`com.openai.chat.RemoteFeatureFlags.164320f2-…`), so they
+    /// cannot match. Loosen this to case-insensitive and the sweep starts eating real domains.
+    static func isScratchSuitePlist(_ name: String) -> Bool {
+        guard name.hasSuffix(".plist") else { return false }
+        let stem = name.dropLast(".plist".count)
+        // A prefix character, a separator, then the 36-character UUID.
+        guard stem.count > 37 else { return false }
+        let separator = stem[stem.index(stem.endIndex, offsetBy: -37)]
+        guard separator == "-" || separator == "." else { return false }
+        let groups = stem.suffix(36).split(separator: "-", omittingEmptySubsequences: false)
+        guard groups.map(\.count) == [8, 4, 4, 4, 12] else { return false }
+        return groups.allSatisfy { $0.allSatisfy { $0.isHexDigit && !$0.isLowercase } }
     }
 }
 
