@@ -130,8 +130,23 @@ passes for the wrong reason forever.
 observable, and drain queue **turns** rather than wall time. Quiescence alone is never sufficient:
 it cannot tell "finished" from "not started".
 
+**Live instance, 2026-08-03.** `testCreateFolder` in
+`Modules/Sync/Tests/Sync/FileOperationsTests.swift` called `undoManager.undo()`, slept a flat
+100ms, and asserted the folder was gone. The undo's removal runs inside
+`Task { await enqueueFileOperation … }`, so 100ms was never a bound on anything — it was ample on
+an idle machine and short of it under full-suite load on the self-hosted runner. Run
+`30823146574` attempt 1 on `v2.x` failed the assertion; attempt 2 of the identical SHA passed,
+and the same commit was green on `main`. Replaced with `waitUntil` on the folder's disappearance
+plus the usual drain. Mutation-tested by making the undo's removal a no-op: the test now fails at
+the 5s timeout with the labeled expectation instead of passing — the wait is read, not discarded.
+
+**Note the shape of the assertion.** This one is safe to wait on because the folder is asserted
+*present* first, so the wait watches a real transition rather than an absence. A wait for a state
+that was already true when the wait began proves nothing at all.
+
 **See.** `c2584e6` — *Poll the drill tests' observables instead of pumping a fixed window*;
-`3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*.
+`3a4ee8a` — *Poll for the revealed search field's caret instead of a fixed pump*;
+`ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*.
 
 ### 3. Process-wide state, and suites running in parallel
 
