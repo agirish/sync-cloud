@@ -85,6 +85,36 @@ enum ColumnPreviewSource: Equatable, Sendable {
     }
 }
 
+/// What the preview area offers under the icon, for the file the column is showing.
+///
+/// A named value rather than a `ProgressView`/`Button` swap written inline in `body`, for exactly
+/// the reason `ColumnPreviewColumn.paneToken` has no default: the user-visible half of
+/// `isAwaitingDownload` was otherwise unprovable. Replacing the swap with `if false` — every
+/// preview-started download losing its spinner and going on offering a Download button for a file
+/// already downloading — left the whole suite green, because the only channel a test could read it
+/// through does not exist. SwiftUI builds no accessibility tree at all without an assistive client
+/// attached, so `accessibilityChildren()` on a hosted pane comes back empty under `swift test` and
+/// any caption assertion passes vacuously; and whether SwiftUI's macOS `ProgressView` and `Button`
+/// bridge to an `NSProgressIndicator`/`NSButton` a view walk could find is a version-dependent
+/// implementation detail, not a contract worth resting a test on. Deciding it in a pure value moves
+/// the decision somewhere a unit test can simply call.
+enum PreviewAccessory: Equatable, Sendable {
+    /// A spinner: the pane is watching a download of this file.
+    case downloading
+    /// The Download button, which asks the provider for the file's content.
+    case offer
+    /// Nothing below the caption.
+    case none
+
+    /// Pure policy, given the file's classification and whether the pane is watching a download of
+    /// it. Only a `.cloudOnly` placeholder has anything to offer: a materialized file is previewed
+    /// and a vanished one cannot be fetched, so neither takes a control.
+    static func decide(source: ColumnPreviewSource?, isAwaitingDownload: Bool) -> PreviewAccessory {
+        guard source == .cloudOnly else { return .none }
+        return isAwaitingDownload ? .downloading : .offer
+    }
+}
+
 /// One probe of a file: whether it can be previewed, plus the creation date, which `FileNode` does
 /// not carry. Gathered together so the column pays one hop off the main actor, not two.
 struct ColumnPreviewProbe: Equatable, Sendable {
@@ -317,6 +347,35 @@ struct ColumnPreviewColumn: View {
         }
     }
 
+    // MARK: - What the preview area says and offers
+
+    /// The line under the icon, for a classification and a download the pane may be watching.
+    ///
+    /// Pure and `static` so it can be called rather than rendered — see `PreviewAccessory` for why
+    /// the rendered form is unreadable from a test. It takes the source rather than reading
+    /// `probe?.source` so every case can be asked for directly, including the two nobody can stage:
+    /// `.cloudOnly` needs the `SF_DATALESS` system flag, which only a File Provider ever sets.
+    ///
+    /// Nil for a file that is fine — a caption saying so would be noise under its own preview.
+    static func caption(source: ColumnPreviewSource?, isAwaitingDownload: Bool) -> String? {
+        switch source {
+        case .cloudOnly: return isAwaitingDownload ? "Downloading…" : "Not downloaded"
+        case .missing: return "This file is no longer here"
+        // Both the pre-probe and pre-settle states, and the settled preview itself.
+        case .quickLook, .none: return nil
+        }
+    }
+
+    /// `caption(source:isAwaitingDownload:)` for the file on screen right now.
+    var previewCaption: String? {
+        Self.caption(source: probe?.source, isAwaitingDownload: isAwaitingDownload)
+    }
+
+    /// `PreviewAccessory.decide(source:isAwaitingDownload:)` for the file on screen right now.
+    var accessory: PreviewAccessory {
+        PreviewAccessory.decide(source: probe?.source, isAwaitingDownload: isAwaitingDownload)
+    }
+
     // MARK: - Preview area
 
     @ViewBuilder
@@ -325,20 +384,27 @@ struct ColumnPreviewColumn: View {
         case .quickLook where hasSettled:
             QuickLookPreview(url: URL(fileURLWithPath: item.path))
         case .cloudOnly:
-            placeholder(caption: isAwaitingDownload ? "Downloading…" : "Not downloaded") {
-                if isAwaitingDownload {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button("Download", action: requestDownload)
-                        .help("Fetch this file's content from the provider so it can be previewed")
-                }
-            }
+            placeholder(caption: previewCaption) { accessoryView }
         case .missing:
-            placeholder(caption: "This file is no longer here")
+            placeholder(caption: previewCaption)
         // Both the pre-probe and pre-settle states: the icon, so the column has content the moment
         // it appears rather than a hole that fills in.
         case .quickLook, .none:
             placeholder()
+        }
+    }
+
+    /// The control below the caption, rendered from `accessory` — the decision itself lives there.
+    @ViewBuilder
+    private var accessoryView: some View {
+        switch accessory {
+        case .downloading:
+            ProgressView().controlSize(.small)
+        case .offer:
+            Button("Download", action: requestDownload)
+                .help("Fetch this file's content from the provider so it can be previewed")
+        case .none:
+            EmptyView()
         }
     }
 

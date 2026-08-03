@@ -116,6 +116,72 @@ import UniformTypeIdentifiers
         #expect(ColumnPreviewSource.classify(exists: false, isCloudOnly: false) == .missing)
     }
 
+    // MARK: - What the preview area says and offers
+
+    /// The user-visible half of `isAwaitingDownload`, which shipped unproven.
+    ///
+    /// Mutating the caption to a constant `"Not downloaded"` and the control swap to `if false` —
+    /// every preview-started download losing its spinner and going on offering a Download button
+    /// for a file already downloading — left all 677 tests green. The rendered form has no channel:
+    /// SwiftUI builds no accessibility tree without an assistive client, so a caption assertion on a
+    /// hosted pane passes vacuously, and whether `ProgressView`/`Button` bridge to findable AppKit
+    /// views is a version-dependent detail. The decision is a value now, so these are calls.
+    @Test func aDownloadInFlightSaysSoAndShowsProgressInsteadOfTheOffer() {
+        #expect(ColumnPreviewColumn.caption(source: .cloudOnly, isAwaitingDownload: true)
+                == "Downloading…")
+        #expect(PreviewAccessory.decide(source: .cloudOnly, isAwaitingDownload: true) == .downloading)
+    }
+
+    /// The resting state of a placeholder: say it is not here, and offer to fetch it.
+    @Test func anIdlePlaceholderOffersTheDownload() {
+        #expect(ColumnPreviewColumn.caption(source: .cloudOnly, isAwaitingDownload: false)
+                == "Not downloaded")
+        #expect(PreviewAccessory.decide(source: .cloudOnly, isAwaitingDownload: false) == .offer)
+    }
+
+    /// Only a placeholder has anything to offer. A vanished file cannot be fetched — offering a
+    /// Download button for it is the collapse `testAVanishedFileIsMissingRatherThanCloudOnly`
+    /// prevents one step earlier, arriving at the control instead of at the classification.
+    @Test func aVanishedFileSaysSoAndOffersNothing() {
+        #expect(ColumnPreviewColumn.caption(source: .missing, isAwaitingDownload: false)
+                == "This file is no longer here")
+        #expect(PreviewAccessory.decide(source: .missing, isAwaitingDownload: false) == .none)
+    }
+
+    /// And a materialized or not-yet-probed file is captionless and bare — the icon alone, so the
+    /// column has content the moment it appears.
+    @Test func aPreviewableOrUnprobedFileIsBare() {
+        for source: ColumnPreviewSource? in [.quickLook, nil] {
+            #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: false) == nil)
+            #expect(PreviewAccessory.decide(source: source, isAwaitingDownload: false) == .none)
+        }
+    }
+
+    /// `isAwaitingDownload` may only be read THROUGH the classification. The pane resolves the flag
+    /// against the file the column is currently showing, but the probe for that file can still be
+    /// out — and a watch reaching a column that has already moved on to a local file must not
+    /// caption it "Downloading…" or hide its preview behind a spinner.
+    @Test func aWatchOnAFileThatIsNotAPlaceholderChangesNothing() {
+        for source: ColumnPreviewSource? in [.quickLook, .missing, nil] {
+            #expect(ColumnPreviewColumn.caption(source: source, isAwaitingDownload: true)
+                    == ColumnPreviewColumn.caption(source: source, isAwaitingDownload: false))
+            #expect(PreviewAccessory.decide(source: source, isAwaitingDownload: true) == .none)
+        }
+    }
+
+    /// The column reads its own probe: before one completes there is nothing to offer, whatever the
+    /// pane's latch says. Pins the two instance properties onto the statics above — mutate either
+    /// forward to a constant and this fails.
+    @MainActor
+    @Test func anUnprobedColumnOffersNothing() throws {
+        let item = try #require(ColumnPreview.item(selection: ["\(Self.dir)/scan.pdf"],
+                                                   deepestRows: Self.rows()))
+        let column = ColumnPreviewColumn(item: item, paneToken: .left, isAwaitingDownload: true)
+
+        #expect(column.accessory == .none)
+        #expect(column.previewCaption == nil)
+    }
+
     /// The real probe, over a real file, against a real (non-dataless) temp directory: the wiring
     /// from `classify` to the two syscalls, which the pure tests above cannot see.
     @Test func testTheProbeReadsARealFile() async throws {
