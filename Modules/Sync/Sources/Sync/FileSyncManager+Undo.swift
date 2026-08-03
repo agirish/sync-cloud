@@ -603,7 +603,7 @@ extension FileSyncManager {
                         // reportUndoRemoveFailure; this one just never did.
                         do {
                             try fm.removeItem(at: url)
-                            await MainActor.run {
+                            _ = await MainActor.run {
                                 Logger.shared.info("Undo (New Folder): permanently deleted \"\(url.lastPathComponent)\" at \(url.path) — it could not be moved to the Trash")
                             }
                         } catch {
@@ -611,7 +611,7 @@ extension FileSyncManager {
                                 of: url, actionName: "New Folder", error: error, on: target)
                         }
                     } else {
-                        await MainActor.run {
+                        _ = await MainActor.run {
                             Logger.shared.info("Undo (New Folder): \"\(url.lastPathComponent)\" could not be moved to the Trash and the user declined to delete it permanently — it is still on disk")
                         }
                     }

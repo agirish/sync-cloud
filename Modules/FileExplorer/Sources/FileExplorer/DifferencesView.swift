@@ -662,7 +662,12 @@ public struct DifferencesView: View {
 
     /// The compaction rungs the ladder walks, in order. Read by `HeaderLadder.rung(fitting:)` to
     /// choose one and by `HeaderCompactionTests` to catch a rung added to the enum but not here.
-    static let renderedCompactionLadder: [HeaderCompaction] =
+    ///
+    /// `nonisolated` because it is an immutable array of a `Sendable` enum — a constant, with no
+    /// main-actor state in it. It picked up this view's isolation only by living here, which made
+    /// `HeaderLadder` (a plain struct, deliberately isolation-free so its arithmetic can be tested
+    /// off the main actor) reach across an actor boundary to read six enum cases.
+    nonisolated static let renderedCompactionLadder: [HeaderCompaction] =
         [.full, .foldVerify, .foldReview, .shortReverse, .glyphFilter, .shortPrimary]
 
     /// Internal, not private, so `HeaderLadderTests` can render the very row `HeaderLadder` prices.

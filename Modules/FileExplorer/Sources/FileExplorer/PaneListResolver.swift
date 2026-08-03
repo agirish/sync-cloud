@@ -18,6 +18,12 @@ import AppKit
 /// rect and its list's scroll view rect are the same rectangle — measured identical, to the point.
 /// That makes the frame a precise identifier where tree position is an ambiguous one, and it
 /// disambiguates the two panes for free: they are never in the same place.
+///
+/// `@MainActor` because every function here reads live AppKit view geometry — `subviews`,
+/// `bounds`, `convert(_:to:)`, `enclosingScrollView` — which is main-actor state. It was already
+/// only ever *called* from the main actor (the callers are `NSView` subclasses and a `@MainActor`
+/// suite); the annotation states the requirement the code already had rather than adding one.
+@MainActor
 enum PaneListResolver {
 
     /// How far up to look for a subtree containing any pane list at all.

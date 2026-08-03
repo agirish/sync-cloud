@@ -273,7 +273,10 @@ extension FileSyncManager {
 
     /// Opt-in: prefer the cloud (Claude) classifier over the on-device model when a key is present.
     /// Off by default — sends folder names + file names (and contents, if reading is on) to Anthropic.
-    public static let usesCloudDefaultsKey = "tidyFilingUseCloud"
+    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
+    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
+    // app's startup read) crossed an actor boundary to read a constant.
+    public nonisolated static let usesCloudDefaultsKey = "tidyFilingUseCloud"
     /// Whether Filing may use the opt-in cloud (Claude) backend. Off by default; mirrors `filingUsesAI`
     /// (both must be on, plus a stored key, for a cloud call to run). Read through the injectable
     /// defaults store so tests can flip it without touching `.standard`.
@@ -283,12 +286,18 @@ extension FileSyncManager {
     /// Which Claude model the cloud classifier uses (a model-ID string). Trades cost against quality;
     /// defaults to Haiku, the cheapest model (see `CloudFilingProtocol.defaultModel` and the
     /// matching Settings picker default).
-    public static let cloudModelDefaultsKey = "tidyFilingCloudModel"
+    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
+    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
+    // app's startup read) crossed an actor boundary to read a constant.
+    public nonisolated static let cloudModelDefaultsKey = "tidyFilingCloudModel"
 
     /// Monthly budget cap for cloud (Claude) Filing spend, in USD. 0 (the default) = no cap /
     /// unlimited — the user is never surprise-blocked. When > 0 and this calendar month's spend
     /// would exceed it, cloud calls pause and Filing falls back to its on-device suggestions.
-    public static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
+    // `nonisolated`: these are immutable defaults-key strings, main-actor-isolated only by
+    // living on `FileSyncManager`. Background callers (the cloud/on-device classifiers, the
+    // app's startup read) crossed an actor boundary to read a constant.
+    public nonisolated static let monthlyBudgetCapKey = "tidyFilingMonthlyBudgetUSD"
 
     /// Total (lifetime) budget cap for cloud (Claude) Filing spend, in USD. Unlike the monthly cap,
     /// this ships ON by default (`defaultTotalBudgetCapUSD`) as a safety backstop — a runaway or

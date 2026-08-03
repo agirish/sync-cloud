@@ -153,7 +153,14 @@ public struct LogEntry: Identifiable, Sendable {
 @MainActor
 public class Logger: ObservableObject {
     /// The shared singleton instance used across the application to trace events.
-    public static let shared = Logger(logFileURL: Logger.defaultLogFileURL())
+    ///
+    /// `nonisolated` because *reaching* the singleton is not a main-actor operation — every logging
+    /// entry point below (`info`/`debug`/`warning`/`error`, and the `log` they share) is already
+    /// `nonisolated` and hands off through the FIFO buffer. Only the accessor carried this type's
+    /// isolation, which meant background work — the cloud classifier, the on-device classifier, the
+    /// app's own startup path — had to cross an actor boundary to reach methods that then
+    /// immediately left it again. The `@MainActor` members stay isolated and still require `await`.
+    public nonisolated static let shared = Logger(logFileURL: Logger.defaultLogFileURL())
 
     /// The active memory cache of recent log entries presented in the UI.
     @Published public var entries: [LogEntry] = []
@@ -196,7 +203,10 @@ public class Logger: ObservableObject {
 
     /// Internal (not private) so tests can construct an isolated Logger against a temp-file URL;
     /// production code only ever uses the `shared` instance.
-    init(logFileURL: URL) {
+    /// `nonisolated` so the `shared` singleton above can be built without hopping to the main actor.
+    /// Nothing here touches isolated state: it stores the URL, constructs the writer, and installs
+    /// two relay handlers that are themselves `nonisolated` (`noteDiskWriteFailure`/`Recovery`).
+    nonisolated init(logFileURL: URL) {
         self.logFileURL = logFileURL
         // The writer needs its failure callback at construction (so a failure during its own
         // startup trim is covered), which is before `self` can be captured — hence the relay,
