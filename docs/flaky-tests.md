@@ -218,6 +218,20 @@ naming the 1010 passes it made. Starved, the same wait now clears at pass 5 when
 on the defect the test exists to catch — the stale probe surviving the item change — which still
 fails on the cloud-only path reaching Quick Look, not on the wait.
 
+**Three suites had a private copy of this loop, so fixing one left two bugs.**
+`ColumnPreviewRevealTests`, `ColumnPreviewDownloadWiringTests` and
+`ColumnPreviewProbeLifecycleTests` carried it byte-identical, against the same congested main
+actor; the duplication was harmless right up to the moment the loop turned out to be wrong. It now
+lives once, in `LayoutPumpWait.pump`, and the floor with it — the two suites that only ever call
+it keep a one-line `wait` of their own, so none of their ~25 call sites moved. **When you fix a
+copied helper, grep for its twins before you call it done**; the shape is
+`while Date() < deadline { window.layoutIfNeeded() … }`.
+
+`DifferencesTableIdentityTests.wait(for:timeout:)` is the same *defect* in a different shape — a
+wall-clock budget over a condition driven by main-actor work, but polling no window, so it is not a
+caller of the above. It is untouched and has never been seen to fail; noted here so the next sweep
+does not have to rediscover it.
+
 **The failure message should name the passes, not just the verdict.** A wait that gave up after 3 of
 them was starved; one that gave up after 1010 was disproved. That is the difference between this
 mechanism and a real bug, and it costs one integer to report.
@@ -262,7 +276,7 @@ shipped pairing of the two (3 on `v2.x`, 2 on `main`), plus CI green on both. Be
 `ab7ae3c6` — *Wait out the New Folder undo instead of guessing 100ms at it*;
 `f3a93bdf` — *Let the drain be the gate the two redo tests already had*;
 `41651669` — *Wait for the insurance filter pass to publish, not for 100ms*;
-`pumpFloor` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewProbeLifecycleTests.swift`;
+`pumpFloor` and `pump` in `Modules/FileExplorer/Tests/FileExplorer/LayoutPumpWait.swift`;
 `quiesceReveals` in `Modules/FileExplorer/Tests/FileExplorer/ColumnPreviewRevealTests.swift` — the
 last two cited by symbol rather than SHA on purpose, since this file's SHA refs are per-line and a
 cherry-pick between `v2.x` and `main` has to swap every one of them by hand.

@@ -129,52 +129,18 @@ import UniformTypeIdentifiers
         return nil
     }
 
-    /// The fewest layout passes a wait will make before it may give up, however little of its
-    /// deadline is left.
+    /// Pumps layout until `condition` holds, or until both the deadline has passed and
+    /// `LayoutPumpWait.pumpFloor` passes have been made. Returns whether it held, and how many
+    /// passes that took.
     ///
-    /// **The deadline is in seconds; everything it waits for arrives on main-actor turns, and under
-    /// full-suite congestion those two units come apart.** Each pass costs 8ms of sleep on an idle
-    /// machine and however long the main actor takes to come back when a hundred other suites are
-    /// mounting views on it. Measured on this commit, 2026-08-03:
-    ///
-    /// | Machine | Passes the first wait needed | Wall clock they cost |
-    /// |---|---|---|
-    /// | idle, `--filter` | 21 | 0.19s |
-    /// | full package, 8 spinners | 5 | 7.9s / 12.2s / **21.1s** |
-    ///
-    /// So the ten seconds bought 3 passes where the condition needed 5, and the run failed `settled`
-    /// with nothing wrong but the queue it was waiting in. Note which way the requirement moves: the
-    /// *slower* the machine, the *fewer* passes are needed, because the 180ms settle and the 1200ms
-    /// held probe are long since elapsed by the second one. What a starved run needs is not more
-    /// seconds but more turns — five of them, for the probe's hop off the main actor, its
-    /// resumption, the settle, the state write, and the layout that finally builds `QLPreviewView`.
-    ///
-    /// Ten times that, so the floor is also above the 21 an idle machine wants and carries either
-    /// wait on its own. It costs nothing when the machine is healthy — the deadline is reached long
-    /// after the floor — and it cannot spin: a genuine regression still gets a verdict, after this
-    /// many passes rather than after this many seconds.
-    ///
-    /// Raising the deadline instead would not have fixed it; nor would injecting the settle delay.
-    /// Neither buys a turn.
-    private static let pumpFloor = 50
-
-    /// Pumps layout until `condition` holds, or until BOTH the deadline has passed and `pumpFloor`
-    /// passes have been made. Returns whether it held, and how many passes that took — a wait that
-    /// gave up after a handful of passes was starved, not disproved, and the message it fails with
-    /// should be able to say so.
-    @discardableResult
+    /// **Deliberately not `@discardableResult`.** The loop this wraps is bounded, and a bounded wait
+    /// whose expiry nobody reads is the vacuous pass `docs/flaky-tests.md` mechanism 8 warns about:
+    /// the wait returns, the test carries on against state it never reached, and the assertion after
+    /// it means nothing. Both call sites below read `.held` and report `.pumps`; making the compiler
+    /// insist on that is free.
     private func wait(_ window: NSWindow, upTo seconds: Double,
                       for condition: () -> Bool) async -> (held: Bool, pumps: Int) {
-        var pumps = 0
-        let deadline = Date().addingTimeInterval(seconds)
-        while pumps < Self.pumpFloor || Date() < deadline {
-            window.layoutIfNeeded()
-            pumps += 1
-            if condition() { return (true, pumps) }
-            try? await Task.sleep(nanoseconds: 8_000_000)
-        }
-        window.layoutIfNeeded()
-        return (condition(), pumps + 1)
+        await LayoutPumpWait.pump(window, upTo: seconds, until: condition)
     }
 
     @Test func walkingOntoACloudOnlyFileNeverHandsItToQuickLook() async throws {
