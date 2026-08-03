@@ -215,9 +215,110 @@ import Foundation
         #expect(await task.value == false)
     }
 
+    // MARK: - The row's badge, one layer above the memo
+
+    /// A badge resolution superseded while its stat was out hands the row NOTHING to write.
+    ///
+    /// The memo grew two guards for this race and the row sat above both of them, assigning
+    /// whatever came back. Staged exactly as the app reaches it: the arming re-stat is out carrying
+    /// the pre-download `true`, the watch concludes, `.task(id:)` re-keys and cancels this
+    /// resolution — and the stat resumes anyway, because `Task.detached { … }.value` neither
+    /// inherits cancellation nor throws. The replacement task writes the memo's `false`; which of
+    /// the two lands last is unconstrained, so the badge could go on claiming cloud-only for a file
+    /// that had already arrived.
+    ///
+    /// The suspension is a continuation rather than a sleep for that same reason: a `Task.sleep`
+    /// throws the instant the task is cancelled and unwinds BEFORE the write, which would stage the
+    /// opposite of the defect and pass without the guard.
+    ///
+    /// The memo does end up holding `true` for this path, and that is correct — nothing invalidated
+    /// it here, so the memo's own guards have no reason to decline. The staleness this test is
+    /// about is the row's, which is why the assertion is on what the row is handed.
+    @MainActor
+    @Test func aSupersededBadgeResolutionIsNotWritten() async {
+        let path = "/iCloud/superseded-\(UUID().uuidString).mov"
+        let gate = StatGate()
+
+        let resolution = Task { @MainActor in
+            await FileRowView.resolveBadge(path: path, isDirectory: false, stat: { _ in
+                await gate.wait()
+                return true
+            })
+        }
+
+        #expect(await hold(upTo: 5) { gate.isWaiting },
+                "the resolution never reached its stat — there is nothing here to supersede")
+
+        resolution.cancel()
+        gate.release()
+
+        #expect(await resolution.value == nil,
+                "a superseded badge resolution handed back an answer for the row to write")
+    }
+
+    /// The guard declines a superseded answer and NOTHING else — a live resolution still follows
+    /// the memo, including the `false` a concluding watch has just recorded.
+    ///
+    /// Without this, a resolution that never writes at all (`guard false`) passes the test above.
+    /// The stat must also not be consulted: a memo hit is what makes the post-download re-read
+    /// cheap, and it is the answer the badge is meant to follow.
+    @MainActor
+    @Test func aLiveBadgeResolutionFollowsTheMemo() async {
+        let path = "/iCloud/landed-\(UUID().uuidString).mov"
+        let statted = Marker()
+        // What a watch records the moment the content arrives.
+        CloudOnlyBadgeCache.record(path, isCloudOnly: false)
+
+        let answer = await FileRowView.resolveBadge(path: path, isDirectory: false, stat: { _ in
+            statted.fired = true
+            return true
+        })
+
+        #expect(answer == false, "the badge did not follow the memo's landed answer")
+        #expect(!statted.fired, "a memoized answer was re-statted")
+    }
+
+    /// A directory resolves `false` without statting — the branch the row used to run inline, kept
+    /// so the extraction cannot have quietly started charging folders for an `lstat`.
+    @MainActor
+    @Test func aDirectoryResolvesUnbadgedWithoutStatting() async {
+        let statted = Marker()
+
+        let answer = await FileRowView.resolveBadge(path: "/iCloud/folder", isDirectory: true,
+                                                    stat: { _ in
+            statted.fired = true
+            return true
+        })
+
+        #expect(answer == false, "a directory row was handed a cloud badge")
+        #expect(!statted.fired, "a directory row paid for an lstat")
+    }
+
     /// A one-shot flag the injected watch can set — main-actor isolated, like the watch itself.
     @MainActor private final class Marker {
         var fired = false
+    }
+
+    /// A stat suspension the test controls, and one a CANCELLED task still resumes from.
+    ///
+    /// That last part is the whole fixture. The real stat is `Task.detached { lstat }.value`, which
+    /// does not inherit its caller's cancellation and cannot throw, so it comes back and carries on
+    /// into the write. A continuation resumed from outside is the same shape; `Task.sleep` is not.
+    @MainActor private final class StatGate {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private(set) var isWaiting = false
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                self.continuation = continuation
+                isWaiting = true
+            }
+        }
+
+        func release() {
+            continuation?.resume()
+            continuation = nil
+        }
     }
 
     /// Yields until `condition` holds or the deadline passes. Returns whether it held, so the
