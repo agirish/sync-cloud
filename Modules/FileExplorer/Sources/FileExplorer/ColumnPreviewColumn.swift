@@ -203,16 +203,48 @@ struct ColumnPreviewColumn: View {
     /// How long a file must stay selected before Quick Look is mounted for it.
     static let previewSettleDelay = Duration.milliseconds(180)
 
+    /// One probe and the path it describes, as a SINGLE value.
+    ///
+    /// Folded together because the two are only ever meaningful as a pair, and the frame in which
+    /// they disagreed was a real defect. `probe`/`hasSettled` used to be independent `@State`, reset
+    /// at the top of `.task(id:)` — which runs *after* the body has already been committed with the
+    /// NEW `item`. Walking from a settled local file to a cloud-only one therefore rendered one
+    /// frame of `case .quickLook where hasSettled` for the new path, and that mounts
+    /// `QLPreviewView` on it, which is the provider download `ColumnPreviewSource.cloudOnly` exists
+    /// to prevent — "selecting a 4 GB video must not start a 4 GB transfer". The stale states were
+    /// symmetric and all wrong: an old `.cloudOnly` offered a Download button captioned for the new
+    /// file, an old `.missing` said "no longer here" about a file that is present.
+    ///
+    /// Carrying the path makes the reset synchronous instead: `probe` and `hasSettled` below read
+    /// as "not probed yet" the instant `item` changes, in the same body evaluation, with no state
+    /// written during it. A task cannot beat a render it runs after, so it must not be the thing
+    /// that clears this.
+    private struct ProbeResult: Equatable {
+        let path: String
+        let probe: ColumnPreviewProbe
+        /// Whether `previewSettleDelay` has passed for `path`.
+        var hasSettled: Bool
+    }
+
     /// How to probe a path — the real `lstat` everywhere but in the tests that need `.cloudOnly`.
     /// See `ColumnPreviewProbeReader`.
     @Environment(\.columnPreviewProbe) private var probeReader
 
-    /// `nil` while the probe is in flight.
-    @State private var probe: ColumnPreviewProbe?
-    /// Set once `previewSettleDelay` has passed for the current path.
-    @State private var hasSettled = false
+    /// The last probe to complete, whatever path it was for. Read through `probe`/`hasSettled`,
+    /// never directly — a result for a path this column has moved off is not an answer about the
+    /// file it is showing.
+    @State private var probed: ProbeResult?
     /// Bumped to re-probe the same path — when the pane's download watch concludes.
     @State private var probeGeneration = 0
+
+    /// The probe for the file on screen right now, or nil while one is in flight for it.
+    private var probe: ColumnPreviewProbe? {
+        guard let probed, probed.path == item.path else { return nil }
+        return probed.probe
+    }
+
+    /// Whether `previewSettleDelay` has passed for the file on screen right now.
+    private var hasSettled: Bool { probed?.path == item.path && probed?.hasSettled == true }
 
     /// Whether the "Downloading…" state applies to the file on screen right now.
     ///
@@ -257,17 +289,24 @@ struct ColumnPreviewColumn: View {
         // (a PDF's page arrows, a video's scrubber) for the same click.
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Preview of \(item.name)")
+        // No reset at the top: this task runs after the body it would be resetting for has already
+        // been committed. `ProbeResult` carries the path so the reset is the render's own, and this
+        // task only ever writes results tagged with the path they describe.
         .task(id: ProbeID(path: item.path, generation: probeGeneration)) {
-            hasSettled = false
-            let resolved = await probeReader.read(item.path)
+            let path = item.path
+            let resolved = await probeReader.read(path)
             // `.task(id:)` cancels on a new id but the body still runs to its next suspension, so
             // every resumption re-checks: without this a fast walk down a column could commit an
             // earlier file's probe over a later one's.
             guard !Task.isCancelled else { return }
-            probe = resolved
+            // Settled-ness survives a RE-probe of the same path (the download the pane was watching
+            // has concluded) and only that: for any other path `hasSettled` is already false. The
+            // settle delay exists so holding ↓ through a column does not spawn a preview extension
+            // per row, and a file the user explicitly asked to download is not that.
+            probed = ProbeResult(path: path, probe: resolved, hasSettled: hasSettled)
             try? await Task.sleep(for: Self.previewSettleDelay)
-            guard !Task.isCancelled else { return }
-            hasSettled = true
+            guard !Task.isCancelled, probed?.path == path else { return }
+            probed?.hasSettled = true
         }
         // The pane's watch for the file on screen has ended (it landed, or the attempts ran out):
         // probe again so a file that materialized mounts its preview, and one that did not settles
