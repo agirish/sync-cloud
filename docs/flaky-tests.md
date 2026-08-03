@@ -274,8 +274,7 @@ grep -rn "await Task.yield()" Modules/*/Tests | grep "while "
 ```
 
 **See.** `75cf7904` — *Bound the four spin-waits that could hang the Sync suite instead of
-failing*; `Modules/Sync/Tests/Sync/BulkCopyExclusionTests.swift`,
-`Modules/Sync/Tests/Sync/InFlightSyncStateTests.swift`.
+failing*; `Modules/Sync/Tests/Sync/InFlightSyncStateTests.swift`.
 
 ### 9. A mounted view is a live subscriber, in every suite at once
 
