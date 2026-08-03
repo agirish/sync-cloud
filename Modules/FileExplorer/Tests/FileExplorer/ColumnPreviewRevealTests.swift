@@ -977,6 +977,238 @@ import Sync
                 "a \(Self.plausibleContinuousGesture)s gesture spent the reveal's deferral budget and the column never came back: column \(deepest.minX)…\(deepest.maxX), visible \(visible.lowerBound)…\(visible.upperBound)")
     }
 
+    /// One frame at 60Hz — the cadence momentum wheel events actually arrive on, and therefore how
+    /// long "the NEXT momentum event" is away when a hitch has just let one check read unheld.
+    ///
+    /// This is the interval the post-scroll re-ask has to span. It is deliberately NOT
+    /// `WheelGestureTracker.staleness`: the two are the fix's two ends, and writing the hazard in
+    /// terms of the constant that fixes it would make this test agree with any re-ask delay at all.
+    private static let momentumFrame: TimeInterval = 1.0 / 60.0
+
+    /// The reveal must survive a hold that RE-ENGAGES in the frame after it scrolled.
+    ///
+    /// The gate answer is a snapshot of `now - lastEventAt < staleness`, so a main-thread hitch
+    /// that opens a >100ms gap in momentum delivery and lands on a check makes it read false. The
+    /// attempt then scrolls, the next momentum event re-engages the lock one frame later,
+    /// `enforceHold` reverts the scroll, and unless the chain asks again it is spent having
+    /// achieved nothing — byte-for-byte the outcome the deferral exists to remove.
+    ///
+    /// The re-ask therefore has to be scheduled on the cadence the hazard lives on. At
+    /// `deferReveal(by: 0)` it drains microseconds after the scroll, inside the very gap that made
+    /// the gate read false, reads false again and retires the chain — the same outcome as having no
+    /// re-ask at all, which is why this test exists and why nothing caught it before.
+    ///
+    /// The gap is opened for real — the hold is released, the parked chain's next check finds the
+    /// stack free and scrolls — and the gesture resumes ONE FRAME later, on an observer of the
+    /// clip's own bounds so it cannot miss the scroll. What is then asserted is that the chain is
+    /// still WAITING.
+    ///
+    /// **Why the verdict is the parked chain and not a stranded column.** The user-visible loss
+    /// needs the re-engaged hold to actually undo the scroll, and that cannot be produced here.
+    /// `holdAgainstVerticalGestureLeak` adopts the current origin as `restX` on any bounds change
+    /// made while the lock is not held, so a single-step scroll into a gap simply becomes the
+    /// watchdog's new rest and stands; what does not stand is the SHIPPED 0.18s ease, which posts
+    /// bounds changes for long enough that a momentum event lands inside one and `enforceHold` pins
+    /// the stack on a rest adopted before the scroll finished — and this harness must run with
+    /// `paneColumnRevealAnimation` nil, because an offscreen window's animations never advance on a
+    /// machine with the display asleep, which is CI's normal state. Stipulating the revert instead
+    /// was tried and is worse than useless: putting the clip back leaves SwiftUI still believing its
+    /// content offset is the revealed one, so the chain's next `scrollTo` is a no-op against its own
+    /// state and the column can never come back — a fixture artifact that fails whichever way the
+    /// fix went.
+    ///
+    /// So this pins the half that is exact — a chain that is still waiting when the gesture resumes
+    /// — and the other half, that a chain which survives to the release does reveal the column, is
+    /// what `testAHeldRevealOutlivesAnOrdinaryFiveSecondGesture` and
+    /// `testAnInFlightVerticalGestureDefersARevealInsteadOfDefeatingIt` already pin. Together they
+    /// are the claim; neither is weakened by the other being where it is.
+    @Test func testARevealSurvivesAHoldThatReEngagesTheFrameAfterItScrolled() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        // Three 210pt columns fit a 690pt pane, so nothing has revealed yet and every point of
+        // movement below belongs to the drill this test makes.
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        let held = try holdStack(mounted)
+        let watchdog = try #require(soleWatchdog(mounted))
+        let gate = try #require(watchdog.holdGate,
+                                "the pane's watchdog carries no gate — there is no chain here to watch")
+
+        // Drill one deeper: four 210pt columns are 840pt of content in a 690pt pane, so the new
+        // deepest column is off the trailing edge and only a reveal can bring it back.
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column")
+        // Past both attempts, so the chain that scrolls below is a PARKED one that waited.
+        await pump(mounted.window, seconds: PaneColumnsView.revealRetryDelay + 0.3)
+        try #require(clip.bounds.origin.x == 0,
+                     "the stack moved while the hold was engaged — the deferral is already gone and this test measures nothing")
+        try #require(gate.hasPendingReveal,
+                     "no chain is parked before the gap is opened — there is nothing here that could be spent")
+
+        // The momentum stream resumes one frame after the reveal's scroll lands. Armed BEFORE the
+        // gap is opened, so it cannot miss the scroll it exists to answer.
+        // Attributed to a point INSIDE this stack, like `holdStack`'s own gesture: an unattributed
+        // re-engagement would hold every stack, which is not the hazard and would let a
+        // cross-pane leak pass as a pass here.
+        let inStack = clip.convert(NSPoint(x: 20, y: 20), to: nil)
+        let interference = Interference(clip: clip, restX: 0) { [weak window = mounted.window] in
+            guard let window else { return }
+            held.lock.ingest(phase: .began, momentumPhase: [], dx: 0, dy: 0,
+                             window: window, locationInWindow: inStack, at: held.at + 1)
+            held.lock.ingest(phase: .changed, momentumPhase: [], dx: 1, dy: -12,
+                             window: window, locationInWindow: inStack, at: held.at + 1.01)
+        }
+        defer { interference.stop() }
+
+        // The hitch: the gate reads unheld for one check. The gesture has NOT ended — a real one
+        // is still coasting — which is why the interference above puts it straight back.
+        held.lock.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0,
+                         window: mounted.window, locationInWindow: .zero, at: held.at + 0.5)
+        try #require(!held.lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture failed to open the gap the re-ask has to span")
+
+        try #require(await wait(mounted.window, upTo: 25) { interference.fired },
+                     "the reveal never scrolled into the gap — there was nothing for a re-engaging hold to defeat, so this test would pass vacuously")
+        try #require(await wait(mounted.window, upTo: 10) {
+                        held.lock.shouldHoldHorizontalDrift(for: clip)
+                     },
+                     "the interference did not re-engage the hold — the chain was never put back under one")
+
+        // **The discriminating assertion.** The gesture is delivering again, so the chain's only
+        // correct state is waiting — parked, with a body in it. A chain that read the gate inside
+        // the gap and retired parked nothing and never will: `browsePath` has already moved, no
+        // preview opens and neither stored width changes, so no driver will start another reveal
+        // and the column is stranded for good.
+        //
+        // Measured on the gate rather than on the clip — see the note on this test for why the
+        // stranded column itself cannot be produced in this harness, and which tests carry that
+        // half instead.
+        try #require(await wait(mounted.window, upTo: 5) { gate.hasPendingReveal },
+                     "the chain retired while the gesture was delivering again — it asked the gate inside the very gap that made it read false, which is the same outcome as never asking")
+
+        // Nothing is vacuous: four columns, and they overflow the viewport.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — the reveal is unobservable here")
+
+        // And the chain is still bounded: waiting is not the same as never giving up. The budget is
+        // what says so, and it is pinned from both ends in
+        // `testTheHoldBudgetIsLongerThanAnyGestureAndShorterThanForever`.
+        interference.stop()
+    }
+
+    /// A cancelled reveal's already-queued attempt does nothing when it runs.
+    ///
+    /// `.onDisappear` calls `cancelPendingReveal`, and that empties the parked chain's box. It could
+    /// not reach the reveal's two ATTEMPTS: a `DispatchQueue.main.async` and a
+    /// `.asyncAfter(+revealRetryDelay)`, neither cancellable nor tied to view lifetime — the exact
+    /// property that forced the cancellable onto the gate in the first place. So a pane torn down
+    /// inside that quarter second still ran an attempt afterwards, which scrolled and could park a
+    /// fresh chain on the gate the teardown had just cleared.
+    ///
+    /// Pinned here rather than by tearing a pane down, because the gate is where the decision is
+    /// and a real teardown cannot be observed after the fact — the pane whose movement would show
+    /// the defect is the one that no longer exists. `cancelPendingReveal` on the pane's own gate is
+    /// byte-for-byte the call `.onDisappear` makes; what this asserts is that after it, the
+    /// still-queued retry moves nothing.
+    ///
+    /// The cancel is landed on the chain's OWN parking rather than off the wall clock: waiting for
+    /// `hasPendingReveal` puts it strictly after the first attempt parked and strictly before the
+    /// 0.25s retry, whatever the machine is doing. The positive control that the same fixture
+    /// WITHOUT the cancel does reveal is `testAHeldRevealOutlivesAnOrdinaryFiveSecondGesture`.
+    @Test func testACancelledRevealsQueuedRetryScrollsNothing() async throws {
+        let mounted = try await mount(paneWidth: 690, depth: 4, openTo: 2)
+        defer { _ = mounted.window }
+        let clip = mounted.stack.contentView
+        try #require(clip.bounds.origin.x == 0, "the fixture did not start at the leading edge")
+
+        let held = try holdStack(mounted)
+        let watchdog = try #require(soleWatchdog(mounted))
+        let gate = try #require(watchdog.holdGate,
+                                "the pane's watchdog carries no gate — there is nothing here to cancel")
+
+        // Drill one deeper: four 210pt columns are 840pt of content in a 690pt pane, so the new
+        // deepest column is off the trailing edge and only a reveal can bring it back.
+        mounted.box.browsePath = Self.browsePath(depth: 3)
+        try #require(await wait(mounted.window, upTo: 25) { self.columnFrames(mounted).count == 4 },
+                     "the drill never opened a fourth column")
+
+        // The teardown, landed between the reveal's two attempts.
+        try #require(await wait(mounted.window, upTo: 25) { gate.hasPendingReveal },
+                     "the reveal never parked a chain — there is nothing here for a cancel to make final")
+        gate.cancelPendingReveal()
+
+        // The hold goes away, so the queued retry finds nothing stopping it. Only the cancel can.
+        held.lock.ingest(phase: [], momentumPhase: .ended, dx: 0, dy: 0,
+                         window: mounted.window, locationInWindow: .zero, at: held.at + 0.5)
+        try #require(!held.lock.shouldHoldHorizontalDrift(for: clip),
+                     "the fixture failed to release the hold — an unmoved stack below would prove only that the hold won")
+
+        // Nothing is vacuous: four columns overflowing the viewport, so a retry that ran would have
+        // somewhere real to scroll to.
+        let frames = columnFrames(mounted)
+        #expect(frames.count == 4, "the fixture opened \(frames.count) columns, expected 4")
+        let content = mounted.stack.documentView?.frame.width ?? 0
+        #expect(content > clip.bounds.width,
+                "the drilled stack does not overflow its \(clip.bounds.width)pt viewport (content \(content)pt) — a retry could not have moved it either way")
+
+        // Bounded by a queued marker, not the wall clock — `maxOriginDrift`'s reason, and the whole
+        // interval is sampled so a stack that moves and is put back still counts.
+        let drift = await maxOriginDrift(mounted, from: 0)
+        #expect(drift <= 1,
+                "the stack moved \(drift)pt after the reveal was cancelled — an attempt queued before the cancel still spoke for the pane, which is what makes the cancel not final")
+    }
+
+    /// A momentum stream that resumes ONE FRAME after the reveal's scroll first moves the stack.
+    ///
+    /// The frame of delay is the whole point. Re-engaging synchronously inside the bounds
+    /// notification would put the lock back BEFORE even a zero-delay re-ask could drain, and the
+    /// defect under test would pass. A real momentum event is a frame away, not zero, which is
+    /// exactly the interval a zero-delay re-ask cannot span.
+    ///
+    /// A bounds observer rather than a poll, per the one-frame-render memo: the scroll and the
+    /// resumption are a single runloop turn apart, so a sampling loop can miss the window entirely.
+    /// `setBoundsOrigin` posts `boundsDidChangeNotification` synchronously, so this cannot. Nothing
+    /// is mutated from inside the notification — the same rule `holdAgainstVerticalGestureLeak`
+    /// follows, and for the same reason (a write re-posts the notification it is called from; that
+    /// recursion crashed the app at depth 1839).
+    @MainActor private final class Interference {
+        @MainActor private final class Flag { var fired = false }
+        private let flag = Flag()
+        private var observer: NSObjectProtocol?
+        var fired: Bool { flag.fired }
+
+        init(clip: NSClipView, restX: CGFloat, reEngage: @escaping @MainActor () -> Void) {
+            clip.postsBoundsChangedNotifications = true
+            let flag = self.flag
+            let frame = ColumnPreviewRevealTests.momentumFrame
+            observer = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: clip, queue: .main
+            ) { [weak clipRef = clip] _ in
+                MainActor.assumeIsolated {
+                    guard let clip = clipRef, clip.bounds.origin.x != restX, !flag.fired else {
+                        return
+                    }
+                    flag.fired = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + frame) {
+                        MainActor.assumeIsolated { reEngage() }
+                    }
+                }
+            }
+        }
+
+        /// Explicit rather than a `deinit`, for `OriginTrace`'s reason: a nonisolated `deinit`
+        /// cannot touch the stored, non-Sendable observer token.
+        func stop() {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+        }
+    }
+
     /// Every horizontal origin the clip is ever SET to, in order — including one put back a runloop
     /// turn later.
     ///

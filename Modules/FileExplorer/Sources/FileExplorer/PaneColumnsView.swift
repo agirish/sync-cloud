@@ -514,20 +514,31 @@ struct PaneColumnsView: View {
     ///
     /// **The waiting is one chain per pane, not one per attempt.** It is parked on the gate, so a
     /// later reveal replaces it rather than joining it, a pane teardown can cancel it, and the
-    /// stale-`treeRoot` window a long wait opens is closed by the same replacement. See
-    /// `PaneColumnHoldGate.deferReveal(by:_:)` and `revealHoldChecks` for what bounds it.
+    /// stale-`treeRoot` window a long wait opens is closed by the same replacement — and by the
+    /// generation the gate stamps each reveal with, which is what extends "replaces" to cover the
+    /// two uncancellable attempts an earlier reveal has already queued. See
+    /// `PaneColumnHoldGate.beginReveal()`, `deferReveal(generation:by:_:)` and `revealHoldChecks`.
     private func revealDeepestColumn(_ proxy: ScrollViewProxy) {
         let animation = revealAnimation
         let gate = holdGate
         let budget = revealHoldChecks
-        // A fresh reveal supersedes any chain still waiting out a hold. Every attempt re-resolves
-        // its own target, so the new chain says everything the old one would have — and says it
-        // against the `treeRoot` of the pane that exists now. See `cancelPendingReveal`.
-        gate.cancelPendingReveal()
+        // A fresh reveal supersedes any chain still waiting out a hold, AND every attempt still
+        // queued by an earlier reveal. Every attempt re-resolves its own target, so the new chain
+        // says everything the old one would have — and says it against the `treeRoot` of the pane
+        // that exists now. See `PaneColumnHoldGate.beginReveal`.
+        let generation = gate.beginReveal()
         func attempt(checksLeft: Int) {
+            // The two attempts below are plain queued blocks: neither is cancellable, and both
+            // outlive the reveal that scheduled them by up to `revealRetryDelay`. So each one asks,
+            // when it runs, whether it still speaks for this pane — a superseded reveal neither
+            // scrolls nor parks. Without this a pane torn down inside that window still ran an
+            // attempt AFTER `.onDisappear` cancelled, and a reveal landing within 0.25s of another
+            // had its chain replaced by the older reveal's queued retry, at a reset budget and
+            // carrying the `treeRoot` the older one was scheduled against.
+            guard gate.isCurrent(generation) else { return }
             if gate.isStackHeld {
                 if checksLeft > 0 {
-                    gate.deferReveal(by: WheelGestureTracker.staleness) {
+                    gate.deferReveal(generation: generation, by: WheelGestureTracker.staleness) {
                         attempt(checksLeft: checksLeft - 1)
                     }
                     return
@@ -547,17 +558,46 @@ struct PaneColumnsView: View {
             withAnimation(animation) { proxy.scrollTo(deepest, anchor: .trailing) }
             // The gate answer above is a SNAPSHOT of `now - lastEventAt < staleness`. A main-thread
             // hitch that opens a >100ms gap in momentum delivery and lands on a check makes it read
-            // false: this scrolls, the next momentum event re-engages the lock, `enforceHold`
-            // reverts the scroll, and the chain is spent having achieved nothing. So re-ask one
-            // runloop turn later — after any revert that scroll provoked has had its own hop — and
-            // go back to waiting if the hold is (still) engaged. Costs an unheld reveal one queued
-            // gate read, and consumes a check, so it stays inside the same budget.
+            // false: this scrolls, the gesture's next event re-engages the lock, `enforceHold` pins
+            // the stack back on the rest position it adopted before the scroll, and the chain is
+            // spent having achieved nothing. So ask again — and ask on the cadence the hazard
+            // lives on.
+            //
+            // **`staleness`, not zero, and the interval is the argument.** Momentum events arrive
+            // at frame cadence, so the event that re-engages the lock is up to ~16ms away; a
+            // zero-delay re-ask drains on the same or the next main-queue turn, MICROSECONDS later
+            // and still inside the very gap that made the gate read false, so it read false too and
+            // retired the chain — the same outcome as having no re-ask at all. `staleness` is not
+            // an arbitrary larger number: it is exactly the window after which the lock decays, so
+            // one cadence later the answer is unambiguous. Either an event has arrived, the lock is
+            // engaged, and this reveal may well have just been undone — go back to waiting; or
+            // nothing arrived for a full staleness window, the gesture is over for good, and
+            // nothing can revert what just landed — retire.
+            //
+            // Comparing the origin against its pre-scroll value instead was rejected. The shipped
+            // scroll is a 0.18s ease, so one cadence later it is legitimately mid-flight and an
+            // origin that has moved says nothing about where it will come to rest; and a reveal
+            // that correctly needed no movement is indistinguishable from one that was reverted.
+            // `isStackHeld` asks the question the chain actually has — is there still an adversary —
+            // and has neither ambiguity.
+            //
+            // Costs an unheld reveal one gate read a cadence later, and consumes a check, so the
+            // budget still bounds the whole chain.
             guard checksLeft > 0 else { return }
-            gate.deferReveal(by: 0) {
+            gate.deferReveal(generation: generation, by: WheelGestureTracker.staleness) {
                 guard gate.isStackHeld else { return }
                 attempt(checksLeft: checksLeft - 1)
             }
         }
+        // Both hops are `DispatchQueue.main`, which is what puts `attempt` on the main actor — the
+        // generation guard above is what makes a superseded one harmless. Worth being precise about
+        // why this compiles without `MainActor.assumeIsolated`: `PaneColumnsView` is whole-type
+        // `@MainActor` by SwiftUI's conformance inference, and calling a `@MainActor` function from
+        // these nonisolated closures is allowed only because SwiftUI's `body` requirement is
+        // `@MainActor @preconcurrency`, which DOWNGRADES the diagnostic. The isolation is real
+        // because the queue is `main`, not because the compiler checked it — so this is a quieter
+        // runtime assumption than the `MainActor.assumeIsolated` in `PaneColumnHoldGate.deferReveal`
+        // that wraps the identical pattern, not a stronger guarantee than it.
         DispatchQueue.main.async { attempt(checksLeft: budget) }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.revealRetryDelay) {
             attempt(checksLeft: budget)

@@ -1328,12 +1328,13 @@ import Sync
         // Long enough that nothing below is racing a deadline: every deallocation asserted here is
         // caused by a replacement or a cancel, never by the block simply having run.
         let farOut: TimeInterval = 600
+        let generation = gate.beginReveal()
 
         weak var first: Probe?
         do {
             let probe = Probe()
             first = probe
-            gate.deferReveal(by: farOut) { _ = probe }
+            gate.deferReveal(generation: generation, by: farOut) { _ = probe }
         }
         #expect(first != nil,
                 "a parked reveal does not retain its captures at all — every assertion below would pass vacuously")
@@ -1343,7 +1344,7 @@ import Sync
         do {
             let probe = Probe()
             second = probe
-            gate.deferReveal(by: farOut) { _ = probe }
+            gate.deferReveal(generation: gate.beginReveal(), by: farOut) { _ = probe }
         }
         #expect(first == nil,
                 "a second reveal left the first chain parked — a pane under a sustained hold accumulates one chain per driver, each holding the pane for the whole budget")
@@ -1353,6 +1354,76 @@ import Sync
         gate.cancelPendingReveal()
         #expect(second == nil,
                 "cancelling left the chain holding the pane — a reveal outliving the pane it was revealing is exactly what a queued block cannot notice on its own")
+    }
+
+    /// A reveal that has been superseded cannot park, and cannot evict the reveal that superseded
+    /// it.
+    ///
+    /// The chain is only half of what a reveal leaves behind. The other half is its two attempts —
+    /// a `DispatchQueue.main.async` and a `.asyncAfter(+revealRetryDelay)` — neither cancellable
+    /// nor tied to view lifetime. A second reveal landing within 0.25s of a first is routine
+    /// (`browsePath` then `showsPreview`; the `@AppStorage` column width firing in both panes), and
+    /// the first reveal's retry then fired AFTERWARDS and replaced the newer reveal's chain with
+    /// its own — at a reset budget, and aiming at the `treeRoot` it had been scheduled with, which
+    /// is precisely the stale-root case the parking was supposed to have closed.
+    @Test func testASupersededRevealCannotPark() {
+        final class Probe {}
+        let gate = PaneColumnHoldGate()
+        let farOut: TimeInterval = 600
+
+        let older = gate.beginReveal()
+        let newer = gate.beginReveal()
+        #expect(!gate.isCurrent(older), "a reveal is still current after a later one began")
+        #expect(gate.isCurrent(newer), "the reveal that just began is not current")
+
+        weak var live: Probe?
+        do {
+            let probe = Probe()
+            live = probe
+            gate.deferReveal(generation: newer, by: farOut) { _ = probe }
+        }
+        #expect(live != nil,
+                "the current reveal could not park at all — the eviction assertion below would pass vacuously")
+
+        weak var stale: Probe?
+        do {
+            let probe = Probe()
+            stale = probe
+            gate.deferReveal(generation: older, by: farOut) { _ = probe }
+        }
+        #expect(stale == nil,
+                "a superseded reveal parked its chain — an older reveal's queued retry is unstoppable, so this is how one reinstates itself over the reveal that replaced it")
+        #expect(live != nil,
+                "a superseded reveal's park evicted the live chain — the newer reveal's wait is gone and what replaced it was refused, so nothing is left waiting at all")
+    }
+
+    /// A teardown cancel is FINAL, not merely current.
+    ///
+    /// `.onDisappear` empties the box, but an attempt queued within `revealRetryDelay` of the
+    /// teardown still runs, and before this it could park a fresh chain on the gate AFTER the
+    /// cancel. That self-limited — a torn-down watchdog resolves no scroller, so the gate reads
+    /// not-held and the attempt scrolls a dead proxy — but the bound came from the fail-open path
+    /// rather than from the cancel, and the post-scroll re-ask now lives a cadence longer than the
+    /// runloop turn it used to.
+    @Test func testATeardownCancelSupersedesTheRevealThatQueuedIt() {
+        final class Probe {}
+        let gate = PaneColumnHoldGate()
+        let generation = gate.beginReveal()
+        #expect(gate.isCurrent(generation),
+                "the reveal that just began is not current — the assertion below would pass vacuously")
+
+        gate.cancelPendingReveal()
+        #expect(!gate.isCurrent(generation),
+                "a teardown cancel left the in-flight reveal current — its queued attempts still speak for a pane that is gone")
+
+        weak var late: Probe?
+        do {
+            let probe = Probe()
+            late = probe
+            gate.deferReveal(generation: generation, by: 600) { _ = probe }
+        }
+        #expect(late == nil,
+                "an attempt queued before teardown parked a fresh chain after the cancel — the cancel bounded nothing, which is the property the cancellable was moved onto the gate for")
     }
 
     @Test func testHorizontalScrollingIsUntouchedOutsideAVerticalGesture() async throws {

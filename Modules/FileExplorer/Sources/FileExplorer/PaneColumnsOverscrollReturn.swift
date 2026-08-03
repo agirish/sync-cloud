@@ -235,6 +235,27 @@ final class PaneColumnHoldGate {
     /// single `View` value — here.
     private var pendingReveal: RevealBody?
 
+    /// Which reveal this pane is currently running. Bumped by `beginReveal` and by
+    /// `cancelPendingReveal`, so anything still holding an older number has been superseded.
+    ///
+    /// The parked chain is only half of what a reveal leaves behind. The other half is the two
+    /// plain `DispatchQueue.main` attempts every reveal issues — a `.async` and a
+    /// `.asyncAfter(+revealRetryDelay)` — and those are neither cancellable nor tied to view
+    /// lifetime, which is the same property that forced the cancellable onto this gate in the first
+    /// place. Emptying the box therefore did not make a cancel FINAL: an attempt already queued
+    /// when the pane was torn down still ran, and could park a fresh chain after `.onDisappear` had
+    /// cancelled. Nor did the entry cancel make a fresh reveal authoritative: a previous reveal's
+    /// 0.25s retry, queued and unstoppable, fired afterwards and replaced the new reveal's chain
+    /// with its own — at a reset budget, and aiming at the `treeRoot` it had been scheduled with
+    /// (a stored `let` snapshotted into the closure; only `browsePath` is read live). So the case
+    /// the parking was meant to close — a re-root's reveal dropping the chain still aiming at the
+    /// old root — was closed only for chains parked BEFORE the re-root.
+    ///
+    /// A counter closes both, because both are the same mistake: work from a reveal that no longer
+    /// speaks for this pane. Held here rather than passed around because a queued block is exactly
+    /// what cannot be told; it has to ask.
+    private var generation = 0
+
     /// The parked chain's body, in a box the gate can EMPTY.
     ///
     /// Cancelling a `DispatchWorkItem` is not enough and measuring it is what showed that:
@@ -249,10 +270,38 @@ final class PaneColumnHoldGate {
         var run: (@MainActor () -> Void)?
     }
 
+    /// Opens a new reveal: drops whatever is parked, supersedes every attempt still queued by an
+    /// earlier reveal, and returns the number the new reveal's attempts must carry.
+    ///
+    /// Called at the top of `revealDeepestColumn`, where `cancelPendingReveal` used to be.
+    @discardableResult
+    func beginReveal() -> Int {
+        dropPending()
+        generation += 1
+        return generation
+    }
+
+    /// Whether `generation` is still the reveal this pane is running. False once a later reveal has
+    /// begun or a teardown has cancelled.
+    func isCurrent(_ generation: Int) -> Bool { generation == self.generation }
+
+    /// Whether a chain is parked right now. The seam a test needs to act at the moment a reveal has
+    /// begun waiting — the alternative is racing the reveal's own 0.25s retry off the wall clock.
+    var hasPendingReveal: Bool { pendingReveal?.run != nil }
+
     /// Parks `body` as THIS pane's pending reveal, `delay` from now, dropping whatever was parked
-    /// before.
-    func deferReveal(by delay: TimeInterval, _ body: @escaping @MainActor () -> Void) {
-        cancelPendingReveal()
+    /// before — unless `generation` has been superseded, in which case nothing is parked and
+    /// nothing already parked is disturbed.
+    ///
+    /// The refusal is what makes a cancel final and a fresh reveal authoritative. A superseded
+    /// attempt that parked would reinstate a chain the teardown had just dropped, or evict the
+    /// live reveal's chain in favour of an older reveal's; either way the gate would be holding
+    /// work for a reveal that no longer speaks for this pane. Refusing here rather than only at the
+    /// call site keeps that a property of the gate, so a future caller cannot forget it.
+    func deferReveal(generation: Int, by delay: TimeInterval,
+                     _ body: @escaping @MainActor () -> Void) {
+        guard isCurrent(generation) else { return }
+        dropPending()
         let parked = RevealBody()
         parked.run = body
         pendingReveal = parked
@@ -267,13 +316,28 @@ final class PaneColumnHoldGate {
         }
     }
 
-    /// Drops the pending reveal: on pane teardown, and when a fresh reveal supersedes it.
+    /// Drops the pending reveal and supersedes the reveal that parked it — pane teardown.
     ///
     /// Superseding matters beyond the retention: a parked chain re-resolves `browsePath` live but
     /// carries the `treeRoot` it was scheduled with, so a re-root while it waits leaves it aiming
     /// at an id no rendered column carries. Dropping it in favour of the re-root's own reveal is
     /// what keeps the waiting chain speaking for the stack that exists.
+    ///
+    /// The generation bump is what makes this FINAL rather than merely current. A reveal's two
+    /// attempts are queued blocks that cannot be cancelled, so `.onDisappear` emptying the box left
+    /// an attempt from inside the last `revealRetryDelay` free to run, scroll, and park a fresh
+    /// chain after the pane was gone. That self-limited — a torn-down watchdog reports no scroller,
+    /// so the gate reads not-held and the scroll goes to a dead proxy — but the bound came from the
+    /// fail-open path rather than from the cancel, and the re-ask above now lives a cadence longer
+    /// than it used to. After this, the cancel itself is the bound.
     func cancelPendingReveal() {
+        dropPending()
+        generation += 1
+    }
+
+    /// Releases the parked chain's captures without touching the generation — the half of a cancel
+    /// that `beginReveal` and `deferReveal` also need.
+    private func dropPending() {
         pendingReveal?.run = nil
         pendingReveal = nil
     }
