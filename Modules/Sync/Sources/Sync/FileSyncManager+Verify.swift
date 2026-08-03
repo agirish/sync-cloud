@@ -121,12 +121,26 @@ extension FileSyncManager {
         }
 
         let (verifiedIdentical, differed, skipped) = await collector.get()
-        // Only publish the copy offer if no rescan superseded these differences while we hashed
-        // AND no file operation started since the hash began (see `startOperationsEpoch` above —
-        // an operation that ran start-to-finish mid-hash may have rewritten the very bytes these
-        // verdicts describe, before its rescan could move the generation).
-        if !verifiedIdentical.isEmpty, scanRequestGeneration == startGeneration,
-           fileOperationsEpoch == startOperationsEpoch {
+        if verifiedIdentical.isEmpty {
+            // Nothing verified identical, so retract any offer a previous pass left standing.
+            // Falling through instead — which is what the publish condition alone did — leaves
+            // the old list AND its old stamp in place, and nothing downstream would catch it:
+            // verify writes nothing, so the epoch has not moved and the count is zero, and
+            // `confirmVerifiedCopy`'s guards both pass. The user would confirm a bulk copy over
+            // a list this very pass declined to stand behind.
+            //
+            // Deliberately unconditional on the two supersedence checks below, and on
+            // cancellation. Whatever the reason this pass has nothing to offer, the standing
+            // offer is no better supported than it was — and the cost of dropping it is one
+            // re-verify, against a bulk disk write for keeping it.
+            verifiedIdenticalForCopy = nil
+        } else if scanRequestGeneration == startGeneration,
+                  fileOperationsEpoch == startOperationsEpoch {
+            // Publish only if no rescan superseded these differences while we hashed AND no file
+            // operation started since the hash began (see `startOperationsEpoch` above — an
+            // operation that ran start-to-finish mid-hash may have rewritten the very bytes
+            // these verdicts describe, before its rescan could move the generation).
+            //
             // Stamped with the epoch the verdicts were actually hashed under, not with whatever
             // the live epoch happens to read at this instant. The guard above has just
             // established the two are the same, so this is the honest one of the pair.
